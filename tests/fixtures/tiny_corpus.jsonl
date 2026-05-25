@@ -1,0 +1,10 @@
+{"id": "doc1", "text": "Python is a programming language."}
+{"id": "doc2", "text": "Machine learning uses statistical methods."}
+{"id": "doc3", "text": "Retrieval-augmented generation improves LLM accuracy."}
+{"id": "doc4", "text": "Vector databases store embeddings efficiently."}
+{"id": "doc5", "text": "BEIR is a benchmark for information retrieval."}
+{"id": "doc6", "text": "Dense retrieval uses neural embeddings."}
+{"id": "doc7", "text": "Sparse retrieval uses BM25 or TF-IDF."}
+{"id": "doc8", "text": "Hybrid retrieval combines dense and sparse methods."}
+{"id": "doc9", "text": "Reranking improves precision at the top of the result list."}
+{"id": "doc10", "text": "Recall measures how many relevant documents are retrieved."}

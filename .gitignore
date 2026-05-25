@@ -1,4 +1,30 @@
+# Python
 .venv/
-.env
-TODO
 __pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Local app data (benchmark results, caches, exports)
+.retobs/
+
+# Node (dashboard UI)
+node_modules/
+
+# Environment & secrets
+.env
+
+# OS / editor
+.DS_Store
+TODO
+.claude/
+
+# Docs (project-specific; keep GOALS.md)
+*.md
+!GOALS.md

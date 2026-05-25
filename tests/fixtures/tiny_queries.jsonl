@@ -1,0 +1,5 @@
+{"query_id": "q1", "text": "What is Python?", "relevant_doc_ids": ["doc1", "doc2"]}
+{"query_id": "q2", "text": "How does RAG work?", "relevant_doc_ids": ["doc3", "doc6"]}
+{"query_id": "q3", "text": "What is hybrid retrieval?", "relevant_doc_ids": ["doc8", "doc7"]}
+{"query_id": "q4", "text": "How to evaluate retrieval systems?", "relevant_doc_ids": ["doc5", "doc10"]}
+{"query_id": "q5", "text": "What are vector databases?", "relevant_doc_ids": ["doc4"]}

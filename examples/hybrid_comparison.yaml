@@ -1,0 +1,41 @@
+experiment:
+  name: "hybrid-rag-comparison-v1"
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+  max_queries: 50
+
+pipelines:
+  - id: dense_only
+    stages:
+      - type: adapter.http
+        url: "http://localhost:8000/retrieve"
+        config:
+          k: 100
+          mode: dense
+
+  - id: hybrid_rrf
+    stages:
+      - type: adapter.http
+        url: "http://localhost:8000/retrieve"
+        config:
+          k: 100
+          mode: hybrid_rrf
+
+metrics:
+  recall_at_k: [1, 5, 10, 20]
+  mrr: true
+  ndcg_at_k: [10]
+  latency_percentiles: [50, 95, 99]
+
+execution:
+  concurrency: 8
+  timeout_ms: 5000
+  retry_attempts: 2
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/results.db
+  export: ["json"]

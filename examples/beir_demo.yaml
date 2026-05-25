@@ -1,0 +1,31 @@
+experiment:
+  name: "beir-nfcorpus-bm25-baseline"
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+
+pipelines:
+  - id: bm25_baseline
+    stages:
+      - type: adapter.bm25
+        config:
+          k: 100
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  mrr: true
+  ndcg_at_k: [10]
+  map: true
+  latency_percentiles: [50, 95, 99]
+
+execution:
+  concurrency: 4
+  timeout_ms: 30000
+  retry_attempts: 0
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/beir_demo.db
+  export: ["json"]
