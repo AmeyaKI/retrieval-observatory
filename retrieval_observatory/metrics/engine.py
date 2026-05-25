@@ -96,13 +96,11 @@ class MetricsEngine:
                             snap.stage_index, "temporal_recall", k, score,
                         )
 
-                # Latency — stored as a metric row per percentile
-                lats = [snap.latency_ms]
-                for p in self.latency_percentiles:
-                    await store.save_metric(
-                        run_id, result.pipeline_id, result.query_id,
-                        snap.stage_index, f"latency_p{p}", 0, snap.latency_ms,
-                    )
+                # Latency — store raw ms once; percentiles computed at aggregate time
+                await store.save_metric(
+                    run_id, result.pipeline_id, result.query_id,
+                    snap.stage_index, "latency_ms", 0, snap.latency_ms,
+                )
 
     async def aggregate(
         self,
@@ -122,6 +120,25 @@ class MetricsEngine:
         aggregated: Dict[str, Any] = {}
         for (pipeline_id, stage_index, metric_name, k), scores in groups.items():
             arr = np.array(scores)
+
+            if metric_name == "latency_ms":
+                # Expand into per-percentile entries; no bootstrap CI (not meaningful here)
+                for p in self.latency_percentiles:
+                    pct_value = float(np.percentile(arr, p))
+                    pct_key = f"{pipeline_id}|stage{stage_index}|latency_p{p}@0"
+                    aggregated[pct_key] = {
+                        "pipeline_id": pipeline_id,
+                        "stage_index": stage_index,
+                        "metric_name": f"latency_p{p}",
+                        "k": 0,
+                        "mean": pct_value,
+                        "std": 0.0,
+                        "ci_low": pct_value,
+                        "ci_high": pct_value,
+                        "n": len(scores),
+                    }
+                continue
+
             ci_low, ci_high = bootstrap_ci(scores, n_resamples=n_bootstrap)
             key = f"{pipeline_id}|stage{stage_index}|{metric_name}@{k}"
             aggregated[key] = {

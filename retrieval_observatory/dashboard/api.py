@@ -96,8 +96,14 @@ def create_app(db_path: str = ".retobs/results.db"):
         if os.path.exists(assets_dir):
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
+        _index = os.path.join(_UI_DIST, "index.html")
+
+        @app.get("/", include_in_schema=False)
+        async def spa_root():
+            return FileResponse(_index)
+
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str):
-            return FileResponse(os.path.join(_UI_DIST, "index.html"))
+            return FileResponse(_index)
 
     return app

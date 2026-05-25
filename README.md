@@ -14,7 +14,7 @@ python -m venv .venv
 # 2. Run BM25 baseline on nfcorpus (~3,600 docs, 323 queries)
 .venv/bin/retobs run --config examples/beir_demo.yaml
 
-# 3. Start the dashboard and open http://localhost:8000
+# 3. Start the dashboard — copy the printed URL (http://localhost:8000) into your browser
 .venv/bin/retobs serve --db .retobs/beir_demo.db
 ```
 

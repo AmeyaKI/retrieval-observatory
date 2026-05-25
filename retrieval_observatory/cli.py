@@ -232,6 +232,8 @@ def serve(
     try:
         from retrieval_observatory.dashboard.api import create_app
         dashboard_app = create_app(db_path=db_path)
+        display_host = "localhost" if host in ("0.0.0.0", "::") else host
+        console.print(f"[bold green]Dashboard:[/bold green] http://{display_host}:{port}")
         uvicorn.run(dashboard_app, host=host, port=port)
     except ImportError:
         console.print("[red]Dashboard not available. Install fastapi: pip install fastapi uvicorn[/red]")

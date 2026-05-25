@@ -11,7 +11,7 @@ def recall_at_k(retrieved_ids: List[str], relevant_ids: Set[str], k: int) -> flo
     if not relevant_ids:
         return 0.0
     hits = len(set(retrieved_ids[:k]) & relevant_ids)
-    return hits / min(k, len(relevant_ids))
+    return hits / len(relevant_ids)
 
 
 def temporal_recall_at_k(
