@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
-import { fetchMetrics, MetricsMap } from '../api'
+import { fetchMetrics, fetchBaselines, MetricsMap, Run } from '../api'
 import MetricsTable from './MetricsTable'
 import RecallCurve from './RecallCurve'
 import RecallFunnel from './RecallFunnel'
 import LatencyChart from './LatencyChart'
+import SegmentBreakdown from './SegmentBreakdown'
 
 interface Props {
-  runId: string
+  run: Run
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -18,17 +19,37 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-export default function RunDetail({ runId }: Props) {
+function extractDatasetName(run: Run): string {
+  try {
+    const cfg = JSON.parse(run.config_json)
+    return cfg?.dataset?.name ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export default function RunDetail({ run }: Props) {
   const [metrics, setMetrics] = useState<MetricsMap | null>(null)
+  const [baselines, setBaselines] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
+
+  const datasetName = extractDatasetName(run)
 
   useEffect(() => {
     setMetrics(null)
     setError(null)
-    fetchMetrics(runId)
+    fetchMetrics(run.run_id)
       .then(setMetrics)
       .catch((e) => setError(e.message))
-  }, [runId])
+  }, [run.run_id])
+
+  useEffect(() => {
+    if (datasetName) {
+      fetchBaselines(datasetName)
+        .then(setBaselines)
+        .catch(() => setBaselines({}))
+    }
+  }, [datasetName])
 
   if (error) {
     return (
@@ -51,17 +72,17 @@ export default function RunDetail({ runId }: Props) {
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Run Detail</h1>
-          <p className="text-sm text-gray-500 font-mono mt-0.5">{runId}</p>
+          <h1 className="text-xl font-bold text-gray-900">{run.experiment_name}</h1>
+          <p className="text-sm text-gray-500 font-mono mt-0.5">{run.run_id}</p>
         </div>
       </div>
 
       <Section title="Metrics Summary">
-        <MetricsTable metrics={metrics} />
+        <MetricsTable metrics={metrics} baselines={baselines} />
       </Section>
 
       <Section title="Recall@K Curves">
-        <RecallCurve metrics={metrics} />
+        <RecallCurve metrics={metrics} baselines={baselines} />
       </Section>
 
       <Section title="Stage Recall Funnel">
@@ -70,6 +91,10 @@ export default function RunDetail({ runId }: Props) {
 
       <Section title="Latency Percentiles">
         <LatencyChart metrics={metrics} />
+      </Section>
+
+      <Section title="NDCG@10 by Number of Relevant Docs">
+        <SegmentBreakdown runId={run.run_id} field="n_relevant" targetMetric="ndcg" />
       </Section>
     </div>
   )

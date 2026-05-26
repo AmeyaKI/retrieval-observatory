@@ -23,11 +23,21 @@ def build_pipeline_from_config(
 ) -> Union[SingleStagePipeline, MultiStagePipeline]:
     """Build a pipeline from a YAML pipeline config dict. Imports adapters lazily.
 
-    corpus: optional {doc_id: text} dict required for adapter.bm25 stages.
+    corpus: optional {doc_id: text} dict required for adapter.bm25 and adapter.hf_biencoder stages.
     """
+    # Adapters that need corpus are called with (stage_cfg, corpus); others with (stage_cfg,) only.
+    _CORPUS_ADAPTERS = {"adapter.bm25", "adapter.hf_biencoder"}
+
     _ADAPTER_MAP = {
         "adapter.http": _build_http_adapter,
         "adapter.bm25": _build_bm25_adapter,
+        "adapter.hf_biencoder": _build_hf_biencoder_adapter,
+        "adapter.hf_crossencoder": _build_hf_crossencoder_adapter,
+        # These adapters wrap pre-constructed Python objects and cannot be fully wired from YAML.
+        # Use them programmatically: MyAdapter(retriever_obj, ...) then build_pipeline() directly.
+        "adapter.pgvector": _build_pgvector_adapter,
+        "adapter.langchain": _build_langchain_adapter,
+        "adapter.llamaindex": _build_llamaindex_adapter,
     }
 
     stages = []
@@ -41,7 +51,7 @@ def build_pipeline_from_config(
                 f"Unknown stage type '{stage_type}'. "
                 f"Supported: {list(_ADAPTER_MAP.keys())}"
             )
-        if stage_type == "adapter.bm25":
+        if stage_type in _CORPUS_ADAPTERS:
             stage, k = builder(stage_cfg, corpus)
         else:
             stage, k = builder(stage_cfg)
@@ -86,3 +96,60 @@ def _build_http_adapter(stage_cfg: dict):
         timeout=cfg.get("timeout", 10.0),
     )
     return adapter, k
+
+
+def _build_hf_biencoder_adapter(stage_cfg: dict, corpus: dict | None = None):
+    from retrieval_observatory.adapters.hf_biencoder_adapter import HFBiEncoderAdapter
+
+    if corpus is None:
+        raise ValueError(
+            "adapter.hf_biencoder requires a corpus dict. "
+            "The CLI passes this automatically when using a BEIR or custom dataset."
+        )
+    cfg = stage_cfg.get("config", {})
+    k = cfg.get("k", 100)
+    model_name = cfg.get("model", "sentence-transformers/all-MiniLM-L6-v2")
+    adapter = HFBiEncoderAdapter(
+        corpus=corpus,
+        model_name=model_name,
+        retriever_id=stage_cfg.get("retriever_id", model_name),
+        batch_size=cfg.get("batch_size", 64),
+    )
+    return adapter, k
+
+
+def _build_hf_crossencoder_adapter(stage_cfg: dict):
+    from retrieval_observatory.adapters.hf_adapter import HFCrossEncoderAdapter
+
+    cfg = stage_cfg.get("config", {})
+    k = cfg.get("k", 10)
+    model_name = cfg.get("model")
+    if not model_name:
+        raise ValueError("adapter.hf_crossencoder requires config.model (e.g. 'cross-encoder/ms-marco-MiniLM-L-6-v2')")
+    adapter = HFCrossEncoderAdapter(
+        model_name=model_name,
+        retriever_id=stage_cfg.get("retriever_id", model_name),
+        batch_size=cfg.get("batch_size", 32),
+    )
+    return adapter, k
+
+
+def _build_pgvector_adapter(stage_cfg: dict):
+    raise ValueError(
+        "adapter.pgvector requires a Python embedding function and cannot be fully configured "
+        "from YAML alone. Use PgvectorAdapter(...) programmatically and call build_pipeline() directly."
+    )
+
+
+def _build_langchain_adapter(stage_cfg: dict):
+    raise ValueError(
+        "adapter.langchain wraps a pre-constructed LangChain BaseRetriever object. "
+        "Use LangChainAdapter(retriever, retriever_id) programmatically and call build_pipeline() directly."
+    )
+
+
+def _build_llamaindex_adapter(stage_cfg: dict):
+    raise ValueError(
+        "adapter.llamaindex wraps a pre-constructed LlamaIndex BaseRetriever object. "
+        "Use LlamaIndexAdapter(retriever, retriever_id) programmatically and call build_pipeline() directly."
+    )

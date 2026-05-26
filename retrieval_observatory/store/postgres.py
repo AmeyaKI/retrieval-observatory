@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS metric_scores (
     stage_index INT,
     metric_name TEXT,
     k INT,
-    value REAL
+    value REAL,
+    query_metadata_json TEXT DEFAULT NULL
 )
 """
 
@@ -143,14 +144,16 @@ class PostgresStore:
         metric_name: str,
         k: int,
         value: float,
+        query_metadata: Optional[Dict] = None,
     ) -> None:
+        metadata_json = json.dumps(query_metadata) if query_metadata else None
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
                 """INSERT INTO metric_scores
-                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-                run_id, pipeline_id, query_id, stage_index, metric_name, k, value,
+                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, query_metadata_json)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                run_id, pipeline_id, query_id, stage_index, metric_name, k, value, metadata_json,
             )
 
     async def get_results(self, run_id: str) -> List[PipelineResult]:

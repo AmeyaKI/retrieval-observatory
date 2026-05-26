@@ -19,12 +19,13 @@ console = Console()
 def run(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
     skip_smoke_test: bool = typer.Option(False, "--skip-smoke-test", help="Skip ID consistency smoke test."),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Bypass result cache; re-run all queries."),
 ) -> None:
     """Run a benchmark experiment and store results."""
-    asyncio.run(_run(config, skip_smoke_test))
+    asyncio.run(_run(config, skip_smoke_test, no_cache))
 
 
-async def _run(config_path: Path, skip_smoke_test: bool) -> None:
+async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False) -> None:
     from retrieval_observatory.config.schema import ExperimentConfig
     from retrieval_observatory.config.validator import validate_id_consistency
     from retrieval_observatory.datasets.beir import BEIRDataset
@@ -96,12 +97,13 @@ async def _run(config_path: Path, skip_smoke_test: bool) -> None:
 
     # Build caches
     caches = {}
-    if cfg.execution.cache_results:
+    if cfg.execution.cache_results and not no_cache:
         for pipeline_cfg in cfg.pipelines:
             import yaml
             caches[pipeline_cfg.id] = ResultCache(
                 store=store,
-                pipeline_config_yaml=yaml.dump(pipeline_cfg.model_dump()),
+                # sort_keys=True ensures the same config always produces the same YAML string
+                pipeline_config_yaml=yaml.dump(pipeline_cfg.model_dump(), sort_keys=True),
             )
 
     # Run benchmark

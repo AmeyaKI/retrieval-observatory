@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Tuple
 
 from retrieval_observatory.types import Query
 
@@ -33,8 +33,8 @@ class BEIRDataset:
             raise RuntimeError("Call load() before accessing corpus")
         return self._corpus
 
-    def load(self) -> Tuple[list, Dict[str, Set[str]]]:
-        """Returns (queries, qrels) where qrels = {query_id: {doc_id, ...}}."""
+    def load(self) -> Tuple[list, Dict[str, Dict[str, int]]]:
+        """Returns (queries, qrels) where qrels = {query_id: {doc_id: grade}}. Grades are 0/1/2."""
         try:
             from beir import util
             from beir.datasets.data_loader import GenericDataLoader
@@ -64,19 +64,27 @@ class BEIRDataset:
         if self.max_queries is not None:
             query_ids = query_ids[: self.max_queries]
 
+        # Preserve grades: {query_id: {doc_id: grade}}. Grades are 0/1/2 in most BEIR datasets.
+        # Docs with grade=0 are explicitly non-relevant; we keep them so callers can filter
+        # by threshold (grade > 0 = relevant for binary metrics like Recall/MAP/MRR).
+        qrels: Dict[str, Dict[str, int]] = {
+            qid: {doc_id: int(grade) for doc_id, grade in qrels_raw[qid].items()}
+            for qid in query_ids
+            if qid in qrels_raw
+        }
+
+        # Attach query metadata for per-segment analysis.
+        # n_relevant counts docs with grade > 0 — useful for difficulty bucketing.
         queries = [
             Query(
                 text=queries_raw[qid],
                 k=100,
                 query_id=qid,
+                metadata={
+                    "n_relevant": sum(1 for g in qrels.get(qid, {}).values() if g > 0),
+                },
             )
             for qid in query_ids
         ]
-
-        qrels: Dict[str, Set[str]] = {
-            qid: set(qrels_raw[qid].keys())
-            for qid in query_ids
-            if qid in qrels_raw
-        }
 
         return queries, qrels

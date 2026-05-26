@@ -1,0 +1,39 @@
+experiment:
+  name: "nfcorpus-bm25-vs-minilm"
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+
+pipelines:
+  - id: bm25_baseline
+    stages:
+      - type: adapter.bm25
+        config:
+          k: 100
+
+  - id: dense_minilm
+    stages:
+      - type: adapter.hf_biencoder
+        config:
+          model: "sentence-transformers/all-MiniLM-L6-v2"
+          k: 100
+          batch_size: 64
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  mrr: true
+  ndcg_at_k: [10]
+  map: true
+  latency_percentiles: [50, 95, 99]
+
+execution:
+  concurrency: 4
+  timeout_ms: 60000
+  retry_attempts: 0
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/nfcorpus_comparison.db
+  export: ["json"]

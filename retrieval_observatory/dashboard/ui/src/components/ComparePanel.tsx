@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchComparison, ComparisonEntry } from '../api'
+import { formatMetricKey } from '../utils/formatMetricKey'
 
 interface Props {
   runIds: string[]
@@ -61,7 +62,7 @@ export default function ComparePanel({ runIds }: Props) {
               const significant = pv !== undefined && pv < 0.05
               return (
                 <tr key={row.metric} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 font-mono text-xs text-gray-800">{row.metric}</td>
+                  <td className="px-3 py-2 text-xs text-gray-800">{formatMetricKey(row.metric)}</td>
                   {runIds.map((id) => {
                     const v = row[id] as { mean: number | null; std: number | null } | undefined
                     return (

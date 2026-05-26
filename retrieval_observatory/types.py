@@ -14,6 +14,7 @@ class Query:
     query_id: str = ""
     temporal_anchor: Optional[datetime] = None
     filters: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

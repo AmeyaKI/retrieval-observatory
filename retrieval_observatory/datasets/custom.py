@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Tuple
 
 from retrieval_observatory.types import Query
 
@@ -33,9 +33,14 @@ class CustomDataset:
                     self._corpus[obj["id"]] = obj.get("text", "")
         return self._corpus or {}
 
-    def load(self) -> Tuple[List[Query], Dict[str, Set[str]]]:
+    def load(self) -> Tuple[List[Query], Dict[str, Dict[str, int]]]:
+        """Returns (queries, qrels) where qrels = {query_id: {doc_id: grade}}.
+
+        Binary relevance lists are converted to grade=1 for all docs.
+        Graded dicts ({"doc_id": grade}) are passed through as-is.
+        """
         queries: List[Query] = []
-        qrels: Dict[str, Set[str]] = {}
+        qrels: Dict[str, Dict[str, int]] = {}
 
         with open(self.queries_path) as f:
             for line in f:
@@ -61,9 +66,8 @@ class CustomDataset:
 
                 rel = obj.get("relevant_doc_ids", [])
                 if isinstance(rel, dict):
-                    # Graded relevance: keep docs with grade > 0
-                    qrels[query_id] = {doc_id for doc_id, grade in rel.items() if grade > 0}
+                    qrels[query_id] = {doc_id: int(grade) for doc_id, grade in rel.items()}
                 else:
-                    qrels[query_id] = set(rel)
+                    qrels[query_id] = {doc_id: 1 for doc_id in rel}
 
         return queries, qrels

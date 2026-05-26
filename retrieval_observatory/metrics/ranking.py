@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import List, Set
+from typing import Dict, List, Set
 
 
 def mrr(retrieved_ids_list: List[List[str]], relevant_ids_list: List[Set[str]]) -> float:
@@ -64,3 +64,27 @@ def map_score(retrieved_ids_list: List[List[str]], relevant_ids_list: List[Set[s
         for r, rel in zip(retrieved_ids_list, relevant_ids_list)
     ]
     return sum(ap_scores) / len(ap_scores)
+
+
+def ndcg_at_k_graded(retrieved_ids: List[str], graded_qrels: Dict[str, int], k: int) -> float:
+    """NDCG@K with graded relevance. Gain is proportional to grade (grade / max_grade)."""
+    if not graded_qrels:
+        return 0.0
+    max_grade = max(graded_qrels.values())
+    if max_grade == 0:
+        return 0.0
+
+    def gain(doc_id: str) -> float:
+        return graded_qrels.get(doc_id, 0) / max_grade
+
+    actual_dcg = sum(
+        gain(doc_id) / math.log2(rank + 1)
+        for rank, doc_id in enumerate(retrieved_ids[:k], start=1)
+    )
+    ideal_grades = sorted(graded_qrels.values(), reverse=True)[:k]
+    ideal_dcg = sum(
+        (g / max_grade) / math.log2(rank + 1)
+        for rank, g in enumerate(ideal_grades, start=1)
+        if g > 0
+    )
+    return actual_dcg / ideal_dcg if ideal_dcg > 0 else 0.0

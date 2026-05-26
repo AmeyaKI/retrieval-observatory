@@ -42,9 +42,15 @@ CREATE TABLE IF NOT EXISTS metric_scores (
     stage_index INTEGER NOT NULL,
     metric_name TEXT NOT NULL,
     k INTEGER NOT NULL,
-    value REAL NOT NULL
+    value REAL NOT NULL,
+    query_metadata_json TEXT DEFAULT NULL
 )
 """
+
+# Migration: add query_metadata_json to existing databases that predate this column.
+_MIGRATE_METRIC_SCORES_METADATA = (
+    "ALTER TABLE metric_scores ADD COLUMN query_metadata_json TEXT DEFAULT NULL"
+)
 
 _CREATE_CACHE = """
 CREATE TABLE IF NOT EXISTS result_cache (
@@ -66,6 +72,11 @@ class SQLiteStore:
             await db.execute(_CREATE_RAW_RESULTS)
             await db.execute(_CREATE_METRIC_SCORES)
             await db.execute(_CREATE_CACHE)
+            # Best-effort migration for existing DBs (errors if column already exists)
+            try:
+                await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
+            except Exception:
+                pass
             await db.commit()
 
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
@@ -117,13 +128,15 @@ class SQLiteStore:
         metric_name: str,
         k: int,
         value: float,
+        query_metadata: Optional[Dict] = None,
     ) -> None:
+        metadata_json = json.dumps(query_metadata) if query_metadata else None
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """INSERT INTO metric_scores
-                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (run_id, pipeline_id, query_id, stage_index, metric_name, k, value),
+                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, query_metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, metadata_json),
             )
             await db.commit()
 
@@ -185,7 +198,15 @@ class SQLiteStore:
                 "SELECT * FROM metric_scores WHERE run_id = ?", (run_id,)
             ) as cursor:
                 rows = await cursor.fetchall()
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("query_metadata_json"):
+                d["query_metadata"] = json.loads(d["query_metadata_json"])
+            else:
+                d["query_metadata"] = {}
+            result.append(d)
+        return result
 
     async def cache_get(self, cache_key: str) -> Optional[str]:
         async with aiosqlite.connect(self.db_path) as db:

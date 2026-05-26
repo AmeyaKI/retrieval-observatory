@@ -18,6 +18,8 @@ export interface MetricEntry {
   ci_low: number
   ci_high: number
   n: number
+  zero_count: number
+  zero_pct: number
 }
 
 export type MetricsMap = Record<string, MetricEntry>
@@ -54,5 +56,24 @@ export async function fetchComparison(runIds: string[]): Promise<{ comparison: C
     body: JSON.stringify({ run_ids: runIds }),
   })
   if (!res.ok) throw new Error('Failed to fetch comparison')
+  return res.json()
+}
+
+/** Returns published BEIR BM25 baselines for a dataset, e.g. {"ndcg@10": 0.326}. */
+export async function fetchBaselines(datasetName: string): Promise<Record<string, number>> {
+  const res = await fetch(`${BASE}/datasets/${encodeURIComponent(datasetName)}/baselines`)
+  if (!res.ok) return {}
+  return res.json()
+}
+
+export interface SegmentMetrics {
+  field: string
+  segments: Record<string, Record<string, MetricEntry>>
+}
+
+/** Returns per-segment aggregated metrics grouped by a query metadata field. */
+export async function fetchSegmentMetrics(runId: string, field: string = 'n_relevant'): Promise<SegmentMetrics> {
+  const res = await fetch(`${BASE}/runs/${runId}/metrics/by-segment?field=${encodeURIComponent(field)}`)
+  if (!res.ok) throw new Error(`Failed to fetch segment metrics for run ${runId}`)
   return res.json()
 }

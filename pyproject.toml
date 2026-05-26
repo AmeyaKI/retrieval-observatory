@@ -32,6 +32,7 @@ dependencies = [
 beir = ["datasets>=2.0", "beir>=2.0"]
 cohere = ["cohere>=5.0"]
 hf = ["sentence-transformers>=3.0", "torch"]
+dense = ["sentence-transformers>=3.0", "faiss-cpu>=1.7", "torch"]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
 pgvector = ["asyncpg>=0.29", "pgvector>=0.3"]

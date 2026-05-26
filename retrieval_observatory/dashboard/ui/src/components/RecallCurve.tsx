@@ -1,22 +1,25 @@
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, ErrorBar,
+  Legend, ResponsiveContainer, ErrorBar, ReferenceLine,
 } from 'recharts'
 import { MetricsMap } from '../api'
+import { formatSeriesKey } from '../utils/formatMetricKey'
 
 interface Props {
   metrics: MetricsMap
+  /** Published baselines keyed by "metric@k" e.g. {"recall@10": 0.175} */
+  baselines?: Record<string, number>
 }
 
 const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6']
 
-export default function RecallCurve({ metrics }: Props) {
+export default function RecallCurve({ metrics, baselines = {} }: Props) {
   // Group recall entries by pipeline_id+stage_index → {k: mean}
   const seriesMap: Record<string, Record<number, { mean: number; ci_low: number; ci_high: number }>> = {}
 
   for (const [, entry] of Object.entries(metrics)) {
     if (entry.metric_name !== 'recall' || entry.k === 0) continue
-    const seriesKey = `${entry.pipeline_id} / stage${entry.stage_index}`
+    const seriesKey = formatSeriesKey(entry.pipeline_id, entry.stage_index)
     if (!seriesMap[seriesKey]) seriesMap[seriesKey] = {}
     seriesMap[seriesKey][entry.k] = { mean: entry.mean, ci_low: entry.ci_low, ci_high: entry.ci_high }
   }
@@ -40,28 +43,48 @@ export default function RecallCurve({ metrics }: Props) {
     return row
   })
 
+  // Find the first K value present to anchor a reference line (e.g. recall@10)
+  // Show a reference line for each K that has a published baseline
+  const referenceLines: Array<{ k: number; value: number }> = allK
+    .map((k) => ({ k, value: baselines[`recall@${k}`] }))
+    .filter((r) => r.value !== undefined)
+
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <LineChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <XAxis dataKey="k" label={{ value: 'K', position: 'insideBottomRight', offset: -4 }} tick={{ fontSize: 12 }} />
-        <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[0, 1]} />
-        <Tooltip formatter={(v: number) => v.toFixed(4)} />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
-        {seriesKeys.map((sk, i) => (
-          <Line
-            key={sk}
-            type="monotone"
-            dataKey={sk}
-            stroke={COLORS[i % COLORS.length]}
-            strokeWidth={2}
-            dot={{ r: 4 }}
-            activeDot={{ r: 6 }}
-          >
-            <ErrorBar dataKey={`${sk}_err`} width={4} strokeWidth={1.5} stroke={COLORS[i % COLORS.length]} direction="y" />
-          </Line>
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
+    <div>
+      <ResponsiveContainer width="100%" height={260}>
+        <LineChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <XAxis dataKey="k" label={{ value: 'K', position: 'insideBottomRight', offset: -4 }} tick={{ fontSize: 12 }} />
+          <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[0, 1]} />
+          <Tooltip formatter={(v: number) => v.toFixed(4)} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {seriesKeys.map((sk, i) => (
+            <Line
+              key={sk}
+              type="monotone"
+              dataKey={sk}
+              stroke={COLORS[i % COLORS.length]}
+              strokeWidth={2}
+              dot={{ r: 4 }}
+              activeDot={{ r: 6 }}
+            >
+              <ErrorBar dataKey={`${sk}_err`} width={4} strokeWidth={1.5} stroke={COLORS[i % COLORS.length]} direction="y" />
+            </Line>
+          ))}
+          {referenceLines.map(({ k, value }) => (
+            <ReferenceLine
+              key={`ref-recall-${k}`}
+              y={value}
+              stroke="#9ca3af"
+              strokeDasharray="6 3"
+              label={{ value: `BM25 Ref @${k}: ${value.toFixed(3)}`, position: 'right', fontSize: 10, fill: '#9ca3af' }}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+      {referenceLines.length > 0 && (
+        <p className="text-xs text-gray-400 mt-1">Dashed line: published BM25 (Elasticsearch) baseline from BEIR benchmark.</p>
+      )}
+    </div>
   )
 }

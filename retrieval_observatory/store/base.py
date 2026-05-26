@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Protocol, runtime_checkable
+from typing import Dict, List, Optional, Protocol, runtime_checkable
 
 from retrieval_observatory.types import PipelineResult
 
@@ -28,6 +28,7 @@ class BaseStore(Protocol):
         metric_name: str,
         k: int,
         value: float,
+        query_metadata: Optional[Dict] = None,
     ) -> None:
         ...
 

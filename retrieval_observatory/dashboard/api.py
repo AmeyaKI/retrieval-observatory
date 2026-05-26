@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
+from collections import defaultdict
 from typing import Any, Dict, List
 
+import numpy as np
+
 from retrieval_observatory.metrics.engine import MetricsEngine
-from retrieval_observatory.metrics.significance import paired_bootstrap_test
+from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
@@ -86,6 +90,71 @@ def create_app(db_path: str = ".retobs/results.db"):
             comparison.append(entry)
 
         return {"comparison": comparison, "run_ids": req.run_ids}
+
+    @app.get("/runs/{run_id}/metrics/by-segment")
+    async def get_run_metrics_by_segment(run_id: str, field: str = "n_relevant") -> Dict[str, Any]:
+        """Return per-segment aggregated metrics for a run.
+
+        Groups metric_scores rows by a query metadata field (e.g. 'n_relevant').
+        Returns {segment_value: {metric_key: {mean, std, ci_low, ci_high, n}}}.
+        """
+        raw_metrics = await store.get_metrics(run_id)
+        if not raw_metrics:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
+
+        # Group by (segment_value, pipeline_id, stage_index, metric_name, k)
+        groups: Dict[tuple, list] = defaultdict(list)
+        for row in raw_metrics:
+            meta = row.get("query_metadata") or {}
+            seg_val = meta.get(field)
+            if seg_val is None:
+                continue
+            key = (str(seg_val), row["pipeline_id"], row["stage_index"], row["metric_name"], row["k"])
+            groups[key].append(row["value"])
+
+        result: Dict[str, Any] = {}
+        for (seg_val, pipeline_id, stage_index, metric_name, k), scores in groups.items():
+            arr = np.array(scores)
+            ci_low, ci_high = bootstrap_ci(scores)
+            metric_key = f"{pipeline_id}|stage{stage_index}|{metric_name}@{k}"
+            result.setdefault(seg_val, {})[metric_key] = {
+                "pipeline_id": pipeline_id,
+                "stage_index": stage_index,
+                "metric_name": metric_name,
+                "k": k,
+                "mean": float(arr.mean()),
+                "std": float(arr.std()),
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "n": len(scores),
+            }
+
+        return {"field": field, "segments": result}
+
+    # Published BEIR baselines (graded NDCG, BM25 Elasticsearch unless noted).
+    # Source: Thakur et al. 2021 (https://arxiv.org/abs/2104.08663), Table 2.
+    _BEIR_BASELINES: Dict[str, Dict[str, float]] = {
+        "nfcorpus":        {"ndcg@10": 0.326, "recall@10": 0.175, "recall@100": 0.290},
+        "trec-covid":      {"ndcg@10": 0.656, "recall@10": 0.493},
+        "nq":              {"ndcg@10": 0.329, "recall@10": 0.527},
+        "hotpotqa":        {"ndcg@10": 0.603, "recall@10": 0.756},
+        "fiqa":            {"ndcg@10": 0.236, "recall@10": 0.323},
+        "arguana":         {"ndcg@10": 0.472, "recall@10": 0.903},
+        "quora":           {"ndcg@10": 0.789, "recall@10": 0.921},
+        "dbpedia-entity":  {"ndcg@10": 0.313, "recall@10": 0.380},
+        "scidocs":         {"ndcg@10": 0.158, "recall@10": 0.254},
+        "fever":           {"ndcg@10": 0.753, "recall@10": 0.930},
+        "climate-fever":   {"ndcg@10": 0.213, "recall@10": 0.394},
+        "scifact":         {"ndcg@10": 0.665, "recall@10": 0.920},
+        "trec-news":       {"ndcg@10": 0.397, "recall@10": 0.421},
+    }
+
+    @app.get("/datasets/{dataset_name}/baselines")
+    async def get_baselines(dataset_name: str) -> Dict[str, float]:
+        """Return published BM25 (Elasticsearch) BEIR baselines for a dataset."""
+        # Strip "beir/" prefix if present
+        name = dataset_name.removeprefix("beir/")
+        return _BEIR_BASELINES.get(name, {})
 
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):

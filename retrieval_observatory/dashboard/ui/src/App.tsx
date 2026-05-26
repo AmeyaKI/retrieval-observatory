@@ -47,7 +47,9 @@ export default function App() {
             </div>
           </div>
         )}
-        {selectedIds.length === 1 && <RunDetail runId={selectedIds[0]} />}
+        {selectedIds.length === 1 && (
+          <RunDetail run={runs.find((r) => r.run_id === selectedIds[0])!} />
+        )}
         {selectedIds.length >= 2 && <ComparePanel runIds={selectedIds} />}
       </main>
     </div>
