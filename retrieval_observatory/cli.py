@@ -54,6 +54,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False)
         dataset = CustomDataset(
             queries_path=cfg.dataset.queries_path,
             corpus_path=cfg.dataset.corpus_path,
+            temporal_field=cfg.dataset.temporal_field,
         )
     else:
         console.print(f"[red]Unknown dataset: {cfg.dataset.name}[/red]")

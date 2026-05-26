@@ -8,6 +8,8 @@ from retrieval_observatory.types import Document
 
 
 def recall_at_k(retrieved_ids: List[str], relevant_ids: Set[str], k: int) -> float:
+    if k <= 0:
+        raise ValueError("k must be > 0")
     if not relevant_ids:
         return 0.0
     hits = len(set(retrieved_ids[:k]) & relevant_ids)
@@ -29,6 +31,8 @@ def temporal_recall_at_k(
 
     Documents without a timestamp receive weight 1.0 (neutral).
     """
+    if k <= 0:
+        raise ValueError("k must be > 0")
     if not relevant_ids:
         return 0.0
 
@@ -56,12 +60,10 @@ def temporal_recall_at_k(
         if doc_id in retrieved_map
     )
 
-    # Denominator: weights for all relevant docs
-    # We only have timestamps for retrieved docs; for relevant docs not in
-    # retrieved we fall back to weight=1.0 (conservative — no timestamp → neutral)
-    all_retrieved_map = {d.id: d for d in retrieved}
+    # Denominator: weights for all relevant docs. For relevant docs outside top-K
+    # we apply neutral weight=1.0 to avoid denominator coupling to deep-list retrieval.
     denominator = sum(
-        weight(all_retrieved_map[doc_id]) if doc_id in all_retrieved_map else 1.0
+        weight(retrieved_map[doc_id]) if doc_id in retrieved_map else 1.0
         for doc_id in relevant_ids
     )
 

@@ -73,3 +73,6 @@ async def test_runner_captures_timeout(tmp_path):
     results = await runner.run(pipelines=[pipeline], queries=queries, run_id="run1")
 
     assert results["p_slow"][0].status == "TIMEOUT"
+    stored = await store.get_results("run1")
+    assert len(stored) == 1
+    assert stored[0].status == "TIMEOUT"

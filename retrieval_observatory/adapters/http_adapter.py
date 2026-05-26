@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any, Dict, List
 
@@ -19,6 +20,7 @@ class HTTPAdapter:
         text_field: str = "text",
         score_field: str = "score",
         timeout: float = 10.0,
+        retry_attempts: int = 2,
     ):
         self.url = url
         self.retriever_id = retriever_id
@@ -26,6 +28,13 @@ class HTTPAdapter:
         self.text_field = text_field
         self.score_field = score_field
         self.timeout = timeout
+        self.retry_attempts = retry_attempts
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
 
     async def retrieve(self, query: Query) -> RetrievalResult:
         payload: Dict[str, Any] = {"query": query.text, "k": query.k}
@@ -33,10 +42,24 @@ class HTTPAdapter:
             payload["filters"] = query.filters
 
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(self.url, json=payload)
+        client = self._get_client()
+        response = None
+        for attempt in range(self.retry_attempts + 1):
+            try:
+                response = await client.post(self.url, json=payload)
+                if response.status_code in {429, 500, 502, 503, 504} and attempt < self.retry_attempts:
+                    await response.aclose()
+                    await asyncio.sleep(2 ** attempt * 0.25)
+                    continue
+                break
+            except httpx.RequestError:
+                if attempt >= self.retry_attempts:
+                    raise
+                await asyncio.sleep(2 ** attempt * 0.25)
         latency_ms = (time.perf_counter() - start) * 1000
 
+        if response is None:
+            raise RuntimeError("HTTP adapter failed to receive a response")
         response.raise_for_status()
         data = response.json()
 

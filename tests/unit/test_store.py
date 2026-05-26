@@ -35,6 +35,7 @@ async def test_save_and_get_result(store):
     assert retrieved[0].query_id == "q1"
     assert retrieved[0].pipeline_id == "p1"
     assert retrieved[0].snapshots[0].documents[0].id == "d1"
+    assert retrieved[0].snapshots[0].stage_id == "r1"
 
 
 @pytest.mark.asyncio
@@ -46,6 +47,25 @@ async def test_save_and_get_metric(store):
     assert len(metrics) == 1
     assert metrics[0]["metric_name"] == "recall"
     assert metrics[0]["value"] == 0.75
+
+
+@pytest.mark.asyncio
+async def test_save_result_with_empty_snapshots_persists_envelope(store):
+    result = PipelineResult(
+        query_id="q_timeout",
+        pipeline_id="p_timeout",
+        snapshots=[],
+        total_latency_ms=250.0,
+        status="TIMEOUT",
+    )
+    await store.save_run("run1", "test-experiment", "{}")
+    await store.save_result("run1", result)
+
+    retrieved = await store.get_results("run1")
+    assert len(retrieved) == 1
+    assert retrieved[0].status == "TIMEOUT"
+    assert retrieved[0].total_latency_ms == 250.0
+    assert retrieved[0].snapshots == []
 
 
 @pytest.mark.asyncio

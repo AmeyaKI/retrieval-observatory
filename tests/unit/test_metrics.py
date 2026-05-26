@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from retrieval_observatory.metrics.ranking import average_precision, map_score, mrr, ndcg_at_k
+from retrieval_observatory.metrics.ranking import average_precision, dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.types import Document
@@ -72,6 +72,29 @@ def test_temporal_recall_no_timestamps():
     docs = [Document(id="d1", text="", score=1.0, rank=1)]
     score = temporal_recall_at_k(docs, {"d1"}, k=1, query_anchor=anchor)
     assert score == 1.0  # no timestamp → weight=1.0 → same as standard recall
+
+
+def test_dedupe_preserve_rank():
+    assert dedupe_preserve_rank(["d1", "d1", "d2", "d1", "d3"]) == ["d1", "d2", "d3"]
+
+
+def test_ndcg_graded_basic():
+    score = ndcg_at_k_graded(["d2", "d1"], {"d1": 3, "d2": 1}, k=2)
+    assert 0.0 <= score <= 1.0
+
+
+def test_metric_k_must_be_positive():
+    with pytest.raises(ValueError):
+        recall_at_k(["d1"], {"d1"}, k=0)
+    with pytest.raises(ValueError):
+        ndcg_at_k(["d1"], {"d1"}, k=-1)
+    with pytest.raises(ValueError):
+        temporal_recall_at_k(
+            [Document(id="d1", text="", score=1.0, rank=1)],
+            {"d1"},
+            k=0,
+            query_anchor=datetime(2024, 1, 15),
+        )
 
 
 def test_bootstrap_ci_returns_bounds():

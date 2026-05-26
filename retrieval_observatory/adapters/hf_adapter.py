@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import warnings
 from typing import List
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
@@ -25,7 +26,14 @@ class HFCrossEncoderAdapter:
                     "HuggingFace adapter requires sentence-transformers. "
                     "Install with: pip install retrieval-observatory[hf]"
                 ) from e
-            self._model = CrossEncoder(self.model_name)
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r"`resume_download` is deprecated and will be removed in version 1\.0\.0\.",
+                    category=FutureWarning,
+                    module=r"huggingface_hub\.file_download",
+                )
+                self._model = CrossEncoder(self.model_name)
         return self._model
 
     def _score_sync(self, query_text: str, documents: List[Document]) -> List[float]:

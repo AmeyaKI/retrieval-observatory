@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import List, Union
 
 from retrieval_observatory.pipeline.multi import MultiStagePipeline
@@ -13,7 +14,7 @@ def build_pipeline(
     k_per_stage: List[int],
 ) -> Union[SingleStagePipeline, MultiStagePipeline]:
     if len(stages) == 1:
-        return SingleStagePipeline(pipeline_id=pipeline_id, retriever=stages[0])
+        return SingleStagePipeline(pipeline_id=pipeline_id, retriever=stages[0], k=k_per_stage[0])
     return MultiStagePipeline(pipeline_id=pipeline_id, stages=stages, k_per_stage=k_per_stage)
 
 
@@ -33,6 +34,7 @@ def build_pipeline_from_config(
         "adapter.bm25": _build_bm25_adapter,
         "adapter.hf_biencoder": _build_hf_biencoder_adapter,
         "adapter.hf_crossencoder": _build_hf_crossencoder_adapter,
+        "adapter.cohere_rerank": _build_cohere_rerank_adapter,
         # These adapters wrap pre-constructed Python objects and cannot be fully wired from YAML.
         # Use them programmatically: MyAdapter(retriever_obj, ...) then build_pipeline() directly.
         "adapter.pgvector": _build_pgvector_adapter,
@@ -94,6 +96,7 @@ def _build_http_adapter(stage_cfg: dict):
         text_field=cfg.get("text_field", "text"),
         score_field=cfg.get("score_field", "score"),
         timeout=cfg.get("timeout", 10.0),
+        retry_attempts=cfg.get("retry_attempts", 2),
     )
     return adapter, k
 
@@ -130,6 +133,24 @@ def _build_hf_crossencoder_adapter(stage_cfg: dict):
         model_name=model_name,
         retriever_id=stage_cfg.get("retriever_id", model_name),
         batch_size=cfg.get("batch_size", 32),
+    )
+    return adapter, k
+
+
+def _build_cohere_rerank_adapter(stage_cfg: dict):
+    from retrieval_observatory.adapters.cohere_adapter import CohereRerankAdapter
+
+    cfg = stage_cfg.get("config", {})
+    k = cfg.get("k", 10)
+    api_key = cfg.get("api_key") or os.environ.get("COHERE_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "adapter.cohere_rerank requires config.api_key or COHERE_API_KEY environment variable."
+        )
+    adapter = CohereRerankAdapter(
+        api_key=api_key,
+        model=cfg.get("model", "rerank-english-v3.0"),
+        retriever_id=stage_cfg.get("retriever_id", "cohere_rerank"),
     )
     return adapter, k
 

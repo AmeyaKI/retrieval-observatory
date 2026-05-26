@@ -32,6 +32,12 @@ class BaseStore(Protocol):
     ) -> None:
         ...
 
+    async def save_metrics_batch(
+        self,
+        rows: List[Dict],
+    ) -> None:
+        ...
+
     async def get_results(self, run_id: str) -> List[PipelineResult]:
         ...
 

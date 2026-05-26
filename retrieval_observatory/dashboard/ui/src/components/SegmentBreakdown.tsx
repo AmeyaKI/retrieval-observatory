@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  ResponsiveContainer,
 } from 'recharts'
 import { fetchSegmentMetrics, SegmentMetrics } from '../api'
 import { formatSeriesKey } from '../utils/formatMetricKey'
@@ -95,6 +95,7 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
 
   const metricLabel = targetMetric.toUpperCase()
   const xLabel = field === 'n_relevant' ? '# Relevant Docs' : field
+  const displayLabel = (label: string) => (label.length > 36 ? `${label.slice(0, 33)}...` : label)
 
   return (
     <div>
@@ -102,21 +103,32 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
         {metricLabel} by {xLabel} — each bar group is one segment value.
       </p>
       <ResponsiveContainer width="100%" height={240}>
-        <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 20, left: 0 }}>
+        <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 44, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             dataKey="segment"
-            label={{ value: xLabel, position: 'insideBottom', offset: -12, fontSize: 11 }}
             tick={{ fontSize: 11 }}
+            label={{ value: xLabel, position: 'insideBottom', offset: -14, style: { fontSize: 11, fill: '#6b7280' } }}
           />
           <YAxis tickFormatter={(v: number) => v.toFixed(2)} tick={{ fontSize: 11 }} domain={[0, 1]} />
           <Tooltip formatter={(v: number) => v.toFixed(4)} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
           {seriesLabels.map((label, i) => (
             <Bar key={label} dataKey={label} fill={COLORS[i % COLORS.length]} radius={[2, 2, 0, 0]} />
           ))}
         </BarChart>
       </ResponsiveContainer>
+      {/* Custom legend — avoids Recharts built-in legend overlapping the x-axis label */}
+      <div className="flex flex-wrap gap-3 mt-2 justify-center">
+        {seriesLabels.map((label, i) => (
+          <div key={label} className="flex items-center gap-1.5 text-xs text-gray-600 max-w-[240px]" title={label}>
+            <span
+              className="inline-block w-3 h-3 rounded-sm shrink-0"
+              style={{ backgroundColor: COLORS[i % COLORS.length] }}
+            />
+            <span className="truncate">{displayLabel(label)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

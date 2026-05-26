@@ -26,6 +26,8 @@ TODO
 *.md
 !GOALS.md
 !CLAUDE.md
+!AGENTS.md
+!results/**/*.md
 
 
 # local data / files

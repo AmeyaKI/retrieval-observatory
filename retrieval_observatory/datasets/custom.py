@@ -14,10 +14,17 @@ class CustomDataset:
     Graded relevance: relevant_doc_ids can be {"doc_id": grade_int}
     """
 
-    def __init__(self, queries_path: str, corpus_path: Optional[str] = None, k: int = 10):
+    def __init__(
+        self,
+        queries_path: str,
+        corpus_path: Optional[str] = None,
+        k: int = 10,
+        temporal_field: Optional[str] = None,
+    ):
         self.queries_path = queries_path
         self.corpus_path = corpus_path
         self.k = k
+        self.temporal_field = temporal_field
         self._corpus: Optional[Dict[str, str]] = None
 
     @property

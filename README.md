@@ -6,6 +6,23 @@ Run a retrieval system against standard datasets, measure recall, ranking qualit
 
 ---
 
+## Benchmark Results
+
+Real numbers on BEIR/nfcorpus (323 queries, 3,633 docs). 95% CIs via paired bootstrap.
+
+| Pipeline | Recall@10 | NDCG@10 | MRR | Latency P50 |
+|---|---|---|---|---|
+| BM25-only (`rank-bm25`) | 0.119 [0.098, 0.141] | 0.264 [0.233, 0.295] | 0.468 [0.418, 0.514] | 2 ms |
+| Dense-only (`all-MiniLM-L6-v2` + FAISS) | **0.153 [0.129, 0.179]** | **0.310 [0.278, 0.341]** | 0.510 [0.464, 0.555] | 539 ms* |
+| BM25 → CrossEncoder (`ms-marco-MiniLM-L-6-v2`) | 0.138 [0.115, 0.163] | 0.310 [0.275, 0.345] | **0.530 [0.480, 0.581]** | 4,057 ms** |
+
+\* Query encoding on CPU — drops significantly with a GPU or batched encoding.  
+\*\* Scoring 100 BM25 candidates through a cross-encoder on CPU; GPU reduces this to ~50–100 ms.
+
+Full data and observations: [`results/nfcorpus/README.md`](results/nfcorpus/README.md)
+
+---
+
 ## Installation
 
 ```bash
@@ -42,11 +59,12 @@ The canonical two-stage RAG architecture: BM25 retrieves a wide candidate set (k
 
 ```bash
 pip install -e ".[demo,dashboard,dense]"
-retobs run --config examples/nfcorpus_rag_pipeline.yaml
+retobs run --config examples/nfcorpus_rag_pipeline.yaml --no-cache
 retobs serve --db .retobs/rag_pipeline_demo.db
 ```
 
 This runs two pipelines side-by-side:
+
 - `bm25_baseline` — single-stage BM25 at k=20
 - `bm25_plus_reranker` — BM25 (k=100) → `cross-encoder/ms-marco-MiniLM-L-6-v2` (k=20)
 
@@ -70,16 +88,23 @@ Select both runs in the sidebar to compare NDCG@10 and recall@K side-by-side wit
 
 ---
 
-### 4. Custom HTTP Endpoint
+### 4. Dense vs BM25+Cohere Hybrid (Real API)
 
-Wrap any REST retrieval service (Elasticsearch, Weaviate, your own API) without writing Python:
+Compare self-contained dense retrieval against a BM25→Cohere-reranker hybrid using a real Cohere API key:
 
 ```bash
+pip install -e ".[demo,dashboard,dense,cohere]"
+source .env   # or: export COHERE_API_KEY=your-key-here
 retobs run --config examples/hybrid_comparison.yaml
-retobs serve --db .retobs/hybrid_results.db
+retobs serve --db .retobs/hybrid_comparison.db
 ```
 
-The `hybrid_comparison.yaml` config sends queries to `http://localhost:8000/search`. Edit the `url` field to point at your service.
+`examples/hybrid_comparison.yaml` runs two pipelines: `dense_only` (MiniLM + FAISS, no API needed) and `bm25_cohere_rerank` (BM25 → Cohere `rerank-english-v3.0`). Get a free Cohere key at [dashboard.cohere.com](https://dashboard.cohere.com).
+
+For a standalone Cohere example on 50 queries:
+```bash
+retobs run --config examples/cohere_reranker.yaml
+```
 
 ---
 
@@ -177,17 +202,19 @@ retobs serve --db .retobs/results.db
 
 ## Dashboard Features
 
-| Feature | Description |
-|---------|-------------|
+
+| Feature                   | Description                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Pipeline Architecture** | Visual stage-by-stage flow diagram (Retrieval → Reranking) with per-stage NDCG, recall, and latency. Appears automatically for multi-stage runs. |
-| **Metric tooltips** | Click the gray `?` next to any metric or column header for a plain-English explanation. |
-| **Run comparison** | Select 2+ runs in the sidebar to see a side-by-side table with p-values from a paired bootstrap significance test. |
-| **Recall@K curves** | Line chart with error bars and dashed BEIR BM25 reference lines. |
-| **Stage Recall Funnel** | Bar chart showing recall at each pipeline stage — reveals how much recall the reranker preserves. |
-| **Latency breakdown** | P50/P95/P99 per stage, plus total end-to-end latency for multi-stage pipelines. |
-| **Segment analysis** | NDCG@10 broken down by number of relevant docs — reveals where the retriever struggles. |
-| **Zero% column** | Fraction of queries where the metric was 0 — exposes bimodal failure modes hidden by the mean. |
-| **BEIR baselines** | Published BM25 (Elasticsearch) reference values shown inline for supported datasets. |
+| **Metric tooltips**       | Click the gray `?` next to any metric or column header for a plain-English explanation.                                                          |
+| **Run comparison**        | Select 2+ runs in the sidebar to see a side-by-side table with p-values from a paired bootstrap significance test.                               |
+| **Recall@K curves**       | Line chart with error bars and dashed BEIR BM25 reference lines.                                                                                 |
+| **Stage Recall Funnel**   | Bar chart showing recall at each pipeline stage — reveals how much recall the reranker preserves.                                                |
+| **Latency breakdown**     | P50/P95/P99 per stage, plus total end-to-end latency for multi-stage pipelines.                                                                  |
+| **Segment analysis**      | NDCG@10 broken down by number of relevant docs — reveals where the retriever struggles.                                                          |
+| **Zero% column**          | Fraction of queries where the metric was 0 — exposes bimodal failure modes hidden by the mean.                                                   |
+| **BEIR baselines**        | Published BM25 (Elasticsearch) reference values shown inline for supported datasets.                                                             |
+
 
 ---
 
@@ -203,17 +230,19 @@ retobs compare RUN_ID_1 RUN_ID_2 --db PATH   CLI metric comparison with p-values
 
 ## Optional Dependency Groups
 
+
 | Group        | Installs                                | Use for                                    |
-|--------------|----------------------------------------|--------------------------------------------|
-| `demo`       | beir, datasets, rank-bm25              | Running BEIR datasets with BM25            |
-| `dashboard`  | fastapi, uvicorn                       | Serving the web dashboard                  |
-| `dense`      | sentence-transformers, faiss-cpu, torch | Dense bi-encoder + cross-encoder reranking |
-| `dev`        | pytest, pytest-asyncio, coverage       | Running tests                              |
-| `cohere`     | cohere                                 | CohereRerankAdapter                        |
-| `langchain`  | langchain-core                         | LangChainAdapter                           |
-| `llamaindex` | llama-index-core                       | LlamaIndexAdapter                          |
-| `pgvector`   | asyncpg, pgvector                      | PgvectorAdapter                            |
-| `postgres`   | asyncpg                                | PostgresStore backend                      |
-| `llm-judge`  | google-generativeai, anthropic, openai | LLM-as-judge grading                       |
+| ------------ | --------------------------------------- | ------------------------------------------ |
+| `demo`       | beir, datasets, rank-bm25               | Running BEIR datasets with BM25            |
+| `dashboard`  | fastapi, uvicorn                        | Serving the web dashboard                  |
+| `dense`      | sentence-transformers, faiss-cpu, torch | Dense bi-encoder (FAISS `IndexFlatIP`, up to ~500k docs, no external service needed) + cross-encoder reranking |
+| `dev`        | pytest, pytest-asyncio, coverage        | Running tests                              |
+| `cohere`     | cohere                                  | CohereRerankAdapter                        |
+| `langchain`  | langchain-core                          | LangChainAdapter                           |
+| `llamaindex` | llama-index-core                        | LlamaIndexAdapter                          |
+| `pgvector`   | asyncpg, pgvector                       | PgvectorAdapter                            |
+| `postgres`   | asyncpg                                 | PostgresStore backend                      |
+| `llm-judge`  | google-generativeai, anthropic, openai  | LLM-as-judge grading                       |
+
 
 Install multiple groups: `pip install -e ".[demo,dashboard,dense,dev]"`

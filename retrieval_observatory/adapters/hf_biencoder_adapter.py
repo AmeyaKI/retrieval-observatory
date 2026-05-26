@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import warnings
 from typing import Dict, List, Optional
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
@@ -41,7 +42,14 @@ class HFBiEncoderAdapter:
                 "Install with: pip install retrieval-observatory[dense]"
             ) from e
 
-        self._model = SentenceTransformer(self._model_name)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"`resume_download` is deprecated and will be removed in version 1\.0\.0\.",
+                category=FutureWarning,
+                module=r"huggingface_hub\.file_download",
+            )
+            self._model = SentenceTransformer(self._model_name)
         self._doc_ids = list(self._corpus.keys())
         texts = [self._corpus[did] for did in self._doc_ids]
 

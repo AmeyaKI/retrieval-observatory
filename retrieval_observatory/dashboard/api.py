@@ -13,6 +13,14 @@ from retrieval_observatory.store.sqlite import SQLiteStore
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
 
+try:
+    from pydantic import BaseModel as _BaseModel
+
+    class CompareRequest(_BaseModel):
+        run_ids: List[str]
+except ImportError:
+    CompareRequest = None  # type: ignore
+
 
 def create_app(db_path: str = ".retobs/results.db"):
     try:
@@ -47,9 +55,6 @@ def create_app(db_path: str = ".retobs/results.db"):
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
         return agg
-
-    class CompareRequest(BaseModel):
-        run_ids: List[str]
 
     @app.post("/compare")
     async def compare_runs(req: CompareRequest) -> Dict[str, Any]:
@@ -86,7 +91,11 @@ def create_app(db_path: str = ".retobs/results.db"):
             s1 = raw_scores[req.run_ids[0]].get(key, [])
             s2 = raw_scores[req.run_ids[1]].get(key, [])
             if s1 and s2 and len(s1) == len(s2):
-                entry["p_value"] = paired_bootstrap_test(s1, s2)
+                try:
+                    entry["p_value"] = paired_bootstrap_test(s1, s2)
+                except Exception:
+                    # Keep comparison available even when one metric key has invalid score arrays.
+                    pass
             comparison.append(entry)
 
         return {"comparison": comparison, "run_ids": req.run_ids}

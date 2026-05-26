@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 import numpy as np
 
 from retrieval_observatory.metrics.latency import latency_percentiles
-from retrieval_observatory.metrics.ranking import map_score, mrr, ndcg_at_k, ndcg_at_k_graded
+from retrieval_observatory.metrics.ranking import dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
@@ -77,20 +77,40 @@ class MetricsEngine:
             # For multi-stage pipelines, store end-to-end latency as stage_index=-1 so
             # percentiles are computed on the actual joint distribution, not summed per-stage.
             if len(result.snapshots) > 1:
-                await store.save_metric(
-                    run_id, result.pipeline_id, result.query_id,
-                    -1, "latency_ms", 0, result.total_latency_ms, query_meta,
+                await self._save_metrics(
+                    store,
+                    [
+                        {
+                            "run_id": run_id,
+                            "pipeline_id": result.pipeline_id,
+                            "query_id": result.query_id,
+                            "stage_index": -1,
+                            "metric_name": "latency_ms",
+                            "k": 0,
+                            "value": result.total_latency_ms,
+                            "query_metadata_json": query_meta,
+                        }
+                    ],
                 )
 
             for snap in result.snapshots:
-                doc_ids = [d.id for d in snap.documents]
+                doc_ids = dedupe_preserve_rank([d.id for d in snap.documents])
+                metric_rows: List[Dict[str, Any]] = []
 
                 # Recall@K (binary: grade > 0 = relevant)
                 for k in self.recall_k:
                     score = recall_at_k(doc_ids, relevant_set, k)
-                    await store.save_metric(
-                        run_id, result.pipeline_id, result.query_id,
-                        snap.stage_index, "recall", k, score, query_meta,
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            "recall",
+                            k,
+                            score,
+                            query_meta,
+                        )
                     )
 
                 # NDCG@K — graded when grade data is available, binary otherwise
@@ -99,26 +119,50 @@ class MetricsEngine:
                         score = ndcg_at_k_graded(doc_ids, graded_qrel, k)
                     else:
                         score = ndcg_at_k(doc_ids, relevant_set, k)
-                    await store.save_metric(
-                        run_id, result.pipeline_id, result.query_id,
-                        snap.stage_index, "ndcg", k, score, query_meta,
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            "ndcg",
+                            k,
+                            score,
+                            query_meta,
+                        )
                     )
 
                 # MRR (k=0 sentinel)
                 if self.compute_mrr:
                     score = mrr([doc_ids], [relevant_set])
-                    await store.save_metric(
-                        run_id, result.pipeline_id, result.query_id,
-                        snap.stage_index, "mrr", 0, score, query_meta,
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            "mrr",
+                            0,
+                            score,
+                            query_meta,
+                        )
                     )
 
                 # MAP (k=0 sentinel)
                 if self.compute_map:
                     from retrieval_observatory.metrics.ranking import average_precision
                     score = average_precision(doc_ids, relevant_set)
-                    await store.save_metric(
-                        run_id, result.pipeline_id, result.query_id,
-                        snap.stage_index, "map", 0, score, query_meta,
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            "map",
+                            0,
+                            score,
+                            query_meta,
+                        )
                     )
 
                 # Temporal Recall@K
@@ -127,16 +171,33 @@ class MetricsEngine:
                         score = temporal_recall_at_k(
                             snap.documents, relevant_set, k, query.temporal_anchor
                         )
-                        await store.save_metric(
-                            run_id, result.pipeline_id, result.query_id,
-                            snap.stage_index, "temporal_recall", k, score, query_meta,
+                        metric_rows.append(
+                            self._metric_row(
+                                run_id,
+                                result.pipeline_id,
+                                result.query_id,
+                                snap.stage_index,
+                                "temporal_recall",
+                                k,
+                                score,
+                                query_meta,
+                            )
                         )
 
                 # Latency — store raw ms once; percentiles computed at aggregate time
-                await store.save_metric(
-                    run_id, result.pipeline_id, result.query_id,
-                    snap.stage_index, "latency_ms", 0, snap.latency_ms, query_meta,
+                metric_rows.append(
+                    self._metric_row(
+                        run_id,
+                        result.pipeline_id,
+                        result.query_id,
+                        snap.stage_index,
+                        "latency_ms",
+                        0,
+                        snap.latency_ms,
+                        query_meta,
+                    )
                 )
+                await self._save_metrics(store, metric_rows)
 
     async def aggregate(
         self,
@@ -194,4 +255,76 @@ class MetricsEngine:
                 "zero_pct": round(zero_count / len(scores) * 100, 1),
             }
 
+        results = await store.get_results(run_id)
+        by_pipeline: Dict[str, List[PipelineResult]] = defaultdict(list)
+        for result in results:
+            by_pipeline[result.pipeline_id].append(result)
+        for pipeline_id, pipeline_results in by_pipeline.items():
+            total = len(pipeline_results)
+            if total == 0:
+                continue
+            timeout_count = sum(1 for r in pipeline_results if r.status == "TIMEOUT")
+            error_count = sum(1 for r in pipeline_results if r.status == "ERROR")
+            dropout_count = timeout_count + error_count
+            for metric_name, value in (
+                ("failure_rate", dropout_count / total),
+                ("timeout_rate", timeout_count / total),
+                ("dropout_count", float(dropout_count)),
+            ):
+                key = f"{pipeline_id}|stage-1|{metric_name}@0"
+                aggregated[key] = {
+                    "pipeline_id": pipeline_id,
+                    "stage_index": -1,
+                    "metric_name": metric_name,
+                    "k": 0,
+                    "mean": float(value),
+                    "std": 0.0,
+                    "ci_low": float(value),
+                    "ci_high": float(value),
+                    "n": total,
+                    "zero_count": 0,
+                    "zero_pct": 0.0,
+                }
+
         return aggregated
+
+    @staticmethod
+    def _metric_row(
+        run_id: str,
+        pipeline_id: str,
+        query_id: str,
+        stage_index: int,
+        metric_name: str,
+        k: int,
+        value: float,
+        query_metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "run_id": run_id,
+            "pipeline_id": pipeline_id,
+            "query_id": query_id,
+            "stage_index": stage_index,
+            "metric_name": metric_name,
+            "k": k,
+            "value": value,
+            "query_metadata_json": query_metadata,
+        }
+
+    @staticmethod
+    async def _save_metrics(store: BaseStore, rows: List[Dict[str, Any]]) -> None:
+        if not rows:
+            return
+        if hasattr(store, "save_metrics_batch"):
+            await store.save_metrics_batch(rows)
+            return
+        for row in rows:
+            await store.save_metric(
+                row["run_id"],
+                row["pipeline_id"],
+                row["query_id"],
+                row["stage_index"],
+                row["metric_name"],
+                row["k"],
+                row["value"],
+                row["query_metadata_json"],
+            )

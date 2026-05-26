@@ -55,7 +55,10 @@ export async function fetchComparison(runIds: string[]): Promise<{ comparison: C
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ run_ids: runIds }),
   })
-  if (!res.ok) throw new Error('Failed to fetch comparison')
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Failed to fetch comparison (${res.status}): ${body || res.statusText}`)
+  }
   return res.json()
 }
 

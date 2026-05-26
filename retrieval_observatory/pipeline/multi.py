@@ -42,6 +42,7 @@ class MultiStagePipeline:
                     query_id=query.query_id,
                     temporal_anchor=query.temporal_anchor,
                     filters=query.filters,
+                    metadata=query.metadata,
                 )
 
                 if i == 0:
@@ -76,6 +77,14 @@ class MultiStagePipeline:
                 snapshots=snapshots,
                 total_latency_ms=total_latency,
                 status="OK",
+            )
+        except asyncio.CancelledError:
+            return PipelineResult(
+                query_id=query.query_id,
+                pipeline_id=self.pipeline_id,
+                snapshots=snapshots,
+                total_latency_ms=total_latency,
+                status="TIMEOUT",
             )
         except Exception:
             return PipelineResult(

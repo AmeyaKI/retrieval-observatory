@@ -4,10 +4,23 @@ import math
 from typing import Dict, List, Set
 
 
+def dedupe_preserve_rank(ids: List[str]) -> List[str]:
+    seen: Set[str] = set()
+    deduped: List[str] = []
+    for doc_id in ids:
+        if doc_id in seen:
+            continue
+        seen.add(doc_id)
+        deduped.append(doc_id)
+    return deduped
+
+
 def mrr(retrieved_ids_list: List[List[str]], relevant_ids_list: List[Set[str]]) -> float:
     """Mean Reciprocal Rank across a list of queries."""
     if not retrieved_ids_list:
         return 0.0
+    if len(retrieved_ids_list) != len(relevant_ids_list):
+        raise ValueError("retrieved_ids_list and relevant_ids_list must have equal length")
     rr_scores = []
     for retrieved, relevant in zip(retrieved_ids_list, relevant_ids_list):
         rr = 0.0
@@ -21,6 +34,9 @@ def mrr(retrieved_ids_list: List[List[str]], relevant_ids_list: List[Set[str]]) 
 
 def ndcg_at_k(retrieved_ids: List[str], relevant_ids: Set[str], k: int) -> float:
     """NDCG@K with binary relevance."""
+    if k <= 0:
+        raise ValueError("k must be > 0")
+
     def dcg(ids: List[str]) -> float:
         return sum(
             1.0 / math.log2(rank + 1)
@@ -72,6 +88,8 @@ def ndcg_at_k_graded(retrieved_ids: List[str], graded_qrels: Dict[str, int], k: 
     Matches the BEIR benchmark methodology (Thakur et al. 2021) and pytrec_eval.
     gain(grade=1) = 1, gain(grade=2) = 3, gain(grade=3) = 7, etc.
     """
+    if k <= 0:
+        raise ValueError("k must be > 0")
     if not graded_qrels:
         return 0.0
 

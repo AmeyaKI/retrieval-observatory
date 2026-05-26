@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS raw_results (
     pipeline_id TEXT,
     query_id TEXT,
     stage_index INT,
+    stage_id TEXT,
     status TEXT,
     latency_ms REAL,
     retrieved_doc_ids_json TEXT,
@@ -30,6 +31,8 @@ CREATE TABLE IF NOT EXISTS raw_results (
     error_traceback TEXT
 )
 """
+
+_MIGRATE_RAW_RESULTS_STAGE_ID = "ALTER TABLE raw_results ADD COLUMN stage_id TEXT"
 
 _CREATE_METRIC_SCORES = """
 CREATE TABLE IF NOT EXISTS metric_scores (
@@ -85,6 +88,10 @@ class PostgresStore:
             await conn.execute(_CREATE_RAW_RESULTS)
             await conn.execute(_CREATE_METRIC_SCORES)
             await conn.execute(_CREATE_CACHE)
+            try:
+                await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
+            except Exception:
+                pass
 
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
         pool = await self._get_pool()
@@ -117,21 +124,38 @@ class PostgresStore:
                 run_id,
                 result.pipeline_id,
                 result.query_id,
-                snap.stage_index,
+                -1,
+                "__pipeline__",
                 result.status,
-                snap.latency_ms,
-                json.dumps([d.id for d in snap.documents]),
-                json.dumps([d.score for d in snap.documents]),
+                result.total_latency_ms,
+                "[]",
+                "[]",
                 result.error_traceback,
             )
-            for snap in result.snapshots
         ]
+        rows.extend(
+            [
+                (
+                    run_id,
+                    result.pipeline_id,
+                    result.query_id,
+                    snap.stage_index,
+                    snap.stage_id,
+                    result.status,
+                    snap.latency_ms,
+                    json.dumps([d.id for d in snap.documents]),
+                    json.dumps([d.score for d in snap.documents]),
+                    result.error_traceback,
+                )
+                for snap in result.snapshots
+            ]
+        )
         async with pool.acquire() as conn:
             await conn.executemany(
                 """INSERT INTO raw_results
-                   (run_id, pipeline_id, query_id, stage_index, status,
+                   (run_id, pipeline_id, query_id, stage_index, stage_id, status,
                     latency_ms, retrieved_doc_ids_json, retrieved_scores_json, error_traceback)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
                 rows,
             )
 
@@ -147,13 +171,43 @@ class PostgresStore:
         query_metadata: Optional[Dict] = None,
     ) -> None:
         metadata_json = json.dumps(query_metadata) if query_metadata else None
+        await self.save_metrics_batch(
+            rows=[
+                {
+                    "run_id": run_id,
+                    "pipeline_id": pipeline_id,
+                    "query_id": query_id,
+                    "stage_index": stage_index,
+                    "metric_name": metric_name,
+                    "k": k,
+                    "value": value,
+                    "query_metadata_json": metadata_json,
+                }
+            ]
+        )
+
+    async def save_metrics_batch(self, rows: List[Dict]) -> None:
+        if not rows:
+            return
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            await conn.execute(
+            await conn.executemany(
                 """INSERT INTO metric_scores
                    (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, query_metadata_json)
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
-                run_id, pipeline_id, query_id, stage_index, metric_name, k, value, metadata_json,
+                [
+                    (
+                        row["run_id"],
+                        row["pipeline_id"],
+                        row["query_id"],
+                        row["stage_index"],
+                        row["metric_name"],
+                        row["k"],
+                        row["value"],
+                        json.dumps(row["query_metadata_json"]) if row.get("query_metadata_json") else None,
+                    )
+                    for row in rows
+                ],
             )
 
     async def get_results(self, run_id: str) -> List[PipelineResult]:
@@ -175,7 +229,13 @@ class PostgresStore:
             status = "OK"
             error_traceback = None
             total_latency = 0.0
+            envelope_latency = None
             for row in stage_rows:
+                if row["stage_index"] == -1 and row["stage_id"] == "__pipeline__":
+                    status = row["status"]
+                    error_traceback = row["error_traceback"]
+                    envelope_latency = row["latency_ms"]
+                    continue
                 doc_ids = json.loads(row["retrieved_doc_ids_json"])
                 scores = json.loads(row["retrieved_scores_json"])
                 docs = [
@@ -185,7 +245,7 @@ class PostgresStore:
                 snapshots.append(
                     StageSnapshot(
                         stage_index=row["stage_index"],
-                        stage_id=f"stage_{row['stage_index']}",
+                        stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
                         documents=docs,
                         latency_ms=row["latency_ms"],
                     )
@@ -198,7 +258,7 @@ class PostgresStore:
                     query_id=query_id,
                     pipeline_id=pipeline_id,
                     snapshots=snapshots,
-                    total_latency_ms=total_latency,
+                    total_latency_ms=envelope_latency if envelope_latency is not None else total_latency,
                     status=status,
                     error_traceback=error_traceback,
                 )
@@ -211,7 +271,15 @@ class PostgresStore:
             rows = await conn.fetch(
                 "SELECT * FROM metric_scores WHERE run_id = $1", run_id
             )
-        return [dict(row) for row in rows]
+        result = []
+        for row in rows:
+            d = dict(row)
+            if d.get("query_metadata_json"):
+                d["query_metadata"] = json.loads(d["query_metadata_json"])
+            else:
+                d["query_metadata"] = {}
+            result.append(d)
+        return result
 
     async def cache_get(self, cache_key: str) -> Optional[str]:
         pool = await self._get_pool()
