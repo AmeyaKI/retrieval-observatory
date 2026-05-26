@@ -1,13 +1,17 @@
 /**
  * Converts an internal storage key into a human-readable label.
  *
- * Examples:
+ * When the key belongs to a multi-stage pipeline, stage role labels are shown:
+ *   "bm25_plus_reranker|stage0|ndcg@10"  → "NDCG@10  ·  BM25 Plus Reranker (Retrieval)"
+ *   "bm25_plus_reranker|stage1|ndcg@10"  → "NDCG@10  ·  BM25 Plus Reranker (Reranking)"
  *   "bm25_baseline|stage0|recall@10"      → "Recall@10  ·  BM25 Baseline"
- *   "dense_minilm|stage1|ndcg@10"         → "NDCG@10  ·  Dense Minilm (Stage 1)"
  *   "bm25_baseline|stage0|latency_p95@0"  → "Latency P95  ·  BM25 Baseline"
- *   "bm25_baseline|stage0|mrr@0"          → "MRR  ·  BM25 Baseline"
+ *
+ * Pass a set of all pipeline IDs present in the MetricsMap so the function can
+ * detect whether a pipeline has multiple stages. If omitted, falls back to the
+ * old behaviour (shows "Stage N" for stageIndex > 0).
  */
-export function formatMetricKey(key: string): string {
+export function formatMetricKey(key: string, multiStagePipelines?: Set<string>): string {
   const parts = key.split('|')
   if (parts.length !== 3) return key
 
@@ -21,15 +25,23 @@ export function formatMetricKey(key: string): string {
   const metricLabel = formatMetricName(metricName, k)
 
   // Format pipeline label (snake_case → Title Case)
-  const pipelineLabel = pipelineId
+  const pipelineLabel = toPipelineLabel(pipelineId)
+
+  // Stage role label — only when the pipeline is actually multi-stage
+  const isMulti = multiStagePipelines ? multiStagePipelines.has(pipelineId) : stageIndex > 0
+  let stageLabel = ''
+  if (isMulti) {
+    stageLabel = stageIndex === 0 ? ' (Retrieval)' : ' (Reranking)'
+  }
+
+  return `${metricLabel}  ·  ${pipelineLabel}${stageLabel}`
+}
+
+function toPipelineLabel(pipelineId: string): string {
+  return pipelineId
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ')
-
-  // Only append stage number if it's a non-zero (multi-stage pipeline)
-  const stageLabel = stageIndex > 0 ? ` (Stage ${stageIndex})` : ''
-
-  return `${metricLabel}  ·  ${pipelineLabel}${stageLabel}`
 }
 
 function formatMetricName(name: string, k: number): string {
@@ -50,11 +62,14 @@ function formatMetricName(name: string, k: number): string {
   return upper
 }
 
-/** Shorter label for chart legends (no pipeline prefix). */
-export function formatSeriesKey(pipelineId: string, stageIndex: number): string {
-  const pipelineLabel = pipelineId
-    .split('_')
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ')
-  return stageIndex > 0 ? `${pipelineLabel} (Stage ${stageIndex})` : pipelineLabel
+/**
+ * Shorter label for chart legends (no metric prefix).
+ *
+ * @param isMultiStage - when true, append stage role ("Retrieval"/"Reranking") instead of stage number
+ */
+export function formatSeriesKey(pipelineId: string, stageIndex: number, isMultiStage = false): string {
+  const pipelineLabel = toPipelineLabel(pipelineId)
+  if (!isMultiStage) return pipelineLabel
+  const role = stageIndex === 0 ? 'Retrieval' : 'Reranking'
+  return `${pipelineLabel} (${role})`
 }

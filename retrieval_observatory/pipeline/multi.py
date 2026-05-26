@@ -51,8 +51,9 @@ class MultiStagePipeline:
                     else:
                         result = await asyncio.to_thread(stage.retrieve, stage_query)
                 else:
-                    # Subsequent stages: reranker receives prior docs as candidates
-                    candidates = current_docs[:k]
+                    # Subsequent stages: pass ALL prior-stage docs so the reranker can score
+                    # every candidate — it truncates to query.k internally.
+                    candidates = current_docs
                     if asyncio.iscoroutinefunction(stage.rerank):
                         result = await stage.rerank(stage_query, candidates)
                     else:

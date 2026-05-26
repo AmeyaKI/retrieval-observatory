@@ -5,6 +5,7 @@ import RecallCurve from './RecallCurve'
 import RecallFunnel from './RecallFunnel'
 import LatencyChart from './LatencyChart'
 import SegmentBreakdown from './SegmentBreakdown'
+import StagePipelineFlow from './StagePipelineFlow'
 
 interface Props {
   run: Run
@@ -76,6 +77,12 @@ export default function RunDetail({ run }: Props) {
           <p className="text-sm text-gray-500 font-mono mt-0.5">{run.run_id}</p>
         </div>
       </div>
+
+      {Object.values(metrics).some((e) => e.stage_index > 0) && (
+        <Section title="Pipeline Architecture">
+          <StagePipelineFlow metrics={metrics} />
+        </Section>
+      )}
 
       <Section title="Metrics Summary">
         <MetricsTable metrics={metrics} baselines={baselines} />

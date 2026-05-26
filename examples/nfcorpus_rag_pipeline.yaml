@@ -1,0 +1,61 @@
+# Multi-Stage RAG Pipeline Demo — NFCorpus
+#
+# This config demonstrates the canonical two-stage RAG pipeline:
+#   Stage 0: BM25 retrieves a wide candidate set (high recall)
+#   Stage 1: Cross-encoder reranks candidates for higher precision
+#
+# Prerequisites:
+#   pip install "retrieval-observatory[dense]"
+#   (installs sentence-transformers and faiss-cpu for the cross-encoder)
+#
+# Run:
+#   retobs run --config examples/nfcorpus_rag_pipeline.yaml
+#
+# What to look for in the dashboard:
+#   - bm25_baseline: single-stage BM25 at k=20 (no reranking)
+#   - bm25_plus_reranker Stage 0: BM25 at k=100 — the recall ceiling for the pipeline
+#   - bm25_plus_reranker Stage 1: cross-encoder reranked to k=20 — should beat Stage 0 NDCG@10
+#   - Latency breakdown: BM25 is fast (~10-50ms), cross-encoder is slower (~200-500ms per query)
+#   - Compare NDCG@10 between bm25_baseline and bm25_plus_reranker Stage 1 to see reranking gain
+
+experiment:
+  name: "NFCorpus: BM25-only vs BM25+CrossEncoder (Multi-Stage RAG)"
+
+dataset:
+  type: beir
+  name: nfcorpus
+  max_queries: 50
+
+pipelines:
+  # Baseline: simple BM25 truncated at k=20
+  - id: bm25_baseline
+    stages:
+      - type: adapter.bm25
+        config:
+          k: 20
+
+  # Multi-stage RAG: BM25 retrieves wide (k=100), cross-encoder reranks to k=20
+  - id: bm25_plus_reranker
+    stages:
+      - type: adapter.bm25
+        config:
+          k: 100
+      - type: adapter.hf_crossencoder
+        config:
+          model: cross-encoder/ms-marco-MiniLM-L-6-v2
+          k: 20
+          batch_size: 32
+
+metrics:
+  recall_at_k: [5, 10, 20, 100]
+  ndcg_at_k: [10, 20]
+  compute_mrr: true
+  compute_map: true
+
+execution:
+  concurrency: 2
+  timeout_seconds: 120
+  cache_results: true
+
+output:
+  db_path: .retobs/rag_pipeline_demo.db

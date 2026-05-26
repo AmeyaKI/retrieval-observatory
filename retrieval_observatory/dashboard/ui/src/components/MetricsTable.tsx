@@ -1,5 +1,7 @@
 import { MetricEntry, MetricsMap } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
+import { MetricTooltip } from './MetricTooltip'
+import { METRIC_GLOSSARY, lookupGlossary } from '../utils/metricGlossary'
 
 interface Props {
   metrics: MetricsMap
@@ -20,6 +22,18 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
   const entries = Object.entries(metrics).sort(([a], [b]) => a.localeCompare(b))
   const hasBaselines = Object.keys(baselines).length > 0
 
+  // Detect which pipeline IDs have more than one stage (for stage role labels)
+  const pipelineStages: Record<string, Set<number>> = {}
+  for (const [, e] of entries) {
+    if (!pipelineStages[e.pipeline_id]) pipelineStages[e.pipeline_id] = new Set()
+    pipelineStages[e.pipeline_id].add(e.stage_index)
+  }
+  const multiStagePipelines = new Set(
+    Object.entries(pipelineStages)
+      .filter(([, stages]) => stages.size > 1)
+      .map(([pid]) => pid)
+  )
+
   if (entries.length === 0) {
     return <p className="text-sm text-gray-400">No metrics available.</p>
   }
@@ -29,16 +43,33 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
       <table className="min-w-full text-sm">
         <thead>
           <tr className="bg-gray-100 text-left">
-            <th className="px-3 py-2 font-semibold text-gray-700">Metric</th>
+            <th className="px-3 py-2 font-semibold text-gray-700">
+              Metric
+              <MetricTooltip text={METRIC_GLOSSARY.stage} />
+            </th>
             <th className="px-3 py-2 font-semibold text-gray-700 text-right">Mean</th>
             <th className="px-3 py-2 font-semibold text-gray-700 text-right">Std</th>
-            <th className="px-3 py-2 font-semibold text-gray-700 text-right">95% CI</th>
+            <th className="px-3 py-2 font-semibold text-gray-700 text-right">
+              95% CI
+              <MetricTooltip text={METRIC_GLOSSARY.ci} alignLeft />
+            </th>
             <th className="px-3 py-2 font-semibold text-gray-700 text-right">N</th>
-            <th className="px-3 py-2 font-semibold text-gray-700 text-right">Zero%</th>
+            <th className="px-3 py-2 font-semibold text-gray-700 text-right">
+              Zero%
+              <MetricTooltip text={METRIC_GLOSSARY.zero_pct} alignLeft />
+            </th>
             {hasBaselines && (
-              <th className="px-3 py-2 font-semibold text-gray-500 text-right text-xs">Ref (BM25)</th>
+              <th className="px-3 py-2 font-semibold text-gray-500 text-right text-xs">
+                Ref (BM25)
+                <MetricTooltip text={METRIC_GLOSSARY.ref_bm25} alignLeft />
+              </th>
             )}
-            {pValues && <th className="px-3 py-2 font-semibold text-gray-700 text-right">p-value</th>}
+            {pValues && (
+              <th className="px-3 py-2 font-semibold text-gray-700 text-right">
+                p-value
+                <MetricTooltip text={METRIC_GLOSSARY.p_value} alignLeft />
+              </th>
+            )}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -51,7 +82,12 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
             const baselineVal = baselineKey ? baselines[baselineKey] : undefined
             return (
               <tr key={key} className="hover:bg-gray-50">
-                <td className="px-3 py-2 text-gray-800">{formatMetricKey(key)}</td>
+                <td className="px-3 py-2 text-gray-800">
+                  {formatMetricKey(key, multiStagePipelines)}
+                  {lookupGlossary(entry.metric_name) && (
+                    <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
+                  )}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(entry.mean)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-gray-500">{fmt(entry.std)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">{ciLabel(entry)}</td>

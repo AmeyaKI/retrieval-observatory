@@ -21,14 +21,15 @@ node_modules/
 # OS / editor
 .DS_Store
 TODO
-.claude/
 
 # Docs (project-specific; keep GOALS.md)
 *.md
 !GOALS.md
+!CLAUDE.md
 
 
 # local data / files
 .retobs/
 *.db
 .archive/
+.prompts/

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchComparison, ComparisonEntry } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
+import { MetricTooltip } from './MetricTooltip'
+import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 
 interface Props {
   runIds: string[]
@@ -53,7 +55,10 @@ export default function ComparePanel({ runIds }: Props) {
               {runIds.map((id) => (
                 <th key={id} className="px-3 py-2 font-semibold text-gray-700 text-right font-mono">{id}</th>
               ))}
-              <th className="px-3 py-2 font-semibold text-gray-700 text-right">p-value</th>
+              <th className="px-3 py-2 font-semibold text-gray-700 text-right">
+                p-value
+                <MetricTooltip text={METRIC_GLOSSARY.p_value} alignLeft />
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
