@@ -11,7 +11,11 @@
  * detect whether a pipeline has multiple stages. If omitted, falls back to the
  * old behaviour (shows "Stage N" for stageIndex > 0).
  */
-export function formatMetricKey(key: string, multiStagePipelines?: Set<string>): string {
+/**
+ * @param metricOnly - when true (used in grouped tables), returns only the metric label
+ *   without the pipeline/stage suffix, since the group header already shows the pipeline name.
+ */
+export function formatMetricKey(key: string, multiStagePipelines?: Set<string>, metricOnly = false): string {
   const parts = key.split('|')
   if (parts.length !== 3) return key
 
@@ -23,6 +27,8 @@ export function formatMetricKey(key: string, multiStagePipelines?: Set<string>):
   const metricName = atIdx >= 0 ? metricAtK.slice(0, atIdx) : metricAtK
   const k = atIdx >= 0 ? parseInt(metricAtK.slice(atIdx + 1), 10) : 0
   const metricLabel = formatMetricName(metricName, k)
+
+  if (metricOnly) return metricLabel
 
   // Format pipeline label (snake_case → Title Case)
   const pipelineLabel = toPipelineLabel(pipelineId)

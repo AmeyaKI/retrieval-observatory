@@ -67,23 +67,21 @@ def map_score(retrieved_ids_list: List[List[str]], relevant_ids_list: List[Set[s
 
 
 def ndcg_at_k_graded(retrieved_ids: List[str], graded_qrels: Dict[str, int], k: int) -> float:
-    """NDCG@K with graded relevance. Gain is proportional to grade (grade / max_grade)."""
+    """NDCG@K with graded relevance using standard exponential gain (2^grade - 1).
+
+    Matches the BEIR benchmark methodology (Thakur et al. 2021) and pytrec_eval.
+    gain(grade=1) = 1, gain(grade=2) = 3, gain(grade=3) = 7, etc.
+    """
     if not graded_qrels:
         return 0.0
-    max_grade = max(graded_qrels.values())
-    if max_grade == 0:
-        return 0.0
-
-    def gain(doc_id: str) -> float:
-        return graded_qrels.get(doc_id, 0) / max_grade
 
     actual_dcg = sum(
-        gain(doc_id) / math.log2(rank + 1)
+        (2 ** graded_qrels.get(doc_id, 0) - 1) / math.log2(rank + 1)
         for rank, doc_id in enumerate(retrieved_ids[:k], start=1)
     )
     ideal_grades = sorted(graded_qrels.values(), reverse=True)[:k]
     ideal_dcg = sum(
-        (g / max_grade) / math.log2(rank + 1)
+        (2 ** g - 1) / math.log2(rank + 1)
         for rank, g in enumerate(ideal_grades, start=1)
         if g > 0
     )

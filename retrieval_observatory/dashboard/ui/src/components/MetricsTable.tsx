@@ -18,13 +18,45 @@ function ciLabel(entry: MetricEntry): string {
   return `[${fmt(entry.ci_low)}, ${fmt(entry.ci_high)}]`
 }
 
+const METRIC_ORDER = ['ndcg', 'recall', 'mrr', 'map', 'latency']
+function metricSortKey(metricName: string): number {
+  const idx = METRIC_ORDER.findIndex((m) => metricName.toLowerCase().includes(m))
+  return idx === -1 ? 99 : idx
+}
+
 export default function MetricsTable({ metrics, pValues, baselines = {} }: Props) {
-  const entries = Object.entries(metrics).sort(([a], [b]) => a.localeCompare(b))
   const hasBaselines = Object.keys(baselines).length > 0
 
-  // Detect which pipeline IDs have more than one stage (for stage role labels)
+  // Group entries by pipeline_id, then stage_index
+  const byPipeline: Record<string, Record<number, Array<[string, MetricEntry]>>> = {}
+  const pipelineOrder: string[] = []
+
+  for (const [key, entry] of Object.entries(metrics)) {
+    if (entry.stage_index < 0) continue // skip E2E total rows (latency only, shown in chart)
+    if (!byPipeline[entry.pipeline_id]) {
+      byPipeline[entry.pipeline_id] = {}
+      pipelineOrder.push(entry.pipeline_id)
+    }
+    if (!byPipeline[entry.pipeline_id][entry.stage_index]) {
+      byPipeline[entry.pipeline_id][entry.stage_index] = []
+    }
+    byPipeline[entry.pipeline_id][entry.stage_index].push([key, entry])
+  }
+
+  // Sort entries within each stage: NDCG → Recall → MRR → MAP → Latency
+  for (const pid of pipelineOrder) {
+    for (const stage of Object.keys(byPipeline[pid])) {
+      byPipeline[pid][Number(stage)].sort(([, a], [, b]) =>
+        metricSortKey(a.metric_name) - metricSortKey(b.metric_name) ||
+        (a.k - b.k)
+      )
+    }
+  }
+
+  // Detect multi-stage pipelines for stage role labels
   const pipelineStages: Record<string, Set<number>> = {}
-  for (const [, e] of entries) {
+  for (const [, e] of Object.entries(metrics)) {
+    if (e.stage_index < 0) continue
     if (!pipelineStages[e.pipeline_id]) pipelineStages[e.pipeline_id] = new Set()
     pipelineStages[e.pipeline_id].add(e.stage_index)
   }
@@ -34,8 +66,16 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
       .map(([pid]) => pid)
   )
 
-  if (entries.length === 0) {
+  if (pipelineOrder.length === 0) {
     return <p className="text-sm text-gray-400">No metrics available.</p>
+  }
+
+  const toPipelineLabel = (pid: string) =>
+    pid.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+  const toStageLabel = (pid: string, stage: number): string => {
+    if (!multiStagePipelines.has(pid)) return ''
+    return stage === 0 ? 'Stage 0 · Retrieval' : `Stage ${stage} · Reranking`
   }
 
   return (
@@ -72,40 +112,83 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
             )}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
-          {entries.map(([key, entry]) => {
-            const pv = pValues?.[key]
-            const significant = pv !== undefined && pv < 0.05
-            const isLatency = entry.metric_name.startsWith('latency')
-            // Lookup baseline by "metricname@k" (e.g. "ndcg@10", "recall@10")
-            const baselineKey = entry.k > 0 ? `${entry.metric_name}@${entry.k}` : null
-            const baselineVal = baselineKey ? baselines[baselineKey] : undefined
+        <tbody>
+          {pipelineOrder.map((pid, pidIdx) => {
+            const stages = Object.keys(byPipeline[pid]).map(Number).sort((a, b) => a - b)
             return (
-              <tr key={key} className="hover:bg-gray-50">
-                <td className="px-3 py-2 text-gray-800">
-                  {formatMetricKey(key, multiStagePipelines)}
-                  {lookupGlossary(entry.metric_name) && (
-                    <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
-                  )}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(entry.mean)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-500">{fmt(entry.std)}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">{ciLabel(entry)}</td>
-                <td className="px-3 py-2 text-right text-gray-500">{entry.n}</td>
-                <td className="px-3 py-2 text-right text-gray-400 text-xs">
-                  {isLatency ? '—' : `${entry.zero_pct}%`}
-                </td>
-                {hasBaselines && (
-                  <td className="px-3 py-2 text-right text-gray-400 text-xs tabular-nums">
-                    {baselineVal !== undefined ? fmt(baselineVal) : '—'}
+              <>
+                {/* Pipeline group header */}
+                <tr key={`header-${pid}`} className={pidIdx > 0 ? 'border-t-2 border-gray-300' : ''}>
+                  <td
+                    colSpan={hasBaselines ? (pValues ? 8 : 7) : (pValues ? 7 : 6)}
+                    className="px-3 py-2 bg-gray-50 text-xs font-bold text-gray-600 uppercase tracking-wide"
+                  >
+                    {toPipelineLabel(pid)}
                   </td>
-                )}
-                {pValues && (
-                  <td className={`px-3 py-2 text-right tabular-nums ${significant ? 'font-bold text-indigo-700' : 'text-gray-500'}`}>
-                    {pv !== undefined ? `${pv.toFixed(3)}${significant ? ' *' : ''}` : '—'}
-                  </td>
-                )}
-              </tr>
+                </tr>
+
+                {stages.map((stage) => {
+                  const stageLabel = toStageLabel(pid, stage)
+                  const rows = byPipeline[pid][stage]
+                  return (
+                    <>
+                      {/* Stage sub-header (only for multi-stage pipelines) */}
+                      {stageLabel && (
+                        <tr key={`stage-${pid}-${stage}`}>
+                          <td
+                            colSpan={hasBaselines ? (pValues ? 8 : 7) : (pValues ? 7 : 6)}
+                            className="px-3 py-1 bg-gray-50 text-[11px] font-semibold text-indigo-600 border-t border-gray-100"
+                          >
+                            {stageLabel}
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Metric rows */}
+                      {rows.map(([key, entry]) => {
+                        const pv = pValues?.[key]
+                        const significant = pv !== undefined && pv < 0.05
+                        const isLatency = entry.metric_name.startsWith('latency')
+                        const baselineKey = entry.k > 0 ? `${entry.metric_name}@${entry.k}` : null
+                        const baselineVal = baselineKey ? baselines[baselineKey] : undefined
+                        const zeroPctHigh = !isLatency && entry.zero_pct > 40
+                        const zeroPctMed = !isLatency && entry.zero_pct > 20 && !zeroPctHigh
+                        return (
+                          <tr key={key} className="hover:bg-gray-50 border-t border-gray-100">
+                            <td className="px-3 pl-6 py-2 text-gray-700">
+                              {formatMetricKey(key, multiStagePipelines, true)}
+                              {lookupGlossary(entry.metric_name) && (
+                                <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums font-medium">{fmt(entry.mean)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-500">{fmt(entry.std)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">{ciLabel(entry)}</td>
+                            <td className="px-3 py-2 text-right text-gray-500">{entry.n}</td>
+                            <td className={`px-3 py-2 text-right text-xs tabular-nums font-medium ${
+                              zeroPctHigh ? 'text-red-600 bg-red-50' :
+                              zeroPctMed ? 'text-amber-600 bg-amber-50' :
+                              'text-gray-400'
+                            }`}>
+                              {isLatency ? '—' : `${entry.zero_pct}%`}
+                            </td>
+                            {hasBaselines && (
+                              <td className="px-3 py-2 text-right text-gray-400 text-xs tabular-nums">
+                                {baselineVal !== undefined ? fmt(baselineVal) : '—'}
+                              </td>
+                            )}
+                            {pValues && (
+                              <td className={`px-3 py-2 text-right tabular-nums ${significant ? 'font-bold text-indigo-700' : 'text-gray-500'}`}>
+                                {pv !== undefined ? `${pv.toFixed(3)}${significant ? ' *' : ''}` : '—'}
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
+                    </>
+                  )
+                })}
+              </>
             )
           })}
         </tbody>

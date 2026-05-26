@@ -6,6 +6,8 @@ import RecallFunnel from './RecallFunnel'
 import LatencyChart from './LatencyChart'
 import SegmentBreakdown from './SegmentBreakdown'
 import StagePipelineFlow from './StagePipelineFlow'
+import VerdictCard from './VerdictCard'
+import TradeoffScatter from './TradeoffScatter'
 
 interface Props {
   run: Run
@@ -84,6 +86,8 @@ export default function RunDetail({ run }: Props) {
         </Section>
       )}
 
+      <VerdictCard metrics={metrics} />
+
       <Section title="Metrics Summary">
         <MetricsTable metrics={metrics} baselines={baselines} />
       </Section>
@@ -98,6 +102,10 @@ export default function RunDetail({ run }: Props) {
 
       <Section title="Latency Percentiles">
         <LatencyChart metrics={metrics} />
+      </Section>
+
+      <Section title="Quality vs. Latency Tradeoff">
+        <TradeoffScatter metrics={metrics} />
       </Section>
 
       <Section title="NDCG@10 by Number of Relevant Docs">

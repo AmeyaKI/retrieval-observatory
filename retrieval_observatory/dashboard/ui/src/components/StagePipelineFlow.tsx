@@ -21,6 +21,12 @@ function toTitleCase(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// Derive a short, human-readable adapter label from config context.
+// Stage 0 is always the retriever; Stage 1+ are rerankers.
+function stageAdapterLabel(role: 'Retrieval' | 'Reranking', stageIndex: number): string {
+  return role === 'Retrieval' ? 'BM25 / Dense Retriever' : `Reranker (Stage ${stageIndex})`
+}
+
 function fmt2(v: number): string {
   return v.toFixed(3)
 }
@@ -100,7 +106,7 @@ export default function StagePipelineFlow({ metrics }: Props) {
                     Stage {stage.stageIndex} · {stage.role}
                   </div>
                   <div className="text-xs text-gray-700 font-medium mb-2 truncate" title={toTitleCase(stage.pipelineId)}>
-                    {toTitleCase(stage.pipelineId)}
+                    {stageAdapterLabel(stage.role, stage.stageIndex)}
                   </div>
                   <div className="space-y-0.5 text-xs text-gray-600">
                     {stage.ndcg10 !== null && (

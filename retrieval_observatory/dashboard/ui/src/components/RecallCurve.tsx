@@ -17,9 +17,19 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
   // Group recall entries by pipeline_id+stage_index → {k: mean}
   const seriesMap: Record<string, Record<number, { mean: number; ci_low: number; ci_high: number }>> = {}
 
+  const pipelineMaxStage: Record<string, number> = {}
   for (const [, entry] of Object.entries(metrics)) {
-    if (entry.metric_name !== 'recall' || entry.k === 0) continue
-    const seriesKey = formatSeriesKey(entry.pipeline_id, entry.stage_index)
+    if (entry.metric_name !== 'recall' || entry.k === 0 || entry.stage_index < 0) continue
+    pipelineMaxStage[entry.pipeline_id] = Math.max(
+      pipelineMaxStage[entry.pipeline_id] ?? 0,
+      entry.stage_index
+    )
+  }
+
+  for (const [, entry] of Object.entries(metrics)) {
+    if (entry.metric_name !== 'recall' || entry.k === 0 || entry.stage_index < 0) continue
+    const isMultiStage = (pipelineMaxStage[entry.pipeline_id] ?? 0) > 0
+    const seriesKey = formatSeriesKey(entry.pipeline_id, entry.stage_index, isMultiStage)
     if (!seriesMap[seriesKey]) seriesMap[seriesKey] = {}
     seriesMap[seriesKey][entry.k] = { mean: entry.mean, ci_low: entry.ci_low, ci_high: entry.ci_high }
   }

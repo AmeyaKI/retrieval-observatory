@@ -74,6 +74,14 @@ class MetricsEngine:
             # Query metadata to attach to every saved metric row for per-segment analysis
             query_meta = query.metadata if query else {}
 
+            # For multi-stage pipelines, store end-to-end latency as stage_index=-1 so
+            # percentiles are computed on the actual joint distribution, not summed per-stage.
+            if len(result.snapshots) > 1:
+                await store.save_metric(
+                    run_id, result.pipeline_id, result.query_id,
+                    -1, "latency_ms", 0, result.total_latency_ms, query_meta,
+                )
+
             for snap in result.snapshots:
                 doc_ids = [d.id for d in snap.documents]
 

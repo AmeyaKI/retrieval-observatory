@@ -13,8 +13,8 @@ interface Props {
 
 export default function LatencyChart({ metrics }: Props) {
   // Collect latency_p50/p95/p99 per (pipeline, stage)
+  // stage_index=-1 is the true end-to-end total stored directly from total_latency_ms
   const groups: Record<string, Record<string, number>> = {}
-  // Track which pipelines have >1 stage for labeling
   const pipelineMaxStage: Record<string, number> = {}
 
   for (const [, entry] of Object.entries(metrics)) {
@@ -22,47 +22,47 @@ export default function LatencyChart({ metrics }: Props) {
     const key = `${entry.pipeline_id}|||${entry.stage_index}`
     if (!groups[key]) groups[key] = {}
     groups[key][entry.metric_name] = entry.mean
-    pipelineMaxStage[entry.pipeline_id] = Math.max(
-      pipelineMaxStage[entry.pipeline_id] ?? 0,
-      entry.stage_index
-    )
+    // Only track non-total stages for the isMultiStage check
+    if (entry.stage_index >= 0) {
+      pipelineMaxStage[entry.pipeline_id] = Math.max(
+        pipelineMaxStage[entry.pipeline_id] ?? 0,
+        entry.stage_index
+      )
+    }
   }
 
   const groupKeys = Object.keys(groups).sort()
   if (groupKeys.length === 0) return <p className="text-sm text-gray-400">No latency data.</p>
 
-  // Build per-pipeline totals (sum across stages) when multi-stage
-  const pipelineTotals: Record<string, Record<string, number>> = {}
-  for (const [rawKey, vals] of Object.entries(groups)) {
-    const [pipelineId] = rawKey.split('|||')
-    if ((pipelineMaxStage[pipelineId] ?? 0) === 0) continue // single-stage, skip total
-    if (!pipelineTotals[pipelineId]) pipelineTotals[pipelineId] = {}
-    for (const [metric, v] of Object.entries(vals)) {
-      pipelineTotals[pipelineId][metric] = (pipelineTotals[pipelineId][metric] ?? 0) + v
-    }
-  }
-
   const isMultiStage = (pipelineId: string) => (pipelineMaxStage[pipelineId] ?? 0) > 0
 
-  const perStageData = groupKeys.map((rawKey) => {
-    const [pipelineId, stageStr] = rawKey.split('|||')
-    const stageIndex = parseInt(stageStr, 10)
-    return {
-      label: formatSeriesKey(pipelineId, stageIndex, isMultiStage(pipelineId)),
-      p50: groups[rawKey]['latency_p50'] ?? 0,
-      p95: groups[rawKey]['latency_p95'] ?? 0,
-      p99: groups[rawKey]['latency_p99'] ?? 0,
-    }
-  })
+  // Separate per-stage rows from total rows (stage_index=-1)
+  const perStageData = groupKeys
+    .filter((k) => parseInt(k.split('|||')[1], 10) >= 0)
+    .map((rawKey) => {
+      const [pipelineId, stageStr] = rawKey.split('|||')
+      const stageIndex = parseInt(stageStr, 10)
+      return {
+        label: formatSeriesKey(pipelineId, stageIndex, isMultiStage(pipelineId)),
+        p50: groups[rawKey]['latency_p50'] ?? 0,
+        p95: groups[rawKey]['latency_p95'] ?? 0,
+        p99: groups[rawKey]['latency_p99'] ?? 0,
+      }
+    })
 
-  // Append "Total" rows for multi-stage pipelines
-  const totalRows = Object.entries(pipelineTotals).map(([pipelineId, vals]) => ({
-    label: `${formatSeriesKey(pipelineId, 0, false)} — Total`,
-    p50: vals['latency_p50'] ?? 0,
-    p95: vals['latency_p95'] ?? 0,
-    p99: vals['latency_p99'] ?? 0,
-    isTotal: true,
-  }))
+  // True end-to-end totals from stage_index=-1 (computed on raw per-query distributions)
+  const totalRows = groupKeys
+    .filter((k) => parseInt(k.split('|||')[1], 10) === -1)
+    .map((rawKey) => {
+      const [pipelineId] = rawKey.split('|||')
+      return {
+        label: `${formatSeriesKey(pipelineId, 0, false)} — E2E Total`,
+        p50: groups[rawKey]['latency_p50'] ?? 0,
+        p95: groups[rawKey]['latency_p95'] ?? 0,
+        p99: groups[rawKey]['latency_p99'] ?? 0,
+        isTotal: true,
+      }
+    })
 
   const chartData = [...perStageData, ...totalRows]
 
@@ -72,7 +72,7 @@ export default function LatencyChart({ metrics }: Props) {
         P50 = median · P95 = 95th percentile · P99 = tail latency
         <MetricTooltip text={`${METRIC_GLOSSARY.latency_p50}\n\n${METRIC_GLOSSARY.latency_p95}\n\n${METRIC_GLOSSARY.latency_p99}`} />
         {totalRows.length > 0 && (
-          <span className="ml-2 text-gray-400">· "Total" = sum of all stages end-to-end</span>
+          <span className="ml-2 text-gray-400">· "E2E Total" = true end-to-end percentiles computed on per-query total latency</span>
         )}
       </p>
       <ResponsiveContainer width="100%" height={260}>

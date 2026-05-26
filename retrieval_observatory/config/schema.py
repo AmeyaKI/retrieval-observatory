@@ -51,8 +51,15 @@ class MetricsConfig(BaseModel):
 class ExecutionConfig(BaseModel):
     concurrency: int = 8
     timeout_ms: int = 5000
+    timeout_seconds: Optional[int] = None  # human-friendly alias; converts to timeout_ms
     retry_attempts: int = 2
     cache_results: bool = True
+
+    @model_validator(mode="after")
+    def _apply_timeout_seconds(self) -> "ExecutionConfig":
+        if self.timeout_seconds is not None:
+            self.timeout_ms = self.timeout_seconds * 1000
+        return self
 
 
 class OutputConfig(BaseModel):
