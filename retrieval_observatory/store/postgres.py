@@ -28,11 +28,15 @@ CREATE TABLE IF NOT EXISTS raw_results (
     latency_ms REAL,
     retrieved_doc_ids_json TEXT,
     retrieved_scores_json TEXT,
+    profiling_json TEXT,
+    candidate_count INT DEFAULT 0,
     error_traceback TEXT
 )
 """
 
 _MIGRATE_RAW_RESULTS_STAGE_ID = "ALTER TABLE raw_results ADD COLUMN stage_id TEXT"
+_MIGRATE_RAW_RESULTS_PROFILING = "ALTER TABLE raw_results ADD COLUMN profiling_json TEXT"
+_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT = "ALTER TABLE raw_results ADD COLUMN candidate_count INT DEFAULT 0"
 
 _CREATE_METRIC_SCORES = """
 CREATE TABLE IF NOT EXISTS metric_scores (
@@ -52,6 +56,36 @@ _CREATE_CACHE = """
 CREATE TABLE IF NOT EXISTS result_cache (
     cache_key TEXT PRIMARY KEY,
     result_json TEXT NOT NULL
+)
+"""
+
+_CREATE_RUN_MANIFESTS = """
+CREATE TABLE IF NOT EXISTS run_manifests (
+    run_id TEXT PRIMARY KEY,
+    manifest_json TEXT NOT NULL
+)
+"""
+
+_CREATE_VALIDATION_REPORTS = """
+CREATE TABLE IF NOT EXISTS validation_reports (
+    id SERIAL PRIMARY KEY,
+    run_id TEXT,
+    config_path TEXT,
+    created_at TIMESTAMPTZ NOT NULL,
+    report_json TEXT NOT NULL
+)
+"""
+
+_CREATE_QUERY_DIAGNOSTICS = """
+CREATE TABLE IF NOT EXISTS query_diagnostics (
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    pipeline_id TEXT NOT NULL,
+    difficulty_bucket TEXT NOT NULL,
+    failure_labels_json TEXT NOT NULL,
+    missing_relevant_ids_json TEXT NOT NULL,
+    stage_hits_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, query_id, pipeline_id)
 )
 """
 
@@ -88,8 +122,19 @@ class PostgresStore:
             await conn.execute(_CREATE_RAW_RESULTS)
             await conn.execute(_CREATE_METRIC_SCORES)
             await conn.execute(_CREATE_CACHE)
+            await conn.execute(_CREATE_RUN_MANIFESTS)
+            await conn.execute(_CREATE_VALIDATION_REPORTS)
+            await conn.execute(_CREATE_QUERY_DIAGNOSTICS)
             try:
                 await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
+            except Exception:
+                pass
+            try:
+                await conn.execute(_MIGRATE_RAW_RESULTS_PROFILING)
+            except Exception:
+                pass
+            try:
+                await conn.execute(_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT)
             except Exception:
                 pass
 
@@ -130,6 +175,8 @@ class PostgresStore:
                 result.total_latency_ms,
                 "[]",
                 "[]",
+                "{}",
+                0,
                 result.error_traceback,
             )
         ]
@@ -145,6 +192,8 @@ class PostgresStore:
                     snap.latency_ms,
                     json.dumps([d.id for d in snap.documents]),
                     json.dumps([d.score for d in snap.documents]),
+                    json.dumps(snap.profiling),
+                    snap.candidate_count or len(snap.documents),
                     result.error_traceback,
                 )
                 for snap in result.snapshots
@@ -154,8 +203,9 @@ class PostgresStore:
             await conn.executemany(
                 """INSERT INTO raw_results
                    (run_id, pipeline_id, query_id, stage_index, stage_id, status,
-                    latency_ms, retrieved_doc_ids_json, retrieved_scores_json, error_traceback)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
+                    latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
+                    candidate_count, error_traceback)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
                 rows,
             )
 
@@ -248,6 +298,8 @@ class PostgresStore:
                         stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
                         documents=docs,
                         latency_ms=row["latency_ms"],
+                        profiling=json.loads(row["profiling_json"] or "{}"),
+                        candidate_count=row["candidate_count"] or len(docs),
                     )
                 )
                 total_latency += row["latency_ms"]
@@ -309,3 +361,83 @@ class PostgresStore:
         if self._pool is not None:
             await self._pool.close()
             self._pool = None
+
+    async def save_run_manifest(self, run_id: str, manifest: Dict) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO run_manifests (run_id, manifest_json) VALUES ($1, $2)
+                   ON CONFLICT (run_id) DO UPDATE SET manifest_json = EXCLUDED.manifest_json""",
+                run_id,
+                json.dumps(manifest, sort_keys=True),
+            )
+
+    async def get_run_manifest(self, run_id: str) -> Optional[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT manifest_json FROM run_manifests WHERE run_id = $1", run_id)
+        return json.loads(row["manifest_json"]) if row else None
+
+    async def save_validation_report(
+        self,
+        report: Dict,
+        config_path: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO validation_reports (run_id, config_path, created_at, report_json)
+                   VALUES ($1, $2, $3, $4)""",
+                run_id,
+                config_path,
+                datetime.now(timezone.utc),
+                json.dumps(report),
+            )
+
+    async def save_query_diagnostics(self, rows: List[Dict]) -> None:
+        if not rows:
+            return
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                """INSERT INTO query_diagnostics
+                   (run_id, query_id, pipeline_id, difficulty_bucket, failure_labels_json,
+                    missing_relevant_ids_json, stage_hits_json)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (run_id, query_id, pipeline_id) DO UPDATE SET
+                       difficulty_bucket = EXCLUDED.difficulty_bucket,
+                       failure_labels_json = EXCLUDED.failure_labels_json,
+                       missing_relevant_ids_json = EXCLUDED.missing_relevant_ids_json,
+                       stage_hits_json = EXCLUDED.stage_hits_json""",
+                [
+                    (
+                        row["run_id"],
+                        row["query_id"],
+                        row["pipeline_id"],
+                        row["difficulty_bucket"],
+                        json.dumps(row.get("failure_labels", [])),
+                        json.dumps(row.get("missing_relevant_ids", [])),
+                        json.dumps(row.get("stage_hits", {})),
+                    )
+                    for row in rows
+                ],
+            )
+
+    async def get_query_diagnostics(self, run_id: str, query_id: Optional[str] = None) -> List[Dict]:
+        pool = await self._get_pool()
+        sql = "SELECT * FROM query_diagnostics WHERE run_id = $1"
+        params = [run_id]
+        if query_id is not None:
+            sql += " AND query_id = $2"
+            params.append(query_id)
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        result = []
+        for row in rows:
+            item = dict(row)
+            item["failure_labels"] = json.loads(item.pop("failure_labels_json"))
+            item["missing_relevant_ids"] = json.loads(item.pop("missing_relevant_ids_json"))
+            item["stage_hits"] = json.loads(item.pop("stage_hits_json"))
+            result.append(item)
+        return result

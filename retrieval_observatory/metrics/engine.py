@@ -7,7 +7,7 @@ import numpy as np
 
 from retrieval_observatory.metrics.latency import latency_percentiles
 from retrieval_observatory.metrics.ranking import dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
-from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k
+from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
 from retrieval_observatory.types import PipelineResult
@@ -39,6 +39,7 @@ class MetricsEngine:
         results: List[PipelineResult],
         qrels: Union[Dict[str, Set[str]], Dict[str, Dict[str, int]]],
         queries_by_id: Optional[Dict] = None,
+        corpus_documents: Optional[Dict] = None,
     ) -> None:
         """Compute per-query metrics and write each row to metric_scores.
 
@@ -171,6 +172,14 @@ class MetricsEngine:
                         score = temporal_recall_at_k(
                             snap.documents, relevant_set, k, query.temporal_anchor
                         )
+                        if corpus_documents:
+                            score = temporal_recall_at_k_with_corpus(
+                                snap.documents,
+                                relevant_set,
+                                k,
+                                query.temporal_anchor,
+                                corpus_documents,
+                            )
                         metric_rows.append(
                             self._metric_row(
                                 run_id,
@@ -197,6 +206,19 @@ class MetricsEngine:
                         query_meta,
                     )
                 )
+                for profile_name, profile_value in snap.profiling.items():
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            f"profile_{profile_name}",
+                            0,
+                            float(profile_value),
+                            query_meta,
+                        )
+                    )
                 await self._save_metrics(store, metric_rows)
 
     async def aggregate(

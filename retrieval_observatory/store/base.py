@@ -52,3 +52,23 @@ class BaseStore(Protocol):
 
     async def list_runs(self) -> List[Dict]:
         ...
+
+    async def save_run_manifest(self, run_id: str, manifest: Dict) -> None:
+        ...
+
+    async def get_run_manifest(self, run_id: str) -> Optional[Dict]:
+        ...
+
+    async def save_validation_report(
+        self,
+        report: Dict,
+        config_path: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> None:
+        ...
+
+    async def save_query_diagnostics(self, rows: List[Dict]) -> None:
+        ...
+
+    async def get_query_diagnostics(self, run_id: str, query_id: Optional[str] = None) -> List[Dict]:
+        ...

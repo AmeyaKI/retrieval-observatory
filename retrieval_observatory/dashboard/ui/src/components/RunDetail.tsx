@@ -8,6 +8,9 @@ import SegmentBreakdown from './SegmentBreakdown'
 import StagePipelineFlow from './StagePipelineFlow'
 import VerdictCard from './VerdictCard'
 import TradeoffScatter from './TradeoffScatter'
+import ExperimentOverview from './ExperimentOverview'
+import QueryExplorer from './QueryExplorer'
+import StageCombinationMatrix from './StageCombinationMatrix'
 
 interface Props {
   run: Run
@@ -86,6 +89,10 @@ export default function RunDetail({ run }: Props) {
         </Section>
       )}
 
+      <Section title="Experiment Overview">
+        <ExperimentOverview runId={run.run_id} />
+      </Section>
+
       <VerdictCard metrics={metrics} />
 
       <Section title="Metrics Summary">
@@ -106,6 +113,14 @@ export default function RunDetail({ run }: Props) {
 
       <Section title="Quality vs. Latency Tradeoff">
         <TradeoffScatter metrics={metrics} />
+      </Section>
+
+      <Section title="Stage Combination Matrix">
+        <StageCombinationMatrix runId={run.run_id} />
+      </Section>
+
+      <Section title="Query Explorer">
+        <QueryExplorer runId={run.run_id} />
       </Section>
 
       <Section title="NDCG@10 by Number of Relevant Docs">

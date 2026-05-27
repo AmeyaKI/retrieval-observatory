@@ -20,12 +20,15 @@ def _result_to_json(result: PipelineResult) -> str:
             "stage_index": s.stage_index,
             "stage_id": s.stage_id,
             "latency_ms": s.latency_ms,
+            "profiling": s.profiling,
+            "candidate_count": s.candidate_count,
             "documents": [
                 {
                     "id": d.id,
                     "text": d.text,
                     "score": d.score,
                     "rank": d.rank,
+                    "title": d.title,
                     "timestamp": d.timestamp.isoformat() if d.timestamp else None,
                     "metadata": d.metadata,
                 }
@@ -55,6 +58,7 @@ def _result_from_json(data: str) -> PipelineResult:
                 text=d["text"],
                 score=d["score"],
                 rank=d["rank"],
+                title=d.get("title", ""),
                 timestamp=datetime.fromisoformat(d["timestamp"]) if d["timestamp"] else None,
                 metadata=d.get("metadata", {}),
             )
@@ -66,6 +70,8 @@ def _result_from_json(data: str) -> PipelineResult:
                 stage_id=s["stage_id"],
                 documents=docs,
                 latency_ms=s["latency_ms"],
+                profiling=s.get("profiling", {}),
+                candidate_count=s.get("candidate_count", len(docs)),
             )
         )
     return PipelineResult(

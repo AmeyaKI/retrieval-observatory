@@ -44,10 +44,12 @@ class HTTPAdapter:
         start = time.perf_counter()
         client = self._get_client()
         response = None
+        retries = 0
         for attempt in range(self.retry_attempts + 1):
             try:
                 response = await client.post(self.url, json=payload)
                 if response.status_code in {429, 500, 502, 503, 504} and attempt < self.retry_attempts:
+                    retries += 1
                     await response.aclose()
                     await asyncio.sleep(2 ** attempt * 0.25)
                     continue
@@ -55,6 +57,7 @@ class HTTPAdapter:
             except httpx.RequestError:
                 if attempt >= self.retry_attempts:
                     raise
+                retries += 1
                 await asyncio.sleep(2 ** attempt * 0.25)
         latency_ms = (time.perf_counter() - start) * 1000
 
@@ -78,4 +81,5 @@ class HTTPAdapter:
             documents=documents,
             latency_ms=latency_ms,
             retriever_id=self.retriever_id,
+            profiling={"network_ms": latency_ms, "compute_ms": 0.0, "retries": float(retries)},
         )

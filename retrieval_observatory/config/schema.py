@@ -11,13 +11,18 @@ class ExperimentMeta(BaseModel):
 
 
 class DatasetConfig(BaseModel):
+    type: Optional[Literal["beir", "custom"]] = None
     name: str  # e.g. "beir/nfcorpus" or "custom"
     split: str = "test"
     max_queries: Optional[int] = None
     temporal_field: Optional[str] = None
+    timestamp_field: Optional[str] = None
+    metadata_fields: List[str] = Field(default_factory=list)
+    format: Literal["jsonl", "beir"] = "jsonl"
     # For custom datasets
     queries_path: Optional[str] = None
     corpus_path: Optional[str] = None
+    qrels_path: Optional[str] = None
 
 
 class StageConfig(BaseModel):
@@ -37,6 +42,17 @@ class StageConfig(BaseModel):
 class PipelineConfig(BaseModel):
     id: str
     stages: List[StageConfig]
+
+
+class CombinationConfig(BaseModel):
+    include: List[List[str]] = Field(default_factory=list)
+
+
+class LabelsConfig(BaseModel):
+    mode: Literal["gold", "llm_judge", "pooled_llm_judge"] = "gold"
+    judge: Optional[str] = None
+    model: Optional[str] = None
+    cache_path: str = ".retobs/llm_judge_cache.db"
 
 
 class MetricsConfig(BaseModel):
@@ -73,10 +89,36 @@ class OutputConfig(BaseModel):
 class ExperimentConfig(BaseModel):
     experiment: ExperimentMeta
     dataset: DatasetConfig
-    pipelines: List[PipelineConfig]
+    pipelines: List[PipelineConfig] = Field(default_factory=list)
+    stages: Dict[str, StageConfig] = Field(default_factory=dict)
+    combinations: Optional[CombinationConfig] = None
+    labels: LabelsConfig = Field(default_factory=LabelsConfig)
+    profiling: bool = True
+    costs: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
+
+    @model_validator(mode="after")
+    def expand_combinations(self) -> "ExperimentConfig":
+        if self.combinations and self.combinations.include:
+            if not self.stages:
+                raise ValueError("combinations requires a top-level stages mapping")
+            expanded = []
+            for combo in self.combinations.include:
+                missing = [stage_id for stage_id in combo if stage_id not in self.stages]
+                if missing:
+                    raise ValueError(f"Unknown stage id(s) in combinations: {missing}")
+                expanded.append(
+                    PipelineConfig(
+                        id="__".join(combo),
+                        stages=[self.stages[stage_id].model_copy(deep=True) for stage_id in combo],
+                    )
+                )
+            self.pipelines = [*self.pipelines, *expanded]
+        if not self.pipelines:
+            raise ValueError("At least one pipeline or combination is required")
+        return self
 
     @classmethod
     def from_yaml(cls, path: str) -> "ExperimentConfig":

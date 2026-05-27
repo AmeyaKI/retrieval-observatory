@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-from retrieval_observatory.types import Query
+from retrieval_observatory.types import Document, Query
 
 # BEIR dataset names available through HuggingFace
 BEIR_DATASETS = [
@@ -26,12 +26,19 @@ class BEIRDataset:
         self.split = split
         self.max_queries = max_queries
         self._corpus: Optional[Dict[str, str]] = None
+        self._corpus_documents: Optional[Dict[str, Document]] = None
 
     @property
     def corpus(self) -> Dict[str, str]:
         if self._corpus is None:
             raise RuntimeError("Call load() before accessing corpus")
         return self._corpus
+
+    @property
+    def corpus_documents(self) -> Dict[str, Document]:
+        if self._corpus_documents is None:
+            raise RuntimeError("Call load() before accessing corpus_documents")
+        return self._corpus_documents
 
     def load(self) -> Tuple[list, Dict[str, Dict[str, int]]]:
         """Returns (queries, qrels) where qrels = {query_id: {doc_id: grade}}. Grades are 0/1/2."""
@@ -59,6 +66,17 @@ class BEIRDataset:
         corpus_raw, queries_raw, qrels_raw = loader.load(split=self.split)
 
         self._corpus = {doc_id: doc.get("text", "") for doc_id, doc in corpus_raw.items()}
+        self._corpus_documents = {
+            doc_id: Document(
+                id=doc_id,
+                text=doc.get("text", ""),
+                title=doc.get("title", ""),
+                score=0.0,
+                rank=0,
+                metadata={"title": doc.get("title", "")},
+            )
+            for doc_id, doc in corpus_raw.items()
+        }
 
         query_ids = list(queries_raw.keys())
         if self.max_queries is not None:

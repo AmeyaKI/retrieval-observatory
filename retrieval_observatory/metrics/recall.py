@@ -70,3 +70,37 @@ def temporal_recall_at_k(
     if denominator == 0.0:
         return 0.0
     return numerator / denominator
+
+
+def temporal_recall_at_k_with_corpus(
+    retrieved: List[Document],
+    relevant_ids: Set[str],
+    k: int,
+    query_anchor: datetime,
+    corpus_documents: dict[str, Document],
+    decay: Literal["exponential", "linear", "step"] = "exponential",
+    reference_period_days: float = 30.0,
+    decay_rate: float = 1.0,
+) -> float:
+    """Time-decay weighted Recall@K using corpus timestamps for all relevant docs."""
+    if k <= 0:
+        raise ValueError("k must be > 0")
+    if not relevant_ids:
+        return 0.0
+
+    T = reference_period_days * 86400
+
+    def weight(doc: Document | None) -> float:
+        if doc is None or doc.timestamp is None:
+            return 1.0
+        delta_s = abs((doc.timestamp - query_anchor).total_seconds())
+        if decay == "exponential":
+            return math.exp(decay_rate * -delta_s / T)
+        if decay == "linear":
+            return max(0.0, 1.0 - delta_s / T)
+        return 1.0 if delta_s <= T else 0.0
+
+    retrieved_ids = {doc.id for doc in retrieved[:k]}
+    numerator = sum(weight(corpus_documents.get(doc_id)) for doc_id in relevant_ids & retrieved_ids)
+    denominator = sum(weight(corpus_documents.get(doc_id)) for doc_id in relevant_ids)
+    return numerator / denominator if denominator else 0.0

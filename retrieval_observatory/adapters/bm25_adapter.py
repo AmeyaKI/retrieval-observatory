@@ -61,4 +61,5 @@ class BM25Adapter:
             documents=documents,
             latency_ms=latency_ms,
             retriever_id=self.retriever_id,
+            profiling={"compute_ms": latency_ms, "network_ms": 0.0, "retries": 0.0},
         )

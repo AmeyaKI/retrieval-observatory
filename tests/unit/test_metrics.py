@@ -3,9 +3,11 @@ from datetime import datetime, timedelta
 import pytest
 
 from retrieval_observatory.metrics.ranking import average_precision, dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
-from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k
+from retrieval_observatory.metrics.comparison import paired_scores_by_query
+from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
+from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
-from retrieval_observatory.types import Document
+from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 
 def test_recall_at_k_perfect():
@@ -74,6 +76,27 @@ def test_temporal_recall_no_timestamps():
     assert score == 1.0  # no timestamp → weight=1.0 → same as standard recall
 
 
+def test_temporal_recall_uses_corpus_timestamp_for_unretrieved_relevant_docs():
+    anchor = datetime(2024, 1, 15)
+    retrieved = [
+        Document(id="old", text="", score=1.0, rank=1, timestamp=datetime(2023, 1, 1)),
+    ]
+    corpus = {
+        "old": Document(id="old", text="", score=0.0, rank=0, timestamp=datetime(2023, 1, 1)),
+        "recent": Document(id="recent", text="", score=0.0, rank=0, timestamp=datetime(2024, 1, 14)),
+    }
+
+    score = temporal_recall_at_k_with_corpus(
+        retrieved,
+        {"old", "recent"},
+        k=1,
+        query_anchor=anchor,
+        corpus_documents=corpus,
+    )
+
+    assert score < 0.5
+
+
 def test_dedupe_preserve_rank():
     assert dedupe_preserve_rank(["d1", "d1", "d2", "d1", "d3"]) == ["d1", "d2", "d3"]
 
@@ -116,3 +139,46 @@ def test_paired_bootstrap_different():
     b = [0.1] * 50
     p = paired_bootstrap_test(a, b)
     assert p < 0.05
+
+
+def test_paired_scores_join_by_query_id_not_row_order():
+    a = [
+        {"pipeline_id": "p", "stage_index": 0, "metric_name": "recall", "k": 10, "query_id": "q1", "value": 0.1},
+        {"pipeline_id": "p", "stage_index": 0, "metric_name": "recall", "k": 10, "query_id": "q2", "value": 0.9},
+    ]
+    b = [
+        {"pipeline_id": "p", "stage_index": 0, "metric_name": "recall", "k": 10, "query_id": "q2", "value": 0.8},
+        {"pipeline_id": "p", "stage_index": 0, "metric_name": "recall", "k": 10, "query_id": "q1", "value": 0.2},
+    ]
+
+    s1, s2, n = paired_scores_by_query(a, b, "p|stage0|recall@10")
+    assert n == 2
+    assert s1 == [0.1, 0.9]
+    assert s2 == [0.2, 0.8]
+
+
+def test_query_diagnostics_labels_reranker_drop():
+    result = PipelineResult(
+        query_id="q1",
+        pipeline_id="bm25__rerank",
+        status="OK",
+        total_latency_ms=3.0,
+        snapshots=[
+            StageSnapshot(
+                stage_index=0,
+                stage_id="bm25",
+                documents=[Document(id="d1", text="", score=1.0, rank=1)],
+                latency_ms=1.0,
+            ),
+            StageSnapshot(
+                stage_index=1,
+                stage_id="rerank",
+                documents=[Document(id="d2", text="", score=1.0, rank=1)],
+                latency_ms=2.0,
+            ),
+        ],
+    )
+
+    rows = build_query_diagnostics("run1", [result], {"q1": {"d1": 1}})
+    assert rows[0]["failure_labels"] == ["reranker_drop"]
+    assert rows[0]["missing_relevant_ids"] == ["d1"]

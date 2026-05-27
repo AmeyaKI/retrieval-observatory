@@ -34,6 +34,7 @@ export interface RunMetricValues {
 export interface ComparisonEntry {
   metric: string
   p_value?: number
+  paired_n?: number
   [runId: string]: RunMetricValues | string | number | undefined
 }
 
@@ -78,5 +79,39 @@ export interface SegmentMetrics {
 export async function fetchSegmentMetrics(runId: string, field: string = 'n_relevant'): Promise<SegmentMetrics> {
   const res = await fetch(`${BASE}/runs/${runId}/metrics/by-segment?field=${encodeURIComponent(field)}`)
   if (!res.ok) throw new Error(`Failed to fetch segment metrics for run ${runId}`)
+  return res.json()
+}
+
+export interface RunOverview {
+  headline_winner: null | (MetricEntry & { metric: string })
+  diagnostics: { difficulty_buckets: Record<string, number>; failure_labels: Record<string, number>; n: number }
+  manifest: Record<string, unknown> | null
+  warnings: string[]
+}
+
+export async function fetchRunOverview(runId: string): Promise<RunOverview> {
+  const res = await fetch(`${BASE}/runs/${runId}/overview`)
+  if (!res.ok) throw new Error(`Failed to fetch overview for run ${runId}`)
+  return res.json()
+}
+
+export interface QueryDiagnostic {
+  query_id: string
+  pipeline_id: string
+  difficulty_bucket: string
+  failure_labels: string[]
+  missing_relevant_ids: string[]
+  stage_hits: Record<string, string[]>
+}
+
+export async function fetchDiagnostics(runId: string): Promise<{ summary: RunOverview['diagnostics']; items: QueryDiagnostic[] }> {
+  const res = await fetch(`${BASE}/runs/${runId}/diagnostics`)
+  if (!res.ok) throw new Error(`Failed to fetch diagnostics for run ${runId}`)
+  return res.json()
+}
+
+export async function fetchStageMatrix(runId: string): Promise<{ run_id: string; cells: Array<MetricEntry & { metric: string; estimated_cost_per_1k: number }> }> {
+  const res = await fetch(`${BASE}/runs/${runId}/stage-matrix`)
+  if (!res.ok) throw new Error(`Failed to fetch stage matrix for run ${runId}`)
   return res.json()
 }

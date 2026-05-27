@@ -68,6 +68,8 @@ class MultiStagePipeline:
                         stage_id=stage.retriever_id,
                         documents=result.documents,
                         latency_ms=result.latency_ms,
+                        profiling=result.profiling,
+                        candidate_count=len(result.documents),
                     )
                 )
 

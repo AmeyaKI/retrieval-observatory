@@ -23,6 +23,7 @@ class Document:
     text: str
     score: float
     rank: int  # 1-indexed
+    title: str = ""
     timestamp: Optional[datetime] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -34,6 +35,7 @@ class RetrievalResult:
     retriever_id: str
     stage: int = 0
     raw_scores: Optional[List[float]] = None
+    profiling: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -42,6 +44,8 @@ class StageSnapshot:
     stage_id: str
     documents: List[Document]
     latency_ms: float
+    profiling: Dict[str, float] = field(default_factory=dict)
+    candidate_count: int = 0
 
 
 @dataclass

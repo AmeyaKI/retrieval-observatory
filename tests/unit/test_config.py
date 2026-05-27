@@ -74,3 +74,40 @@ def test_execution_defaults():
 def test_stage_config_default_retriever_id():
     stage = StageConfig(type="adapter.http", url="http://localhost:9000/search")
     assert stage.retriever_id == "http://localhost:9000/search"
+
+
+def test_combination_config_expands_pipelines():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "combo-run"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 100}},
+                "rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 10},
+                },
+            },
+            "combinations": {"include": [["bm25"], ["bm25", "rerank"]]},
+        }
+    )
+
+    assert [p.id for p in cfg.pipelines] == ["bm25", "bm25__rerank"]
+    assert [s.type for s in cfg.pipelines[1].stages] == ["adapter.bm25", "adapter.hf_crossencoder"]
+
+
+def test_validation_reports_missing_custom_paths():
+    from retrieval_observatory.datasets.validation import validate_experiment_config
+
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "bad-custom"},
+            "dataset": {"type": "custom", "name": "custom"},
+            "pipelines": [{"id": "bm25", "stages": [{"type": "adapter.bm25", "config": {"k": 10}}]}],
+        }
+    )
+
+    report = validate_experiment_config(cfg)
+    assert report["status"] == "error"
+    messages = [item["message"] for item in report["items"]]
+    assert any("custom queries file is not configured" in msg for msg in messages)

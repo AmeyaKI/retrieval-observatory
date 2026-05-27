@@ -60,6 +60,7 @@ class HFCrossEncoderAdapter:
                 text=doc.text,
                 score=float(score),
                 rank=rank,
+                title=doc.title,
                 timestamp=doc.timestamp,
                 metadata=doc.metadata,
             )
@@ -70,4 +71,5 @@ class HFCrossEncoderAdapter:
             documents=reranked,
             latency_ms=latency_ms,
             retriever_id=self.retriever_id,
+            profiling={"compute_ms": latency_ms, "network_ms": 0.0, "retries": 0.0},
         )

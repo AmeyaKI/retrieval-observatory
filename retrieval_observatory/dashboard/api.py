@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import uuid
 from collections import defaultdict
 from typing import Any, Dict, List
 
 import numpy as np
 
 from retrieval_observatory.metrics.engine import MetricsEngine
+from retrieval_observatory.metrics.comparison import paired_scores_by_query
+from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.store.sqlite import SQLiteStore
 
@@ -24,7 +28,7 @@ except ImportError:
 
 def create_app(db_path: str = ".retobs/results.db"):
     try:
-        from fastapi import FastAPI, HTTPException
+        from fastapi import FastAPI, File, HTTPException, UploadFile
         from fastapi.middleware.cors import CORSMiddleware
         from pydantic import BaseModel
     except ImportError as e:
@@ -87,12 +91,14 @@ def create_app(db_path: str = ".retobs/results.db"):
                     "ci_low": agg.get("ci_low"),
                     "ci_high": agg.get("ci_high"),
                 }
-            # Pairwise significance for first two runs
-            s1 = raw_scores[req.run_ids[0]].get(key, [])
-            s2 = raw_scores[req.run_ids[1]].get(key, [])
-            if s1 and s2 and len(s1) == len(s2):
+            # Pairwise significance for first two runs, joined by query_id.
+            metrics_1 = await store.get_metrics(req.run_ids[0])
+            metrics_2 = await store.get_metrics(req.run_ids[1])
+            s1, s2, n_pairs = paired_scores_by_query(metrics_1, metrics_2, key)
+            if s1 and s2:
                 try:
                     entry["p_value"] = paired_bootstrap_test(s1, s2)
+                    entry["paired_n"] = n_pairs
                 except Exception:
                     # Keep comparison available even when one metric key has invalid score arrays.
                     pass
@@ -165,6 +171,136 @@ def create_app(db_path: str = ".retobs/results.db"):
         name = dataset_name.removeprefix("beir/")
         return _BEIR_BASELINES.get(name, {})
 
+    @app.get("/runs/{run_id}/manifest")
+    async def get_manifest(run_id: str) -> Dict[str, Any]:
+        manifest = await store.get_run_manifest(run_id)
+        if not manifest:
+            raise HTTPException(status_code=404, detail=f"No manifest for run '{run_id}'")
+        return manifest
+
+    @app.get("/runs/{run_id}/diagnostics")
+    async def get_diagnostics(run_id: str) -> Dict[str, Any]:
+        rows = await store.get_query_diagnostics(run_id)
+        return {"summary": aggregate_diagnostics(rows), "items": rows}
+
+    @app.get("/runs/{run_id}/overview")
+    async def get_run_overview(run_id: str) -> Dict[str, Any]:
+        runs = [run for run in await store.list_runs() if run["run_id"] == run_id]
+        if not runs:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+        metrics = await engine.aggregate(run_id, store)
+        diagnostics = await store.get_query_diagnostics(run_id)
+        manifest = await store.get_run_manifest(run_id)
+        best = _headline_winner(metrics)
+        return {
+            "run": runs[0],
+            "headline_winner": best,
+            "diagnostics": aggregate_diagnostics(diagnostics),
+            "manifest": manifest,
+            "warnings": _overview_warnings(metrics, diagnostics, manifest),
+        }
+
+    @app.get("/runs/{run_id}/queries/{query_id}")
+    async def get_query_result(run_id: str, query_id: str) -> Dict[str, Any]:
+        results = [r for r in await store.get_results(run_id) if r.query_id == query_id]
+        diagnostics = await store.get_query_diagnostics(run_id, query_id=query_id)
+        return {
+            "run_id": run_id,
+            "query_id": query_id,
+            "diagnostics": diagnostics,
+            "results": [
+                {
+                    "pipeline_id": result.pipeline_id,
+                    "status": result.status,
+                    "total_latency_ms": result.total_latency_ms,
+                    "stages": [
+                        {
+                            "stage_index": snap.stage_index,
+                            "stage_id": snap.stage_id,
+                            "latency_ms": snap.latency_ms,
+                            "profiling": snap.profiling,
+                            "candidate_count": snap.candidate_count,
+                            "documents": [
+                                {"id": doc.id, "score": doc.score, "rank": doc.rank}
+                                for doc in snap.documents
+                            ],
+                        }
+                        for snap in result.snapshots
+                    ],
+                }
+                for result in results
+            ],
+        }
+
+    @app.get("/runs/{run_id}/stage-matrix")
+    async def get_stage_matrix(run_id: str) -> Dict[str, Any]:
+        agg = await engine.aggregate(run_id, store)
+        run_rows = [run for run in await store.list_runs() if run["run_id"] == run_id]
+        config = json.loads(run_rows[0]["config_json"]) if run_rows else {}
+        costs = config.get("costs", {})
+        cells = []
+        for key, value in agg.items():
+            if value["stage_index"] < 0:
+                continue
+            cells.append({"metric": key, "estimated_cost_per_1k": _pipeline_cost_per_1k(config, value["pipeline_id"], costs), **value})
+        return {"run_id": run_id, "cells": cells}
+
+    try:
+        import multipart  # noqa: F401
+
+        @app.post("/validate")
+        async def validate_uploaded_config(config_file: UploadFile = File(...)) -> Dict[str, Any]:
+            from retrieval_observatory.config.schema import ExperimentConfig
+            from retrieval_observatory.datasets.validation import validate_experiment_config
+            import yaml
+
+            content = await config_file.read()
+            cfg = ExperimentConfig.model_validate(yaml.safe_load(content))
+            report = validate_experiment_config(cfg, config_file.filename)
+            await store.save_validation_report(report, config_path=config_file.filename)
+            return report
+
+        @app.post("/experiments/prepare")
+        async def prepare_experiment(
+            config_file: UploadFile = File(...),
+            queries_file: UploadFile | None = File(None),
+            corpus_file: UploadFile | None = File(None),
+            qrels_file: UploadFile | None = File(None),
+        ) -> Dict[str, Any]:
+            upload_id = str(uuid.uuid4())[:8]
+            upload_dir = os.path.join(".retobs", "uploads", upload_id)
+            os.makedirs(upload_dir, exist_ok=True)
+
+            async def _save(upload: UploadFile | None, filename: str) -> str | None:
+                if upload is None:
+                    return None
+                path = os.path.join(upload_dir, filename)
+                with open(path, "wb") as f:
+                    shutil.copyfileobj(upload.file, f)
+                return path
+
+            config_path = await _save(config_file, "experiment.yaml")
+            queries_path = await _save(queries_file, "queries.jsonl")
+            corpus_path = await _save(corpus_file, "corpus.jsonl")
+            qrels_path = await _save(qrels_file, "qrels.jsonl")
+
+            return {
+                "upload_id": upload_id,
+                "config_path": config_path,
+                "queries_path": queries_path,
+                "corpus_path": corpus_path,
+                "qrels_path": qrels_path,
+                "run_command": f"retobs run --config {config_path}",
+            }
+    except ImportError:
+        @app.post("/validate")
+        async def validate_upload_unavailable() -> Dict[str, Any]:
+            raise HTTPException(status_code=501, detail="Install retrieval-observatory[dashboard] with python-multipart to use upload validation.")
+
+        @app.post("/experiments/prepare")
+        async def prepare_upload_unavailable() -> Dict[str, Any]:
+            raise HTTPException(status_code=501, detail="Install retrieval-observatory[dashboard] with python-multipart to use experiment uploads.")
+
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):
         from fastapi.responses import FileResponse
@@ -185,3 +321,37 @@ def create_app(db_path: str = ".retobs/results.db"):
             return FileResponse(_index)
 
     return app
+
+
+def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
+    candidates = [
+        {"metric": key, **value}
+        for key, value in metrics.items()
+        if value.get("metric_name") in {"ndcg", "recall"} and value.get("k") in {10, 20}
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: row.get("mean", 0.0))
+
+
+def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifest: Dict | None) -> List[str]:
+    warnings = []
+    if any(value.get("metric_name") == "failure_rate" and value.get("mean", 0.0) > 0 for value in metrics.values()):
+        warnings.append("At least one pipeline had failed or timed-out queries.")
+    if any("id_or_qrel_issue" in row.get("failure_labels", []) for row in diagnostics):
+        warnings.append("Some queries look like possible document ID or qrel mismatches.")
+    if manifest and manifest.get("dataset", {}).get("missing_qrel_doc_ids", 0):
+        warnings.append("Some qrel document IDs were missing from the loaded corpus.")
+    return warnings
+
+
+def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[str, Dict[str, float]]) -> float:
+    pipeline = next((p for p in config.get("pipelines", []) if p.get("id") == pipeline_id), None)
+    if not pipeline:
+        return 0.0
+    total = 0.0
+    for stage in pipeline.get("stages", []):
+        stage_id = stage.get("retriever_id") or stage.get("type")
+        stage_cost = costs.get(stage_id, costs.get(stage.get("type"), {}))
+        total += float(stage_cost.get("per_1k_queries", 0.0))
+    return total

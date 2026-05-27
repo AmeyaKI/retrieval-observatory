@@ -58,4 +58,5 @@ class CohereRerankAdapter:
             documents=reranked,
             latency_ms=latency_ms,
             retriever_id=self.retriever_id,
+            profiling={"network_ms": latency_ms, "compute_ms": 0.0, "retries": 0.0},
         )
