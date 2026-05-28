@@ -10,9 +10,9 @@ from typing import Any, Dict, List
 import numpy as np
 
 from retrieval_observatory.metrics.engine import MetricsEngine
-from retrieval_observatory.metrics.comparison import paired_scores_by_query
+from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs, parse_metric_key
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
-from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
+from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
@@ -189,6 +189,7 @@ def create_app(db_path: str = ".retobs/results.db"):
         if not runs:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
         metrics = await engine.aggregate(run_id, store)
+        metrics_rows = await store.get_metrics(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
@@ -198,6 +199,7 @@ def create_app(db_path: str = ".retobs/results.db"):
             "diagnostics": aggregate_diagnostics(diagnostics),
             "manifest": manifest,
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
+            "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
         }
 
     @app.get("/runs/{run_id}/queries/{query_id}")
@@ -343,6 +345,103 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
     if manifest and manifest.get("dataset", {}).get("missing_qrel_doc_ids", 0):
         warnings.append("Some qrel document IDs were missing from the loaded corpus.")
     return warnings
+
+
+def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:
+    """Return raw stage deltas for each adjacent pipeline pair — no pre-computed verdict."""
+    pipeline_ids = list({v.get("pipeline_id") for v in metrics.values() if v.get("pipeline_id")})
+    pairs = pipeline_pairs(pipeline_ids)
+    if not pairs:
+        return []
+
+    # Parse keys into {pid: {sidx: [(mname, k, full_key)]}}
+    keys_by_pipeline: Dict = {}
+    for key, v in metrics.items():
+        try:
+            pid, sidx, mname, k = parse_metric_key(key)
+        except Exception:
+            continue
+        keys_by_pipeline.setdefault(pid, {}).setdefault(sidx, []).append((mname, k, key))
+
+    quality_metrics = {"recall", "ndcg", "mrr", "map"}
+    contributions = []
+
+    for before_id, after_id in pairs:
+        before_stages = keys_by_pipeline.get(before_id, {})
+        after_stages = keys_by_pipeline.get(after_id, {})
+        if not before_stages or not after_stages:
+            continue
+
+        before_last = max(s for s in before_stages if s >= 0)
+        after_last = max(s for s in after_stages if s >= 0)
+
+        before_quality = {(mname, k): fk for mname, k, fk in before_stages.get(before_last, []) if mname in quality_metrics}
+        after_quality = {(mname, k): fk for mname, k, fk in after_stages.get(after_last, []) if mname in quality_metrics}
+
+        deltas: Dict = {}
+        raw_p_values: List[float] = []
+        delta_p_map: List[tuple] = []
+
+        for mk in sorted(set(before_quality) & set(after_quality)):
+            mname, k = mk
+            b_mean = metrics[before_quality[mk]]["mean"]
+            a_mean = metrics[after_quality[mk]]["mean"]
+            absolute = a_mean - b_mean
+            pct = (absolute / b_mean * 100) if b_mean != 0 else 0.0
+
+            b_scores = {r["query_id"]: r["value"] for r in metrics_rows
+                        if r["pipeline_id"] == before_id and r["stage_index"] == before_last
+                        and r["metric_name"] == mname and r["k"] == k}
+            a_scores = {r["query_id"]: r["value"] for r in metrics_rows
+                        if r["pipeline_id"] == after_id and r["stage_index"] == after_last
+                        and r["metric_name"] == mname and r["k"] == k}
+            shared = sorted(set(b_scores) & set(a_scores))
+            p = None
+            if shared:
+                p = paired_bootstrap_test([b_scores[q] for q in shared], [a_scores[q] for q in shared])
+                raw_p_values.append(p)
+            delta_p_map.append((mname, k, b_mean, a_mean, absolute, pct, p))
+
+        q_values = benjamini_hochberg(raw_p_values)
+        q_idx = 0
+        for mname, k, b_mean, a_mean, absolute, pct, p in delta_p_map:
+            label = f"{mname}@{k}" if k > 0 else mname
+            q_value = None
+            if p is not None:
+                q_value = q_values[q_idx]
+                q_idx += 1
+            deltas[label] = {
+                "before": b_mean,
+                "after": a_mean,
+                "absolute": absolute,
+                "pct": pct,
+                "q_value": q_value,
+                "significant": (q_value is not None and q_value < 0.05),
+            }
+
+        # Latency P50
+        def _lat(stages):
+            sidx = -1 if -1 in stages else max((s for s in stages if s >= 0), default=None)
+            if sidx is None:
+                return None
+            for mname, k, fk in stages.get(sidx, []):
+                if mname == "latency_p50" and fk in metrics:
+                    return metrics[fk]["mean"]
+            return None
+
+        lat_before = _lat(before_stages)
+        lat_after = _lat(after_stages)
+
+        contributions.append({
+            "from_pipeline": before_id,
+            "to_pipeline": after_id,
+            "deltas": deltas,
+            "latency_p50_before_ms": lat_before,
+            "latency_p50_after_ms": lat_after,
+            "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+        })
+
+    return contributions
 
 
 def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[str, Dict[str, float]]) -> float:

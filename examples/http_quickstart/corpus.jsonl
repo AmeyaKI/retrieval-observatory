@@ -1,0 +1,8 @@
+{"id": "doc1", "text": "Retrieval-augmented generation combines dense retrieval with language model generation."}
+{"id": "doc2", "text": "BM25 is a sparse bag-of-words retrieval function based on term frequency and inverse document frequency."}
+{"id": "doc3", "text": "Dense retrieval encodes queries and documents into vector embeddings and retrieves by cosine similarity."}
+{"id": "doc4", "text": "Hybrid retrieval fuses sparse and dense signals using Reciprocal Rank Fusion or learned weights."}
+{"id": "doc5", "text": "Rerankers use cross-encoder models to rescore candidate documents for improved precision."}
+{"id": "doc6", "text": "NDCG@10 measures the ranking quality of the top-10 retrieved documents weighted by relevance grade."}
+{"id": "doc7", "text": "Recall@K measures the fraction of relevant documents found in the top-K retrieved results."}
+{"id": "doc8", "text": "A retrieval pipeline consists of one or more stages: retriever, optional reranker, optional filter."}

@@ -39,8 +39,6 @@ def build_pipeline_from_config(
         # These adapters wrap pre-constructed Python objects and cannot be fully wired from YAML.
         # Use them programmatically: MyAdapter(retriever_obj, ...) then build_pipeline() directly.
         "adapter.pgvector": _build_pgvector_adapter,
-        "adapter.langchain": _build_langchain_adapter,
-        "adapter.llamaindex": _build_llamaindex_adapter,
     }
 
     stages = []
@@ -215,18 +213,4 @@ def _build_pgvector_adapter(stage_cfg: dict):
     raise ValueError(
         "adapter.pgvector requires a Python embedding function and cannot be fully configured "
         "from YAML alone. Use PgvectorAdapter(...) programmatically and call build_pipeline() directly."
-    )
-
-
-def _build_langchain_adapter(stage_cfg: dict):
-    raise ValueError(
-        "adapter.langchain wraps a pre-constructed LangChain BaseRetriever object. "
-        "Use LangChainAdapter(retriever, retriever_id) programmatically and call build_pipeline() directly."
-    )
-
-
-def _build_llamaindex_adapter(stage_cfg: dict):
-    raise ValueError(
-        "adapter.llamaindex wraps a pre-constructed LlamaIndex BaseRetriever object. "
-        "Use LlamaIndexAdapter(retriever, retriever_id) programmatically and call build_pipeline() directly."
     )

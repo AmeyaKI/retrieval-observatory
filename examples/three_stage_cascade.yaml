@@ -1,0 +1,74 @@
+# three_stage_cascade.yaml
+#
+# Tests a 3-stage cascade reranking pipeline on BEIR/nfcorpus.
+# The core question: does each added stage pay for itself?
+#
+#   Stage 0: BM25          — sparse retrieval, 200 candidates
+#   Stage 1: fast_rerank   — small cross-encoder (22M params), cuts 200 → 50
+#   Stage 2: precise_rerank — large cross-encoder (33M params), cuts 50 → 10
+#
+# ablations: true auto-generates ALL prefix pipelines from the one combo entry:
+#   bm25                                       (1 stage)
+#   bm25__fast_rerank                          (2 stages)
+#   bm25__fast_rerank__precise_rerank          (3 stages)
+#
+# After the run, retobs prints two stage attribution tables:
+#   bm25 → bm25__fast_rerank
+#     → Did the cheap reranker improve quality? At what latency cost?
+#   bm25__fast_rerank → bm25__fast_rerank__precise_rerank
+#     → Did the expensive reranker justify its extra latency over the cheap one?
+#
+# Run with:
+#   pip install -e ".[demo,dashboard,dense,dev]"
+#   retobs run --config examples/three_stage_cascade.yaml --no-cache
+#
+# With a latency budget (prints a one-line verdict per stage pair):
+#   retobs run --config examples/three_stage_cascade.yaml --no-cache --latency-budget-ms 2000
+
+experiment:
+  name: three-stage-cascade
+
+dataset:
+  type: beir
+  name: beir/nfcorpus     # 323 queries, 3,633 docs — downloads automatically on first run
+  split: test
+  max_queries: 100         # ~2 min on CPU; remove cap for full 323-query eval
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 200               # retrieve 200 candidates to give the reranker enough to work with
+
+  fast_rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2   # 22M params — fast, decent quality
+      k: 50                # keep top 50 to pass to the precise reranker
+
+  precise_rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-12-v2  # 33M params — slower, better quality
+      k: 10                # final output: top 10
+
+combinations:
+  include:
+    - [bm25, fast_rerank, precise_rerank]
+  ablations: true          # auto-generates [bm25] and [bm25, fast_rerank] prefix pipelines
+
+metrics:
+  recall_at_k: [5, 10, 20]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 1           # cross-encoders are CPU-bound; keep at 1 to avoid OOM
+  timeout_seconds: 120     # per-query timeout across all 3 stages
+  cache_results: true      # re-running reuses results unless --no-cache is passed
+
+output:
+  store: sqlite
+  db_path: .retobs/three_stage_cascade.db
+  export: [json]

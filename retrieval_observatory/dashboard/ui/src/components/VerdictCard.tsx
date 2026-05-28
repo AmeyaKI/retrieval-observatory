@@ -1,8 +1,12 @@
-import { MetricsMap } from '../api'
+import { useMemo, useState } from 'react'
+import { MetricsMap, StageContribution } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 
 interface Props {
   metrics: MetricsMap
+  stageContributions?: StageContribution[]
+  latencyBudgetMs: number
+  minQualityDelta: number
 }
 
 interface PipelineSummary {
@@ -38,7 +42,101 @@ function DeltaBadge({ d, higherIsBetter = true }: { d: number | null; higherIsBe
   )
 }
 
-export default function VerdictCard({ metrics }: Props) {
+function StageContributionCard({
+  contribution,
+  latencyBudgetMs,
+  minQualityDelta,
+}: {
+  contribution: StageContribution
+  latencyBudgetMs: number
+  minQualityDelta: number
+}) {
+  const verdict = useMemo(() => {
+    const entries = Object.entries(contribution.deltas)
+    const qualityEntry = entries.find(([k]) => k.startsWith('recall') || k.startsWith('ndcg'))
+    if (!qualityEntry) return null
+    const [metricLabel, delta] = qualityEntry
+    const qualityMet = delta.absolute >= minQualityDelta && delta.significant
+    const latencyOk =
+      contribution.latency_delta_ms == null || contribution.latency_delta_ms <= latencyBudgetMs
+
+    if (!delta.significant) {
+      return {
+        color: 'amber',
+        icon: '⚠',
+        text: `Quality gain not statistically significant${delta.q_value != null ? ` (q=${delta.q_value.toFixed(3)})` : ''}.`,
+      }
+    }
+    if (qualityMet && latencyOk) {
+      return {
+        color: 'emerald',
+        icon: '✓',
+        text: `Stage pays for itself: ${metricLabel} +${delta.absolute.toFixed(4)} (+${delta.pct.toFixed(1)}%) within ${latencyBudgetMs}ms budget.`,
+      }
+    }
+    if (qualityMet && !latencyOk) {
+      const over = contribution.latency_delta_ms! - latencyBudgetMs
+      return {
+        color: 'amber',
+        icon: '⚠',
+        text: `Significant gain (+${delta.absolute.toFixed(4)} ${metricLabel}), but exceeds latency budget by ${over.toFixed(0)}ms. Consider GPU or smaller model.`,
+      }
+    }
+    return {
+      color: 'gray',
+      icon: '○',
+      text: `${metricLabel} delta (${delta.absolute.toFixed(4)}) below minimum threshold of ${minQualityDelta.toFixed(2)}.`,
+    }
+  }, [contribution, latencyBudgetMs, minQualityDelta])
+
+  const colorMap: Record<string, string> = {
+    emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+    amber: 'border-amber-200 bg-amber-50 text-amber-800',
+    gray: 'border-gray-200 bg-gray-50 text-gray-600',
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+      <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-400 mb-1">
+        {contribution.from_pipeline} → {contribution.to_pipeline}
+      </div>
+      {verdict && (
+        <div className={`text-xs rounded px-2 py-1.5 mb-3 border ${colorMap[verdict.color]}`}>
+          <span className="font-bold mr-1">{verdict.icon}</span>
+          {verdict.text}
+        </div>
+      )}
+      <div className="space-y-1 text-xs">
+        {Object.entries(contribution.deltas).map(([label, d]) => (
+          <div key={label} className="flex justify-between items-center gap-2">
+            <span className="text-gray-500">{label}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="font-mono text-gray-700">{d.before.toFixed(4)} → {d.after.toFixed(4)}</span>
+              <span className={`font-mono text-xs font-semibold ${d.absolute > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {d.absolute >= 0 ? '+' : ''}{d.absolute.toFixed(4)}
+              </span>
+              {d.q_value != null && (
+                <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-emerald-700 bg-emerald-50' : 'text-gray-400 bg-gray-100'}`}>
+                  q={d.q_value.toFixed(3)}{d.significant ? ' ✓' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+        {contribution.latency_delta_ms != null && (
+          <div className="flex justify-between items-center gap-2 pt-1 mt-1 border-t border-gray-100">
+            <span className="text-gray-500">Latency P50</span>
+            <span className={`font-mono text-xs font-semibold ${contribution.latency_delta_ms > latencyBudgetMs ? 'text-red-600' : 'text-emerald-600'}`}>
+              {contribution.latency_delta_ms >= 0 ? '+' : ''}{contribution.latency_delta_ms.toFixed(0)}ms
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default function VerdictCard({ metrics, stageContributions, latencyBudgetMs, minQualityDelta }: Props) {
   // Build per-pipeline summary from the last stage (highest stage_index)
   const summaryMap = new Map<string, PipelineSummary>()
 
@@ -58,15 +156,9 @@ export default function VerdictCard({ metrics }: Props) {
       })
     }
     const s = summaryMap.get(pid)!
-
-    // Track highest stage seen
     if (entry.stage_index > s.finalStage) s.finalStage = entry.stage_index
-
-    // Only populate metrics from the highest stage (final output)
-    // We'll do a second pass after collecting all entries
   }
 
-  // Second pass — populate metrics only from the final stage of each pipeline
   for (const [, entry] of Object.entries(metrics)) {
     if (entry.stage_index < 0) continue
     const s = summaryMap.get(entry.pipeline_id)
@@ -86,12 +178,13 @@ export default function VerdictCard({ metrics }: Props) {
   const summaries = [...summaryMap.values()]
   if (summaries.length === 0) return null
 
-  // Identify baseline: prefer pipeline with "baseline" in the name, else first pipeline alphabetically
   const baseline = summaries.find((s) => s.isBaseline) ?? summaries.sort((a, b) => a.pipelineId.localeCompare(b.pipelineId))[0]
   const comparisons = summaries.filter((s) => s.pipelineId !== baseline.pipelineId)
 
   const toLabel = (pid: string) =>
     pid.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+  const hasContributions = stageContributions && stageContributions.length > 0
 
   return (
     <div className="mb-6">
@@ -100,7 +193,7 @@ export default function VerdictCard({ metrics }: Props) {
         <MetricTooltip text="Headline metrics for each pipeline's final stage. Δ values compare against the baseline pipeline. Green = improvement, Red = regression." />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-4">
         {/* Baseline card */}
         <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
           <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Baseline</div>
@@ -167,6 +260,22 @@ export default function VerdictCard({ metrics }: Props) {
           )
         })}
       </div>
+
+      {hasContributions && (
+        <div>
+          <div className="text-sm font-semibold text-gray-700 mb-2">Stage Attribution</div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {stageContributions!.map((c) => (
+              <StageContributionCard
+                key={`${c.from_pipeline}→${c.to_pipeline}`}
+                contribution={c}
+                latencyBudgetMs={latencyBudgetMs}
+                minQualityDelta={minQualityDelta}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

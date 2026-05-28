@@ -1,0 +1,5 @@
+{"query_id": "q1", "text": "how does RAG work"}
+{"query_id": "q2", "text": "BM25 term frequency retrieval"}
+{"query_id": "q3", "text": "dense vector retrieval cosine similarity"}
+{"query_id": "q4", "text": "hybrid retrieval sparse dense fusion"}
+{"query_id": "q5", "text": "reranker cross-encoder precision"}

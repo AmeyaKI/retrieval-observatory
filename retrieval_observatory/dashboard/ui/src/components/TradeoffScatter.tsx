@@ -1,6 +1,6 @@
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Label, Cell,
+  ResponsiveContainer, Label, Cell, ReferenceLine,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { formatSeriesKey } from '../utils/formatMetricKey'
@@ -8,6 +8,7 @@ import { MetricTooltip } from './MetricTooltip'
 
 interface Props {
   metrics: MetricsMap
+  latencyBudgetMs?: number
 }
 
 const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#ec4899']
@@ -20,7 +21,7 @@ interface Point {
   ndcg10: number | null
 }
 
-export default function TradeoffScatter({ metrics }: Props) {
+export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
   const pointMap = new Map<string, Point>()
   const pipelineMaxStage: Record<string, number> = {}
 
@@ -112,6 +113,14 @@ export default function TradeoffScatter({ metrics }: Props) {
             <Label value="NDCG@10" angle={-90} position="insideLeft" style={{ fontSize: 11, fill: '#6b7280' }} />
           </YAxis>
           <Tooltip content={<CustomTooltip />} />
+          {latencyBudgetMs != null && (
+            <ReferenceLine
+              x={latencyBudgetMs}
+              stroke="#ef4444"
+              strokeDasharray="5 4"
+              label={{ value: `Budget: ${latencyBudgetMs}ms`, position: 'top', fontSize: 10, fill: '#ef4444' }}
+            />
+          )}
           <Scatter data={points} shape={<CustomDot />}>
             {points.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />

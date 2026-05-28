@@ -82,11 +82,30 @@ export async function fetchSegmentMetrics(runId: string, field: string = 'n_rele
   return res.json()
 }
 
+export interface StageDelta {
+  before: number
+  after: number
+  absolute: number
+  pct: number
+  q_value: number | null
+  significant: boolean
+}
+
+export interface StageContribution {
+  from_pipeline: string
+  to_pipeline: string
+  deltas: Record<string, StageDelta>
+  latency_p50_before_ms: number | null
+  latency_p50_after_ms: number | null
+  latency_delta_ms: number | null
+}
+
 export interface RunOverview {
   headline_winner: null | (MetricEntry & { metric: string })
   diagnostics: { difficulty_buckets: Record<string, number>; failure_labels: Record<string, number>; n: number }
   manifest: Record<string, unknown> | null
   warnings: string[]
+  stage_contributions: StageContribution[]
 }
 
 export async function fetchRunOverview(runId: string): Promise<RunOverview> {

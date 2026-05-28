@@ -96,6 +96,67 @@ def test_combination_config_expands_pipelines():
     assert [s.type for s in cfg.pipelines[1].stages] == ["adapter.bm25", "adapter.hf_crossencoder"]
 
 
+def test_ablations_generates_prefix_pipelines():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "ablation-run"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 100}},
+                "rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 10},
+                },
+            },
+            "combinations": {"include": [["bm25", "rerank"]], "ablations": True},
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    assert "bm25" in ids
+    assert "bm25__rerank" in ids
+    assert ids.index("bm25") < ids.index("bm25__rerank")
+
+
+def test_ablations_no_duplicates_when_prefix_already_in_include():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "ablation-dedup"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 100}},
+                "rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 10},
+                },
+            },
+            "combinations": {"include": [["bm25"], ["bm25", "rerank"]], "ablations": True},
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    assert ids.count("bm25") == 1
+    assert ids.count("bm25__rerank") == 1
+
+
+def test_ablations_three_stage_generates_all_prefixes():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "ablation-three"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 100}},
+                "rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 10},
+                },
+                "cohere": {"type": "adapter.cohere_rerank", "config": {"k": 5}},
+            },
+            "combinations": {"include": [["bm25", "rerank", "cohere"]], "ablations": True},
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    assert ids == ["bm25", "bm25__rerank", "bm25__rerank__cohere"]
+
+
 def test_validation_reports_missing_custom_paths():
     from retrieval_observatory.datasets.validation import validate_experiment_config
 

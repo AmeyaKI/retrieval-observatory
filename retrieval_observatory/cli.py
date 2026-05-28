@@ -20,12 +20,13 @@ def run(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
     skip_smoke_test: bool = typer.Option(False, "--skip-smoke-test", help="Skip ID consistency smoke test."),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass result cache; re-run all queries."),
+    latency_budget_ms: Optional[int] = typer.Option(None, "--latency-budget-ms", help="Latency budget per query in ms. If set, prints a verdict against stage deltas."),
 ) -> None:
     """Run a benchmark experiment and store results."""
-    asyncio.run(_run(config, skip_smoke_test, no_cache))
+    asyncio.run(_run(config, skip_smoke_test, no_cache, latency_budget_ms))
 
 
-async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False) -> None:
+async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False, latency_budget_ms: Optional[int] = None) -> None:
     from retrieval_observatory.config.schema import ExperimentConfig
     from retrieval_observatory.config.validator import validate_id_consistency
     from retrieval_observatory.datasets.beir import BEIRDataset
@@ -81,6 +82,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False)
 
     # Init store
     if cfg.output.store == "postgres":
+        console.print("[yellow]Warning: PostgreSQL backend is community-supported and not CI-tested. SQLite is recommended for evaluation workloads.[/yellow]")
         import os
         from retrieval_observatory.store.postgres import PostgresStore
         dsn = cfg.output.postgres_dsn or os.environ.get("RETOBS_POSTGRES_DSN")
@@ -173,6 +175,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False)
         await store.save_query_diagnostics(diagnostics)
 
     aggregated = await engine.aggregate(run_id=run_id, store=store)
+    metrics_rows = await store.get_metrics(run_id)
     await store.finish_run(run_id)
 
     # Print error samples if any errors occurred
@@ -187,8 +190,13 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False)
     # Print summary table
     _print_metrics_table(aggregated, run_id)
 
+    # Print stage-by-stage contribution (delta between prefix/full pipelines)
+    pipeline_ids = [p.pipeline_id for p in pipelines]
+    _print_stage_contribution(aggregated, metrics_rows, pipeline_ids, latency_budget_ms)
+
     # Print diagnostic failure mode summary
     _print_diagnostics_summary(diagnostics)
+    console.print(f"[dim]Tip: retobs inspect {run_id} --query <query_id> to debug individual failures.[/dim]")
 
     # Export if requested
     if "json" in cfg.output.export:
@@ -356,6 +364,132 @@ def _print_metrics_table(aggregated: dict, run_id: str) -> None:
         )
 
     console.print(table)
+
+
+def _print_stage_contribution(
+    aggregated: dict,
+    metrics_rows: list,
+    pipeline_ids: list,
+    latency_budget_ms: Optional[int] = None,
+) -> None:
+    from retrieval_observatory.metrics.comparison import parse_metric_key, pipeline_pairs
+    from retrieval_observatory.metrics.significance import benjamini_hochberg, paired_bootstrap_test
+
+    pairs = pipeline_pairs(pipeline_ids)
+    if not pairs:
+        return
+
+    # Parse aggregated keys into {pipeline_id: {stage_index: [(mname, k, full_key)]}}
+    keys_by_pipeline: dict = {}
+    for key in aggregated:
+        try:
+            pid, sidx, mname, k = parse_metric_key(key)
+        except Exception:
+            continue
+        keys_by_pipeline.setdefault(pid, {}).setdefault(sidx, []).append((mname, k, key))
+
+    quality_metrics = {"recall", "ndcg", "mrr", "map"}
+
+    for before_id, after_id in pairs:
+        before_stages = keys_by_pipeline.get(before_id, {})
+        after_stages = keys_by_pipeline.get(after_id, {})
+        if not before_stages or not after_stages:
+            continue
+
+        before_last = max(s for s in before_stages if s >= 0)
+        after_last = max(s for s in after_stages if s >= 0)
+
+        before_quality = {(mname, k): full_key for mname, k, full_key in before_stages.get(before_last, []) if mname in quality_metrics}
+        after_quality = {(mname, k): full_key for mname, k, full_key in after_stages.get(after_last, []) if mname in quality_metrics}
+        shared_metrics = sorted(set(before_quality) & set(after_quality))
+
+        row_data = []
+        raw_p_values = []
+        for mname, k in shared_metrics:
+            b_mean = aggregated[before_quality[(mname, k)]]["mean"]
+            a_mean = aggregated[after_quality[(mname, k)]]["mean"]
+            delta = a_mean - b_mean
+            pct = (delta / b_mean * 100) if b_mean != 0 else 0.0
+
+            b_scores = {r["query_id"]: r["value"] for r in metrics_rows
+                        if r["pipeline_id"] == before_id and r["stage_index"] == before_last
+                        and r["metric_name"] == mname and r["k"] == k}
+            a_scores = {r["query_id"]: r["value"] for r in metrics_rows
+                        if r["pipeline_id"] == after_id and r["stage_index"] == after_last
+                        and r["metric_name"] == mname and r["k"] == k}
+            shared_qids = sorted(set(b_scores) & set(a_scores))
+            if shared_qids:
+                s1 = [b_scores[q] for q in shared_qids]
+                s2 = [a_scores[q] for q in shared_qids]
+                p = paired_bootstrap_test(s1, s2)
+                raw_p_values.append(p)
+                row_data.append((mname, k, b_mean, a_mean, delta, pct, p))
+            else:
+                row_data.append((mname, k, b_mean, a_mean, delta, pct, None))
+
+        # Latency: stage_index=-1 for multi-stage, else max positive index
+        def _lat_mean(pid: str, stages: dict) -> Optional[float]:
+            lat_stage = -1 if -1 in stages else max((s for s in stages if s >= 0), default=None)
+            if lat_stage is None:
+                return None
+            entries = [(mname, k, full_key) for mname, k, full_key in stages.get(lat_stage, []) if mname == "latency_p50"]
+            return aggregated[entries[0][2]]["mean"] if entries and entries[0][2] in aggregated else None
+
+        lat_before = _lat_mean(before_id, before_stages)
+        lat_after = _lat_mean(after_id, after_stages)
+
+        q_values = benjamini_hochberg(raw_p_values)
+        q_idx = 0
+
+        table = Table(title=f"Stage Contribution: {before_id} → {after_id}")
+        table.add_column("Metric", style="bold")
+        table.add_column("Before", justify="right")
+        table.add_column("After", justify="right")
+        table.add_column("Δ", justify="right")
+        table.add_column("Significant?", justify="right")
+
+        for mname, k, b_mean, a_mean, delta, pct, p in row_data:
+            metric_label = f"{mname}@{k}" if k > 0 else mname
+            delta_color = "green" if delta > 0 else "red"
+            delta_str = f"[{delta_color}]{delta:+.4f} ({pct:+.1f}%)[/{delta_color}]"
+            if p is not None:
+                q = q_values[q_idx]
+                q_idx += 1
+                sig_str = f"[bold green]q={q:.3f} ✓[/bold green]" if q < 0.05 else f"q={q:.3f}"
+            else:
+                sig_str = "—"
+            table.add_row(metric_label, f"{b_mean:.4f}", f"{a_mean:.4f}", delta_str, sig_str)
+
+        if lat_before is not None and lat_after is not None:
+            lat_delta = lat_after - lat_before
+            lat_color = "red" if lat_delta > 0 else "green"
+            lat_str = f"[{lat_color}]{lat_delta:+.0f}ms[/{lat_color}]"
+            table.add_row("Latency P50", f"{lat_before:.0f}ms", f"{lat_after:.0f}ms", lat_str, "—")
+
+        console.print(table)
+
+        # Neutral summary + optional latency verdict
+        best_quality = max(row_data, key=lambda r: abs(r[4]), default=None)
+        if best_quality:
+            mname, k, b_mean, a_mean, delta, pct, p = best_quality
+            metric_label = f"{mname}@{k}" if k > 0 else mname
+            q_verdict = ""
+            if p is not None:
+                q_val = q_values[q_idx - (len(raw_p_values) - [i for i, r in enumerate(row_data) if r[6] == p][0])] if raw_p_values else 1.0
+                q_verdict = " ✓ significant" if q_val < 0.05 else " (not significant)"
+            console.print(
+                f"  {metric_label} changed {delta:+.4f} ({pct:+.1f}%){q_verdict}. "
+                + (f"Latency cost: {lat_after - lat_before:+.0f}ms P50." if lat_before and lat_after else "")
+            )
+            if latency_budget_ms is not None and lat_before is not None and lat_after is not None:
+                lat_delta = lat_after - lat_before
+                if lat_delta <= latency_budget_ms:
+                    console.print(f"  [green]Latency delta ({lat_delta:.0f}ms) is within your {latency_budget_ms}ms budget.[/green]")
+                else:
+                    over = lat_delta - latency_budget_ms
+                    console.print(f"  [red]Latency delta ({lat_delta:.0f}ms) exceeds your {latency_budget_ms}ms budget by {over:.0f}ms.[/red]")
+            elif lat_before is not None and lat_after is not None:
+                console.print("  [dim]→ Adjust your latency budget in the dashboard (retobs serve) to explore tradeoffs.[/dim]")
 
 
 @app.command()
@@ -630,10 +764,30 @@ stages:
 """
 
     if mode == "bm25+dense":
+        extra_pipelines_block = """\
+# RRF combines bm25 and dense via Reciprocal Rank Fusion.
+# score(doc) = Σ 1/(60 + rank_i)  — must be defined explicitly (not via combinations).
+pipelines:
+  - id: rrf_hybrid
+    stages:
+      - type: adapter.rrf
+        config:
+          rrf_k: 60       # RRF smoothing constant (default 60)
+          fetch_k: 100    # candidates fetched from each sub-retriever
+          top_k: 100
+          retrievers:
+            - type: adapter.bm25
+            - type: adapter.hf_biencoder
+              config:
+                model: sentence-transformers/all-MiniLM-L6-v2
+
+"""
         combos = "  include:\n    - [bm25]\n    - [dense]\n"
     elif mode == "bm25+reranker":
-        combos = "  include:\n    - [bm25]\n    - [bm25, rerank]   # bm25 retrieves 100, reranker re-scores to top 10\n"
+        extra_pipelines_block = ""
+        combos = "  include:\n    - [bm25, rerank]   # bm25 retrieves 100, reranker re-scores to top 10\n  ablations: true   # automatically also runs [bm25] alone for stage attribution\n"
     else:  # custom-jsonl
+        extra_pipelines_block = ""
         combos = "  include:\n    - [bm25]\n"
 
     return f"""\
@@ -649,8 +803,9 @@ dataset:
   metadata_fields: [source]      # corpus/query fields to group metric breakdowns by (optional)
 
 {stages_block}
-# combinations expands stages into pipelines automatically.
+{extra_pipelines_block}# combinations expands stages into pipelines automatically.
 # Each list in include is one pipeline: [stage_a] or [stage_a, stage_b] (retriever → reranker).
+# ablations: true auto-generates prefix pipelines to measure per-stage contribution.
 combinations:
 {combos}
 metrics:
@@ -697,15 +852,17 @@ def _starter_config(mode: str) -> dict:
             "output": {"store": "sqlite", "db_path": ".retobs/results.db"},
         }
     include = [["bm25"]]
+    ablations = False
     if mode in {"bm25+dense", "beir"}:
         include = [["bm25"], ["dense"]]
     if mode == "bm25+reranker":
-        include = [["bm25"], ["bm25", "rerank"]]
+        include = [["bm25", "rerank"]]
+        ablations = True
     return {
         "experiment": {"name": f"{mode}-eval"},
         "dataset": dataset,
         "stages": stages,
-        "combinations": {"include": include},
+        "combinations": {"include": include, "ablations": ablations},
         "metrics": {"recall_at_k": [1, 5, 10, 20], "ndcg_at_k": [10], "mrr": True, "map": True},
         "execution": {"concurrency": 4, "timeout_seconds": 60, "cache_results": True},
         "output": {"store": "sqlite", "db_path": ".retobs/results.db", "export": ["json"]},

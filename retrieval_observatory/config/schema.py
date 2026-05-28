@@ -46,6 +46,7 @@ class PipelineConfig(BaseModel):
 
 class CombinationConfig(BaseModel):
     include: List[List[str]] = Field(default_factory=list)
+    ablations: bool = False
 
 
 class LabelsConfig(BaseModel):
@@ -104,17 +105,31 @@ class ExperimentConfig(BaseModel):
         if self.combinations and self.combinations.include:
             if not self.stages:
                 raise ValueError("combinations requires a top-level stages mapping")
-            expanded = []
+            # Collect all combos, auto-generating prefix pipelines when ablations=True
+            seen_ids: set[str] = {p.id for p in self.pipelines}
+            all_combos: list[list[str]] = []
             for combo in self.combinations.include:
                 missing = [stage_id for stage_id in combo if stage_id not in self.stages]
                 if missing:
                     raise ValueError(f"Unknown stage id(s) in combinations: {missing}")
-                expanded.append(
-                    PipelineConfig(
-                        id="__".join(combo),
-                        stages=[self.stages[stage_id].model_copy(deep=True) for stage_id in combo],
-                    )
+                if self.combinations.ablations:
+                    for prefix_len in range(1, len(combo)):
+                        prefix = combo[:prefix_len]
+                        prefix_id = "__".join(prefix)
+                        if prefix_id not in seen_ids and prefix not in all_combos:
+                            all_combos.append(prefix)
+                            seen_ids.add(prefix_id)
+                combo_id = "__".join(combo)
+                if combo_id not in seen_ids:
+                    all_combos.append(combo)
+                    seen_ids.add(combo_id)
+            expanded = [
+                PipelineConfig(
+                    id="__".join(combo),
+                    stages=[self.stages[stage_id].model_copy(deep=True) for stage_id in combo],
                 )
+                for combo in all_combos
+            ]
             self.pipelines = [*self.pipelines, *expanded]
         if not self.pipelines:
             raise ValueError("At least one pipeline or combination is required")

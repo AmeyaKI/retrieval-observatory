@@ -6,6 +6,29 @@ from typing import Dict, List, Tuple
 MetricKey = Tuple[str, int, str, int]
 
 
+def pipeline_pairs(pipeline_ids: List[str]) -> List[Tuple[str, str]]:
+    """Return (before, after) pairs for adjacent pipeline stages.
+
+    A pipeline ID with __ separators (e.g. "bm25__rerank") is treated as a
+    multi-stage pipeline. If its prefix ("bm25") also exists in pipeline_ids,
+    the two form a pair. This is used to measure what each added stage contributed.
+
+    Examples:
+        ["bm25", "bm25__rerank"] -> [("bm25", "bm25__rerank")]
+        ["bm25", "bm25__rerank", "bm25__rerank__cohere"] ->
+            [("bm25", "bm25__rerank"), ("bm25__rerank", "bm25__rerank__cohere")]
+    """
+    id_set = set(pipeline_ids)
+    pairs: List[Tuple[str, str]] = []
+    for pid in pipeline_ids:
+        parts = pid.split("__")
+        if len(parts) > 1:
+            prefix = "__".join(parts[:-1])
+            if prefix in id_set:
+                pairs.append((prefix, pid))
+    return pairs
+
+
 def paired_scores_by_query(metrics_a: List[Dict], metrics_b: List[Dict], metric_key: str) -> tuple[list[float], list[float], int]:
     """Return score arrays joined by query_id for a rendered metric key.
 

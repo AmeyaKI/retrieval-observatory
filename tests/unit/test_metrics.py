@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from retrieval_observatory.metrics.ranking import average_precision, dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
-from retrieval_observatory.metrics.comparison import paired_scores_by_query
+from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs
 from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
@@ -182,3 +182,53 @@ def test_query_diagnostics_labels_reranker_drop():
     rows = build_query_diagnostics("run1", [result], {"q1": {"d1": 1}})
     assert rows[0]["failure_labels"] == ["reranker_drop"]
     assert rows[0]["missing_relevant_ids"] == ["d1"]
+
+
+def test_pipeline_pairs_basic():
+    ids = ["bm25", "bm25__rerank"]
+    assert pipeline_pairs(ids) == [("bm25", "bm25__rerank")]
+
+
+def test_pipeline_pairs_three_stage():
+    ids = ["bm25", "bm25__rerank", "bm25__rerank__cohere"]
+    result = pipeline_pairs(ids)
+    assert ("bm25", "bm25__rerank") in result
+    assert ("bm25__rerank", "bm25__rerank__cohere") in result
+    assert len(result) == 2
+
+
+def test_pipeline_pairs_no_prefix_match():
+    ids = ["bm25", "dense", "rrf"]
+    assert pipeline_pairs(ids) == []
+
+
+def test_pipeline_pairs_partial_match_only():
+    # "bm25__rerank" exists but "bm25" does not — no pair
+    ids = ["bm25__rerank", "dense"]
+    assert pipeline_pairs(ids) == []
+
+
+def test_pipeline_pairs_preserves_order():
+    ids = ["bm25", "dense", "bm25__rerank", "dense__rerank"]
+    result = pipeline_pairs(ids)
+    assert ("bm25", "bm25__rerank") in result
+    assert ("dense", "dense__rerank") in result
+    assert len(result) == 2
+
+
+def test_benjamini_hochberg_empty():
+    from retrieval_observatory.metrics.significance import benjamini_hochberg
+    assert benjamini_hochberg([]) == []
+
+
+def test_benjamini_hochberg_single():
+    from retrieval_observatory.metrics.significance import benjamini_hochberg
+    result = benjamini_hochberg([0.001])
+    assert len(result) == 1
+    assert result[0] == pytest.approx(0.001)
+
+
+def test_benjamini_hochberg_two_significant():
+    from retrieval_observatory.metrics.significance import benjamini_hochberg
+    result = benjamini_hochberg([0.04, 0.04])
+    assert all(q < 0.05 for q in result)
