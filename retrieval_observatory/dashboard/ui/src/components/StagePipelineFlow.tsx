@@ -1,6 +1,7 @@
 import { MetricsMap } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
+import { fmtQuality } from '../utils/format'
 
 interface Props {
   metrics: MetricsMap
@@ -27,15 +28,14 @@ function stageAdapterLabel(role: 'Retrieval' | 'Reranking', stageIndex: number):
   return role === 'Retrieval' ? 'BM25 / Dense Retriever' : `Reranker (Stage ${stageIndex})`
 }
 
-function fmt2(v: number): string {
-  return v.toFixed(3)
-}
+const fmt2 = fmtQuality
 
 export default function StagePipelineFlow({ metrics }: Props) {
   // Group metric entries by (pipeline_id, stage_index)
   const stageMap = new Map<string, StageInfo>()
 
   for (const [, entry] of Object.entries(metrics)) {
+    if (entry.stage_index < 0) continue  // stage_index=-1 is end-to-end latency bookkeeping, not a real stage
     const key = `${entry.pipeline_id}|||${entry.stage_index}`
     if (!stageMap.has(key)) {
       stageMap.set(key, {

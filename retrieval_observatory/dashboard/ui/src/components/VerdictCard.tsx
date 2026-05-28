@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { MetricsMap, StageContribution } from '../api'
 import { MetricTooltip } from './MetricTooltip'
+import { fmtQuality, fmtLatencyMs } from '../utils/format'
 
 interface Props {
   metrics: MetricsMap
@@ -20,8 +21,8 @@ interface PipelineSummary {
   isBaseline: boolean
 }
 
-function fmt(v: number | null, decimals = 4): string {
-  return v == null ? '—' : v.toFixed(decimals)
+function fmt(v: number | null): string {
+  return v == null ? '—' : fmtQuality(v)
 }
 
 function delta(current: number | null, baseline: number | null): number | null {
@@ -37,7 +38,7 @@ function DeltaBadge({ d, higherIsBetter = true }: { d: number | null; higherIsBe
   const sign = d > 0 ? '+' : ''
   return (
     <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono font-semibold ${color}`}>
-      {sign}{d.toFixed(4)}
+      {sign}{fmtQuality(d)}
     </span>
   )
 }
@@ -71,7 +72,7 @@ function StageContributionCard({
       return {
         color: 'emerald',
         icon: '✓',
-        text: `Stage pays for itself: ${metricLabel} +${delta.absolute.toFixed(4)} (+${delta.pct.toFixed(1)}%) within ${latencyBudgetMs}ms budget.`,
+        text: `Stage pays for itself: ${metricLabel} +${fmtQuality(delta.absolute)} (+${delta.pct.toFixed(1)}%) within ${fmtLatencyMs(latencyBudgetMs)}ms budget.`,
       }
     }
     if (qualityMet && !latencyOk) {
@@ -79,13 +80,13 @@ function StageContributionCard({
       return {
         color: 'amber',
         icon: '⚠',
-        text: `Significant gain (+${delta.absolute.toFixed(4)} ${metricLabel}), but exceeds latency budget by ${over.toFixed(0)}ms. Consider GPU or smaller model.`,
+        text: `Significant gain (+${fmtQuality(delta.absolute)} ${metricLabel}), but exceeds latency budget by ${fmtLatencyMs(over)}ms. Consider GPU or smaller model.`,
       }
     }
     return {
       color: 'gray',
       icon: '○',
-      text: `${metricLabel} delta (${delta.absolute.toFixed(4)}) below minimum threshold of ${minQualityDelta.toFixed(2)}.`,
+      text: `${metricLabel} delta (${fmtQuality(delta.absolute)}) below minimum threshold of ${minQualityDelta.toFixed(2)}.`,
     }
   }, [contribution, latencyBudgetMs, minQualityDelta])
 
@@ -111,9 +112,9 @@ function StageContributionCard({
           <div key={label} className="flex justify-between items-center gap-2">
             <span className="text-gray-500">{label}</span>
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-gray-700">{d.before.toFixed(4)} → {d.after.toFixed(4)}</span>
+              <span className="font-mono text-gray-700">{fmtQuality(d.before)} → {fmtQuality(d.after)}</span>
               <span className={`font-mono text-xs font-semibold ${d.absolute > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                {d.absolute >= 0 ? '+' : ''}{d.absolute.toFixed(4)}
+                {d.absolute >= 0 ? '+' : ''}{fmtQuality(d.absolute)}
               </span>
               {d.q_value != null && (
                 <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-emerald-700 bg-emerald-50' : 'text-gray-400 bg-gray-100'}`}>
@@ -127,7 +128,7 @@ function StageContributionCard({
           <div className="flex justify-between items-center gap-2 pt-1 mt-1 border-t border-gray-100">
             <span className="text-gray-500">Latency P50</span>
             <span className={`font-mono text-xs font-semibold ${contribution.latency_delta_ms > latencyBudgetMs ? 'text-red-600' : 'text-emerald-600'}`}>
-              {contribution.latency_delta_ms >= 0 ? '+' : ''}{contribution.latency_delta_ms.toFixed(0)}ms
+              {contribution.latency_delta_ms >= 0 ? '+' : ''}{fmtLatencyMs(contribution.latency_delta_ms)}ms
             </span>
           </div>
         )}
@@ -212,7 +213,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
             <div className="flex justify-between gap-2">
               <span className="text-gray-500">P50 Latency</span>
               <span className="font-mono font-semibold text-gray-800">
-                {baseline.latencyP50 != null ? `${baseline.latencyP50.toFixed(1)} ms` : '—'}
+                {baseline.latencyP50 != null ? `${fmtLatencyMs(baseline.latencyP50)} ms` : '—'}
               </span>
             </div>
           </div>
@@ -250,7 +251,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
                   <span className="text-gray-500">P50 Latency</span>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono text-gray-700">
-                      {s.latencyP50 != null ? `${s.latencyP50.toFixed(1)} ms` : '—'}
+                      {s.latencyP50 != null ? `${fmtLatencyMs(s.latencyP50)} ms` : '—'}
                     </span>
                     <DeltaBadge d={dLatency != null ? dLatency : null} higherIsBetter={false} />
                   </div>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from itertools import combinations as iter_combos
+from typing import Any, Dict, List, Literal, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -46,7 +47,7 @@ class PipelineConfig(BaseModel):
 
 class CombinationConfig(BaseModel):
     include: List[List[str]] = Field(default_factory=list)
-    ablations: bool = False
+    ablations: Union[bool, List[str]] = False
 
 
 class LabelsConfig(BaseModel):
@@ -105,28 +106,50 @@ class ExperimentConfig(BaseModel):
         if self.combinations and self.combinations.include:
             if not self.stages:
                 raise ValueError("combinations requires a top-level stages mapping")
-            # Collect all combos, auto-generating prefix pipelines when ablations=True
             seen_ids: set[str] = {p.id for p in self.pipelines}
             all_combos: list[list[str]] = []
+
+            def add_if_new(sub: list[str]) -> None:
+                pid = "__".join(sub)
+                if pid not in seen_ids and sub not in all_combos:
+                    all_combos.append(sub)
+                    seen_ids.add(pid)
+
+            ablations = self.combinations.ablations
+
             for combo in self.combinations.include:
-                missing = [stage_id for stage_id in combo if stage_id not in self.stages]
+                missing = [s for s in combo if s not in self.stages]
                 if missing:
                     raise ValueError(f"Unknown stage id(s) in combinations: {missing}")
-                if self.combinations.ablations:
-                    for prefix_len in range(1, len(combo)):
-                        prefix = combo[:prefix_len]
-                        prefix_id = "__".join(prefix)
-                        if prefix_id not in seen_ids and prefix not in all_combos:
-                            all_combos.append(prefix)
-                            seen_ids.add(prefix_id)
-                combo_id = "__".join(combo)
-                if combo_id not in seen_ids:
-                    all_combos.append(combo)
-                    seen_ids.add(combo_id)
+
+                if ablations is True:
+                    # Full mode: all ordered subsequences starting with combo[0]
+                    first, rest = combo[0], combo[1:]
+                    for r in range(len(rest) + 1):
+                        for indices in iter_combos(range(len(rest)), r):
+                            add_if_new([first] + [rest[i] for i in indices])
+                elif isinstance(ablations, list) and ablations:
+                    # Targeted mode: all subsets of include/exclude for nominated stages
+                    targeted_set = set(ablations)
+                    targeted_in_combo = [s for s in combo[1:] if s in targeted_set]
+                    if not targeted_in_combo:
+                        add_if_new(combo)
+                    else:
+                        for r in range(len(targeted_in_combo) + 1):
+                            for subset in iter_combos(range(len(targeted_in_combo)), r):
+                                included = {targeted_in_combo[i] for i in subset}
+                                sub = [combo[0]] + [
+                                    s for s in combo[1:]
+                                    if s not in targeted_set or s in included
+                                ]
+                                add_if_new(sub)
+                else:
+                    add_if_new(combo)
+
             expanded = [
                 PipelineConfig(
                     id="__".join(combo),
-                    stages=[self.stages[stage_id].model_copy(deep=True) for stage_id in combo],
+                    stages=[self.stages[s].model_copy(deep=True) for s in combo],
                 )
                 for combo in all_combos
             ]

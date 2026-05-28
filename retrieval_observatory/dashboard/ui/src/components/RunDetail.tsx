@@ -170,7 +170,7 @@ export default function RunDetail({ run }: Props) {
       />
 
       <Section title="Metrics Summary">
-        <MetricsTable metrics={metrics} baselines={baselines} />
+        <MetricsTable metrics={metrics} baselines={baselines} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
       <Section title="Recall@K Curves">
@@ -190,7 +190,7 @@ export default function RunDetail({ run }: Props) {
       </Section>
 
       <Section title="Stage Combination Matrix">
-        <StageCombinationMatrix runId={run.run_id} />
+        <StageCombinationMatrix runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
       <Section title="Query Explorer">

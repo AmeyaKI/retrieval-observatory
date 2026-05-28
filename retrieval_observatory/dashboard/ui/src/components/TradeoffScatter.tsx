@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Label, Cell, ReferenceLine,
+  ResponsiveContainer, Label, Cell, ReferenceLine, ReferenceArea,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { formatSeriesKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
+import { fmtQuality, fmtLatencyMs } from '../utils/format'
+import { ChartModal } from './ChartModal'
 
 interface Props {
   metrics: MetricsMap
@@ -22,6 +25,12 @@ interface Point {
 }
 
 export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
+  const [expanded, setExpanded] = useState(false)
+  const [refAreaLeft, setRefAreaLeft] = useState<number | null>(null)
+  const [refAreaRight, setRefAreaRight] = useState<number | null>(null)
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [xDomain, setXDomain] = useState<[number | 'auto', number | 'auto']>(['auto', 'auto'])
+
   const pointMap = new Map<string, Point>()
   const pipelineMaxStage: Record<string, number> = {}
 
@@ -61,8 +70,33 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
     )
   }
 
+  const handleMouseDown = (e: any) => {
+    if (e?.activePayload?.[0]) {
+      const x = e.activePayload[0].payload?.latencyP50
+      if (x != null) { setRefAreaLeft(x); setIsSelecting(true) }
+    }
+  }
+  const handleMouseMove = (e: any) => {
+    if (!isSelecting) return
+    if (e?.activePayload?.[0]) {
+      const x = e.activePayload[0].payload?.latencyP50
+      if (x != null) setRefAreaRight(x)
+    }
+  }
+  const handleMouseUp = () => {
+    if (refAreaLeft != null && refAreaRight != null && refAreaLeft !== refAreaRight) {
+      const [l, r] = [Math.min(refAreaLeft, refAreaRight), Math.max(refAreaLeft, refAreaRight)]
+      setXDomain([l, r])
+    }
+    setRefAreaLeft(null)
+    setRefAreaRight(null)
+    setIsSelecting(false)
+  }
+  const resetZoom = () => setXDomain(['auto', 'auto'])
+  const isZoomed = xDomain[0] !== 'auto'
+
   const CustomDot = (props: any) => {
-    const { cx, cy, payload, index } = props
+    const { cx, cy, index } = props
     const color = COLORS[index % COLORS.length]
     return (
       <g>
@@ -77,28 +111,36 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
     return (
       <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
         <p className="font-semibold mb-1">{pt.label}</p>
-        <p>NDCG@10: <span className="font-mono">{pt.ndcg10!.toFixed(4)}</span></p>
-        <p>P50 Latency: <span className="font-mono">{pt.latencyP50!.toFixed(1)} ms</span></p>
+        <p>NDCG@10: <span className="font-mono">{fmtQuality(pt.ndcg10!)}</span></p>
+        <p>P50 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP50!)} ms</span></p>
       </div>
     )
   }
 
-  // Custom legend below chart
-  return (
-    <div>
-      <p className="text-xs text-gray-500 mb-2">
-        Each point is one pipeline / stage. Top-left = best (high quality, low latency).
-        <MetricTooltip text="Quality-Latency Pareto chart. The ideal point is top-left: maximum NDCG@10 at minimum P50 latency. Use this to decide whether the latency cost of adding a reranker is justified by the quality gain." />
-      </p>
-      <ResponsiveContainer width="100%" height={280}>
-        <ScatterChart margin={{ top: 10, right: 30, bottom: 30, left: 10 }}>
+  const renderChart = (height: number) => (
+    <>
+      {isZoomed && (
+        <div className="flex justify-end mb-1">
+          <button onClick={resetZoom} className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5">
+            Reset zoom
+          </button>
+        </div>
+      )}
+      <ResponsiveContainer width="100%" height={height}>
+        <ScatterChart
+          margin={{ top: 10, right: 30, bottom: 30, left: 10 }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             type="number"
             dataKey="latencyP50"
             name="P50 Latency"
+            domain={xDomain}
             tick={{ fontSize: 11 }}
-            tickFormatter={(v) => `${v.toFixed(0)}ms`}
+            tickFormatter={(v) => `${fmtLatencyMs(v)}ms`}
           >
             <Label value="P50 Latency (ms)" offset={-12} position="insideBottom" style={{ fontSize: 11, fill: '#6b7280' }} />
           </XAxis>
@@ -108,7 +150,7 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
             name="NDCG@10"
             domain={['auto', 'auto']}
             tick={{ fontSize: 11 }}
-            tickFormatter={(v) => v.toFixed(3)}
+            tickFormatter={(v) => fmtQuality(v)}
           >
             <Label value="NDCG@10" angle={-90} position="insideLeft" style={{ fontSize: 11, fill: '#6b7280' }} />
           </YAxis>
@@ -118,8 +160,11 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
               x={latencyBudgetMs}
               stroke="#ef4444"
               strokeDasharray="5 4"
-              label={{ value: `Budget: ${latencyBudgetMs}ms`, position: 'top', fontSize: 10, fill: '#ef4444' }}
+              label={{ value: `Budget: ${fmtLatencyMs(latencyBudgetMs)}ms`, position: 'top', fontSize: 10, fill: '#ef4444' }}
             />
+          )}
+          {isSelecting && refAreaLeft != null && refAreaRight != null && (
+            <ReferenceArea x1={refAreaLeft} x2={refAreaRight} strokeOpacity={0.3} fill="#6366f1" fillOpacity={0.1} />
           )}
           <Scatter data={points} shape={<CustomDot />}>
             {points.map((_, i) => (
@@ -128,17 +173,42 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
           </Scatter>
         </ScatterChart>
       </ResponsiveContainer>
-      <div className="flex flex-wrap gap-3 mt-1 justify-center">
-        {points.map((pt, i) => (
-          <div key={pt.label} className="flex items-center gap-1.5 text-xs text-gray-600">
-            <span
-              className="inline-block w-3 h-3 rounded-full"
-              style={{ backgroundColor: COLORS[i % COLORS.length] }}
-            />
-            {pt.label}
-          </div>
-        ))}
+    </>
+  )
+
+  const legend = (
+    <div className="flex flex-wrap gap-3 mt-1 justify-center">
+      {points.map((pt, i) => (
+        <div key={pt.label} className="flex items-center gap-1.5 text-xs text-gray-600">
+          <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+          {pt.label}
+        </div>
+      ))}
+    </div>
+  )
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-2">
+        Each point is one pipeline / stage. Top-left = best (high quality, low latency). Drag to zoom in.
+        <MetricTooltip text="Quality-Latency Pareto chart. The ideal point is top-left: maximum NDCG@10 at minimum P50 latency. Use this to decide whether the latency cost of adding a reranker is justified by the quality gain." />
+      </p>
+      <div className="flex justify-end mb-1">
+        <button
+          onClick={() => setExpanded(true)}
+          className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5"
+        >
+          Expand ⤢
+        </button>
       </div>
+      {renderChart(280)}
+      {legend}
+      {expanded && (
+        <ChartModal title="Quality vs. Latency Tradeoff" onClose={() => setExpanded(false)}>
+          {renderChart(520)}
+          {legend}
+        </ChartModal>
+      )}
     </div>
   )
 }

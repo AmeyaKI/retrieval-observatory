@@ -2,20 +2,23 @@ import { MetricEntry, MetricsMap } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY, lookupGlossary } from '../utils/metricGlossary'
+import { fmtQuality, fmtLatencyMs } from '../utils/format'
 
 interface Props {
   metrics: MetricsMap
   pValues?: Record<string, number>
   /** Published baselines keyed by "metric@k" e.g. {"ndcg@10": 0.326} */
   baselines?: Record<string, number>
+  /** Latency budget in ms — highlights latency_p50 cells green/red */
+  latencyBudgetMs?: number
 }
 
-function fmt(v: number): string {
-  return v.toFixed(4)
+function fmtCell(v: number, isLatency: boolean): string {
+  return isLatency ? fmtLatencyMs(v) : fmtQuality(v)
 }
 
-function ciLabel(entry: MetricEntry): string {
-  return `[${fmt(entry.ci_low)}, ${fmt(entry.ci_high)}]`
+function ciLabel(entry: MetricEntry, isLatency: boolean): string {
+  return `[${fmtCell(entry.ci_low, isLatency)}, ${fmtCell(entry.ci_high, isLatency)}]`
 }
 
 const METRIC_ORDER = ['ndcg', 'recall', 'mrr', 'map', 'latency']
@@ -24,7 +27,7 @@ function metricSortKey(metricName: string): number {
   return idx === -1 ? 99 : idx
 }
 
-export default function MetricsTable({ metrics, pValues, baselines = {} }: Props) {
+export default function MetricsTable({ metrics, pValues, baselines = {}, latencyBudgetMs }: Props) {
   const hasBaselines = Object.keys(baselines).length > 0
 
   // Group entries by pipeline_id, then stage_index
@@ -149,10 +152,21 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
                         const pv = pValues?.[key]
                         const significant = pv !== undefined && pv < 0.05
                         const isLatency = entry.metric_name.startsWith('latency')
+                        const isP50 = entry.metric_name === 'latency_p50'
                         const baselineKey = entry.k > 0 ? `${entry.metric_name}@${entry.k}` : null
                         const baselineVal = baselineKey ? baselines[baselineKey] : undefined
                         const zeroPctHigh = !isLatency && entry.zero_pct > 40
                         const zeroPctMed = !isLatency && entry.zero_pct > 20 && !zeroPctHigh
+
+                        // Latency budget highlighting for P50 rows
+                        const withinBudget = isP50 && latencyBudgetMs != null && entry.mean <= latencyBudgetMs
+                        const overBudget = isP50 && latencyBudgetMs != null && entry.mean > latencyBudgetMs
+                        const meanCellClass = withinBudget
+                          ? 'bg-green-50 text-green-700'
+                          : overBudget
+                          ? 'bg-red-50 text-red-600'
+                          : ''
+
                         return (
                           <tr key={key} className="hover:bg-gray-50 border-t border-gray-100">
                             <td className="px-3 pl-6 py-2 text-gray-700">
@@ -161,9 +175,15 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
                                 <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
                               )}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums font-medium">{fmt(entry.mean)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-500">{fmt(entry.std)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">{ciLabel(entry)}</td>
+                            <td className={`px-3 py-2 text-right tabular-nums font-medium ${meanCellClass}`}>
+                              {fmtCell(entry.mean, isLatency)}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                              {fmtCell(entry.std, isLatency)}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">
+                              {ciLabel(entry, isLatency)}
+                            </td>
                             <td className="px-3 py-2 text-right text-gray-500">{entry.n}</td>
                             <td className={`px-3 py-2 text-right text-xs tabular-nums font-medium ${
                               zeroPctHigh ? 'text-red-600 bg-red-50' :
@@ -174,7 +194,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {} }: Props
                             </td>
                             {hasBaselines && (
                               <td className="px-3 py-2 text-right text-gray-400 text-xs tabular-nums">
-                                {baselineVal !== undefined ? fmt(baselineVal) : '—'}
+                                {baselineVal !== undefined ? fmtQuality(baselineVal) : '—'}
                               </td>
                             )}
                             {pValues && (

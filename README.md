@@ -94,6 +94,26 @@ combinations:
 
 `retobs run` then prints the stage contribution table showing exactly what the reranker added.
 
+For a 3-stage pipeline, `ablations: true` generates **all valid ordered subsequences** — not just prefixes:
+
+```yaml
+combinations:
+  include:
+    - [bm25, fast_rerank, precise_rerank]
+  ablations: true
+# Generates: bm25 | bm25__fast_rerank | bm25__precise_rerank | bm25__fast_rerank__precise_rerank
+# Answers: does skipping fast_rerank and going direct to precise_rerank beat the cascade?
+```
+
+To test only whether a specific stage pays for itself, name it explicitly:
+
+```yaml
+combinations:
+  include:
+    - [bm25, fast_rerank, precise_rerank]
+  ablations: [fast_rerank]   # generates only: without fast_rerank vs with fast_rerank
+```
+
 Optionally set a latency budget to get a one-line verdict in CI:
 
 ```bash

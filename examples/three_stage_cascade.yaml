@@ -3,20 +3,24 @@
 # Tests a 3-stage cascade reranking pipeline on BEIR/nfcorpus.
 # The core question: does each added stage pay for itself?
 #
-#   Stage 0: BM25          — sparse retrieval, 200 candidates
-#   Stage 1: fast_rerank   — small cross-encoder (22M params), cuts 200 → 50
+#   Stage 0: BM25           — sparse retrieval, 200 candidates
+#   Stage 1: fast_rerank    — small cross-encoder (22M params), cuts 200 → 50
 #   Stage 2: precise_rerank — large cross-encoder (33M params), cuts 50 → 10
 #
-# ablations: true auto-generates ALL prefix pipelines from the one combo entry:
-#   bm25                                       (1 stage)
-#   bm25__fast_rerank                          (2 stages)
-#   bm25__fast_rerank__precise_rerank          (3 stages)
+# ablations: true generates ALL valid ordered subsequences starting with bm25:
+#   bm25                                       (retriever alone)
+#   bm25__fast_rerank                          (cheap reranker only)
+#   bm25__precise_rerank                       (expensive reranker only — skips cheap stage)
+#   bm25__fast_rerank__precise_rerank          (full cascade)
 #
-# After the run, retobs prints two stage attribution tables:
-#   bm25 → bm25__fast_rerank
-#     → Did the cheap reranker improve quality? At what latency cost?
-#   bm25__fast_rerank → bm25__fast_rerank__precise_rerank
-#     → Did the expensive reranker justify its extra latency over the cheap one?
+# This answers four distinct questions in one run:
+#   • Does adding fast_rerank help? (bm25 → bm25__fast_rerank)
+#   • Does going straight to precise_rerank help? (bm25 → bm25__precise_rerank)
+#   • Does the cascade beat the direct path? (bm25__precise_rerank vs full)
+#   • Does the second stage pay for itself over the first? (bm25__fast_rerank → full)
+#
+# To test only whether a specific stage pays for itself, use targeted ablations:
+#   ablations: [fast_rerank]   # generates only: bm25__precise_rerank, bm25__fast_rerank__precise_rerank
 #
 # Run with:
 #   pip install -e ".[demo,dashboard,dense,dev]"

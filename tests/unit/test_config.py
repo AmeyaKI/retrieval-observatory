@@ -137,7 +137,7 @@ def test_ablations_no_duplicates_when_prefix_already_in_include():
     assert ids.count("bm25__rerank") == 1
 
 
-def test_ablations_three_stage_generates_all_prefixes():
+def test_ablations_full_generates_all_valid_subsequences():
     cfg = ExperimentConfig.model_validate(
         {
             "experiment": {"name": "ablation-three"},
@@ -154,7 +154,125 @@ def test_ablations_three_stage_generates_all_prefixes():
         }
     )
     ids = [p.id for p in cfg.pipelines]
-    assert ids == ["bm25", "bm25__rerank", "bm25__rerank__cohere"]
+    # All 4 valid ordered subsequences starting with bm25
+    assert set(ids) == {"bm25", "bm25__rerank", "bm25__cohere", "bm25__rerank__cohere"}
+    # Shorter combos generated before longer ones
+    assert ids.index("bm25") < ids.index("bm25__rerank__cohere")
+    assert ids.index("bm25__rerank") < ids.index("bm25__rerank__cohere")
+    assert ids.index("bm25__cohere") < ids.index("bm25__rerank__cohere")
+
+
+def test_ablations_targeted_single_stage():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "targeted-single"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 200}},
+                "fast_rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 50},
+                },
+                "precise_rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-12-v2", "k": 10},
+                },
+            },
+            "combinations": {
+                "include": [["bm25", "fast_rerank", "precise_rerank"]],
+                "ablations": ["fast_rerank"],
+            },
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    # Without fast_rerank comes first (r=0 subset), then with fast_rerank
+    assert ids == ["bm25__precise_rerank", "bm25__fast_rerank__precise_rerank"]
+
+
+def test_ablations_targeted_multiple_stages():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "targeted-multi"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 200}},
+                "fast_rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 50},
+                },
+                "precise_rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-12-v2", "k": 10},
+                },
+            },
+            "combinations": {
+                "include": [["bm25", "fast_rerank", "precise_rerank"]],
+                "ablations": ["fast_rerank", "precise_rerank"],
+            },
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    assert set(ids) == {
+        "bm25",
+        "bm25__fast_rerank",
+        "bm25__precise_rerank",
+        "bm25__fast_rerank__precise_rerank",
+    }
+
+
+def test_ablations_targeted_stage_not_in_combo():
+    # Targeting a stage that doesn't appear in the combo → combo added as-is, no error
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "targeted-miss"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 100}},
+                "rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 10},
+                },
+            },
+            "combinations": {
+                "include": [["bm25", "rerank"]],
+                "ablations": ["nonexistent_stage"],
+            },
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    assert ids == ["bm25__rerank"]
+
+
+def test_ablations_targeted_deduplication():
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "targeted-dedup"},
+            "dataset": {"name": "custom", "queries_path": "queries.jsonl"},
+            "stages": {
+                "bm25": {"type": "adapter.bm25", "config": {"k": 200}},
+                "fast_rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-6-v2", "k": 50},
+                },
+                "precise_rerank": {
+                    "type": "adapter.hf_crossencoder",
+                    "config": {"model": "cross-encoder/ms-marco-MiniLM-L-12-v2", "k": 10},
+                },
+            },
+            "combinations": {
+                # Explicitly includes bm25__precise_rerank; targeted ablation would also generate it
+                "include": [
+                    ["bm25", "precise_rerank"],
+                    ["bm25", "fast_rerank", "precise_rerank"],
+                ],
+                "ablations": ["fast_rerank"],
+            },
+        }
+    )
+    ids = [p.id for p in cfg.pipelines]
+    # No duplicates
+    assert ids.count("bm25__precise_rerank") == 1
+    assert ids.count("bm25__fast_rerank__precise_rerank") == 1
 
 
 def test_validation_reports_missing_custom_paths():
