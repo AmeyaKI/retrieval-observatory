@@ -16,6 +16,7 @@ State your assumptions explicitly. If uncertain, ask.
 If multiple interpretations exist, present them - don't pick silently.
 If a simpler approach exists, say so. Push back when warranted.
 If something is unclear, stop. Name what's confusing. Ask.
+
 2. Simplicity First
 
 Minimum code that solves the problem. Nothing speculative.

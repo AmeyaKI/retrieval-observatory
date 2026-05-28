@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import pickle
 import time
 import warnings
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
+
+_DEFAULT_CACHE_DIR = Path.home() / ".retobs" / "faiss_cache"
 
 
 class HFBiEncoderAdapter:
     """Dense retriever using a sentence-transformers bi-encoder + FAISS index.
 
     The corpus is encoded once on first retrieve() call and cached in memory.
-    Suitable for corpora up to ~500k documents on a single machine.
+    The FAISS index is persisted to disk (keyed by corpus+model hash) so
+    subsequent runs skip re-encoding. Suitable for corpora up to ~500k docs.
 
     Requires: pip install retrieval-observatory[dense]
     """
@@ -23,14 +29,25 @@ class HFBiEncoderAdapter:
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
         retriever_id: str = "hf_biencoder",
         batch_size: int = 64,
+        cache_dir: Optional[Path] = None,
     ):
         self.retriever_id = retriever_id
         self._corpus = corpus
         self._model_name = model_name
         self._batch_size = batch_size
+        self._cache_dir = Path(cache_dir) if cache_dir else _DEFAULT_CACHE_DIR
         self._doc_ids: Optional[List[str]] = None
         self._model = None
         self._index = None  # faiss.IndexFlatIP
+
+    def _corpus_cache_key(self) -> str:
+        # Hash corpus content + model name so index is reused only for identical inputs
+        h = hashlib.sha256()
+        for doc_id in sorted(self._corpus.keys()):
+            h.update(doc_id.encode())
+            h.update(self._corpus[doc_id].encode())
+        h.update(self._model_name.encode())
+        return h.hexdigest()[:16]
 
     def _build_index(self) -> None:
         try:
@@ -41,6 +58,20 @@ class HFBiEncoderAdapter:
                 "HFBiEncoderAdapter requires sentence-transformers and faiss-cpu. "
                 "Install with: pip install retrieval-observatory[dense]"
             ) from e
+
+        cache_key = self._corpus_cache_key()
+        index_path = self._cache_dir / f"{cache_key}.index"
+        ids_path = self._cache_dir / f"{cache_key}.pkl"
+
+        # Load from disk cache if available
+        if index_path.exists() and ids_path.exists():
+            self._index = faiss.read_index(str(index_path))
+            with open(ids_path, "rb") as f:
+                self._doc_ids = pickle.load(f)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning)
+                self._model = SentenceTransformer(self._model_name)
+            return
 
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -64,6 +95,12 @@ class HFBiEncoderAdapter:
         dim = embeddings.shape[1]
         self._index = faiss.IndexFlatIP(dim)
         self._index.add(embeddings)
+
+        # Persist to disk for future runs
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(self._index, str(index_path))
+        with open(ids_path, "wb") as f:
+            pickle.dump(self._doc_ids, f)
 
     def _retrieve_sync(self, query: Query) -> RetrievalResult:
         if self._index is None:

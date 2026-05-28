@@ -5,6 +5,26 @@ from typing import List, Tuple
 import numpy as np
 
 
+def benjamini_hochberg(p_values: List[float], fdr: float = 0.05) -> List[float]:
+    """Return BH-adjusted p-values (q-values) for a family of hypotheses.
+
+    Applies the Benjamini-Hochberg procedure to control false discovery rate.
+    Use q < fdr (default 0.05) instead of p < 0.05 when testing multiple metrics.
+    """
+    n = len(p_values)
+    if n == 0:
+        return []
+    # Rank p-values (1-based) from smallest to largest
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+    q_values = [0.0] * n
+    min_q = 1.0
+    for rank, (orig_idx, p) in reversed(list(enumerate(indexed, start=1))):
+        q = min(p * n / rank, 1.0)
+        min_q = min(q, min_q)  # enforce monotonicity
+        q_values[orig_idx] = min_q
+    return q_values
+
+
 def bootstrap_ci(
     scores: List[float],
     n_resamples: int = 1000,

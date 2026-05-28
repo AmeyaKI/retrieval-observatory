@@ -175,8 +175,20 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False)
     aggregated = await engine.aggregate(run_id=run_id, store=store)
     await store.finish_run(run_id)
 
+    # Print error samples if any errors occurred
+    if runner.error_samples:
+        from rich.panel import Panel
+        console.print(Panel(
+            "\n".join(f"• {e}" for e in runner.error_samples),
+            title="[red]Errors (first unique messages)[/red]",
+            border_style="red",
+        ))
+
     # Print summary table
     _print_metrics_table(aggregated, run_id)
+
+    # Print diagnostic failure mode summary
+    _print_diagnostics_summary(diagnostics)
 
     # Export if requested
     if "json" in cfg.output.export:
@@ -202,7 +214,7 @@ def compare(
 async def _compare(run_id_1: str, run_id_2: str, db_path: str) -> None:
     from retrieval_observatory.metrics.comparison import paired_scores_by_query
     from retrieval_observatory.metrics.engine import MetricsEngine
-    from retrieval_observatory.metrics.significance import paired_bootstrap_test
+    from retrieval_observatory.metrics.significance import benjamini_hochberg, paired_bootstrap_test
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
@@ -211,33 +223,50 @@ async def _compare(run_id_1: str, run_id_2: str, db_path: str) -> None:
     agg1 = await engine.aggregate(run_id_1, store)
     agg2 = await engine.aggregate(run_id_2, store)
 
-    # Build comparison table
     all_keys = sorted(set(agg1.keys()) | set(agg2.keys()))
+
+    metrics1 = await store.get_metrics(run_id_1)
+    metrics2 = await store.get_metrics(run_id_2)
+
+    # Compute all p-values first so we can apply BH correction across metrics
+    row_data = []
+    raw_p_values = []
+    for key in all_keys:
+        a1 = agg1.get(key, {})
+        a2 = agg2.get(key, {})
+        mean1 = f"{a1.get('mean', 0):.4f} ± {a1.get('std', 0):.4f}" if a1 else "—"
+        mean2 = f"{a2.get('mean', 0):.4f} ± {a2.get('std', 0):.4f}" if a2 else "—"
+        s1, s2, n_pairs = paired_scores_by_query(metrics1, metrics2, key)
+        if s1 and s2:
+            p = paired_bootstrap_test(s1, s2)
+            raw_p_values.append(p)
+            row_data.append((key, mean1, mean2, p, n_pairs))
+        else:
+            row_data.append((key, mean1, mean2, None, 0))
+
+    q_values = benjamini_hochberg(raw_p_values)
+    q_idx = 0
 
     table = Table(title=f"Run Comparison: {run_id_1} vs {run_id_2}")
     table.add_column("Metric", style="bold")
     table.add_column(run_id_1, justify="right")
     table.add_column(run_id_2, justify="right")
     table.add_column("p-value", justify="right")
+    table.add_column("q-value (BH)", justify="right")
 
-    metrics1 = await store.get_metrics(run_id_1)
-    metrics2 = await store.get_metrics(run_id_2)
-
-    for key in all_keys:
-        a1 = agg1.get(key, {})
-        a2 = agg2.get(key, {})
-        mean1 = f"{a1.get('mean', 0):.4f} ± {a1.get('std', 0):.4f}" if a1 else "—"
-        mean2 = f"{a2.get('mean', 0):.4f} ± {a2.get('std', 0):.4f}" if a2 else "—"
-
-        p_val = "—"
-        s1, s2, n_pairs = paired_scores_by_query(metrics1, metrics2, key)
-        if s1 and s2:
-            p = paired_bootstrap_test(s1, s2)
-            p_val = f"{p:.3f}" + (" *" if p < 0.05 else "") + f" ({n_pairs} pairs)"
-
-        table.add_row(key, mean1, mean2, p_val)
+    for key, mean1, mean2, p, n_pairs in row_data:
+        if p is not None:
+            q = q_values[q_idx]
+            q_idx += 1
+            p_str = f"{p:.3f} ({n_pairs} pairs)"
+            q_str = f"[bold]{q:.3f} *[/bold]" if q < 0.05 else f"{q:.3f}"
+        else:
+            p_str = "—"
+            q_str = "—"
+        table.add_row(key, mean1, mean2, p_str, q_str)
 
     console.print(table)
+    console.print("[dim]q-value: Benjamini-Hochberg FDR-adjusted p-value. Use q < 0.05 for significance.[/dim]")
 
 
 @app.command()
@@ -271,6 +300,43 @@ _BEIR_NAMES = {
 }
 
 
+def _print_diagnostics_summary(diagnostics: list) -> None:
+    if not diagnostics:
+        return
+    from collections import defaultdict
+
+    # Aggregate by pipeline_id
+    by_pipeline: dict = defaultdict(lambda: {"total": 0, "labels": defaultdict(int), "buckets": defaultdict(int)})
+    for row in diagnostics:
+        pid = row["pipeline_id"]
+        by_pipeline[pid]["total"] += 1
+        for label in row.get("failure_labels", []):
+            by_pipeline[pid]["labels"][label] += 1
+        by_pipeline[pid]["buckets"][row.get("difficulty_bucket", "unknown")] += 1
+
+    table = Table(title="Diagnostics Summary")
+    table.add_column("Pipeline", style="bold")
+    table.add_column("Failure Modes", justify="left")
+    table.add_column("Difficulty Buckets", justify="left")
+
+    label_order = ["candidate_miss", "reranker_drop", "lexical_mismatch", "semantic_mismatch", "id_or_qrel_issue", "unstable"]
+    for pid, data in sorted(by_pipeline.items()):
+        total = data["total"]
+        labels_str = "  ".join(
+            f"{lbl}: {data['labels'][lbl]/total:.0%}"
+            for lbl in label_order
+            if data["labels"].get(lbl, 0) > 0
+        ) or "none"
+        buckets_str = "  ".join(
+            f"{b}: {data['buckets'][b]/total:.0%}"
+            for b in ["easy", "medium", "hard", "discriminative"]
+            if data["buckets"].get(b, 0) > 0
+        ) or "—"
+        table.add_row(pid, labels_str, buckets_str)
+
+    console.print(table)
+
+
 def _print_metrics_table(aggregated: dict, run_id: str) -> None:
     table = Table(title=f"Results — Run {run_id}")
     table.add_column("Metric", style="bold")
@@ -290,6 +356,105 @@ def _print_metrics_table(aggregated: dict, run_id: str) -> None:
         )
 
     console.print(table)
+
+
+@app.command()
+def inspect(
+    run_id: str = typer.Argument(..., help="Run ID to inspect"),
+    query_id: str = typer.Option(..., "--query", "-q", help="Query ID to inspect"),
+    pipeline_id: Optional[str] = typer.Option(None, "--pipeline", "-p", help="Pipeline ID (defaults to all)"),
+    db_path: str = typer.Option(".retobs/results.db", "--db"),
+) -> None:
+    """Inspect retrieved documents for a specific query and pipeline."""
+    asyncio.run(_inspect(run_id, query_id, pipeline_id, db_path))
+
+
+async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_path: str) -> None:
+    import aiosqlite
+    import json as _json
+
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Load stage rows for this query
+        sql = """SELECT pipeline_id, stage_index, stage_id, status, latency_ms,
+                        retrieved_doc_ids_json, retrieved_scores_json, error_traceback
+                 FROM raw_results
+                 WHERE run_id = ? AND query_id = ? AND stage_index >= 0
+                 ORDER BY pipeline_id, stage_index"""
+        params: tuple = (run_id, query_id)
+        if pipeline_id:
+            sql = sql.replace("AND stage_index >= 0", "AND pipeline_id = ? AND stage_index >= 0")
+            params = (run_id, query_id, pipeline_id)
+
+        async with db.execute(sql, params) as cur:
+            stage_rows = await cur.fetchall()
+
+        # Load diagnostics for this query
+        diag_sql = "SELECT * FROM query_diagnostics WHERE run_id = ? AND query_id = ?"
+        if pipeline_id:
+            diag_sql += " AND pipeline_id = ?"
+            diag_params: tuple = (run_id, query_id, pipeline_id)
+        else:
+            diag_params = (run_id, query_id)
+        async with db.execute(diag_sql, diag_params) as cur:
+            diag_rows = await cur.fetchall()
+
+    diag_by_pipeline = {}
+    for row in diag_rows:
+        diag_by_pipeline[row["pipeline_id"]] = {
+            "failure_labels": _json.loads(row["failure_labels_json"]),
+            "difficulty_bucket": row["difficulty_bucket"],
+            "missing_relevant_ids": set(_json.loads(row["missing_relevant_ids_json"])),
+            "stage_hits": {k: set(v) for k, v in _json.loads(row["stage_hits_json"]).items()},
+        }
+
+    # Group by pipeline
+    from collections import defaultdict
+    by_pipeline: dict = defaultdict(list)
+    for row in stage_rows:
+        by_pipeline[row["pipeline_id"]].append(row)
+
+    if not by_pipeline:
+        console.print(f"[red]No results found for run={run_id} query={query_id}[/red]")
+        return
+
+    console.print(f"\n[bold]Run:[/bold] {run_id}  [bold]Query:[/bold] {query_id}\n")
+
+    for pid, stages in sorted(by_pipeline.items()):
+        diag = diag_by_pipeline.get(pid, {})
+        labels = diag.get("failure_labels", [])
+        bucket = diag.get("difficulty_bucket", "?")
+        label_str = ", ".join(labels) if labels else "none"
+        console.print(f"[bold cyan]Pipeline:[/bold cyan] {pid}  bucket={bucket}  labels=[yellow]{label_str}[/yellow]")
+
+        for stage_row in stages:
+            stage_idx = stage_row["stage_index"]
+            doc_ids = _json.loads(stage_row["retrieved_doc_ids_json"])
+            scores = _json.loads(stage_row["retrieved_scores_json"])
+            hits_at_stage = diag.get("stage_hits", {}).get(str(stage_idx), set())
+
+            table = Table(
+                title=f"Stage {stage_idx}: {stage_row['stage_id']} ({stage_row['status']}, {stage_row['latency_ms']:.0f}ms)",
+                show_header=True,
+            )
+            table.add_column("Rank", justify="right", width=5)
+            table.add_column("Doc ID", style="bold")
+            table.add_column("Score", justify="right", width=10)
+            table.add_column("Relevant?", justify="center", width=10)
+
+            for rank, (did, score) in enumerate(zip(doc_ids, scores), start=1):
+                is_hit = did in hits_at_stage
+                rel_str = "[green]YES[/green]" if is_hit else "[dim]—[/dim]"
+                table.add_row(str(rank), did, f"{score:.4f}", rel_str)
+
+            console.print(table)
+
+        missing = diag.get("missing_relevant_ids", set())
+        if missing:
+            console.print(f"  [red]Missing relevant:[/red] {', '.join(sorted(missing))}\n")
+        else:
+            console.print()
 
 
 @app.command()
@@ -325,15 +490,13 @@ def init(
     sample_dataset: bool = typer.Option(True, "--sample-dataset/--no-sample-dataset", help="Write tiny custom JSONL files."),
 ) -> None:
     """Generate a starter config and optional tiny custom dataset files."""
-    import yaml
-
     if output.exists() and not force:
         console.print(f"[red]Refusing to overwrite {output}. Pass --force to replace it.[/red]")
         raise typer.Exit(1)
 
-    config = _starter_config(mode)
-    output.write_text(yaml.safe_dump(config, sort_keys=False))
+    output.write_text(_starter_config_yaml(mode))
     console.print(f"[green]Wrote config:[/green] {output}")
+    console.print(f"  Run [bold]retobs validate --config {output}[/bold] to check for issues before running.")
 
     if sample_dataset and mode in {"custom-jsonl", "http-endpoint", "bm25+dense", "bm25+reranker"}:
         data_dir = output.parent / "retobs_sample_data"
@@ -361,6 +524,151 @@ def _print_validation_report(report: dict) -> None:
     for item in report["items"]:
         table.add_row(f"[{style.get(item['level'], 'white')}]{item['level']}[/]", item["check"], item["message"])
     console.print(table)
+
+
+def _starter_config_yaml(mode: str) -> str:
+    """Return a starter YAML config string with inline explanatory comments."""
+    if mode == "beir":
+        return """\
+experiment:
+  name: beir-nfcorpus-eval
+
+dataset:
+  type: beir
+  name: beir/nfcorpus      # any of: nfcorpus, scifact, fiqa, trec-covid, nq, hotpotqa, ...
+  split: test
+  max_queries: 50           # set to null to use all queries (323 for nfcorpus)
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100                # how many candidates to retrieve (before any reranking)
+  dense:
+    type: adapter.hf_biencoder
+    config:
+      model: sentence-transformers/all-MiniLM-L6-v2  # any sentence-transformers model
+      k: 100
+
+combinations:
+  include:
+    - [bm25]
+    - [dense]
+
+metrics:
+  recall_at_k: [1, 5, 10, 20]   # list of K values to evaluate
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 4            # parallel (pipeline, query) tasks; increase for HTTP adapters
+  timeout_seconds: 60       # per-query timeout; increase for slow models
+  cache_results: true       # skip re-running queries with identical config
+
+output:
+  store: sqlite
+  db_path: .retobs/results.db
+  export: [json]            # also write a JSON file after the run
+"""
+
+    if mode == "http-endpoint":
+        return """\
+experiment:
+  name: http-endpoint-eval
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: retobs_sample_data/queries.jsonl
+  corpus_path: retobs_sample_data/corpus.jsonl
+  timestamp_field: timestamp          # optional: field in corpus docs for temporal recall
+  metadata_fields: [source]           # optional: extra fields to group metrics by
+
+pipelines:
+  - id: http_retriever
+    stages:
+      - type: adapter.http
+        url: http://localhost:8000/search    # POST {query, k} → {results: [{id, text, score}]}
+        config:
+          k: 10
+          timeout_ms: 10000                  # per-request HTTP timeout
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 4
+  timeout_seconds: 30
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/results.db
+"""
+
+    # For bm25+dense, bm25+reranker, custom-jsonl
+    stages_block = """\
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100                # candidates to retrieve
+  dense:
+    type: adapter.hf_biencoder
+    config:
+      model: sentence-transformers/all-MiniLM-L6-v2
+      k: 100
+  rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      k: 10                 # top-K to keep after reranking
+"""
+
+    if mode == "bm25+dense":
+        combos = "  include:\n    - [bm25]\n    - [dense]\n"
+    elif mode == "bm25+reranker":
+        combos = "  include:\n    - [bm25]\n    - [bm25, rerank]   # bm25 retrieves 100, reranker re-scores to top 10\n"
+    else:  # custom-jsonl
+        combos = "  include:\n    - [bm25]\n"
+
+    return f"""\
+experiment:
+  name: {mode}-eval
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: retobs_sample_data/queries.jsonl   # JSONL: {{query_id, text, relevant_doc_ids}}
+  corpus_path: retobs_sample_data/corpus.jsonl     # JSONL: {{id, title, text, timestamp, ...}}
+  timestamp_field: timestamp     # corpus field used for temporal recall metrics (optional)
+  metadata_fields: [source]      # corpus/query fields to group metric breakdowns by (optional)
+
+{stages_block}
+# combinations expands stages into pipelines automatically.
+# Each list in include is one pipeline: [stage_a] or [stage_a, stage_b] (retriever → reranker).
+combinations:
+{combos}
+metrics:
+  recall_at_k: [1, 5, 10, 20]   # K values for Recall@K
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 4            # parallel tasks; set to 1 to debug
+  timeout_seconds: 60       # per-query timeout across all stages
+  cache_results: true       # reuse results when re-running with the same pipeline config
+
+output:
+  store: sqlite             # use "postgres" + postgres_dsn for team setups
+  db_path: .retobs/results.db
+  export: [json]
+"""
 
 
 def _starter_config(mode: str) -> dict:

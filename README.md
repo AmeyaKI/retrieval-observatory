@@ -337,6 +337,21 @@ Current expected result: `59 passed, 1 skipped`.
 
 ---
 
+## Dashboard Development
+
+The dashboard frontend is pre-built (`dist/` is checked in), so `retobs serve` works without any Node setup. To modify the React UI:
+
+```bash
+cd retrieval_observatory/dashboard/ui
+npm install
+npm run dev      # hot-reloading dev server on :5173 (proxies API to retobs serve)
+npm run build    # rebuild dist/ (commit the output)
+```
+
+Or use `make dashboard-dev` / `make dashboard-build` from the repo root.
+
+---
+
 ## Optional Dependency Groups
 
 

@@ -35,6 +35,7 @@ def build_pipeline_from_config(
         "adapter.hf_biencoder": _build_hf_biencoder_adapter,
         "adapter.hf_crossencoder": _build_hf_crossencoder_adapter,
         "adapter.cohere_rerank": _build_cohere_rerank_adapter,
+        "adapter.rrf": None,  # handled specially below (needs recursive sub-builder calls)
         # These adapters wrap pre-constructed Python objects and cannot be fully wired from YAML.
         # Use them programmatically: MyAdapter(retriever_obj, ...) then build_pipeline() directly.
         "adapter.pgvector": _build_pgvector_adapter,
@@ -47,16 +48,19 @@ def build_pipeline_from_config(
 
     for stage_cfg in pipeline_config["stages"]:
         stage_type = stage_cfg["type"]
-        builder = _ADAPTER_MAP.get(stage_type)
-        if builder is None:
+        if stage_type not in _ADAPTER_MAP:
             raise ValueError(
                 f"Unknown stage type '{stage_type}'. "
                 f"Supported: {list(_ADAPTER_MAP.keys())}"
             )
-        if stage_type in _CORPUS_ADAPTERS:
-            stage, k = builder(stage_cfg, corpus)
+        if stage_type == "adapter.rrf":
+            stage, k = _build_rrf_adapter(stage_cfg, corpus)
         else:
-            stage, k = builder(stage_cfg)
+            builder = _ADAPTER_MAP[stage_type]
+            if stage_type in _CORPUS_ADAPTERS:
+                stage, k = builder(stage_cfg, corpus)
+            else:
+                stage, k = builder(stage_cfg)
         stages.append(stage)
         k_per_stage.append(k)
 
@@ -80,6 +84,7 @@ def _build_bm25_adapter(stage_cfg: dict, corpus: dict | None = None):
     adapter = BM25Adapter(
         corpus=corpus,
         retriever_id=stage_cfg.get("retriever_id", "bm25"),
+        tokenizer=cfg.get("tokenizer", "whitespace"),
     )
     return adapter, k
 
@@ -153,6 +158,57 @@ def _build_cohere_rerank_adapter(stage_cfg: dict):
         retriever_id=stage_cfg.get("retriever_id", "cohere_rerank"),
     )
     return adapter, k
+
+
+def _build_rrf_adapter(stage_cfg: dict, corpus: dict | None = None):
+    from retrieval_observatory.adapters.rrf_adapter import RRFFusionAdapter
+
+    cfg = stage_cfg.get("config", {})
+    top_k = cfg.get("top_k", 100)
+    rrf_k = cfg.get("rrf_k", 60)
+    fetch_k = cfg.get("fetch_k", 100)
+
+    sub_retriever_cfgs = cfg.get("retrievers", [])
+    if not sub_retriever_cfgs:
+        raise ValueError(
+            "adapter.rrf requires config.retrievers: a list of stage configs (type + config) "
+            "for the retrievers to fuse. Example:\n"
+            "  - type: adapter.bm25\n"
+            "  - type: adapter.hf_biencoder\n"
+            "    config: {model: sentence-transformers/all-MiniLM-L6-v2}"
+        )
+
+    _CORPUS_ADAPTERS = {"adapter.bm25", "adapter.hf_biencoder"}
+    _SUB_BUILDER_MAP = {
+        "adapter.http": _build_http_adapter,
+        "adapter.bm25": _build_bm25_adapter,
+        "adapter.hf_biencoder": _build_hf_biencoder_adapter,
+    }
+
+    sub_retrievers = []
+    for sub_cfg in sub_retriever_cfgs:
+        sub_type = sub_cfg.get("type")
+        builder = _SUB_BUILDER_MAP.get(sub_type)
+        if builder is None:
+            raise ValueError(
+                f"adapter.rrf sub-retriever type '{sub_type}' not supported. "
+                f"Use one of: {list(_SUB_BUILDER_MAP.keys())}"
+            )
+        if sub_type in _CORPUS_ADAPTERS:
+            retriever, _ = builder(sub_cfg, corpus)
+        else:
+            retriever, _ = builder(sub_cfg)
+        sub_retrievers.append(retriever)
+
+    retriever_id = stage_cfg.get("retriever_id", "rrf")
+    adapter = RRFFusionAdapter(
+        retrievers=sub_retrievers,
+        retriever_id=retriever_id,
+        rrf_k=rrf_k,
+        fetch_k=fetch_k,
+        top_k=top_k,
+    )
+    return adapter, top_k
 
 
 def _build_pgvector_adapter(stage_cfg: dict):

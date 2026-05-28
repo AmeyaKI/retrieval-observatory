@@ -54,6 +54,7 @@ class BenchmarkRunner:
             pid: [] for pid in pipeline_map
         }
         error_counts: Dict[str, int] = {pid: 0 for pid in pipeline_map}
+        self.error_samples: List[str] = []  # first 3 unique error messages
 
         with Progress(
             SpinnerColumn(),
@@ -95,6 +96,11 @@ class BenchmarkRunner:
                     result = await _run_one(pipeline_id, query_id)
                     if result.status != "OK":
                         error_counts[pipeline_id] += 1
+                        if result.error_traceback and len(self.error_samples) < 3:
+                            # Collect unique error types for post-run display
+                            first_line = result.error_traceback.strip().splitlines()[-1]
+                            if first_line not in self.error_samples:
+                                self.error_samples.append(first_line)
                     results_by_pipeline[pipeline_id].append(result)
                     total_errors = sum(error_counts.values())
                     progress.update(task_id, advance=1, errors=total_errors)
