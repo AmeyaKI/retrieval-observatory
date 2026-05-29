@@ -14,6 +14,59 @@ def _make_cache_key(pipeline_config_yaml: str, query_id: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _make_stage_cache_key(stage_config_yaml: str, query_id: str) -> str:
+    raw = f"stage::{stage_config_yaml}::{query_id}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _snap_to_json(snap: StageSnapshot) -> str:
+    return json.dumps({
+        "stage_index": snap.stage_index,
+        "stage_id": snap.stage_id,
+        "latency_ms": snap.latency_ms,
+        "profiling": snap.profiling,
+        "candidate_count": snap.candidate_count,
+        "documents": [
+            {
+                "id": d.id,
+                "text": d.text,
+                "score": d.score,
+                "rank": d.rank,
+                "title": d.title,
+                "timestamp": d.timestamp.isoformat() if d.timestamp else None,
+                "metadata": d.metadata,
+            }
+            for d in snap.documents
+        ],
+    })
+
+
+def _snap_from_json(data: str) -> StageSnapshot:
+    from datetime import datetime
+
+    obj = json.loads(data)
+    docs = [
+        Document(
+            id=d["id"],
+            text=d["text"],
+            score=d["score"],
+            rank=d["rank"],
+            title=d.get("title", ""),
+            timestamp=datetime.fromisoformat(d["timestamp"]) if d["timestamp"] else None,
+            metadata=d.get("metadata", {}),
+        )
+        for d in obj["documents"]
+    ]
+    return StageSnapshot(
+        stage_index=obj["stage_index"],
+        stage_id=obj["stage_id"],
+        documents=docs,
+        latency_ms=obj["latency_ms"],
+        profiling=obj.get("profiling", {}),
+        candidate_count=obj.get("candidate_count", len(docs)),
+    )
+
+
 def _result_to_json(result: PipelineResult) -> str:
     def snap_to_dict(s: StageSnapshot) -> dict:
         return {
@@ -100,3 +153,29 @@ class ResultCache:
 
     async def set(self, query_id: str, result: PipelineResult) -> None:
         await self._store.cache_set(self._key(query_id), _result_to_json(result))
+
+
+class StageResultCache:
+    """Per-stage cache shared across all pipelines. Key = hash(stage_config + query_id).
+
+    Because the key only encodes the individual stage's config (not the whole pipeline),
+    identical stages across different ablation combos share the same cache entries.
+    Uses the same result_cache SQLite table with a 'stage::' prefix in the hash input
+    to avoid collisions with pipeline-level cache entries.
+    """
+
+    def __init__(self, store: BaseStore):
+        self._store = store
+
+    def key_for(self, stage_config: dict, query_id: str) -> str:
+        import yaml
+        return _make_stage_cache_key(yaml.dump(stage_config, sort_keys=True), query_id)
+
+    async def get(self, key: str) -> Optional[StageSnapshot]:
+        raw = await self._store.cache_get(key)
+        if raw is None:
+            return None
+        return _snap_from_json(raw)
+
+    async def set(self, key: str, snap: StageSnapshot) -> None:
+        await self._store.cache_set(key, _snap_to_json(snap))

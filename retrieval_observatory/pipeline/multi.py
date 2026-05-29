@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from retrieval_observatory.types import (
     BaseReranker,
@@ -22,12 +22,16 @@ class MultiStagePipeline:
         pipeline_id: str,
         stages: List[Union[BaseRetriever, BaseReranker]],
         k_per_stage: List[int],
+        stage_configs: Optional[List[Optional[Dict[str, Any]]]] = None,
+        stage_cache: Any = None,  # Optional[StageResultCache] — imported lazily to avoid circular
     ):
         if len(stages) != len(k_per_stage):
             raise ValueError("stages and k_per_stage must have equal length")
         self.pipeline_id = pipeline_id
         self.stages = stages
         self.k_per_stage = k_per_stage
+        self.stage_configs = stage_configs or [None] * len(stages)
+        self.stage_cache = stage_cache
 
     async def run(self, query: Query) -> PipelineResult:
         snapshots: List[StageSnapshot] = []
@@ -36,6 +40,17 @@ class MultiStagePipeline:
 
         try:
             for i, (stage, k) in enumerate(zip(self.stages, self.k_per_stage)):
+                # Check stage-level cache (shared across ablation combos with same stage config)
+                cache_key = None
+                if self.stage_cache is not None and self.stage_configs[i] is not None:
+                    cache_key = self.stage_cache.key_for(self.stage_configs[i], query.query_id)
+                    cached_snap = await self.stage_cache.get(cache_key)
+                    if cached_snap is not None:
+                        snapshots.append(cached_snap)
+                        current_docs = cached_snap.documents
+                        total_latency += cached_snap.latency_ms
+                        continue
+
                 stage_query = Query(
                     text=query.text,
                     k=k,
@@ -62,16 +77,18 @@ class MultiStagePipeline:
 
                 current_docs = result.documents
                 total_latency += result.latency_ms
-                snapshots.append(
-                    StageSnapshot(
-                        stage_index=i,
-                        stage_id=stage.retriever_id,
-                        documents=result.documents,
-                        latency_ms=result.latency_ms,
-                        profiling=result.profiling,
-                        candidate_count=len(result.documents),
-                    )
+                snapshot = StageSnapshot(
+                    stage_index=i,
+                    stage_id=stage.retriever_id,
+                    documents=result.documents,
+                    latency_ms=result.latency_ms,
+                    profiling=result.profiling,
+                    candidate_count=len(result.documents),
                 )
+                snapshots.append(snapshot)
+
+                if cache_key is not None and result.documents:
+                    await self.stage_cache.set(cache_key, snapshot)
 
             return PipelineResult(
                 query_id=query.query_id,

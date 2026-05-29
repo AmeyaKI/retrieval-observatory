@@ -12,15 +12,24 @@ def build_pipeline(
     pipeline_id: str,
     stages: List[Union[BaseRetriever, BaseReranker]],
     k_per_stage: List[int],
+    stage_configs: list | None = None,
+    stage_cache: object | None = None,
 ) -> Union[SingleStagePipeline, MultiStagePipeline]:
     if len(stages) == 1:
         return SingleStagePipeline(pipeline_id=pipeline_id, retriever=stages[0], k=k_per_stage[0])
-    return MultiStagePipeline(pipeline_id=pipeline_id, stages=stages, k_per_stage=k_per_stage)
+    return MultiStagePipeline(
+        pipeline_id=pipeline_id,
+        stages=stages,
+        k_per_stage=k_per_stage,
+        stage_configs=stage_configs,
+        stage_cache=stage_cache,
+    )
 
 
 def build_pipeline_from_config(
     pipeline_config: dict,
     corpus: dict | None = None,
+    stage_cache: object | None = None,
 ) -> Union[SingleStagePipeline, MultiStagePipeline]:
     """Build a pipeline from a YAML pipeline config dict. Imports adapters lazily.
 
@@ -43,6 +52,7 @@ def build_pipeline_from_config(
 
     stages = []
     k_per_stage = []
+    stage_cfgs_raw = []
 
     for stage_cfg in pipeline_config["stages"]:
         stage_type = stage_cfg["type"]
@@ -61,11 +71,14 @@ def build_pipeline_from_config(
                 stage, k = builder(stage_cfg)
         stages.append(stage)
         k_per_stage.append(k)
+        stage_cfgs_raw.append(stage_cfg)
 
     return build_pipeline(
         pipeline_id=pipeline_config["id"],
         stages=stages,
         k_per_stage=k_per_stage,
+        stage_configs=stage_cfgs_raw,
+        stage_cache=stage_cache,
     )
 
 

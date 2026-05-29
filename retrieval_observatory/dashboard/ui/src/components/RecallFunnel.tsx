@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer,
@@ -19,6 +19,19 @@ const NDCG_COLORS = ['#818cf8', '#fcd34d', '#6ee7b7', '#fca5a5']
 export default function RecallFunnel({ metrics }: Props) {
   const [hiddenRecall, setHiddenRecall] = useState<Set<string>>(new Set())
   const [hiddenNdcg, setHiddenNdcg] = useState<Set<string>>(new Set())
+  const [yDomain, setYDomain] = useState<[number, number]>([0, 1])
+  const isYZoomed = yDomain[0] !== 0 || yDomain[1] !== 1
+
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    const factor = e.deltaY > 0 ? 1.15 : 0.87
+    setYDomain(([lo, hi]) => {
+      const center = (lo + hi) / 2
+      const half = Math.min(((hi - lo) * factor) / 2, 0.5)
+      return [Math.max(0, center - half), Math.min(1, center + half)]
+    })
+  }, [])
 
   const toggleRecall = (dataKey: string) => setHiddenRecall((prev) => {
     const next = new Set(prev); next.has(dataKey) ? next.delete(dataKey) : next.add(dataKey); return next
@@ -127,10 +140,17 @@ export default function RecallFunnel({ metrics }: Props) {
 
   return (
     <div className="space-y-6">
-      <p className="text-xs text-gray-500">
-        Each group shows per-stage metrics across pipeline combinations. Click legend items to show/hide series.
-        <MetricTooltip text={METRIC_GLOSSARY.stage} />
-      </p>
+      <div className="flex items-start justify-between">
+        <p className="text-xs text-gray-500">
+          Each group shows per-stage metrics across pipeline combinations. Click legend items to show/hide series. Pinch to zoom Y-axis.
+          <MetricTooltip text={METRIC_GLOSSARY.stage} />
+        </p>
+        {isYZoomed && (
+          <button onClick={() => setYDomain([0, 1])} className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5 shrink-0 ml-2">
+            Reset zoom
+          </button>
+        )}
+      </div>
 
       {/* Max-K Recall chart */}
       <div>
@@ -143,57 +163,61 @@ export default function RecallFunnel({ metrics }: Props) {
             Watch <span className="font-semibold">NDCG@10</span> below — if reranking works, it should <span className="font-semibold">rise</span> even as recall falls.
           </div>
         )}
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
-            <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[0, 1]} />
-            <Tooltip content={<RecallTooltip />} />
-            <Legend
-              wrapperStyle={{ fontSize: 11 }}
-              onClick={(data) => toggleRecall(data.dataKey as string)}
-              formatter={makeLegendFormatter(hiddenRecall)}
-            />
-            {seriesList.map((s, i) => (
-              <Bar
-                key={`recall__${s}`}
-                dataKey={`recall__${s}`}
-                name={`Recall  ${s}`}
-                hide={hiddenRecall.has(`recall__${s}`)}
-                fill={RECALL_COLORS[i % RECALL_COLORS.length]}
-                radius={[3, 3, 0, 0]}
+        <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[yDomain[0], yDomain[1]]} />
+              <Tooltip content={<RecallTooltip />} />
+              <Legend
+                wrapperStyle={{ fontSize: 11 }}
+                onClick={(data) => toggleRecall(data.dataKey as string)}
+                formatter={makeLegendFormatter(hiddenRecall)}
               />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
+              {seriesList.map((s, i) => (
+                <Bar
+                  key={`recall__${s}`}
+                  dataKey={`recall__${s}`}
+                  name={`Recall  ${s}`}
+                  hide={hiddenRecall.has(`recall__${s}`)}
+                  fill={RECALL_COLORS[i % RECALL_COLORS.length]}
+                  radius={[3, 3, 0, 0]}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       {/* NDCG@10 chart */}
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">NDCG@10 per Stage</p>
-        <ResponsiveContainer width="100%" height={220}>
-          <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
-            <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[0, 1]} />
-            <Tooltip content={<NdcgTooltip />} />
-            <Legend
-              wrapperStyle={{ fontSize: 11 }}
-              onClick={(data) => toggleNdcg(data.dataKey as string)}
-              formatter={makeLegendFormatter(hiddenNdcg)}
-            />
-            {seriesList.map((s, i) => (
-              <Bar
-                key={`ndcg__${s}`}
-                dataKey={`ndcg__${s}`}
-                name={`NDCG@10  ${s}`}
-                hide={hiddenNdcg.has(`ndcg__${s}`)}
-                fill={NDCG_COLORS[i % NDCG_COLORS.length]}
-                radius={[3, 3, 0, 0]}
+        <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[yDomain[0], yDomain[1]]} />
+              <Tooltip content={<NdcgTooltip />} />
+              <Legend
+                wrapperStyle={{ fontSize: 11 }}
+                onClick={(data) => toggleNdcg(data.dataKey as string)}
+                formatter={makeLegendFormatter(hiddenNdcg)}
               />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
+              {seriesList.map((s, i) => (
+                <Bar
+                  key={`ndcg__${s}`}
+                  dataKey={`ndcg__${s}`}
+                  name={`NDCG@10  ${s}`}
+                  hide={hiddenNdcg.has(`ndcg__${s}`)}
+                  fill={NDCG_COLORS[i % NDCG_COLORS.length]}
+                  radius={[3, 3, 0, 0]}
+                />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   )

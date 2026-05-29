@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -21,6 +21,19 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
   const [error, setError] = useState<string | null>(null)
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState(false)
+  const [yDomain, setYDomain] = useState<[number, number]>([0, 1])
+  const isYZoomed = yDomain[0] !== 0 || yDomain[1] !== 1
+
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    const factor = e.deltaY > 0 ? 1.15 : 0.87
+    setYDomain(([lo, hi]) => {
+      const center = (lo + hi) / 2
+      const half = Math.min(((hi - lo) * factor) / 2, 0.5)
+      return [Math.max(0, center - half), Math.min(1, center + half)]
+    })
+  }, [])
 
   const toggleSeries = (label: string) => {
     setHiddenSeries((prev) => {
@@ -111,7 +124,7 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
           tick={{ fontSize: 11 }}
           label={{ value: xLabel, position: 'insideBottom', offset: -14, style: { fontSize: 11, fill: '#6b7280' } }}
         />
-        <YAxis tickFormatter={(v: number) => v.toFixed(2)} tick={{ fontSize: 11 }} domain={[0, 1]} />
+        <YAxis tickFormatter={(v: number) => v.toFixed(2)} tick={{ fontSize: 11 }} domain={[yDomain[0], yDomain[1]]} />
         <Tooltip formatter={(v: number) => fmtQuality(v)} />
         {seriesLabels.map((label, i) => (
           <Bar
@@ -153,7 +166,12 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
       <p className="text-xs text-gray-500 mb-2">
         {metricLabel} by {xLabel} — each bar group is one segment value. Click legend to show/hide series.
       </p>
-      <div className="flex justify-end mb-1">
+      <div className="flex justify-end gap-2 mb-1">
+        {isYZoomed && (
+          <button onClick={() => setYDomain([0, 1])} className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5">
+            Reset zoom
+          </button>
+        )}
         <button
           onClick={() => setExpanded(true)}
           className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5"
@@ -161,11 +179,15 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
           Expand ⤢
         </button>
       </div>
-      {renderChart(240)}
+      <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+        {renderChart(240)}
+      </div>
       {legend}
       {expanded && (
         <ChartModal title={`${metricLabel} by ${xLabel}`} onClose={() => setExpanded(false)}>
-          {renderChart(480)}
+          <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+            {renderChart(480)}
+          </div>
           {legend}
         </ChartModal>
       )}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { MetricsMap, StageContribution } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 import { fmtQuality, fmtLatencyMs } from '../utils/format'
@@ -18,30 +18,12 @@ interface PipelineSummary {
   recallBestK: number | null
   recallBestMean: number | null
   latencyP50: number | null
-  isBaseline: boolean
 }
 
 function fmt(v: number | null): string {
   return v == null ? '—' : fmtQuality(v)
 }
 
-function delta(current: number | null, baseline: number | null): number | null {
-  if (current == null || baseline == null) return null
-  return current - baseline
-}
-
-function DeltaBadge({ d, higherIsBetter = true }: { d: number | null; higherIsBetter?: boolean }) {
-  if (d == null) return <span className="text-gray-400 text-xs">—</span>
-  const improved = higherIsBetter ? d > 0.0005 : d < -0.0005
-  const regressed = higherIsBetter ? d < -0.0005 : d > 0.0005
-  const color = improved ? 'text-emerald-600 bg-emerald-50' : regressed ? 'text-red-600 bg-red-50' : 'text-gray-500 bg-gray-100'
-  const sign = d > 0 ? '+' : ''
-  return (
-    <span className={`inline-block px-1.5 py-0.5 rounded text-xs font-mono font-semibold ${color}`}>
-      {sign}{fmtQuality(d)}
-    </span>
-  )
-}
 
 function StageContributionCard({
   contribution,
@@ -153,7 +135,6 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
         recallBestK: null,
         recallBestMean: null,
         latencyP50: null,
-        isBaseline: pid.includes('baseline'),
       })
     }
     const s = summaryMap.get(pid)!
@@ -176,14 +157,24 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
     if (entry.metric_name === 'latency_p50') s.latencyP50 = entry.mean
   }
 
-  const summaries = [...summaryMap.values()]
-  if (summaries.length === 0) return null
+  // Rank pipelines: best NDCG@10 first, tie-break on best recall
+  const ranked = [...summaryMap.values()].sort(
+    (a, b) => (b.ndcg10 ?? -1) - (a.ndcg10 ?? -1) || (b.recallBestMean ?? -1) - (a.recallBestMean ?? -1)
+  )
 
-  const baseline = summaries.find((s) => s.isBaseline) ?? summaries.sort((a, b) => a.pipelineId.localeCompare(b.pipelineId))[0]
-  const comparisons = summaries.filter((s) => s.pipelineId !== baseline.pipelineId)
+  if (ranked.length === 0) return null
 
   const toLabel = (pid: string) =>
     pid.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+  const rankLabel = (i: number) => (['Best', '2nd', '3rd'][i] ?? `${i + 1}th`)
+
+  const rankColors = [
+    { border: 'border-emerald-400', bg: 'bg-emerald-50', badge: 'text-amber-600 bg-amber-50 border-amber-200', label: 'text-emerald-600' },
+    { border: 'border-slate-400', bg: 'bg-slate-50', badge: 'text-slate-500 bg-slate-100 border-slate-200', label: 'text-slate-500' },
+    { border: 'border-amber-400', bg: 'bg-amber-50', badge: 'text-amber-700 bg-amber-100 border-amber-200', label: 'text-amber-600' },
+  ]
+  const defaultColor = { border: 'border-gray-200', bg: 'bg-gray-50', badge: 'text-gray-500 bg-gray-100 border-gray-200', label: 'text-gray-400' }
 
   const hasContributions = stageContributions && stageContributions.length > 0
 
@@ -191,70 +182,39 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
     <div className="mb-6">
       <div className="flex items-center gap-2 mb-3">
         <h2 className="text-base font-semibold text-gray-800">Pipeline Verdict</h2>
-        <MetricTooltip text="Headline metrics for each pipeline's final stage. Δ values compare against the baseline pipeline. Green = improvement, Red = regression." />
+        <MetricTooltip text="Pipelines ranked left-to-right by NDCG@10 (best at far left). Metrics shown are from each pipeline's final stage." />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-4">
-        {/* Baseline card */}
-        <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-          <div className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">Baseline</div>
-          <div className="text-sm font-semibold text-gray-800 mb-3 truncate" title={toLabel(baseline.pipelineId)}>
-            {toLabel(baseline.pipelineId)}
-          </div>
-          <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between gap-2">
-              <span className="text-gray-500">NDCG@10</span>
-              <span className="font-mono font-semibold text-gray-800">{fmt(baseline.ndcg10)}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-gray-500">Recall@{baseline.recallBestK ?? 20}</span>
-              <span className="font-mono font-semibold text-gray-800">{fmt(baseline.recallBestMean)}</span>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-gray-500">P50 Latency</span>
-              <span className="font-mono font-semibold text-gray-800">
-                {baseline.latencyP50 != null ? `${fmtLatencyMs(baseline.latencyP50)} ms` : '—'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Comparison cards */}
-        {comparisons.map((s) => {
-          const dNdcg = delta(s.ndcg10, baseline.ndcg10)
-          const dRecall = delta(s.recallBestMean, baseline.recallBestMean)
-          const dLatency = delta(s.latencyP50, baseline.latencyP50)
+        {ranked.map((s, i) => {
+          const color = rankColors[i] ?? defaultColor
           return (
-            <div key={s.pipelineId} className="border border-indigo-200 rounded-lg p-4 bg-indigo-50">
-              <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-400 mb-1">
-                vs Baseline · Stage {s.finalStage > 0 ? s.finalStage : 0} final
+            <div key={s.pipelineId} className={`border-2 ${color.border} ${color.bg} rounded-lg p-4`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${color.badge}`}>
+                  {rankLabel(i)}
+                </span>
+                <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                  {s.finalStage > 0 ? `${s.finalStage + 1}-stage` : '1-stage'}
+                </span>
               </div>
               <div className="text-sm font-semibold text-gray-800 mb-3 truncate" title={toLabel(s.pipelineId)}>
                 {toLabel(s.pipelineId)}
               </div>
               <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between gap-2">
                   <span className="text-gray-500">NDCG@10</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-gray-700">{fmt(s.ndcg10)}</span>
-                    <DeltaBadge d={dNdcg} higherIsBetter={true} />
-                  </div>
+                  <span className={`font-mono font-semibold ${color.label}`}>{fmt(s.ndcg10)}</span>
                 </div>
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between gap-2">
                   <span className="text-gray-500">Recall@{s.recallBestK ?? 20}</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-gray-700">{fmt(s.recallBestMean)}</span>
-                    <DeltaBadge d={dRecall} higherIsBetter={true} />
-                  </div>
+                  <span className={`font-mono font-semibold ${color.label}`}>{fmt(s.recallBestMean)}</span>
                 </div>
-                <div className="flex justify-between items-center gap-2">
+                <div className="flex justify-between gap-2">
                   <span className="text-gray-500">P50 Latency</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono text-gray-700">
-                      {s.latencyP50 != null ? `${fmtLatencyMs(s.latencyP50)} ms` : '—'}
-                    </span>
-                    <DeltaBadge d={dLatency != null ? dLatency : null} higherIsBetter={false} />
-                  </div>
+                  <span className="font-mono font-semibold text-gray-700">
+                    {s.latencyP50 != null ? `${fmtLatencyMs(s.latencyP50)} ms` : '—'}
+                  </span>
                 </div>
               </div>
             </div>

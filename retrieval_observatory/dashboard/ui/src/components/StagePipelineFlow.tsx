@@ -22,10 +22,25 @@ function toTitleCase(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-// Derive a short, human-readable adapter label from config context.
-// Stage 0 is always the retriever; Stage 1+ are rerankers.
-function stageAdapterLabel(role: 'Retrieval' | 'Reranking', stageIndex: number): string {
-  return role === 'Retrieval' ? 'BM25 / Dense Retriever' : `Reranker (Stage ${stageIndex})`
+// Derive a human-readable label from the stage name encoded in the pipeline ID.
+// Pipeline IDs are "__"-joined stage names, e.g. "bm25__fast_rerank__precise_rerank".
+function stageNameFromPart(part: string): string {
+  const knownMap: Record<string, string> = {
+    bm25: 'BM25',
+    dense: 'Dense Retriever',
+    rrf: 'RRF Fusion',
+  }
+  if (knownMap[part]) return knownMap[part]
+  return part
+    .replace(/_rerank$/, ' Reranker')
+    .replace(/_retriever$/, ' Retriever')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function stageLabel(pipelineId: string, stageIndex: number): string {
+  const parts = pipelineId.split('__')
+  return stageNameFromPart(parts[stageIndex] ?? '')
 }
 
 const fmt2 = fmtQuality
@@ -106,7 +121,7 @@ export default function StagePipelineFlow({ metrics }: Props) {
                     Stage {stage.stageIndex} · {stage.role}
                   </div>
                   <div className="text-xs text-gray-700 font-medium mb-2 truncate" title={toTitleCase(stage.pipelineId)}>
-                    {stageAdapterLabel(stage.role, stage.stageIndex)}
+                    {stageLabel(stage.pipelineId, stage.stageIndex)}
                   </div>
                   <div className="space-y-0.5 text-xs text-gray-600">
                     {stage.ndcg10 !== null && (

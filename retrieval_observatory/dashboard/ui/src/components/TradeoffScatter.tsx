@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Label, Cell, ReferenceLine, ReferenceArea,
@@ -30,6 +30,19 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
   const [refAreaRight, setRefAreaRight] = useState<number | null>(null)
   const [isSelecting, setIsSelecting] = useState(false)
   const [xDomain, setXDomain] = useState<[number | 'auto', number | 'auto']>(['auto', 'auto'])
+  const [yDomain, setYDomain] = useState<[number, number]>([0, 1])
+  const isYZoomed = yDomain[0] !== 0 || yDomain[1] !== 1
+
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey) return
+    e.preventDefault()
+    const factor = e.deltaY > 0 ? 1.15 : 0.87
+    setYDomain(([lo, hi]) => {
+      const center = (lo + hi) / 2
+      const half = Math.min(((hi - lo) * factor) / 2, 0.5)
+      return [Math.max(0, center - half), Math.min(1, center + half)]
+    })
+  }, [])
 
   const pointMap = new Map<string, Point>()
   const pipelineMaxStage: Record<string, number> = {}
@@ -92,8 +105,8 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
     setRefAreaRight(null)
     setIsSelecting(false)
   }
-  const resetZoom = () => setXDomain(['auto', 'auto'])
-  const isZoomed = xDomain[0] !== 'auto'
+  const resetZoom = () => { setXDomain(['auto', 'auto']); setYDomain([0, 1]) }
+  const isZoomed = xDomain[0] !== 'auto' || isYZoomed
 
   const CustomDot = (props: any) => {
     const { cx, cy, index } = props
@@ -148,7 +161,7 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
             type="number"
             dataKey="ndcg10"
             name="NDCG@10"
-            domain={['auto', 'auto']}
+            domain={[yDomain[0], yDomain[1]]}
             tick={{ fontSize: 11 }}
             tickFormatter={(v) => fmtQuality(v)}
           >
@@ -190,7 +203,7 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
   return (
     <div>
       <p className="text-xs text-gray-500 mb-2">
-        Each point is one pipeline / stage. Top-left = best (high quality, low latency). Drag to zoom in.
+        Each point is one pipeline / stage. Top-left = best (high quality, low latency). Drag to zoom X-axis. Pinch to zoom Y-axis.
         <MetricTooltip text="Quality-Latency Pareto chart. The ideal point is top-left: maximum NDCG@10 at minimum P50 latency. Use this to decide whether the latency cost of adding a reranker is justified by the quality gain." />
       </p>
       <div className="flex justify-end mb-1">
@@ -201,11 +214,15 @@ export default function TradeoffScatter({ metrics, latencyBudgetMs }: Props) {
           Expand ⤢
         </button>
       </div>
-      {renderChart(280)}
+      <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+        {renderChart(280)}
+      </div>
       {legend}
       {expanded && (
         <ChartModal title="Quality vs. Latency Tradeoff" onClose={() => setExpanded(false)}>
-          {renderChart(520)}
+          <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+            {renderChart(520)}
+          </div>
           {legend}
         </ChartModal>
       )}

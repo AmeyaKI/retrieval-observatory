@@ -18,6 +18,7 @@ Stage Contribution: bm25 → bm25__reranker
 ```
 
 What retobs tells you:
+
 1. **Stage attribution** — Recall@10 went from 0.119 → 0.138 (+16%) by adding the reranker. BH-corrected significance: q=0.041 ✓.
 2. **Failure diagnosis** — 42% of remaining failures are candidate misses at stage 0. The reranker can't fix what the retriever never found.
 3. **Latency-quality tradeoff** — That gain cost 4,000ms/query on CPU. The dashboard lets you slide your latency budget and see the verdict update live.
@@ -28,14 +29,16 @@ What retobs tells you:
 
 Real numbers on BEIR/nfcorpus (323 queries, 3,633 docs). 95% CIs via paired bootstrap.
 
-| Pipeline                                        | Recall@10                | NDCG@10                  | MRR                      | Latency P50 |
-| ----------------------------------------------- | ------------------------ | ------------------------ | ------------------------ | ----------- |
-| BM25-only (`rank-bm25`)                         | 0.119 [0.098, 0.141]     | 0.264 [0.233, 0.295]     | 0.468 [0.418, 0.514]     | 2 ms        |
-| Dense-only (`all-MiniLM-L6-v2` + FAISS)         | **0.153 [0.129, 0.179]** | **0.310 [0.278, 0.341]** | 0.510 [0.464, 0.555]     | 539 ms*     |
-| BM25 → CrossEncoder (`ms-marco-MiniLM-L-6-v2`)  | 0.138 [0.115, 0.163]     | 0.310 [0.275, 0.345]     | **0.530 [0.480, 0.581]** | 4,057 ms**  |
 
-\* Query encoding on CPU; latency drops significantly with GPU or batched encoding.  
-\*\* Scoring 100 BM25 candidates through a cross-encoder on CPU; GPU reduces this substantially.
+| Pipeline                                       | Recall@10                | NDCG@10                  | MRR                      | Latency P50 |
+| ---------------------------------------------- | ------------------------ | ------------------------ | ------------------------ | ----------- |
+| BM25-only (`rank-bm25`)                        | 0.119 [0.098, 0.141]     | 0.264 [0.233, 0.295]     | 0.468 [0.418, 0.514]     | 2 ms        |
+| Dense-only (`all-MiniLM-L6-v2` + FAISS)        | **0.153 [0.129, 0.179]** | **0.310 [0.278, 0.341]** | 0.510 [0.464, 0.555]     | 539 ms*     |
+| BM25 → CrossEncoder (`ms-marco-MiniLM-L-6-v2`) | 0.138 [0.115, 0.163]     | 0.310 [0.275, 0.345]     | **0.530 [0.480, 0.581]** | 4,057 ms**  |
+
+
+ Query encoding on CPU; latency drops significantly with GPU or batched encoding.  
+ Scoring 100 BM25 candidates through a cross-encoder on CPU; GPU reduces this substantially.
 
 Full data and observations: [results/nfcorpus/README.md](results/nfcorpus/README.md)
 
@@ -43,11 +46,13 @@ Full data and observations: [results/nfcorpus/README.md](results/nfcorpus/README
 
 ## How It's Different
 
-| Tool | What it measures |
-|------|-----------------|
-| BEIR | End-to-end pipeline accuracy on fixed datasets |
-| RAGAs / TruLens | Answer quality given retrieved context |
-| **retobs** | **Per-stage contribution: what did each stage add in quality, cost, and latency?** |
+
+| Tool            | What it measures                                                                   |
+| --------------- | ---------------------------------------------------------------------------------- |
+| BEIR            | End-to-end pipeline accuracy on fixed datasets                                     |
+| RAGAs / TruLens | Answer quality given retrieved context                                             |
+| **retobs**      | **Per-stage contribution: what did each stage add in quality, cost, and latency?** |
+
 
 retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer between "I have a retrieval pipeline" and "I understand how to improve it."
 
@@ -269,6 +274,7 @@ labels:
 
 ## Dashboard Features
 
+
 | Feature                  | Description                                                                               |
 | ------------------------ | ----------------------------------------------------------------------------------------- |
 | Stage Attribution        | Before/after metric table for each pipeline pair with BH-corrected significance.          |
@@ -282,6 +288,7 @@ labels:
 | Stage Recall Funnel      | Shows how much candidate recall survives through reranking stages.                        |
 | Latency Breakdown        | P50/P95/P99 plus profiling metrics for compute, network, and retries.                     |
 | Segment Analysis         | NDCG@10 by query metadata such as number of relevant docs.                                |
+
 
 ---
 
@@ -366,6 +373,7 @@ Or use `make dashboard-dev` / `make dashboard-build` from the repo root.
 
 ## Optional Dependency Groups
 
+
 | Group        | Installs                                | Use for                                                      |
 | ------------ | --------------------------------------- | ------------------------------------------------------------ |
 | `demo`       | beir, datasets, rank-bm25               | Running BEIR datasets with BM25                              |
@@ -378,8 +386,10 @@ Or use `make dashboard-dev` / `make dashboard-build` from the repo root.
 | `pgvector`   | asyncpg, pgvector                       | Pgvector adapter                                             |
 | `llm-judge`  | google-generativeai, anthropic, openai  | LLM-assisted relevance judging                               |
 
+
 PostgreSQL backend (`asyncpg`) is community-supported and not CI-tested. SQLite is recommended for evaluation workloads.
 
 ```bash
 pip install -e ".[demo,dashboard,dense,dev,llm-judge]"
 ```
+

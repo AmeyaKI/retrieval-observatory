@@ -37,7 +37,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
     from retrieval_observatory.pipeline.factory import build_pipeline_from_config
     from retrieval_observatory.runner.manifest import build_run_manifest
     from retrieval_observatory.runner.benchmark import BenchmarkRunner
-    from retrieval_observatory.runner.cache import ResultCache
+    from retrieval_observatory.runner.cache import ResultCache, StageResultCache
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     cfg = ExperimentConfig.from_yaml(str(config_path))
@@ -77,8 +77,6 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
 
     # Build pipelines — pass corpus for adapters that need it (e.g. adapter.bm25)
     corpus = dataset.corpus if hasattr(dataset, "corpus") else None
-    pipelines = [build_pipeline_from_config(p.model_dump(), corpus=corpus) for p in cfg.pipelines]
-    console.print(f"Built {len(pipelines)} pipeline(s): {[p.pipeline_id for p in pipelines]}")
 
     # Init store
     if cfg.output.store == "postgres":
@@ -112,23 +110,28 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
         await store.save_run_manifest(run_id, build_run_manifest(cfg, fingerprint))
     console.print(f"[bold]Run ID:[/bold] {run_id}")
 
+    # Build caches
+    caches = {}
+    stage_cache = None
+    if cfg.execution.cache_results and not no_cache:
+        import yaml
+        stage_cache = StageResultCache(store=store)
+        for pipeline_cfg in cfg.pipelines:
+            caches[pipeline_cfg.id] = ResultCache(
+                store=store,
+                # sort_keys=True ensures the same config always produces the same YAML string
+                pipeline_config_yaml=yaml.dump(pipeline_cfg.model_dump(), sort_keys=True),
+            )
+
+    pipelines = [build_pipeline_from_config(p.model_dump(), corpus=corpus, stage_cache=stage_cache) for p in cfg.pipelines]
+    console.print(f"Built {len(pipelines)} pipeline(s): {[p.pipeline_id for p in pipelines]}")
+
     # ID consistency smoke test
     if not skip_smoke_test and hasattr(dataset, "corpus"):
         console.print("[bold]Running ID consistency smoke test...[/bold]")
         for pipeline in pipelines:
             await validate_id_consistency(pipeline, queries, dataset.corpus)
         console.print("[green]Smoke test passed.[/green]")
-
-    # Build caches
-    caches = {}
-    if cfg.execution.cache_results and not no_cache:
-        for pipeline_cfg in cfg.pipelines:
-            import yaml
-            caches[pipeline_cfg.id] = ResultCache(
-                store=store,
-                # sort_keys=True ensures the same config always produces the same YAML string
-                pipeline_config_yaml=yaml.dump(pipeline_cfg.model_dump(), sort_keys=True),
-            )
 
     # Run benchmark
     runner = BenchmarkRunner(
