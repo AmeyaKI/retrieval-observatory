@@ -89,3 +89,69 @@ async def test_full_pipeline_with_fixture_data(tmp_path):
     for key, vals in aggregated.items():
         if "latency" not in key:
             assert 0.0 <= vals["mean"] <= 1.0, f"{key}: mean={vals['mean']} out of range"
+
+
+@pytest.mark.asyncio
+async def test_classifier_annotates_query_metadata(tmp_path):
+    pytest.importorskip("sklearn")
+    from retrieval_observatory.classifier.data import LabeledQuery
+    from retrieval_observatory.classifier.model import train_model
+    from retrieval_observatory.cli import _annotate_query_difficulty
+
+    dataset = CustomDataset(
+        queries_path=os.path.join(FIXTURES, "tiny_queries.jsonl"),
+        corpus_path=os.path.join(FIXTURES, "tiny_corpus.jsonl"),
+    )
+    queries, _ = dataset.load()
+
+    store = SQLiteStore(db_path=str(tmp_path / "classifier.db"))
+    await store.init_db()
+    await store.save_run("run1", "classifier-test", '{"dataset": {"name": "custom"}}')
+    await store.save_run_queries("run1", queries, "custom")
+
+    diagnostics_rows = [
+        {"run_id": "run1", "query_id": q.query_id, "pipeline_id": "p1", "difficulty_bucket": "easy"}
+        for q in queries[:2]
+    ] + [
+        {"run_id": "run1", "query_id": q.query_id, "pipeline_id": "p1", "difficulty_bucket": "hard"}
+        for q in queries[2:]
+    ]
+    await store.save_query_diagnostics(diagnostics_rows)
+
+    samples = [
+        LabeledQuery(
+            query_text=q.text,
+            query_id=q.query_id,
+            run_id="run1",
+            bucket="easy" if i < 12 else "hard",
+            training_class="easy" if i < 12 else "hard",
+        )
+        for i, q in enumerate(queries * 8)  # repeat to reach min samples
+    ]
+    # Pad to 30+ with medium class
+    for i in range(12):
+        samples.append(
+            LabeledQuery(
+                query_text=f"medium query variant {i}",
+                query_id=f"m{i}",
+                run_id="run1",
+                bucket="medium",
+                training_class="medium",
+            )
+        )
+
+    model_path = tmp_path / "model.joblib"
+    train_model(samples, "custom", str(model_path), min_samples=30, min_per_class=5)
+
+    prev = os.environ.get("RETOBS_CLASSIFIER_MODEL")
+    os.environ["RETOBS_CLASSIFIER_MODEL"] = str(model_path)
+    try:
+        _annotate_query_difficulty(queries, "custom")
+    finally:
+        if prev is None:
+            os.environ.pop("RETOBS_CLASSIFIER_MODEL", None)
+        else:
+            os.environ["RETOBS_CLASSIFIER_MODEL"] = prev
+
+    assert all("predicted_difficulty" in q.metadata for q in queries)
+    assert all(q.metadata["predicted_difficulty"] in {"easy", "medium", "hard"} for q in queries)

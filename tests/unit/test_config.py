@@ -290,3 +290,62 @@ def test_validation_reports_missing_custom_paths():
     assert report["status"] == "error"
     messages = [item["message"] for item in report["items"]]
     assert any("custom queries file is not configured" in msg for msg in messages)
+
+
+def test_validation_accepts_rrf_adapter():
+    from retrieval_observatory.datasets.validation import validate_experiment_config
+
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "rrf-test"},
+            "dataset": {"name": "beir/nfcorpus"},
+            "pipelines": [
+                {
+                    "id": "hybrid",
+                    "stages": [
+                        {
+                            "type": "adapter.rrf",
+                            "config": {
+                                "k": 10,
+                                "retrievers": [
+                                    {"type": "adapter.bm25", "config": {"k": 100}},
+                                    {
+                                        "type": "adapter.hf_biencoder",
+                                        "config": {"k": 100, "model": "sentence-transformers/all-MiniLM-L6-v2"},
+                                    },
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    report = validate_experiment_config(cfg)
+    assert report["status"] != "error"
+    assert not any(
+        item["level"] == "error" and "unsupported type" in item["message"]
+        for item in report["items"]
+    )
+
+
+def test_validation_rejects_rrf_without_retrievers():
+    from retrieval_observatory.datasets.validation import validate_experiment_config
+
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "rrf-bad"},
+            "dataset": {"name": "beir/nfcorpus"},
+            "pipelines": [
+                {
+                    "id": "hybrid",
+                    "stages": [{"type": "adapter.rrf", "config": {"k": 10}}],
+                }
+            ],
+        }
+    )
+
+    report = validate_experiment_config(cfg)
+    assert report["status"] == "error"
+    assert any(item["check"] == "rrf retrievers" for item in report["items"])

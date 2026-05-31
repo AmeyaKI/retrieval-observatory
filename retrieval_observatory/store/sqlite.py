@@ -101,6 +101,16 @@ CREATE TABLE IF NOT EXISTS result_cache (
 )
 """
 
+_CREATE_RUN_QUERIES = """
+CREATE TABLE IF NOT EXISTS run_queries (
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    dataset_name TEXT NOT NULL,
+    PRIMARY KEY (run_id, query_id)
+)
+"""
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
@@ -117,6 +127,7 @@ class SQLiteStore:
             await db.execute(_CREATE_RUN_MANIFESTS)
             await db.execute(_CREATE_VALIDATION_REPORTS)
             await db.execute(_CREATE_QUERY_DIAGNOSTICS)
+            await db.execute(_CREATE_RUN_QUERIES)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -429,3 +440,67 @@ class SQLiteStore:
             item["stage_hits"] = json.loads(item.pop("stage_hits_json"))
             result.append(item)
         return result
+
+    async def save_run_queries(
+        self,
+        run_id: str,
+        queries: List,
+        dataset_name: str,
+    ) -> None:
+        if not queries:
+            return
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.executemany(
+                """INSERT OR REPLACE INTO run_queries
+                   (run_id, query_id, query_text, dataset_name)
+                   VALUES (?, ?, ?, ?)""",
+                [
+                    (run_id, q.query_id, q.text, dataset_name)
+                    for q in queries
+                ],
+            )
+            await db.commit()
+
+    async def get_run_queries(self, run_id: str) -> List[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM run_queries WHERE run_id = ?", (run_id,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    async def list_runs_for_dataset(self, dataset_name: str) -> List[Dict]:
+        """Return finished runs whose config dataset.name matches (normalized)."""
+        from retrieval_observatory.classifier.labels import normalize_dataset_name
+
+        target = normalize_dataset_name(dataset_name)
+        runs = await self.list_runs()
+        matched = []
+        for run in runs:
+            try:
+                config = json.loads(run["config_json"])
+                name = normalize_dataset_name(config.get("dataset", {}).get("name", ""))
+                if name == target:
+                    matched.append(run)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return matched
+
+    async def get_labeled_query_rows(self, run_ids: List[str]) -> List[Dict]:
+        """Distinct (run_id, query_id, difficulty_bucket) from diagnostics."""
+        if not run_ids:
+            return []
+        placeholders = ",".join("?" for _ in run_ids)
+        sql = f"""
+            SELECT run_id, query_id, difficulty_bucket
+            FROM query_diagnostics
+            WHERE run_id IN ({placeholders})
+              AND difficulty_bucket != 'unknown'
+            GROUP BY run_id, query_id, difficulty_bucket
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, run_ids) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(row) for row in rows]

@@ -10,7 +10,29 @@ from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class HTTPAdapter:
-    """Wraps any REST endpoint implementing POST {query, k} → {documents: [...]}."""
+    """Wraps any REST endpoint as a retrieval stage.
+
+    Request (POST, JSON body):
+        {"query": "<text>", "k": <int>}
+        {"query": "<text>", "k": <int>, "filters": {...}}  # only when filters present
+
+    Response (JSON) — two accepted shapes:
+        {"documents": [{"id": "...", "text": "...", "score": 0.9}, ...]}
+        [{"id": "...", "text": "...", "score": 0.9}, ...]   # bare list also accepted
+
+    Field names are configurable via id_field / text_field / score_field.
+    If a document is missing the configured id_field, a clear ValueError is raised
+    showing which fields were actually present, to diagnose misconfigurations quickly.
+
+    Example YAML stage config:
+        - type: adapter.http
+          url: http://localhost:8080/retrieve
+          config:
+            k: 100
+            id_field: doc_id      # default: "id"
+            text_field: content   # default: "text"
+            score_field: relevance # default: "score"
+    """
 
     def __init__(
         self,
@@ -67,15 +89,26 @@ class HTTPAdapter:
         data = response.json()
 
         raw_docs: List[Dict] = data.get("documents", data) if isinstance(data, dict) else data
-        documents = [
-            Document(
+        if not isinstance(raw_docs, list):
+            raise ValueError(
+                f"HTTP adapter: expected a JSON list or {{\"documents\": [...]}} from {self.url}, "
+                f"got {type(raw_docs).__name__}. Response keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}"
+            )
+        documents = []
+        for i, doc in enumerate(raw_docs):
+            if self.id_field not in doc:
+                sample_keys = list(doc.keys())[:6]
+                raise ValueError(
+                    f"HTTP adapter: document {i} from {self.url} is missing id field "
+                    f"'{self.id_field}'. Available fields: {sample_keys}. "
+                    f"Set config.id_field to match your server's response schema."
+                )
+            documents.append(Document(
                 id=str(doc[self.id_field]),
                 text=doc.get(self.text_field, ""),
                 score=float(doc.get(self.score_field, 0.0)),
                 rank=i + 1,
-            )
-            for i, doc in enumerate(raw_docs)
-        ]
+            ))
 
         return RetrievalResult(
             documents=documents,

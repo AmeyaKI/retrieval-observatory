@@ -43,7 +43,10 @@ class MultiStagePipeline:
                 # Check stage-level cache (shared across ablation combos with same stage config)
                 cache_key = None
                 if self.stage_cache is not None and self.stage_configs[i] is not None:
-                    cache_key = self.stage_cache.key_for(self.stage_configs[i], query.query_id)
+                    upstream_ids = [d.id for d in current_docs] if i > 0 else None
+                    cache_key = self.stage_cache.key_for(
+                        self.stage_configs[i], query.query_id, upstream_doc_ids=upstream_ids
+                    )
                     cached_snap = await self.stage_cache.get(cache_key)
                     if cached_snap is not None:
                         snapshots.append(cached_snap)

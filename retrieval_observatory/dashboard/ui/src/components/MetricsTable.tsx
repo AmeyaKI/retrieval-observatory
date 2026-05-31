@@ -1,4 +1,4 @@
-import { MetricEntry, MetricsMap } from '../api'
+import { MetricEntry, MetricsMap, StageContribution } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY, lookupGlossary } from '../utils/metricGlossary'
@@ -11,6 +11,10 @@ interface Props {
   baselines?: Record<string, number>
   /** Latency budget in ms — highlights latency_p50 cells green/red */
   latencyBudgetMs?: number
+  /** Per-pipeline diagnostic label counts from aggregate_diagnostics.by_pipeline */
+  diagnosticsByPipeline?: Record<string, { n: number; labels: Record<string, number> }>
+  /** Stage contributions from overview — used to render inline q-value delta pills */
+  stageContributions?: StageContribution[]
 }
 
 function fmtCell(v: number, isLatency: boolean): string {
@@ -21,21 +25,81 @@ function ciLabel(entry: MetricEntry, isLatency: boolean): string {
   return `[${fmtCell(entry.ci_low, isLatency)}, ${fmtCell(entry.ci_high, isLatency)}]`
 }
 
+function CIBadge({ entry, isLatency }: { entry: MetricEntry; isLatency: boolean }) {
+  if (isLatency) return null
+  if (entry.n < 30) {
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">underpowered</span>
+  }
+  const relWidth = (entry.ci_high - entry.ci_low) / Math.max(Math.abs(entry.mean), 0.001)
+  if (relWidth >= 0.35) {
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">wide CI</span>
+  }
+  if (relWidth < 0.15) {
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium">stable</span>
+  }
+  return null
+}
+
+/** Build a lookup: toPipelineId → { metricLabel → delta info } for the final-stage of each pipeline pair. */
+function buildDeltaLookup(contributions: StageContribution[]): Map<string, Map<string, { absolute: number; q_value: number | null; significant: boolean }>> {
+  const map = new Map<string, Map<string, { absolute: number; q_value: number | null; significant: boolean }>>()
+  for (const contrib of contributions) {
+    const inner = new Map<string, { absolute: number; q_value: number | null; significant: boolean }>()
+    for (const [label, delta] of Object.entries(contrib.deltas)) {
+      inner.set(label, { absolute: delta.absolute, q_value: delta.q_value, significant: delta.significant })
+    }
+    map.set(contrib.to_pipeline, inner)
+  }
+  return map
+}
+
+const HEALTH_METRIC_NAMES = new Set(['failure_rate', 'timeout_rate', 'dropout_count'])
+const E2E_LATENCY_NAMES = new Set(['latency_p50', 'latency_p95', 'latency_p99'])
+const LATENCY_PERCENTILE_ORDER = ['latency_p50', 'latency_p95', 'latency_p99']
+
 const METRIC_ORDER = ['ndcg', 'recall', 'mrr', 'map', 'latency']
 function metricSortKey(metricName: string): number {
   const idx = METRIC_ORDER.findIndex((m) => metricName.toLowerCase().includes(m))
   return idx === -1 ? 99 : idx
 }
 
-export default function MetricsTable({ metrics, pValues, baselines = {}, latencyBudgetMs }: Props) {
+function fmtPct(rate: number): string {
+  return `${(rate * 100).toFixed(1)}%`
+}
+
+export default function MetricsTable({ metrics, pValues, baselines = {}, latencyBudgetMs, diagnosticsByPipeline, stageContributions = [] }: Props) {
+  const deltaLookup = buildDeltaLookup(stageContributions)
   const hasBaselines = Object.keys(baselines).length > 0
 
-  // Group entries by pipeline_id, then stage_index
+  // --- Extract stage_index=-1 data: health metrics + E2E latency ---
+  const pipelineHealth: Record<string, Record<string, MetricEntry>> = {}
+  const e2eLatency: Record<string, MetricEntry[]> = {}
+
+  for (const [, entry] of Object.entries(metrics)) {
+    if (entry.stage_index !== -1) continue
+    if (HEALTH_METRIC_NAMES.has(entry.metric_name)) {
+      pipelineHealth[entry.pipeline_id] ??= {}
+      pipelineHealth[entry.pipeline_id][entry.metric_name] = entry
+    }
+    if (E2E_LATENCY_NAMES.has(entry.metric_name)) {
+      e2eLatency[entry.pipeline_id] ??= []
+      e2eLatency[entry.pipeline_id].push(entry)
+    }
+  }
+
+  // Sort E2E latency entries P50 → P95 → P99
+  for (const pid of Object.keys(e2eLatency)) {
+    e2eLatency[pid].sort((a, b) =>
+      LATENCY_PERCENTILE_ORDER.indexOf(a.metric_name) - LATENCY_PERCENTILE_ORDER.indexOf(b.metric_name)
+    )
+  }
+
+  // --- Group positive-stage entries by pipeline_id, then stage_index ---
   const byPipeline: Record<string, Record<number, Array<[string, MetricEntry]>>> = {}
   const pipelineOrder: string[] = []
 
   for (const [key, entry] of Object.entries(metrics)) {
-    if (entry.stage_index < 0) continue // skip E2E total rows (latency only, shown in chart)
+    if (entry.stage_index < 0) continue
     if (!byPipeline[entry.pipeline_id]) {
       byPipeline[entry.pipeline_id] = {}
       pipelineOrder.push(entry.pipeline_id)
@@ -46,9 +110,14 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
     byPipeline[entry.pipeline_id][entry.stage_index].push([key, entry])
   }
 
+  // Also collect pipelines that only appear in stage_index=-1 (e.g. health-only)
+  for (const pid of Object.keys(pipelineHealth)) {
+    if (!pipelineOrder.includes(pid)) pipelineOrder.push(pid)
+  }
+
   // Sort entries within each stage: NDCG → Recall → MRR → MAP → Latency
   for (const pid of pipelineOrder) {
-    for (const stage of Object.keys(byPipeline[pid])) {
+    for (const stage of Object.keys(byPipeline[pid] ?? {})) {
       byPipeline[pid][Number(stage)].sort(([, a], [, b]) =>
         metricSortKey(a.metric_name) - metricSortKey(b.metric_name) ||
         (a.k - b.k)
@@ -69,6 +138,20 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
       .map(([pid]) => pid)
   )
 
+  // Scored coverage: dropout_count.n = total_attempted; first quality metric .n = scored
+  const scoredCoverage: Record<string, { scored: number; attempted: number }> = {}
+  for (const pid of pipelineOrder) {
+    const attempted = pipelineHealth[pid]?.dropout_count?.n ?? null
+    const stageZeroEntries = byPipeline[pid]?.[0]
+    const firstQuality = stageZeroEntries?.find(([, e]) =>
+      ['ndcg', 'recall', 'mrr', 'map'].includes(e.metric_name)
+    )
+    const scored = firstQuality?.[1]?.n ?? null
+    if (attempted != null && scored != null) {
+      scoredCoverage[pid] = { scored, attempted }
+    }
+  }
+
   if (pipelineOrder.length === 0) {
     return <p className="text-sm text-gray-400">No metrics available.</p>
   }
@@ -80,6 +163,9 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
     if (!multiStagePipelines.has(pid)) return ''
     return stage === 0 ? 'Stage 0 · Retrieval' : `Stage ${stage} · Reranking`
   }
+
+  // Column count helper — keeps colSpan in sync with header columns
+  const colCount = hasBaselines ? (pValues ? 8 : 7) : (pValues ? 7 : 6)
 
   return (
     <div className="overflow-x-auto">
@@ -117,29 +203,115 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
         </thead>
         <tbody>
           {pipelineOrder.map((pid, pidIdx) => {
-            const stages = Object.keys(byPipeline[pid]).map(Number).sort((a, b) => a - b)
+            const stages = Object.keys(byPipeline[pid] ?? {}).map(Number).sort((a, b) => a - b)
+            const health = pipelineHealth[pid] ?? {}
+            const coverage = scoredCoverage[pid] ?? null
+            const diagLabels = diagnosticsByPipeline?.[pid]
+            const e2e = e2eLatency[pid] ?? []
+            const isMultiStage = multiStagePipelines.has(pid)
+
+            // Health strip values
+            const failureRate = health.failure_rate?.mean ?? 0
+            const timeoutRate = health.timeout_rate?.mean ?? 0
+            const dropoutCount = health.dropout_count?.mean ?? 0
+            const hasHealth = health.failure_rate != null
+
+            const coveragePct = coverage ? coverage.scored / coverage.attempted : null
+            const coverageLow = coveragePct != null && coveragePct < 0.95
+
             return (
               <>
                 {/* Pipeline group header */}
                 <tr key={`header-${pid}`} className={pidIdx > 0 ? 'border-t-2 border-gray-300' : ''}>
                   <td
-                    colSpan={hasBaselines ? (pValues ? 8 : 7) : (pValues ? 7 : 6)}
+                    colSpan={colCount}
                     className="px-3 py-2 bg-gray-50 text-xs font-bold text-gray-600 uppercase tracking-wide"
                   >
                     {toPipelineLabel(pid)}
                   </td>
                 </tr>
 
-                {stages.map((stage) => {
+                {/* Pipeline Health Strip */}
+                {(hasHealth || coverage || diagLabels) && (
+                  <tr key={`health-${pid}`}>
+                    <td colSpan={colCount} className="px-3 py-1.5 bg-gray-50 border-t border-gray-100">
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {/* Scored coverage */}
+                        {coverage && (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            coverageLow
+                              ? 'bg-red-50 text-red-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            Scored {coverage.scored}/{coverage.attempted}
+                            {coverageLow ? ' ⚠' : ''}
+                          </span>
+                        )}
+
+                        {/* Failure rate */}
+                        {hasHealth && (
+                          <>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                              failureRate > 0.05
+                                ? 'bg-red-50 text-red-700'
+                                : failureRate > 0.01
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              Failure {fmtPct(failureRate)}
+                            </span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                              timeoutRate > 0.02
+                                ? 'bg-red-50 text-red-700'
+                                : timeoutRate > 0.005
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              Timeout {fmtPct(timeoutRate)}
+                            </span>
+                            {dropoutCount > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">
+                                Dropped {dropoutCount.toFixed(0)}
+                              </span>
+                            )}
+                          </>
+                        )}
+
+                        {/* Per-pipeline diagnostic failure labels */}
+                        {diagLabels && diagLabels.n > 0 && (() => {
+                          const labelOrder = ['candidate_miss', 'reranker_drop', 'id_or_qrel_issue', 'lexical_mismatch', 'semantic_mismatch']
+                          return labelOrder
+                            .filter((l) => (diagLabels.labels[l] ?? 0) > 0)
+                            .map((label) => {
+                              const pct = ((diagLabels.labels[label] / diagLabels.n) * 100).toFixed(0)
+                              const display = label.replace(/_/g, ' ')
+                              const isHigh = diagLabels.labels[label] / diagLabels.n > 0.3
+                              return (
+                                <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                  isHigh ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {display} {pct}%
+                                </span>
+                              )
+                            })
+                        })()}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {stages.map((stage, stageIdx) => {
                   const stageLabel = toStageLabel(pid, stage)
                   const rows = byPipeline[pid][stage]
+                  const isLastStage = stageIdx === stages.length - 1
+                  const pipelineDeltas = isLastStage ? deltaLookup.get(pid) : undefined
                   return (
                     <>
                       {/* Stage sub-header (only for multi-stage pipelines) */}
                       {stageLabel && (
                         <tr key={`stage-${pid}-${stage}`}>
                           <td
-                            colSpan={hasBaselines ? (pValues ? 8 : 7) : (pValues ? 7 : 6)}
+                            colSpan={colCount}
                             className="px-3 py-1 bg-gray-50 text-[11px] font-semibold text-indigo-600 border-t border-gray-100"
                           >
                             {stageLabel}
@@ -153,6 +325,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                         const significant = pv !== undefined && pv < 0.05
                         const isLatency = entry.metric_name.startsWith('latency')
                         const isP50 = entry.metric_name === 'latency_p50'
+                        const isP99 = entry.metric_name === 'latency_p99'
                         const baselineKey = entry.k > 0 ? `${entry.metric_name}@${entry.k}` : null
                         const baselineVal = baselineKey ? baselines[baselineKey] : undefined
                         const zeroPctHigh = !isLatency && entry.zero_pct > 40
@@ -167,16 +340,39 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                           ? 'bg-red-50 text-red-600'
                           : ''
 
+                        // Q-value delta pill for last-stage quality metrics
+                        const deltaKey = entry.k > 0 ? `${entry.metric_name}@${entry.k}` : entry.metric_name
+                        const delta = !isLatency ? pipelineDeltas?.get(deltaKey) : undefined
+
                         return (
                           <tr key={key} className="hover:bg-gray-50 border-t border-gray-100">
                             <td className="px-3 pl-6 py-2 text-gray-700">
                               {formatMetricKey(key, multiStagePipelines, true)}
+                              {entry.metric_name === 'temporal_recall' && (
+                                <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">time-aware</span>
+                              )}
                               {lookupGlossary(entry.metric_name) && (
                                 <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
                               )}
                             </td>
                             <td className={`px-3 py-2 text-right tabular-nums font-medium ${meanCellClass}`}>
                               {fmtCell(entry.mean, isLatency)}
+                              <CIBadge entry={entry} isLatency={isLatency} />
+                              {delta && (
+                                <span
+                                  className={`ml-1.5 text-[9px] px-1 py-0.5 rounded font-medium ${
+                                    delta.significant
+                                      ? delta.absolute >= 0
+                                        ? 'bg-green-50 text-green-700'
+                                        : 'bg-red-50 text-red-600'
+                                      : 'bg-gray-100 text-gray-400'
+                                  }`}
+                                  title={delta.q_value != null ? `q=${delta.q_value.toFixed(3)} (BH-corrected)` : 'ns'}
+                                >
+                                  {delta.absolute >= 0 ? '+' : ''}{delta.absolute.toFixed(3)}
+                                  {delta.q_value != null ? ` q=${delta.q_value.toFixed(3)}` : ' ns'}
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-500">
                               {fmtCell(entry.std, isLatency)}
@@ -184,13 +380,18 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">
                               {ciLabel(entry, isLatency)}
                             </td>
-                            <td className="px-3 py-2 text-right text-gray-500">{entry.n}</td>
+                            <td className="px-3 py-2 text-right text-gray-500">
+                              {isP99 && entry.n < 100
+                                ? <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>
+                                : entry.n
+                              }
+                            </td>
                             <td className={`px-3 py-2 text-right text-xs tabular-nums font-medium ${
                               zeroPctHigh ? 'text-red-600 bg-red-50' :
                               zeroPctMed ? 'text-amber-600 bg-amber-50' :
                               'text-gray-400'
                             }`}>
-                              {isLatency ? '—' : `${entry.zero_pct}%`}
+                              {isLatency ? '—' : `${entry.zero_pct}% (${entry.zero_count}/${entry.n})`}
                             </td>
                             {hasBaselines && (
                               <td className="px-3 py-2 text-right text-gray-400 text-xs tabular-nums">
@@ -208,6 +409,60 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                     </>
                   )
                 })}
+
+                {/* E2E Total Latency rows (multi-stage only — stage_index=-1 latency) */}
+                {isMultiStage && e2e.length > 0 && (
+                  <>
+                    <tr key={`e2e-header-${pid}`}>
+                      <td
+                        colSpan={colCount}
+                        className="px-3 py-1 bg-indigo-50 text-[11px] font-semibold text-indigo-700 border-t border-indigo-100"
+                      >
+                        E2E Total Latency
+                      </td>
+                    </tr>
+                    {e2e.map((entry) => {
+                      const isP50 = entry.metric_name === 'latency_p50'
+                      const isP99 = entry.metric_name === 'latency_p99'
+                      const withinBudget = isP50 && latencyBudgetMs != null && entry.mean <= latencyBudgetMs
+                      const overBudget = isP50 && latencyBudgetMs != null && entry.mean > latencyBudgetMs
+                      const meanCellClass = withinBudget
+                        ? 'bg-green-50 text-green-700'
+                        : overBudget
+                        ? 'bg-red-50 text-red-600'
+                        : ''
+                      const label = entry.metric_name === 'latency_p50'
+                        ? 'E2E P50'
+                        : entry.metric_name === 'latency_p95'
+                        ? 'E2E P95'
+                        : 'E2E P99'
+                      return (
+                        <tr key={`e2e-${pid}-${entry.metric_name}`} className="hover:bg-gray-50 border-t border-gray-100">
+                          <td className="px-3 pl-6 py-2 text-gray-700 font-semibold">
+                            {label}
+                            {lookupGlossary(entry.metric_name) && (
+                              <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
+                            )}
+                          </td>
+                          <td className={`px-3 py-2 text-right tabular-nums font-semibold ${meanCellClass}`}>
+                            {fmtLatencyMs(entry.mean)}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-500">—</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">—</td>
+                          <td className="px-3 py-2 text-right text-gray-500">
+                            {isP99 && entry.n < 100
+                              ? <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>
+                              : entry.n
+                            }
+                          </td>
+                          <td className="px-3 py-2 text-right text-gray-400">—</td>
+                          {hasBaselines && <td className="px-3 py-2 text-right text-gray-400">—</td>}
+                          {pValues && <td className="px-3 py-2 text-right text-gray-400">—</td>}
+                        </tr>
+                      )
+                    })}
+                  </>
+                )}
               </>
             )
           })}

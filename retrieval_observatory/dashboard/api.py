@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 import numpy as np
 
+from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs, parse_metric_key
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
@@ -183,6 +184,129 @@ def create_app(db_path: str = ".retobs/results.db"):
         rows = await store.get_query_diagnostics(run_id)
         return {"summary": aggregate_diagnostics(rows), "items": rows}
 
+    @app.get("/runs/{run_id}/query-labels")
+    async def get_query_labels(run_id: str) -> Dict[str, Any]:
+        diagnostics = await store.get_query_diagnostics(run_id)
+        metrics_rows = await store.get_metrics(run_id)
+        run_queries = await store.get_run_queries(run_id) if hasattr(store, "get_run_queries") else []
+
+        text_by_id = {r["query_id"]: r["query_text"] for r in run_queries}
+        actual_by_id: Dict[str, str] = {}
+        for row in diagnostics:
+            qid = row["query_id"]
+            if qid not in actual_by_id:
+                actual_by_id[qid] = row["difficulty_bucket"]
+
+        predicted_by_id: Dict[str, Dict] = {}
+        for row in metrics_rows:
+            meta = row.get("query_metadata") or {}
+            pred = meta.get("predicted_difficulty")
+            if pred and row["query_id"] not in predicted_by_id:
+                predicted_by_id[row["query_id"]] = {
+                    "predicted_difficulty": pred,
+                    "predicted_difficulty_proba": meta.get("predicted_difficulty_proba", {}),
+                }
+
+        from retrieval_observatory.classifier.labels import to_training_class
+
+        items = []
+        all_qids = sorted(set(actual_by_id) | set(predicted_by_id) | set(text_by_id))
+        for qid in all_qids:
+            actual_bucket = actual_by_id.get(qid, "unknown")
+            actual_class = to_training_class(actual_bucket) or "unknown"
+            pred_info = predicted_by_id.get(qid, {})
+            predicted = pred_info.get("predicted_difficulty")
+            agreement = _difficulty_agreement(actual_class, predicted)
+            items.append({
+                "query_id": qid,
+                "query_text": text_by_id.get(qid, ""),
+                "actual_bucket": actual_bucket,
+                "actual_class": actual_class,
+                "predicted_difficulty": predicted,
+                "predicted_difficulty_proba": pred_info.get("predicted_difficulty_proba"),
+                "agreement": agreement,
+            })
+        return {"items": items}
+
+    @app.get("/runs/{run_id}/classifier-calibration")
+    async def get_classifier_calibration(run_id: str) -> Dict[str, Any]:
+        metrics_rows = await store.get_metrics(run_id)
+        diagnostics = await store.get_query_diagnostics(run_id)
+        if not metrics_rows:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
+
+        predicted_by_id: Dict[str, str] = {}
+        for row in metrics_rows:
+            meta = row.get("query_metadata") or {}
+            pred = meta.get("predicted_difficulty")
+            if pred:
+                predicted_by_id.setdefault(row["query_id"], pred)
+
+        if not predicted_by_id:
+            return {"run_id": run_id, "has_predictions": False, "classes": []}
+
+        from retrieval_observatory.classifier.labels import to_training_class
+
+        actual_by_id: Dict[str, str] = {}
+        for row in diagnostics:
+            qid = row["query_id"]
+            if qid not in actual_by_id:
+                mapped = to_training_class(row["difficulty_bucket"])
+                if mapped:
+                    actual_by_id[qid] = mapped
+
+        # Final stage recall@10 per (query, pipeline), then mean across pipelines
+        recall_rows = [
+            r for r in metrics_rows
+            if r["metric_name"] == "recall" and r["k"] == 10 and r["stage_index"] >= 0
+        ]
+        max_stage_by_pipeline: Dict[str, int] = {}
+        for r in recall_rows:
+            pid = r["pipeline_id"]
+            max_stage_by_pipeline[pid] = max(max_stage_by_pipeline.get(pid, -1), r["stage_index"])
+
+        per_query_recall: Dict[str, List[float]] = defaultdict(list)
+        for r in recall_rows:
+            pid = r["pipeline_id"]
+            if r["stage_index"] != max_stage_by_pipeline.get(pid, r["stage_index"]):
+                continue
+            per_query_recall[r["query_id"]].append(r["value"])
+
+        query_mean_recall = {
+            qid: float(np.mean(vals)) for qid, vals in per_query_recall.items() if vals
+        }
+
+        classes = []
+        for cls in ("easy", "medium", "hard"):
+            qids = [qid for qid, pred in predicted_by_id.items() if pred == cls]
+            scores = [query_mean_recall[qid] for qid in qids if qid in query_mean_recall]
+            if not scores:
+                classes.append({
+                    "class": cls,
+                    "n": 0,
+                    "mean_recall10": None,
+                    "ci_low": None,
+                    "ci_high": None,
+                    "agreement_rate": None,
+                })
+                continue
+            ci_low, ci_high = bootstrap_ci(scores)
+            agreements = [
+                1.0 for qid in qids
+                if qid in actual_by_id and actual_by_id[qid] == cls
+            ]
+            agreement_rate = len(agreements) / len(qids) if qids else None
+            classes.append({
+                "class": cls,
+                "n": len(scores),
+                "mean_recall10": float(np.mean(scores)),
+                "ci_low": ci_low,
+                "ci_high": ci_high,
+                "agreement_rate": agreement_rate,
+            })
+
+        return {"run_id": run_id, "has_predictions": True, "classes": classes}
+
     @app.get("/runs/{run_id}/overview")
     async def get_run_overview(run_id: str) -> Dict[str, Any]:
         runs = [run for run in await store.list_runs() if run["run_id"] == run_id]
@@ -246,6 +370,56 @@ def create_app(db_path: str = ".retobs/results.db"):
                 continue
             cells.append({"metric": key, "estimated_cost_per_1k": _pipeline_cost_per_1k(config, value["pipeline_id"], costs), **value})
         return {"run_id": run_id, "cells": cells}
+
+    @app.get("/runs/{run_id}/pareto-frontier")
+    async def get_pareto_frontier(run_id: str) -> Dict[str, Any]:
+        agg = await engine.aggregate(run_id, store)
+        if not agg:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
+
+        run_rows = [run for run in await store.list_runs() if run["run_id"] == run_id]
+        config = json.loads(run_rows[0]["config_json"]) if run_rows else {}
+        costs = config.get("costs", {})
+        manifest = await store.get_run_manifest(run_id)
+
+        final_metrics = _extract_final_stage_metrics(agg)
+        pareto_inputs: List[ParetoPipelineInput] = []
+        for pipeline_id, metrics in final_metrics.items():
+            cost = _pipeline_cost_per_1k(config, pipeline_id, costs)
+            pareto_inputs.append(
+                ParetoPipelineInput(
+                    pipeline_id=pipeline_id,
+                    stage_index=metrics["stage_index"],
+                    ndcg10=metrics["ndcg10"],
+                    recall10=metrics["recall10"],
+                    latency_p50=metrics["latency_p50"],
+                    latency_p95=metrics["latency_p95"],
+                    cost_per_1k=cost if cost > 0 else None,
+                )
+            )
+
+        result = compute_pareto_frontier(pareto_inputs)
+        latency_budget_ms = manifest.get("latency_budget_ms") if manifest else None
+
+        return {
+            "run_id": run_id,
+            "objectives": result.objectives,
+            "cost_included": result.cost_included,
+            "cost_excluded_reason": result.cost_excluded_reason,
+            "latency_budget_ms": latency_budget_ms,
+            "pipelines": [
+                {
+                    "pipeline_id": row.pipeline_id,
+                    "stage_index": row.stage_index,
+                    "label": row.pipeline_id,
+                    "metrics": row.metrics,
+                    "is_pareto_optimal": row.is_pareto_optimal,
+                    "dominated_by": row.dominated_by,
+                }
+                for row in result.pipelines
+            ],
+            "frontier_order": result.frontier_order,
+        }
 
     try:
         import multipart  # noqa: F401
@@ -323,6 +497,18 @@ def create_app(db_path: str = ".retobs/results.db"):
             return FileResponse(_index)
 
     return app
+
+
+def _difficulty_agreement(actual_class: str, predicted: str | None) -> str | None:
+    """Return match, adjacent, or mismatch for 3-class labels."""
+    if not predicted or actual_class == "unknown":
+        return None
+    if actual_class == predicted:
+        return "match"
+    order = {"easy": 0, "medium": 1, "hard": 2}
+    if abs(order.get(actual_class, 1) - order.get(predicted, 1)) == 1:
+        return "adjacent"
+    return "mismatch"
 
 
 def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -454,3 +640,36 @@ def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[
         stage_cost = costs.get(stage_id, costs.get(stage.get("type"), {}))
         total += float(stage_cost.get("per_1k_queries", 0.0))
     return total
+
+
+def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
+    """Return per-pipeline final-stage metrics needed for Pareto analysis."""
+    by_pipeline: Dict[str, Dict[int, Dict[tuple, float]]] = defaultdict(lambda: defaultdict(dict))
+    for value in agg.values():
+        stage_index = value.get("stage_index", -1)
+        if stage_index < 0:
+            continue
+        metric_key = (value["metric_name"], value.get("k", 0))
+        by_pipeline[value["pipeline_id"]][stage_index][metric_key] = value["mean"]
+
+    required = {
+        ("ndcg", 10): "ndcg10",
+        ("recall", 10): "recall10",
+        ("latency_p50", 0): "latency_p50",
+        ("latency_p95", 0): "latency_p95",
+    }
+
+    final_metrics: Dict[str, Dict[str, float | int]] = {}
+    for pipeline_id, stages in by_pipeline.items():
+        final_stage = max(stages.keys())
+        stage_metrics = stages[final_stage]
+        row: Dict[str, float | int] = {"stage_index": final_stage}
+        complete = True
+        for metric_key, field in required.items():
+            if metric_key not in stage_metrics:
+                complete = False
+                break
+            row[field] = stage_metrics[metric_key]
+        if complete:
+            final_metrics[pipeline_id] = row
+    return final_metrics

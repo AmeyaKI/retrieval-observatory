@@ -61,6 +61,25 @@ def test_stage_cache_shared_across_pipelines():
     assert key_from_pipeline_a != key_different
 
 
+def test_stage_cache_key_differs_by_upstream_candidates():
+    cache = StageResultCache(store=MagicMock())
+    reranker_cfg = {"type": "adapter.hf_crossencoder", "config": {"k": 10, "model": "ce-model"}}
+
+    key_bm25_upstream = cache.key_for(reranker_cfg, "q1", upstream_doc_ids=["d1", "d2", "d3"])
+    key_dense_upstream = cache.key_for(reranker_cfg, "q1", upstream_doc_ids=["d9", "d8", "d7"])
+    assert key_bm25_upstream != key_dense_upstream
+
+
+def test_stage_cache_key_same_upstream_candidates():
+    cache = StageResultCache(store=MagicMock())
+    reranker_cfg = {"type": "adapter.hf_crossencoder", "config": {"k": 10, "model": "ce-model"}}
+    upstream = ["d3", "d1", "d2"]
+
+    key_a = cache.key_for(reranker_cfg, "q1", upstream_doc_ids=upstream)
+    key_b = cache.key_for(reranker_cfg, "q1", upstream_doc_ids=["d2", "d3", "d1"])
+    assert key_a == key_b
+
+
 @pytest.mark.asyncio
 async def test_multistage_uses_stage_cache():
     """Second run should use cached stage 0 output; retriever should only be called once."""

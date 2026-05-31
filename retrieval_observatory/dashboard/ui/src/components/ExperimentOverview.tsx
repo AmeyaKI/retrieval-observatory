@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchRunOverview, RunOverview as Overview } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
+import ClassifierCalibration from './ClassifierCalibration'
 
 export default function ExperimentOverview({ runId }: { runId: string }) {
   const [overview, setOverview] = useState<Overview | null>(null)
@@ -14,6 +15,18 @@ export default function ExperimentOverview({ runId }: { runId: string }) {
 
   const buckets = Object.entries(overview.diagnostics.difficulty_buckets || {})
   const labels = Object.entries(overview.diagnostics.failure_labels || {})
+  const byPipeline = overview.diagnostics.by_pipeline ?? {}
+  const pipelineEntries = Object.entries(byPipeline)
+
+  const BUCKET_ORDER = ['easy', 'medium', 'hard', 'discriminative', 'unstable', 'unknown']
+  const BUCKET_COLORS: Record<string, string> = {
+    easy: 'bg-green-100 text-green-700',
+    medium: 'bg-blue-100 text-blue-700',
+    hard: 'bg-red-100 text-red-700',
+    discriminative: 'bg-purple-100 text-purple-700',
+    unstable: 'bg-amber-100 text-amber-700',
+    unknown: 'bg-gray-100 text-gray-500',
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -27,10 +40,12 @@ export default function ExperimentOverview({ runId }: { runId: string }) {
         )}
       </div>
       <div className="border border-gray-200 rounded p-3 bg-white">
-        <div className="text-xs uppercase tracking-wide text-gray-500">Difficulty</div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {buckets.length ? buckets.map(([name, count]) => (
-            <span key={name} className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">{name}: {count}</span>
+        <div className="text-xs uppercase tracking-wide text-gray-500">Query Difficulty (all pipelines)</div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {buckets.length ? BUCKET_ORDER.filter((b) => overview.diagnostics.difficulty_buckets[b]).map((name) => (
+            <span key={name} className={`text-xs px-2 py-0.5 rounded font-medium ${BUCKET_COLORS[name] ?? 'bg-gray-100 text-gray-700'}`}>
+              {name}: {overview.diagnostics.difficulty_buckets[name]}
+            </span>
           )) : <span className="text-xs text-gray-400">No diagnostics</span>}
         </div>
       </div>
@@ -42,11 +57,37 @@ export default function ExperimentOverview({ runId }: { runId: string }) {
           )) : <span className="text-xs text-gray-400">No labeled failures</span>}
         </div>
       </div>
+
+      {/* Per-pipeline difficulty breakdown */}
+      {pipelineEntries.length > 1 && (
+        <div className="md:col-span-3 border border-gray-200 rounded p-3 bg-white">
+          <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Difficulty by Pipeline</div>
+          <div className="space-y-1.5">
+            {pipelineEntries.map(([pid, data]) => (
+              <div key={pid} className="flex items-center gap-2 text-xs">
+                <span className="text-gray-600 font-medium w-40 truncate" title={pid}>
+                  {pid.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {BUCKET_ORDER.filter((b) => data.difficulty_buckets[b]).map((b) => (
+                    <span key={b} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${BUCKET_COLORS[b] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {b}: {data.difficulty_buckets[b]}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {overview.warnings.length > 0 && (
         <div className="md:col-span-3 border border-amber-200 rounded p-3 bg-amber-50 text-sm text-amber-800">
           {overview.warnings.join(' ')}
         </div>
       )}
+
+      <ClassifierCalibration runId={runId} />
     </div>
   )
 }

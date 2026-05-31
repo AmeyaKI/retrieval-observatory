@@ -9,7 +9,11 @@ from importlib import metadata
 from typing import Any, Dict
 
 
-def build_run_manifest(config: Any, dataset_fingerprint: Dict[str, Any]) -> Dict[str, Any]:
+def build_run_manifest(
+    config: Any,
+    dataset_fingerprint: Dict[str, Any],
+    latency_budget_ms: int | None = None,
+) -> Dict[str, Any]:
     """Capture enough environment detail to make a run auditable."""
     config_json = config.model_dump_json() if hasattr(config, "model_dump_json") else json.dumps(config)
     packages = {}
@@ -19,7 +23,7 @@ def build_run_manifest(config: Any, dataset_fingerprint: Dict[str, Any]) -> Dict
         except metadata.PackageNotFoundError:
             continue
 
-    return {
+    manifest = {
         "config_hash": hashlib.sha256(config_json.encode("utf-8")).hexdigest(),
         "dataset": dataset_fingerprint,
         "python": sys.version,
@@ -29,6 +33,9 @@ def build_run_manifest(config: Any, dataset_fingerprint: Dict[str, Any]) -> Dict
         "git_commit": _git_commit(),
         "cache_results": getattr(getattr(config, "execution", None), "cache_results", None),
     }
+    if latency_budget_ms is not None:
+        manifest["latency_budget_ms"] = latency_budget_ms
+    return manifest
 
 
 def _git_commit() -> str | None:

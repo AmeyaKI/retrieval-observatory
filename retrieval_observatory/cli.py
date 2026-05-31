@@ -12,6 +12,8 @@ from rich.console import Console
 from rich.table import Table
 
 app = typer.Typer(name="retobs", help="Retrieval Observatory — RAG pipeline benchmarking.")
+classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
+app.add_typer(classifier_app, name="classifier")
 console = Console()
 
 
@@ -107,8 +109,12 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
             qrels,
             corpus if isinstance(corpus, dict) else None,
         )
-        await store.save_run_manifest(run_id, build_run_manifest(cfg, fingerprint))
+        await store.save_run_manifest(run_id, build_run_manifest(cfg, fingerprint, latency_budget_ms=latency_budget_ms))
+    if hasattr(store, "save_run_queries"):
+        await store.save_run_queries(run_id, queries, cfg.dataset.name)
     console.print(f"[bold]Run ID:[/bold] {run_id}")
+
+    _annotate_query_difficulty(queries, cfg.dataset.name)
 
     # Build caches
     caches = {}
@@ -912,6 +918,171 @@ def _merge_qrels(gold_qrels, judged_qrels):
             for doc_id in rel:
                 target[doc_id] = max(int(target.get(doc_id, 0)), 1)
     return merged
+
+
+def _annotate_query_difficulty(queries, dataset_name: str) -> None:
+    """Attach pre-retrieval difficulty predictions to query metadata when a model exists."""
+    import os
+    from retrieval_observatory.classifier.labels import default_model_path, normalize_dataset_name
+
+    model_path = os.environ.get("RETOBS_CLASSIFIER_MODEL") or default_model_path(dataset_name)
+    if not Path(model_path).exists():
+        return
+    try:
+        from retrieval_observatory.classifier.model import load_model
+    except ImportError:
+        console.print("[yellow]Classifier model found but [classifier] extra not installed; skipping predictions.[/yellow]")
+        return
+
+    model = load_model(model_path)
+    trained_on = model.metadata.get("dataset_name", "")
+    if normalize_dataset_name(dataset_name) != normalize_dataset_name(trained_on):
+        console.print(
+            f"[yellow]Warning: classifier trained on '{trained_on}' but run uses '{dataset_name}'. "
+            "Predictions may not be meaningful.[/yellow]"
+        )
+
+    for query in queries:
+        pred = model.predict(query.text)
+        query.metadata["predicted_difficulty"] = pred["label"]
+        query.metadata["predicted_difficulty_proba"] = pred["proba"]
+        query.metadata["predicted_difficulty_features"] = pred["features"]
+    console.print(f"[dim]Applied difficulty predictions from {model_path}[/dim]")
+
+
+def _print_classifier_report(report) -> None:
+    console.print(f"\n[bold]Dataset:[/bold] {report.dataset_name or '(unknown)'}")
+    console.print(f"[bold]Samples:[/bold] {report.n_samples}")
+    console.print(f"[bold]Calibrated:[/bold] {'yes' if report.calibrated else 'no'}")
+    for w in report.warnings:
+        console.print(f"[yellow]{w}[/yellow]")
+
+    dist_table = Table(title="Class Distribution")
+    dist_table.add_column("Class")
+    dist_table.add_column("Count", justify="right")
+    for cls, count in sorted(report.class_distribution.items()):
+        dist_table.add_row(cls, str(count))
+    console.print(dist_table)
+
+    metrics_table = Table(title="Cross-Validation Metrics (out-of-fold)")
+    metrics_table.add_column("Metric")
+    metrics_table.add_column("Value", justify="right")
+    metrics_table.add_row("Accuracy", f"{report.cv_accuracy:.3f}")
+    metrics_table.add_row("Macro F1", f"{report.cv_macro_f1:.3f}")
+    metrics_table.add_row("Brier score", f"{report.cv_brier:.4f}")
+    console.print(metrics_table)
+
+    if report.feature_importances:
+        imp_table = Table(title="Feature Importances (permutation)")
+        imp_table.add_column("Rank", justify="right")
+        imp_table.add_column("Feature")
+        imp_table.add_column("Importance", justify="right")
+        for i, (name, val) in enumerate(report.feature_importances, start=1):
+            imp_table.add_row(str(i), name, f"{val:.4f}")
+        console.print(imp_table)
+
+
+@classifier_app.command("train")
+def classifier_train(
+    dataset: str = typer.Option(..., "--dataset", help="Dataset name (e.g. beir/nfcorpus). Required."),
+    db_path: str = typer.Option(".retobs/results.db", "--db"),
+    out: Optional[Path] = typer.Option(None, "--out", help="Model output path."),
+    min_samples: int = typer.Option(30, "--min-samples"),
+) -> None:
+    """Train a query difficulty classifier from stored diagnostics."""
+    asyncio.run(_classifier_train(dataset, db_path, out, min_samples))
+
+
+async def _classifier_train(
+    dataset: str,
+    db_path: str,
+    out: Optional[Path],
+    min_samples: int,
+) -> None:
+    from retrieval_observatory.classifier.data import load_labeled_queries
+    from retrieval_observatory.classifier.labels import default_model_path
+    from retrieval_observatory.classifier.model import train_model
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    samples = await load_labeled_queries(store, dataset)
+    if not samples:
+        console.print(f"[red]No labeled queries found for dataset '{dataset}'. Run benchmarks first.[/red]")
+        raise typer.Exit(1)
+
+    out_path = str(out) if out else default_model_path(dataset)
+    try:
+        report = train_model(samples, dataset, out_path, min_samples=min_samples)
+    except ImportError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    _print_classifier_report(report)
+    console.print(f"\n[green]Model saved to {report.model_path}[/green]")
+
+
+@classifier_app.command("predict")
+def classifier_predict(
+    query: str = typer.Option(..., "--query", help="Query text to classify."),
+    model: Path = typer.Option(..., "--model", help="Path to trained model."),
+) -> None:
+    """Predict query difficulty from text."""
+    try:
+        from retrieval_observatory.classifier.model import load_model
+    except ImportError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    m = load_model(str(model))
+    pred = m.predict(query)
+    console.print(f"[bold]Predicted:[/bold] {pred['label']}")
+    console.print(f"[bold]Probabilities:[/bold] {json.dumps(pred['proba'], indent=2)}")
+
+    drivers = Table(title="Top Feature Drivers")
+    drivers.add_column("Feature")
+    drivers.add_column("Value", justify="right")
+    drivers.add_column("Importance", justify="right")
+    for d in pred["top_drivers"]:
+        drivers.add_row(d["feature"], f"{d['value']:.3f}", f"{d['importance']:.4f}")
+    console.print(drivers)
+
+
+@classifier_app.command("report")
+def classifier_report(
+    dataset: str = typer.Option(..., "--dataset", help="Dataset name used for training labels."),
+    db_path: str = typer.Option(".retobs/results.db", "--db"),
+    model: Optional[Path] = typer.Option(None, "--model", help="Path to saved model for importances."),
+) -> None:
+    """Print cross-validation metrics and feature importances."""
+    asyncio.run(_classifier_report(dataset, db_path, model))
+
+
+async def _classifier_report(
+    dataset: str,
+    db_path: str,
+    model: Optional[Path],
+) -> None:
+    from retrieval_observatory.classifier.data import load_labeled_queries
+    from retrieval_observatory.classifier.labels import default_model_path
+    from retrieval_observatory.classifier.model import report_from_samples
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    samples = await load_labeled_queries(store, dataset)
+    model_path = str(model) if model else default_model_path(dataset)
+    try:
+        report = report_from_samples(samples, model_path if Path(model_path).exists() else None)
+        report.dataset_name = report.dataset_name or dataset
+    except ImportError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    _print_classifier_report(report)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@ ROLE: You are a expert AI, ML, and RAG systems engineer with 20+ years of experi
 WHAT THIS REPO IS:
 An open-source Python library + web dashboard for benchmarking hybrid RAG retrieval pipelines. Framework-agnostic, multi-stage-aware, production-informed.
 Target audience: ML engineers building RAG systems who need principled evaluation tooling that existing solutions don't provide.
+YOUR PRIORITIES: Make this project: (1) factually accurate, (2) useful for ML engineers, and (3) as easy to use as possible
 Goal: PyPI-published library with real benchmark results.
 
 FOLLOW THESE DESIGN PRINCIPLES:

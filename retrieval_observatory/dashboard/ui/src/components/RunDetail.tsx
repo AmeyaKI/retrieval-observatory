@@ -67,7 +67,12 @@ export default function RunDetail({ run }: Props) {
       })
       .catch((e) => setError(e.message))
     fetchRunOverview(run.run_id)
-      .then(setOverview)
+      .then((ov) => {
+        setOverview(ov)
+        if (typeof ov.manifest?.latency_budget_ms === 'number') {
+          setLatencyBudgetMs(ov.manifest.latency_budget_ms)
+        }
+      })
       .catch(() => setOverview(null))
   }, [run.run_id])
 
@@ -169,8 +174,25 @@ export default function RunDetail({ run }: Props) {
         minQualityDelta={minQualityDelta}
       />
 
+      {overview && overview.warnings.length > 0 && (
+        <div className="mb-4 p-3 border border-amber-300 rounded-lg bg-amber-50">
+          <div className="text-xs font-semibold text-amber-800 mb-1">Data Quality Warnings</div>
+          <ul className="list-disc list-inside space-y-0.5">
+            {overview.warnings.map((w, i) => (
+              <li key={i} className="text-xs text-amber-700">{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <Section title="Metrics Summary">
-        <MetricsTable metrics={metrics} baselines={baselines} latencyBudgetMs={latencyBudgetMs} />
+        <MetricsTable
+          metrics={metrics}
+          baselines={baselines}
+          latencyBudgetMs={latencyBudgetMs}
+          diagnosticsByPipeline={overview?.diagnostics?.by_pipeline}
+          stageContributions={stageContributions}
+        />
       </Section>
 
       <Section title="Recall@K Curves">
@@ -185,8 +207,8 @@ export default function RunDetail({ run }: Props) {
         <LatencyChart metrics={metrics} />
       </Section>
 
-      <Section title="Quality vs. Latency Tradeoff">
-        <TradeoffScatter metrics={metrics} latencyBudgetMs={latencyBudgetMs} />
+      <Section title="Quality–Latency–Cost Tradeoff">
+        <TradeoffScatter runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
       <Section title="Stage Combination Matrix">

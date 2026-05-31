@@ -89,6 +89,16 @@ CREATE TABLE IF NOT EXISTS query_diagnostics (
 )
 """
 
+_CREATE_RUN_QUERIES = """
+CREATE TABLE IF NOT EXISTS run_queries (
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    dataset_name TEXT NOT NULL,
+    PRIMARY KEY (run_id, query_id)
+)
+"""
+
 
 class PostgresStore:
     """Async Postgres backend using asyncpg connection pooling."""
@@ -125,6 +135,7 @@ class PostgresStore:
             await conn.execute(_CREATE_RUN_MANIFESTS)
             await conn.execute(_CREATE_VALIDATION_REPORTS)
             await conn.execute(_CREATE_QUERY_DIAGNOSTICS)
+            await conn.execute(_CREATE_RUN_QUERIES)
             try:
                 await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
             except Exception:
@@ -441,3 +452,64 @@ class PostgresStore:
             item["stage_hits"] = json.loads(item.pop("stage_hits_json"))
             result.append(item)
         return result
+
+    async def save_run_queries(
+        self,
+        run_id: str,
+        queries: List,
+        dataset_name: str,
+    ) -> None:
+        if not queries:
+            return
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                """INSERT INTO run_queries (run_id, query_id, query_text, dataset_name)
+                   VALUES ($1, $2, $3, $4)
+                   ON CONFLICT (run_id, query_id) DO UPDATE SET
+                       query_text = EXCLUDED.query_text,
+                       dataset_name = EXCLUDED.dataset_name""",
+                [
+                    (run_id, q.query_id, q.text, dataset_name)
+                    for q in queries
+                ],
+            )
+
+    async def get_run_queries(self, run_id: str) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM run_queries WHERE run_id = $1", run_id
+            )
+        return [dict(row) for row in rows]
+
+    async def list_runs_for_dataset(self, dataset_name: str) -> List[Dict]:
+        from retrieval_observatory.classifier.labels import normalize_dataset_name
+
+        target = normalize_dataset_name(dataset_name)
+        runs = await self.list_runs()
+        matched = []
+        for run in runs:
+            try:
+                config = json.loads(run["config_json"])
+                name = normalize_dataset_name(config.get("dataset", {}).get("name", ""))
+                if name == target:
+                    matched.append(run)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return matched
+
+    async def get_labeled_query_rows(self, run_ids: List[str]) -> List[Dict]:
+        if not run_ids:
+            return []
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT run_id, query_id, difficulty_bucket
+                   FROM query_diagnostics
+                   WHERE run_id = ANY($1::text[])
+                     AND difficulty_bucket != 'unknown'
+                   GROUP BY run_id, query_id, difficulty_bucket""",
+                run_ids,
+            )
+        return [dict(row) for row in rows]

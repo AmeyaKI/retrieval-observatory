@@ -100,9 +100,20 @@ export interface StageContribution {
   latency_delta_ms: number | null
 }
 
+export interface PipelineDiagnostics {
+  n: number
+  labels: Record<string, number>
+  difficulty_buckets: Record<string, number>
+}
+
 export interface RunOverview {
   headline_winner: null | (MetricEntry & { metric: string })
-  diagnostics: { difficulty_buckets: Record<string, number>; failure_labels: Record<string, number>; n: number }
+  diagnostics: {
+    difficulty_buckets: Record<string, number>
+    failure_labels: Record<string, number>
+    by_pipeline: Record<string, PipelineDiagnostics>
+    n: number
+  }
   manifest: Record<string, unknown> | null
   warnings: string[]
   stage_contributions: StageContribution[]
@@ -132,5 +143,75 @@ export async function fetchDiagnostics(runId: string): Promise<{ summary: RunOve
 export async function fetchStageMatrix(runId: string): Promise<{ run_id: string; cells: Array<MetricEntry & { metric: string; estimated_cost_per_1k: number }> }> {
   const res = await fetch(`${BASE}/runs/${runId}/stage-matrix`)
   if (!res.ok) throw new Error(`Failed to fetch stage matrix for run ${runId}`)
+  return res.json()
+}
+
+export interface ParetoPipelineMetrics {
+  'ndcg@10': number
+  'recall@10': number
+  latency_p50: number
+  latency_p95: number
+  cost_per_1k: number | null
+}
+
+export interface ParetoPipelineEntry {
+  pipeline_id: string
+  stage_index: number
+  label: string
+  metrics: ParetoPipelineMetrics
+  is_pareto_optimal: boolean
+  dominated_by: string[]
+}
+
+export interface ParetoFrontierResponse {
+  run_id: string
+  objectives: string[]
+  cost_included: boolean
+  cost_excluded_reason: string | null
+  latency_budget_ms: number | null
+  pipelines: ParetoPipelineEntry[]
+  frontier_order: string[]
+}
+
+export async function fetchParetoFrontier(runId: string): Promise<ParetoFrontierResponse> {
+  const res = await fetch(`${BASE}/runs/${runId}/pareto-frontier`)
+  if (!res.ok) throw new Error(`Failed to fetch Pareto frontier for run ${runId}`)
+  return res.json()
+}
+
+export interface QueryLabelRow {
+  query_id: string
+  query_text: string
+  actual_bucket: string
+  actual_class: string
+  predicted_difficulty: string | null
+  predicted_difficulty_proba: Record<string, number> | null
+  agreement: 'match' | 'adjacent' | 'mismatch' | null
+}
+
+export async function fetchQueryLabels(runId: string): Promise<{ items: QueryLabelRow[] }> {
+  const res = await fetch(`${BASE}/runs/${runId}/query-labels`)
+  if (!res.ok) throw new Error(`Failed to fetch query labels for run ${runId}`)
+  return res.json()
+}
+
+export interface ClassifierCalibrationClass {
+  class: string
+  n: number
+  mean_recall10: number | null
+  ci_low: number | null
+  ci_high: number | null
+  agreement_rate: number | null
+}
+
+export interface ClassifierCalibrationResponse {
+  run_id: string
+  has_predictions: boolean
+  classes: ClassifierCalibrationClass[]
+}
+
+export async function fetchClassifierCalibration(runId: string): Promise<ClassifierCalibrationResponse> {
+  const res = await fetch(`${BASE}/runs/${runId}/classifier-calibration`)
+  if (!res.ok) throw new Error(`Failed to fetch classifier calibration for run ${runId}`)
   return res.json()
 }

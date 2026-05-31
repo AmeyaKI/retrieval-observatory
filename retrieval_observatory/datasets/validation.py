@@ -79,6 +79,7 @@ def _check_pipelines(config: ExperimentConfig, items: List[ValidationItem]) -> N
         "adapter.pgvector",
         "adapter.langchain",
         "adapter.llamaindex",
+        "adapter.rrf",
     }
     for pipeline in config.pipelines:
         if not pipeline.stages:
@@ -93,6 +94,10 @@ def _check_pipelines(config: ExperimentConfig, items: List[ValidationItem]) -> N
                 items.append(ValidationItem("warning", "stage k", f"Pipeline '{pipeline.id}' stage {idx} has no config.k; a default will be used."))
             elif int(k) <= 0:
                 items.append(ValidationItem("error", "stage k", f"Pipeline '{pipeline.id}' stage {idx} has invalid k={k}."))
+            if stage.type == "adapter.rrf" and not stage.config.get("retrievers"):
+                items.append(ValidationItem("error", "rrf retrievers",
+                    f"Pipeline '{pipeline.id}' stage {idx}: adapter.rrf requires config.retrievers "
+                    f"(list of sub-retriever stage configs to fuse)."))
             if stage.type == "adapter.http" and not stage.url:
                 items.append(ValidationItem("error", "http url", f"Pipeline '{pipeline.id}' stage {idx} needs url."))
             if stage.type == "adapter.cohere_rerank" and not (stage.config.get("api_key") or os.environ.get("COHERE_API_KEY")):

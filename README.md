@@ -127,6 +127,34 @@ retobs run --config my_experiment.yaml --latency-budget-ms 1000
 
 ---
 
+## Query Difficulty Classifier
+
+Predict whether a query will be hard for retrieval **before** running your pipeline, using only query text. Labels come from post-hoc diagnostics (mean Recall across pipelines on a specific corpus), so models are **dataset-specific**.
+
+```bash
+# Install classifier dependencies
+pip install -e ".[classifier]"
+
+# After one or more benchmark runs on the same dataset:
+retobs classifier train --dataset beir/nfcorpus
+
+# Inspect cross-val accuracy, Brier score, and feature importances:
+retobs classifier report --dataset beir/nfcorpus
+
+# Score a single query:
+retobs classifier predict --model .retobs/models/query_difficulty_beir_nfcorpus.joblib \
+  --query "What mitochondrial mechanisms were studied since 2019?"
+
+# Next benchmark run auto-applies predictions when a matching model exists
+retobs run --config my_experiment.yaml
+```
+
+The dashboard shows **Classifier Calibration**: mean Recall@10 (with bootstrap CIs) grouped by predicted difficulty. If predicted-hard queries have lower Recall@10 than predicted-easy ones, the classifier is doing useful work.
+
+**Caveat:** The classifier predicts observatory difficulty under *your* pipelines on *your* corpus—not intrinsic question hardness. Train and evaluate on the same dataset; cross-dataset use is unsupported.
+
+---
+
 ## HTTP Quickstart
 
 If your retrieval service is already running, point retobs at it and get metrics immediately:
@@ -227,6 +255,45 @@ output:
 ```
 
 Expanded pipeline IDs are stable, for example `bm25`, `dense`, `bm25__rerank`, and `dense__rerank`.
+
+> **Stage cache note:** When `execution.cache_results: true`, retrieval stages are cached by
+> `hash(stage_config + upstream_candidates + query_id)`. The upstream candidate fingerprint ensures
+> that two pipelines sharing the same reranker but with different first-stage retrievers (e.g.
+> `bm25→rerank` vs `dense→rerank`) never share reranker snapshots. Stage 0 (first retriever) still
+> shares cache entries across ablation combos as intended. Use `--no-cache` when you want
+> fully independent execution for reproducibility auditing.
+
+### HTTP adapter schema
+
+The `adapter.http` stage wraps any REST endpoint. Your server must accept:
+
+**Request** — `POST` with JSON body:
+```json
+{"query": "user question text", "k": 100}
+```
+When query filters are set, a `filters` object is also included.
+
+**Response** — JSON in either shape:
+```json
+{"documents": [{"id": "doc_1", "text": "...", "score": 0.92}]}
+```
+```json
+[{"id": "doc_1", "text": "...", "score": 0.92}]
+```
+
+Each document object must include the configured ID field (default `id`). Text and score fields default to `text` and `score` but can be remapped:
+
+```yaml
+- type: adapter.http
+  url: http://localhost:8080/retrieve
+  config:
+    k: 100
+    id_field: doc_id
+    text_field: content
+    score_field: relevance
+```
+
+See [`examples/http_quickstart/server.py`](examples/http_quickstart/server.py) for a reference implementation.
 
 ---
 

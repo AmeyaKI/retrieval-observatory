@@ -91,11 +91,32 @@ def build_query_diagnostics(
 def aggregate_diagnostics(rows: List[Dict]) -> Dict:
     by_bucket: Dict[str, int] = defaultdict(int)
     by_label: Dict[str, int] = defaultdict(int)
+    by_pipeline: Dict[str, Dict] = {}
+
     for row in rows:
         by_bucket[row["difficulty_bucket"]] += 1
+        pid = row.get("pipeline_id", "unknown")
+        if pid not in by_pipeline:
+            by_pipeline[pid] = {"n": 0, "labels": defaultdict(int), "difficulty_buckets": defaultdict(int)}
+        by_pipeline[pid]["n"] += 1
+        by_pipeline[pid]["difficulty_buckets"][row["difficulty_bucket"]] += 1
         for label in row.get("failure_labels", []):
             by_label[label] += 1
-    return {"difficulty_buckets": dict(by_bucket), "failure_labels": dict(by_label), "n": len(rows)}
+            by_pipeline[pid]["labels"][label] += 1
+
+    return {
+        "difficulty_buckets": dict(by_bucket),
+        "failure_labels": dict(by_label),
+        "by_pipeline": {
+            pid: {
+                "n": data["n"],
+                "labels": dict(data["labels"]),
+                "difficulty_buckets": dict(data["difficulty_buckets"]),
+            }
+            for pid, data in by_pipeline.items()
+        },
+        "n": len(rows),
+    }
 
 
 def _relevant_set(raw: object) -> Set[str]:

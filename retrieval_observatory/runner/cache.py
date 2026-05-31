@@ -156,20 +156,38 @@ class ResultCache:
 
 
 class StageResultCache:
-    """Per-stage cache shared across all pipelines. Key = hash(stage_config + query_id).
+    """Per-stage cache shared across all pipelines.
 
-    Because the key only encodes the individual stage's config (not the whole pipeline),
-    identical stages across different ablation combos share the same cache entries.
-    Uses the same result_cache SQLite table with a 'stage::' prefix in the hash input
-    to avoid collisions with pipeline-level cache entries.
+    Key = hash(stage_config + upstream_fingerprint + query_id).
+
+    For Stage 0 (first retriever), no upstream candidates exist, so the key is just
+    hash(stage_config + query_id) — identical first-stage configs share cache entries
+    across ablation combos as intended.
+
+    For Stage 1+ (rerankers), the key also includes a fingerprint of the upstream
+    candidate doc IDs. This prevents a reranker from returning a snapshot computed
+    on a different pipeline's candidate set, which would silently corrupt results when
+    two pipelines share the same reranker but have different first-stage retrievers.
     """
 
     def __init__(self, store: BaseStore):
         self._store = store
 
-    def key_for(self, stage_config: dict, query_id: str) -> str:
+    def key_for(
+        self,
+        stage_config: dict,
+        query_id: str,
+        upstream_doc_ids: list[str] | None = None,
+    ) -> str:
         import yaml
-        return _make_stage_cache_key(yaml.dump(stage_config, sort_keys=True), query_id)
+        upstream_part = (
+            hashlib.sha256(",".join(sorted(upstream_doc_ids)).encode()).hexdigest()[:16]
+            if upstream_doc_ids
+            else "nostage"
+        )
+        stage_yaml = yaml.dump(stage_config, sort_keys=True)
+        raw = f"stage::{stage_yaml}::{upstream_part}::{query_id}"
+        return hashlib.sha256(raw.encode()).hexdigest()
 
     async def get(self, key: str) -> Optional[StageSnapshot]:
         raw = await self._store.cache_get(key)
