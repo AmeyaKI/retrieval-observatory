@@ -1,0 +1,43 @@
+# BEIR publish smoke — BM25 vs BM25+Cohere (20 queries, NFCorpus)
+# Requires COHERE_API_KEY in environment (never commit the key).
+
+experiment:
+  name: beir-publish-smoke-cohere-nfcorpus
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+  max_queries: 20
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100
+  cohere_rerank:
+    type: adapter.cohere_rerank
+    config:
+      model: rerank-english-v3.0
+      k: 10
+
+combinations:
+  include:
+    - [bm25, cohere_rerank]
+  ablations: true
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 1
+  timeout_seconds: 120
+  cache_results: false
+
+output:
+  store: sqlite
+  db_path: .retobs/publish_smoke_cohere_nfcorpus.db
+  export: [json]

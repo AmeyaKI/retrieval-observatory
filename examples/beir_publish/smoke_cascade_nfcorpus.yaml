@@ -1,0 +1,51 @@
+# BEIR publish smoke — cascade (20 queries)
+
+experiment:
+  name: beir-publish-smoke-cascade-nfcorpus
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+  max_queries: 20
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 200
+
+  fast_rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      k: 50
+      batch_size: 32
+
+  precise_rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-12-v2
+      k: 10
+      batch_size: 16
+
+combinations:
+  include:
+    - [bm25, fast_rerank, precise_rerank]
+  ablations: true
+
+metrics:
+  recall_at_k: [5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 1
+  timeout_seconds: 300
+  cache_results: false
+
+output:
+  store: sqlite
+  db_path: .retobs/publish_smoke_cascade_nfcorpus.db
+  export: [json]

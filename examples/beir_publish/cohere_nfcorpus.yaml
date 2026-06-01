@@ -1,0 +1,41 @@
+# BEIR publish — BM25 vs BM25+Cohere (full NFCorpus). Requires COHERE_API_KEY.
+
+experiment:
+  name: beir-publish-cohere-nfcorpus
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100
+  cohere_rerank:
+    type: adapter.cohere_rerank
+    config:
+      model: rerank-english-v3.0
+      k: 10
+
+combinations:
+  include:
+    - [bm25, cohere_rerank]
+  ablations: true
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 1
+  timeout_seconds: 120
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/publish_cohere_nfcorpus.db
+  export: [json]

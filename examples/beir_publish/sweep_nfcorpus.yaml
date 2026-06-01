@@ -1,0 +1,64 @@
+# BEIR publish full sweep — NFCorpus (all test queries, 4 pipelines)
+
+experiment:
+  name: beir-publish-sweep-nfcorpus
+
+dataset:
+  name: beir/nfcorpus
+  split: test
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100
+  rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      k: 10
+      batch_size: 32
+
+combinations:
+  include:
+    - [bm25, rerank]
+  ablations: true
+
+pipelines:
+  - id: dense_only
+    stages:
+      - type: adapter.hf_biencoder
+        config:
+          model: sentence-transformers/all-MiniLM-L6-v2
+          k: 100
+          batch_size: 64
+
+  - id: rrf_hybrid
+    stages:
+      - type: adapter.rrf
+        config:
+          rrf_k: 60
+          fetch_k: 100
+          top_k: 100
+          retrievers:
+            - type: adapter.bm25
+            - type: adapter.hf_biencoder
+              config:
+                model: sentence-transformers/all-MiniLM-L6-v2
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 1
+  timeout_seconds: 300
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/publish_sweep_nfcorpus.db
+  export: [json]

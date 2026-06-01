@@ -1,46 +1,50 @@
-# Multi-Stage RAG Pipeline Demo — NFCorpus
-#
-# Run: retobs run --config examples/nfcorpus_rag_pipeline.yaml
-# Pipelines: bm25 (ablation) and bm25__rerank — stage attribution via __ prefix.
+# BEIR publish — 3-stage rerank cascade + ablations (NFCorpus)
 
 experiment:
-  name: "NFCorpus: BM25 vs BM25+CrossEncoder (Multi-Stage RAG)"
+  name: beir-publish-cascade-nfcorpus
 
 dataset:
   name: beir/nfcorpus
   split: test
-  max_queries: 50
 
 stages:
   bm25:
     type: adapter.bm25
     config:
-      k: 100
-  rerank:
+      k: 200
+
+  fast_rerank:
     type: adapter.hf_crossencoder
     config:
       model: cross-encoder/ms-marco-MiniLM-L-6-v2
-      k: 20
+      k: 50
       batch_size: 32
+
+  precise_rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-12-v2
+      k: 10
+      batch_size: 16
 
 combinations:
   include:
-    - [bm25, rerank]
+    - [bm25, fast_rerank, precise_rerank]
   ablations: true
 
 metrics:
   recall_at_k: [5, 10, 20]
-  ndcg_at_k: [10, 20]
+  ndcg_at_k: [10]
   mrr: true
   map: true
   latency_percentiles: [50, 95]
 
 execution:
-  concurrency: 2
-  timeout_seconds: 120
+  concurrency: 1
+  timeout_seconds: 300
   cache_results: true
 
 output:
   store: sqlite
-  db_path: .retobs/rag_pipeline_demo.db
+  db_path: .retobs/publish_cascade_nfcorpus.db
   export: [json]
