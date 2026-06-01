@@ -94,7 +94,10 @@ def check_minimum_samples(
     if len(samples) < min_total:
         return f"Need at least {min_total} labeled queries, found {len(samples)}"
     dist = class_distribution(samples)
-    for cls, count in dist.items():
+    present = {cls: count for cls, count in dist.items() if count > 0}
+    if len(present) < 2:
+        return f"Need labels in at least 2 difficulty classes, found {len(present)}"
+    for cls, count in present.items():
         if count < min_per_class:
             return f"Class '{cls}' has {count} samples (minimum {min_per_class})"
     return None

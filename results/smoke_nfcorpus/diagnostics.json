@@ -1,0 +1,53 @@
+{
+  "difficulty_buckets": {
+    "hard": 56,
+    "medium": 24
+  },
+  "failure_labels": {
+    "lexical_mismatch": 3,
+    "reranker_drop": 1,
+    "candidate_miss": 2
+  },
+  "by_pipeline": {
+    "bm25": {
+      "n": 20,
+      "labels": {
+        "candidate_miss": 1,
+        "lexical_mismatch": 1
+      },
+      "difficulty_buckets": {
+        "hard": 14,
+        "medium": 6
+      }
+    },
+    "bm25__rerank": {
+      "n": 20,
+      "labels": {
+        "lexical_mismatch": 2,
+        "reranker_drop": 1,
+        "candidate_miss": 1
+      },
+      "difficulty_buckets": {
+        "hard": 14,
+        "medium": 6
+      }
+    },
+    "dense_only": {
+      "n": 20,
+      "labels": {},
+      "difficulty_buckets": {
+        "hard": 14,
+        "medium": 6
+      }
+    },
+    "rrf_hybrid": {
+      "n": 20,
+      "labels": {},
+      "difficulty_buckets": {
+        "hard": 14,
+        "medium": 6
+      }
+    }
+  },
+  "n": 80
+}

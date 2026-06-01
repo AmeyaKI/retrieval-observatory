@@ -1011,9 +1011,10 @@ def classifier_train(
     db_path: str = typer.Option(".retobs/results.db", "--db"),
     out: Optional[Path] = typer.Option(None, "--out", help="Model output path."),
     min_samples: int = typer.Option(30, "--min-samples"),
+    min_per_class: int = typer.Option(5, "--min-per-class", help="Minimum samples per present class."),
 ) -> None:
     """Train a query difficulty classifier from stored diagnostics."""
-    asyncio.run(_classifier_train(dataset, db_path, out, min_samples))
+    asyncio.run(_classifier_train(dataset, db_path, out, min_samples, min_per_class))
 
 
 async def _classifier_train(
@@ -1021,6 +1022,7 @@ async def _classifier_train(
     db_path: str,
     out: Optional[Path],
     min_samples: int,
+    min_per_class: int,
 ) -> None:
     from retrieval_observatory.classifier.data import load_labeled_queries
     from retrieval_observatory.classifier.labels import default_model_path
@@ -1051,7 +1053,7 @@ async def _classifier_train(
 
     out_path = str(out) if out else default_model_path(dataset)
     try:
-        report = train_model(samples, dataset, out_path, min_samples=min_samples)
+        report = train_model(samples, dataset, out_path, min_samples=min_samples, min_per_class=min_per_class)
     except ImportError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)

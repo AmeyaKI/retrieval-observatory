@@ -38,6 +38,9 @@ def test_class_distribution():
 def test_check_minimum_samples():
     assert check_minimum_samples(_samples(10, 10, 10), min_total=30, min_per_class=5) is None
     assert "Need at least" in check_minimum_samples(_samples(2, 2, 2), min_total=30, min_per_class=5)
+    # Missing class (e.g. smoke slice with no easy queries) — only present classes checked
+    assert check_minimum_samples(_samples(0, 6, 14), min_total=20, min_per_class=5) is None
+    assert "Class 'medium'" in check_minimum_samples(_samples(0, 2, 18), min_total=20, min_per_class=5)
 
 
 @pytest.mark.skipif(
