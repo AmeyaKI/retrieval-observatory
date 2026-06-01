@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import importlib
 import os
-from typing import List, Union
+from typing import Any, Callable, List, Union
 
 from retrieval_observatory.pipeline.multi import MultiStagePipeline
 from retrieval_observatory.pipeline.single import SingleStagePipeline
@@ -48,6 +49,7 @@ def build_pipeline_from_config(
         # These adapters wrap pre-constructed Python objects and cannot be fully wired from YAML.
         # Use them programmatically: MyAdapter(retriever_obj, ...) then build_pipeline() directly.
         "adapter.pgvector": _build_pgvector_adapter,
+        "adapter.import": _build_import_adapter,
     }
 
     stages = []
@@ -65,7 +67,7 @@ def build_pipeline_from_config(
             stage, k = _build_rrf_adapter(stage_cfg, corpus)
         else:
             builder = _ADAPTER_MAP[stage_type]
-            if stage_type in _CORPUS_ADAPTERS:
+            if stage_type in _CORPUS_ADAPTERS or stage_type == "adapter.import":
                 stage, k = builder(stage_cfg, corpus)
             else:
                 stage, k = builder(stage_cfg)
@@ -227,3 +229,47 @@ def _build_pgvector_adapter(stage_cfg: dict):
         "adapter.pgvector requires a Python embedding function and cannot be fully configured "
         "from YAML alone. Use PgvectorAdapter(...) programmatically and call build_pipeline() directly."
     )
+
+
+def _load_factory_callable(factory_path: str) -> Callable[..., Any]:
+    """Resolve 'module.path:callable' or 'module.path.callable'."""
+    if ":" in factory_path:
+        module_path, attr = factory_path.rsplit(":", 1)
+    else:
+        module_path, _, attr = factory_path.rpartition(".")
+        if not module_path or not attr:
+            raise ValueError(
+                f"Invalid factory path '{factory_path}'. "
+                "Use 'package.module:callable' or 'package.module.callable'."
+            )
+    module = importlib.import_module(module_path)
+    fn = getattr(module, attr, None)
+    if fn is None or not callable(fn):
+        raise ValueError(f"Factory '{factory_path}' did not resolve to a callable.")
+    return fn
+
+
+def _build_import_adapter(stage_cfg: dict, corpus: dict | None = None):
+    cfg = stage_cfg.get("config", {})
+    factory_path = cfg.get("factory")
+    if not factory_path:
+        raise ValueError(
+            "adapter.import requires config.factory "
+            "(e.g. 'my_pkg.retrieval:build_retriever' or 'my_pkg.retrieval.build_retriever')."
+        )
+
+    factory = _load_factory_callable(factory_path)
+    extra_args = cfg.get("args") or {}
+    result = factory(corpus, stage_cfg, **extra_args)
+
+    if isinstance(result, tuple) and len(result) == 2:
+        adapter, k = result
+    else:
+        adapter = result
+        k = cfg.get("k", 10)
+
+    if not hasattr(adapter, "retrieve") and not hasattr(adapter, "rerank"):
+        raise ValueError(
+            f"Factory '{factory_path}' must return a retriever/reranker with retrieve() or rerank()."
+        )
+    return adapter, int(k)

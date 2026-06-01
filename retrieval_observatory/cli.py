@@ -157,6 +157,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
     console.print("[bold]Computing metrics...[/bold]")
     engine = MetricsEngine(
         recall_at_k_values=cfg.metrics.recall_at_k,
+        precision_at_k_values=cfg.metrics.precision_at_k,
         ndcg_at_k_values=cfg.metrics.ndcg_at_k,
         temporal_recall_at_k_values=cfg.metrics.temporal_recall_at_k,
         latency_percentile_values=cfg.metrics.latency_percentiles,
@@ -198,9 +199,10 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
 
     # Print summary table
     _print_metrics_table(aggregated, run_id)
+    pipeline_ids = [p.pipeline_id for p in pipelines]
+    _print_cost_table(cfg, pipeline_ids)
 
     # Print stage-by-stage contribution (delta between prefix/full pipelines)
-    pipeline_ids = [p.pipeline_id for p in pipelines]
     _print_stage_contribution(aggregated, metrics_rows, pipeline_ids, latency_budget_ms)
 
     # Print diagnostic failure mode summary
@@ -354,6 +356,27 @@ def _print_diagnostics_summary(diagnostics: list) -> None:
     console.print(table)
 
 
+def _print_cost_table(cfg, pipeline_ids: list) -> None:
+    from retrieval_observatory.config.cost import pipeline_cost_per_1k
+
+    costs = cfg.costs or {}
+    if not costs:
+        console.print("[dim]No config.costs — estimated cost omitted (dashboard Pareto cost views disabled).[/dim]")
+        return
+
+    table = Table(title="Estimated cost (from config)")
+    table.add_column("Pipeline", style="bold")
+    table.add_column("$/1k queries", justify="right")
+    table.add_column("Source", style="dim")
+
+    for pid in pipeline_ids:
+        amount = pipeline_cost_per_1k(cfg, pid, costs)
+        table.add_row(pid, f"{amount:.4f}", "config.costs per stage")
+
+    console.print(table)
+    console.print("[dim]Estimated from config.costs — not measured runtime spend.[/dim]")
+
+
 def _print_metrics_table(aggregated: dict, run_id: str) -> None:
     table = Table(title=f"Results — Run {run_id}")
     table.add_column("Metric", style="bold")
@@ -397,7 +420,7 @@ def _print_stage_contribution(
             continue
         keys_by_pipeline.setdefault(pid, {}).setdefault(sidx, []).append((mname, k, key))
 
-    quality_metrics = {"recall", "ndcg", "mrr", "map"}
+    quality_metrics = {"recall", "precision", "ndcg", "mrr", "map"}
 
     for before_id, after_id in pairs:
         before_stages = keys_by_pipeline.get(before_id, {})

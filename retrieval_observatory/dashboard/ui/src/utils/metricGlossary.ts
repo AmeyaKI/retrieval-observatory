@@ -1,6 +1,7 @@
 export const METRIC_GLOSSARY: Record<string, string> = {
   ndcg: 'NDCG@K — Normalized Discounted Cumulative Gain. Measures ranking quality: are the most relevant documents near the top of results? A score of 1.0 means perfect ranking. Graded relevance (0/1/2) is used for BEIR datasets, matching the published benchmark methodology.',
   recall: 'Recall@K — fraction of ALL relevant documents in the dataset that appear in the top-K retrieved results. 1.0 means every relevant document was found. Low recall means the retriever is missing relevant content entirely.',
+  precision: 'Precision@K — fraction of the top-K retrieved results that are relevant (|relevant ∩ top-K| / K). High precision means few false positives in the shortlist. Unlike recall, precision does not penalize missing relevant docs outside the top-K.',
   temporal_recall: 'Temporal Recall@K — time-aware variant of Recall@K. A retrieved document only counts as relevant if it was published before or near the query\'s temporal anchor. Ordinary recall rewards stale documents equally; temporal recall penalises pipelines that surface outdated results for time-sensitive queries.',
   mrr: 'MRR — Mean Reciprocal Rank. Average of 1/(rank of the first relevant document). A score of 1.0 means the system always returns a relevant document in position 1. Most useful for single-answer retrieval (e.g., question answering).',
   map: 'MAP — Mean Average Precision. Average area under the precision-recall curve, computed per query and then averaged. Rewards both finding all relevant documents and ranking them highly. Penalizes retrievers that find relevant docs late in the list.',
@@ -20,6 +21,7 @@ export function lookupGlossary(metricName: string): string | undefined {
   if (lower.includes('ndcg')) return METRIC_GLOSSARY.ndcg
   if (lower.startsWith('temporal_recall')) return METRIC_GLOSSARY.temporal_recall
   if (lower.includes('recall')) return METRIC_GLOSSARY.recall
+  if (lower.includes('precision')) return METRIC_GLOSSARY.precision
   if (lower.includes('mrr')) return METRIC_GLOSSARY.mrr
   if (lower === 'map' || lower.startsWith('map@')) return METRIC_GLOSSARY.map
   if (lower.includes('p50')) return METRIC_GLOSSARY.latency_p50

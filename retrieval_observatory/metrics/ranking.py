@@ -57,6 +57,16 @@ def ndcg_at_k(retrieved_ids: List[str], relevant_ids: Set[str], k: int) -> float
     return actual_dcg / ideal_dcg
 
 
+def precision_at_k(retrieved_ids: List[str], relevant_ids: Set[str], k: int) -> float:
+    """Precision@K: fraction of top-K results that are relevant."""
+    if k <= 0:
+        raise ValueError("k must be > 0")
+    if not relevant_ids:
+        return 0.0
+    hits = len(set(retrieved_ids[:k]) & relevant_ids)
+    return hits / k
+
+
 def average_precision(retrieved_ids: List[str], relevant_ids: Set[str]) -> float:
     if not relevant_ids:
         return 0.0

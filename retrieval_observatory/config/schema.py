@@ -59,6 +59,7 @@ class LabelsConfig(BaseModel):
 
 class MetricsConfig(BaseModel):
     recall_at_k: List[int] = [1, 5, 10]
+    precision_at_k: List[int] = []
     mrr: bool = True
     ndcg_at_k: List[int] = [10]
     map: bool = True

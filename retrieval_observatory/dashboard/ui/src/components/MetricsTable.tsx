@@ -57,7 +57,7 @@ const HEALTH_METRIC_NAMES = new Set(['failure_rate', 'timeout_rate', 'dropout_co
 const E2E_LATENCY_NAMES = new Set(['latency_p50', 'latency_p95', 'latency_p99'])
 const LATENCY_PERCENTILE_ORDER = ['latency_p50', 'latency_p95', 'latency_p99']
 
-const METRIC_ORDER = ['ndcg', 'recall', 'mrr', 'map', 'latency']
+const METRIC_ORDER = ['ndcg', 'recall', 'precision', 'mrr', 'map', 'latency']
 function metricSortKey(metricName: string): number {
   const idx = METRIC_ORDER.findIndex((m) => metricName.toLowerCase().includes(m))
   return idx === -1 ? 99 : idx
@@ -144,7 +144,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
     const attempted = pipelineHealth[pid]?.dropout_count?.n ?? null
     const stageZeroEntries = byPipeline[pid]?.[0]
     const firstQuality = stageZeroEntries?.find(([, e]) =>
-      ['ndcg', 'recall', 'mrr', 'map'].includes(e.metric_name)
+      ['ndcg', 'recall', 'precision', 'mrr', 'map'].includes(e.metric_name)
     )
     const scored = firstQuality?.[1]?.n ?? null
     if (attempted != null && scored != null) {

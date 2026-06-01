@@ -2,7 +2,15 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from retrieval_observatory.metrics.ranking import average_precision, dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
+from retrieval_observatory.metrics.ranking import (
+    average_precision,
+    dedupe_preserve_rank,
+    map_score,
+    mrr,
+    ndcg_at_k,
+    ndcg_at_k_graded,
+    precision_at_k,
+)
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs
 from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
@@ -24,6 +32,18 @@ def test_recall_at_k_zero():
 
 def test_recall_at_k_empty_relevant():
     assert recall_at_k(["d1"], set(), k=1) == 0.0
+
+
+def test_precision_at_k_perfect():
+    assert precision_at_k(["d1", "d2", "d3"], {"d1", "d2"}, k=2) == 1.0
+
+
+def test_precision_at_k_partial():
+    assert precision_at_k(["d1", "d4", "d5"], {"d1", "d2"}, k=3) == pytest.approx(1 / 3)
+
+
+def test_precision_at_k_zero():
+    assert precision_at_k(["d3", "d4"], {"d1", "d2"}, k=2) == 0.0
 
 
 def test_mrr_basic():
@@ -109,6 +129,8 @@ def test_ndcg_graded_basic():
 def test_metric_k_must_be_positive():
     with pytest.raises(ValueError):
         recall_at_k(["d1"], {"d1"}, k=0)
+    with pytest.raises(ValueError):
+        precision_at_k(["d1"], {"d1"}, k=0)
     with pytest.raises(ValueError):
         ndcg_at_k(["d1"], {"d1"}, k=-1)
     with pytest.raises(ValueError):

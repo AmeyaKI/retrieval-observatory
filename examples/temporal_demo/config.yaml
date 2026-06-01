@@ -1,0 +1,47 @@
+# Temporal demo — compare standard recall vs temporal recall.
+#
+#   pip install -e ".[demo,dashboard]"
+#   python examples/temporal_demo/generate_data.py
+#   retobs run --config examples/temporal_demo/config.yaml --no-cache
+#   retobs serve --db .retobs/temporal_demo.db
+
+experiment:
+  name: temporal-demo
+
+dataset:
+  type: custom
+  name: temporal-demo
+  queries_path: queries.jsonl
+  corpus_path: corpus.jsonl
+  timestamp_field: timestamp
+
+stages:
+  bm25:
+    type: adapter.bm25
+    retriever_id: bm25
+    config:
+      k: 10
+      tokenizer: whitespace
+
+combinations:
+  include:
+    - [bm25]
+  ablations: false
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  precision_at_k: [5]
+  temporal_recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95, 99]
+
+execution:
+  concurrency: 1
+  timeout_seconds: 30
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/temporal_demo.db

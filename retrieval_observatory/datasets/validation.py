@@ -80,6 +80,7 @@ def _check_pipelines(config: ExperimentConfig, items: List[ValidationItem]) -> N
         "adapter.langchain",
         "adapter.llamaindex",
         "adapter.rrf",
+        "adapter.import",
     }
     for pipeline in config.pipelines:
         if not pipeline.stages:
@@ -102,8 +103,10 @@ def _check_pipelines(config: ExperimentConfig, items: List[ValidationItem]) -> N
                 items.append(ValidationItem("error", "http url", f"Pipeline '{pipeline.id}' stage {idx} needs url."))
             if stage.type == "adapter.cohere_rerank" and not (stage.config.get("api_key") or os.environ.get("COHERE_API_KEY")):
                 items.append(ValidationItem("warning", "cohere api key", "Cohere reranking needs config.api_key or COHERE_API_KEY before running."))
+            if stage.type == "adapter.import" and not stage.config.get("factory"):
+                items.append(ValidationItem("error", "import factory", f"Pipeline '{pipeline.id}' stage {idx}: adapter.import requires config.factory."))
             if stage.type in {"adapter.pgvector", "adapter.langchain", "adapter.llamaindex"}:
-                items.append(ValidationItem("warning", "yaml support", f"{stage.type} cannot be fully constructed from YAML in this version."))
+                items.append(ValidationItem("warning", "yaml support", f"{stage.type} cannot be fully constructed from YAML in this version. Use adapter.import with a factory callable instead."))
 
 
 def _check_output(config: ExperimentConfig, items: List[ValidationItem]) -> None:

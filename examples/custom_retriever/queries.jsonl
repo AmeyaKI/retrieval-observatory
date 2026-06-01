@@ -1,0 +1,8 @@
+{"query_id": "q1", "text": "What is BM25 sparse retrieval?", "relevant_doc_ids": ["d1"]}
+{"query_id": "q2", "text": "How does dense embedding retrieval work?", "relevant_doc_ids": ["d2"]}
+{"query_id": "q3", "text": "Explain hybrid sparse and dense retrieval.", "relevant_doc_ids": ["d3"]}
+{"query_id": "q4", "text": "What does a cross-encoder reranker do?", "relevant_doc_ids": ["d4"]}
+{"query_id": "q5", "text": "What is recall at K?", "relevant_doc_ids": ["d5"]}
+{"query_id": "q6", "text": "How is NDCG used in evaluation?", "relevant_doc_ids": ["d6"]}
+{"query_id": "q7", "text": "What is a multi-stage retrieval pipeline?", "relevant_doc_ids": ["d7"]}
+{"query_id": "q8", "text": "Why do latency budgets matter?", "relevant_doc_ids": ["d8"]}

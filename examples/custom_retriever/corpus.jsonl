@@ -1,0 +1,8 @@
+{"id": "d1", "text": "BM25 sparse retrieval uses term frequency for ranking."}
+{"id": "d2", "text": "Dense retrieval uses neural embeddings for semantic search."}
+{"id": "d3", "text": "Hybrid retrieval combines sparse and dense scores with fusion."}
+{"id": "d4", "text": "Cross-encoder rerankers improve precision at the top of the list."}
+{"id": "d5", "text": "Recall at K measures how many relevant documents appear in the top K."}
+{"id": "d6", "text": "NDCG rewards ranking relevant documents near the top."}
+{"id": "d7", "text": "Multi-stage pipelines chain a retriever with one or more rerankers."}
+{"id": "d8", "text": "Latency budgets trade retrieval quality against response time."}

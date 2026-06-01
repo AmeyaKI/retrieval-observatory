@@ -6,7 +6,14 @@ from typing import Any, Dict, List, Optional, Set, Union
 import numpy as np
 
 from retrieval_observatory.metrics.latency import latency_percentiles
-from retrieval_observatory.metrics.ranking import dedupe_preserve_rank, map_score, mrr, ndcg_at_k, ndcg_at_k_graded
+from retrieval_observatory.metrics.ranking import (
+    dedupe_preserve_rank,
+    map_score,
+    mrr,
+    ndcg_at_k,
+    ndcg_at_k_graded,
+    precision_at_k,
+)
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
@@ -19,6 +26,7 @@ class MetricsEngine:
     def __init__(
         self,
         recall_at_k_values: List[int] = [1, 5, 10],
+        precision_at_k_values: List[int] = [],
         ndcg_at_k_values: List[int] = [10],
         temporal_recall_at_k_values: List[int] = [],
         latency_percentile_values: List[int] = [50, 95, 99],
@@ -26,6 +34,7 @@ class MetricsEngine:
         compute_map: bool = True,
     ):
         self.recall_k = recall_at_k_values
+        self.precision_k = precision_at_k_values
         self.ndcg_k = ndcg_at_k_values
         self.temporal_k = temporal_recall_at_k_values
         self.latency_percentiles = latency_percentile_values
@@ -108,6 +117,22 @@ class MetricsEngine:
                             result.query_id,
                             snap.stage_index,
                             "recall",
+                            k,
+                            score,
+                            query_meta,
+                        )
+                    )
+
+                # Precision@K
+                for k in self.precision_k:
+                    score = precision_at_k(doc_ids, relevant_set, k)
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            "precision",
                             k,
                             score,
                             query_meta,

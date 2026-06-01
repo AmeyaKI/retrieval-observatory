@@ -48,6 +48,7 @@ pipelines:
 
 metrics:
   recall_at_k: [5, 10, 20, 100]
+  precision_at_k: [5, 10]
   ndcg_at_k: [10, 20]
   compute_mrr: true
   compute_map: true

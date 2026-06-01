@@ -659,15 +659,9 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
 
 
 def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[str, Dict[str, float]]) -> float:
-    pipeline = next((p for p in config.get("pipelines", []) if p.get("id") == pipeline_id), None)
-    if not pipeline:
-        return 0.0
-    total = 0.0
-    for stage in pipeline.get("stages", []):
-        stage_id = stage.get("retriever_id") or stage.get("type")
-        stage_cost = costs.get(stage_id, costs.get(stage.get("type"), {}))
-        total += float(stage_cost.get("per_1k_queries", 0.0))
-    return total
+    from retrieval_observatory.config.cost import pipeline_cost_per_1k
+
+    return pipeline_cost_per_1k(config, pipeline_id, costs)
 
 
 def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, float]]:

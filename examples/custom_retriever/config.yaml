@@ -1,0 +1,38 @@
+# Custom retriever demo — loads a Python factory via adapter.import.
+#
+#   pip install -e ".[demo]"
+#   python examples/custom_retriever/generate_data.py
+#   PYTHONPATH=examples/custom_retriever retobs run --config examples/custom_retriever/config.yaml
+
+experiment:
+  name: custom-retriever-demo
+
+dataset:
+  type: custom
+  name: custom-retriever
+  queries_path: queries.jsonl
+  corpus_path: corpus.jsonl
+
+pipelines:
+  - id: keyword_overlap
+    stages:
+      - type: adapter.import
+        retriever_id: keyword
+        config:
+          factory: retriever.build_retriever
+          k: 5
+
+metrics:
+  recall_at_k: [1, 5]
+  precision_at_k: [5]
+  ndcg_at_k: [5]
+  mrr: true
+
+execution:
+  concurrency: 1
+  timeout_seconds: 30
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/custom_retriever.db

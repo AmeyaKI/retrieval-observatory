@@ -23,6 +23,12 @@ What retobs tells you:
 2. **Failure diagnosis** — 42% of remaining failures are candidate misses at stage 0. The reranker can't fix what the retriever never found.
 3. **Latency-quality tradeoff** — That gain cost 4,000ms/query on CPU. The dashboard lets you slide your latency budget and see the verdict update live.
 
+Core promise:
+
+- Given any retrieval pipeline, retobs produces comparable **Recall@K, Precision@K, NDCG@K, MRR, MAP, latency percentiles, and estimated cost per 1k queries**.
+- Pipelines can be multi-stage, and each stage is analyzed independently for attribution and failure diagnosis.
+- Temporal recall is supported for time-sensitive datasets with query anchors and document timestamps.
+
 ---
 
 ## Benchmark Results
@@ -240,6 +246,7 @@ combinations:
 
 metrics:
   recall_at_k: [1, 5, 10, 20]
+  precision_at_k: [5, 10]
   ndcg_at_k: [10]
   mrr: true
   map: true
@@ -255,6 +262,18 @@ output:
 ```
 
 Expanded pipeline IDs are stable, for example `bm25`, `dense`, `bm25__rerank`, and `dense__rerank`.
+
+Cost is configured for relative tradeoff analysis:
+
+```yaml
+costs:
+  bm25:
+    per_1k_queries: 0.10
+  rerank:
+    per_1k_queries: 1.50
+```
+
+`retobs run` and the dashboard both treat this as an **estimated** cost model from your YAML, not measured cloud billing telemetry.
 
 > **Stage cache note:** When `execution.cache_results: true`, retrieval stages are cached by
 > `hash(stage_config + upstream_candidates + query_id)`. The upstream candidate fingerprint ensures
@@ -294,6 +313,33 @@ Each document object must include the configured ID field (default `id`). Text a
 ```
 
 See [`examples/http_quickstart/server.py`](examples/http_quickstart/server.py) for a reference implementation.
+
+### Custom Python retriever via `adapter.import`
+
+Use `adapter.import` to load a Python factory callable from your own module without editing retobs internals:
+
+```yaml
+- type: adapter.import
+  retriever_id: keyword
+  config:
+    factory: retriever:build_retriever
+    k: 10
+```
+
+Supported factory paths:
+
+- `package.module:callable`
+- `package.module.callable`
+
+Factory signature:
+
+```python
+def build_retriever(corpus: dict | None, stage_cfg: dict, **kwargs):
+    ...
+    return retriever_or_reranker, k
+```
+
+Runnable example: [`examples/custom_retriever/`](examples/custom_retriever/)
 
 ---
 
@@ -377,6 +423,17 @@ retobs validate --config examples/nfcorpus_three_way.yaml
 retobs run --config examples/nfcorpus_three_way.yaml --no-cache
 retobs serve --db .retobs/nfcorpus_three_way.db
 ```
+
+### Temporal Recall Demo
+
+```bash
+pip install -e ".[demo,dashboard]"
+python examples/temporal_demo/generate_data.py
+retobs run --config examples/temporal_demo/config.yaml --no-cache
+retobs serve --db .retobs/temporal_demo.db
+```
+
+This demo intentionally includes old and new relevant documents per query so `recall@1` and `temporal_recall@1` diverge when top-ranked hits are stale.
 
 ### RRF Hybrid (BM25 + Dense)
 

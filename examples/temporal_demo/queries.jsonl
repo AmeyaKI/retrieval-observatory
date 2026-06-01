@@ -1,0 +1,10 @@
+{"query_id": "q1", "text": "What is the latest refund policy update?", "temporal_anchor": "2024-02-01T00:00:00", "relevant_doc_ids": ["policy_2021", "policy_2024"]}
+{"query_id": "q2", "text": "Latest product release notes dashboard changes", "temporal_anchor": "2024-06-01T00:00:00", "relevant_doc_ids": ["release_2020", "release_2024"]}
+{"query_id": "q3", "text": "Current pro plan pricing guide", "temporal_anchor": "2025-02-15T00:00:00", "relevant_doc_ids": ["pricing_2022", "pricing_2025"]}
+{"query_id": "q4", "text": "Most recent security policy key rotation", "temporal_anchor": "2025-01-20T00:00:00", "relevant_doc_ids": ["security_2022", "security_2025"]}
+{"query_id": "q5", "text": "Current billing FAQ invoice downloads", "temporal_anchor": "2024-08-01T00:00:00", "relevant_doc_ids": ["billing_2020", "billing_2024"]}
+{"query_id": "q6", "text": "Latest on-call runbook severity escalation", "temporal_anchor": "2024-11-20T00:00:00", "relevant_doc_ids": ["oncall_2021", "oncall_2024"]}
+{"query_id": "q7", "text": "Current API limits requests per minute", "temporal_anchor": "2024-09-20T00:00:00", "relevant_doc_ids": ["api_2019", "api_2024"]}
+{"query_id": "q8", "text": "Newest data retention policy logs days", "temporal_anchor": "2025-03-20T00:00:00", "relevant_doc_ids": ["retention_2022", "retention_2025"]}
+{"query_id": "q9", "text": "Latest support SLA first response time", "temporal_anchor": "2024-10-20T00:00:00", "relevant_doc_ids": ["support_2021", "support_2024"]}
+{"query_id": "q10", "text": "Most recent incident postmortem process", "temporal_anchor": "2024-12-31T00:00:00", "relevant_doc_ids": ["ops_2020", "ops_2024"]}
