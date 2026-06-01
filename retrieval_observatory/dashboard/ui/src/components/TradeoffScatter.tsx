@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Label, Cell, ReferenceLine, ReferenceArea, Customized,
+  Label, Cell, ReferenceLine, ReferenceArea, Customized,
 } from 'recharts'
 import { fetchParetoFrontier, ParetoFrontierResponse, ParetoPipelineEntry } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 import { fmtQuality, fmtLatencyMs, fmtCost } from '../utils/format'
 import { ChartModal } from './ChartModal'
+import ChartFrame from './ChartFrame'
 
 interface Props {
   runId: string
@@ -28,17 +29,74 @@ interface ChartPoint {
 }
 
 function toChartPoint(entry: ParetoPipelineEntry): ChartPoint {
+  const m = entry.metrics
   return {
     pipelineId: entry.pipeline_id,
     label: entry.label,
-    latencyP50: entry.metrics.latency_p50,
-    ndcg10: entry.metrics['ndcg@10'],
-    recall10: entry.metrics['recall@10'],
-    latencyP95: entry.metrics.latency_p95,
-    costPer1k: entry.metrics.cost_per_1k,
+    latencyP50: m.latency_p50 ?? 0,
+    ndcg10: m['ndcg@10'] ?? 0,
+    recall10: m['recall@10'] ?? 0,
+    latencyP95: m.latency_p95 ?? 0,
+    costPer1k: m.cost_per_1k,
     isParetoOptimal: entry.is_pareto_optimal,
     dominatedBy: entry.dominated_by,
   }
+}
+
+function TradeoffTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartPoint }> }) {
+  if (!active || !payload?.length) return null
+  const pt = payload[0].payload
+  return (
+    <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs max-w-xs">
+      <p className="font-semibold mb-1">{pt.label}</p>
+      <p>NDCG@10: <span className="font-mono">{fmtQuality(pt.ndcg10)}</span></p>
+      <p>Recall@10: <span className="font-mono">{fmtQuality(pt.recall10)}</span></p>
+      <p>P50 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP50)} ms</span></p>
+      <p>P95 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP95)} ms</span></p>
+      {pt.costPer1k != null && pt.costPer1k > 0 && (
+        <p>Cost / 1k queries: <span className="font-mono">{fmtCost(pt.costPer1k)}</span></p>
+      )}
+      {pt.isParetoOptimal ? (
+        <p className="text-indigo-600 font-semibold mt-1">Pareto optimal</p>
+      ) : pt.dominatedBy.length > 0 ? (
+        <p className="text-gray-600 mt-1">Dominated by: {pt.dominatedBy.join(', ')}</p>
+      ) : null}
+    </div>
+  )
+}
+
+function ParetoLineLayer({
+  xAxisMap,
+  yAxisMap,
+  frontierPoints,
+}: {
+  xAxisMap?: Record<string, { scale?: (v: number) => number }>
+  yAxisMap?: Record<string, { scale?: (v: number) => number }>
+  frontierPoints: ChartPoint[]
+}) {
+  if (frontierPoints.length < 2) return null
+  const xScale = xAxisMap?.[Object.keys(xAxisMap ?? {})[0] ?? '']?.scale
+  const yScale = yAxisMap?.[Object.keys(yAxisMap ?? {})[0] ?? '']?.scale
+  if (!xScale || !yScale) return null
+
+  let d = `M ${xScale(frontierPoints[0].latencyP50)} ${yScale(frontierPoints[0].ndcg10)}`
+  for (let i = 1; i < frontierPoints.length; i++) {
+    const px = xScale(frontierPoints[i].latencyP50)
+    const py = yScale(frontierPoints[i].ndcg10)
+    const prevY = yScale(frontierPoints[i - 1].ndcg10)
+    d += ` L ${px} ${prevY} L ${px} ${py}`
+  }
+
+  return (
+    <path
+      d={d}
+      fill="none"
+      stroke="#6366f1"
+      strokeWidth={1.5}
+      strokeDasharray="6 3"
+      opacity={0.55}
+    />
+  )
 }
 
 export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
@@ -79,6 +137,35 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
     return costs.length > 0 ? Math.max(...costs, 0.001) : 1
   }, [points])
 
+  const showCostSizing = sizeByCost && !!frontier?.cost_included
+
+  const dotRenderer = useCallback(
+    (props: { cx?: number; cy?: number; index?: number }) => {
+      const { cx, cy, index = 0 } = props
+      const pt = points[index]
+      if (!pt || cx == null || cy == null) return null
+      const color = COLORS[index % COLORS.length]
+      const cost = pt.costPer1k ?? 0
+      const r = showCostSizing && cost > 0 ? 5 + (cost / maxCost) * 9 : 7
+      return (
+        <g>
+          <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={1.5} />
+          {pt.isParetoOptimal && (
+            <circle cx={cx} cy={cy} r={r + 3} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3 2" opacity={0.6} />
+          )}
+        </g>
+      )
+    },
+    [points, showCostSizing, maxCost],
+  )
+
+  const paretoLayer = useCallback(
+    (props: { xAxisMap?: Record<string, { scale?: (v: number) => number }>; yAxisMap?: Record<string, { scale?: (v: number) => number }> }) => (
+      <ParetoLineLayer {...props} frontierPoints={frontierPoints} />
+    ),
+    [frontierPoints],
+  )
+
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (!e.ctrlKey) return
     e.preventDefault()
@@ -106,20 +193,14 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
     )
   }
 
-  const showCostSizing = sizeByCost && frontier.cost_included
-
-  const handleMouseDown = (e: any) => {
-    if (e?.activePayload?.[0]) {
-      const x = e.activePayload[0].payload?.latencyP50
-      if (x != null) { setRefAreaLeft(x); setIsSelecting(true) }
-    }
+  const handleMouseDown = (e: { activePayload?: Array<{ payload?: ChartPoint }> }) => {
+    const x = e?.activePayload?.[0]?.payload?.latencyP50
+    if (x != null) { setRefAreaLeft(x); setIsSelecting(true) }
   }
-  const handleMouseMove = (e: any) => {
+  const handleMouseMove = (e: { activePayload?: Array<{ payload?: ChartPoint }> }) => {
     if (!isSelecting) return
-    if (e?.activePayload?.[0]) {
-      const x = e.activePayload[0].payload?.latencyP50
-      if (x != null) setRefAreaRight(x)
-    }
+    const x = e?.activePayload?.[0]?.payload?.latencyP50
+    if (x != null) setRefAreaRight(x)
   }
   const handleMouseUp = () => {
     if (refAreaLeft != null && refAreaRight != null && refAreaLeft !== refAreaRight) {
@@ -135,72 +216,6 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
 
   const budgetMs = latencyBudgetMs ?? frontier.latency_budget_ms ?? undefined
 
-  const CustomDot = (props: any) => {
-    const { cx, cy, index } = props
-    const pt = points[index]
-    const color = COLORS[index % COLORS.length]
-    const cost = pt.costPer1k ?? 0
-    const r = showCostSizing && cost > 0 ? 5 + (cost / maxCost) * 9 : 7
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={1.5} />
-        {pt.isParetoOptimal && (
-          <circle cx={cx} cy={cy} r={r + 3} fill="none" stroke={color} strokeWidth={1.5} strokeDasharray="3 2" opacity={0.6} />
-        )}
-      </g>
-    )
-  }
-
-  const CustomTooltip = ({ active, payload }: any) => {
-    if (!active || !payload?.length) return null
-    const pt = payload[0].payload as ChartPoint
-    return (
-      <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs max-w-xs">
-        <p className="font-semibold mb-1">{pt.label}</p>
-        <p>NDCG@10: <span className="font-mono">{fmtQuality(pt.ndcg10)}</span></p>
-        <p>Recall@10: <span className="font-mono">{fmtQuality(pt.recall10)}</span></p>
-        <p>P50 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP50)} ms</span></p>
-        <p>P95 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP95)} ms</span></p>
-        {pt.costPer1k != null && pt.costPer1k > 0 && (
-          <p>Cost / 1k queries: <span className="font-mono">{fmtCost(pt.costPer1k)}</span></p>
-        )}
-        {pt.isParetoOptimal ? (
-          <p className="text-indigo-600 font-semibold mt-1">Pareto optimal</p>
-        ) : pt.dominatedBy.length > 0 ? (
-          <p className="text-gray-600 mt-1">Dominated by: {pt.dominatedBy.join(', ')}</p>
-        ) : null}
-      </div>
-    )
-  }
-
-  const ParetoLine = (props: any) => {
-    if (frontierPoints.length < 2) return null
-    const xAxisId = Object.keys(props.xAxisMap ?? {})[0]
-    const yAxisId = Object.keys(props.yAxisMap ?? {})[0]
-    const xScale = props.xAxisMap?.[xAxisId]?.scale
-    const yScale = props.yAxisMap?.[yAxisId]?.scale
-    if (!xScale || !yScale) return null
-
-    let d = `M ${xScale(frontierPoints[0].latencyP50)} ${yScale(frontierPoints[0].ndcg10)}`
-    for (let i = 1; i < frontierPoints.length; i++) {
-      const px = xScale(frontierPoints[i].latencyP50)
-      const py = yScale(frontierPoints[i].ndcg10)
-      const prevY = yScale(frontierPoints[i - 1].ndcg10)
-      d += ` L ${px} ${prevY} L ${px} ${py}`
-    }
-
-    return (
-      <path
-        d={d}
-        fill="none"
-        stroke="#6366f1"
-        strokeWidth={1.5}
-        strokeDasharray="6 3"
-        opacity={0.55}
-      />
-    )
-  }
-
   const renderChart = (height: number) => (
     <>
       {isZoomed && (
@@ -210,7 +225,7 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
           </button>
         </div>
       )}
-      <ResponsiveContainer width="100%" height={height}>
+      <ChartFrame height={height}>
         <ScatterChart
           margin={{ top: 10, right: 30, bottom: 30, left: 10 }}
           onMouseDown={handleMouseDown}
@@ -238,7 +253,7 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
           >
             <Label value="NDCG@10" angle={-90} position="insideLeft" style={{ fontSize: 11, fill: '#6b7280' }} />
           </YAxis>
-          <Tooltip content={<CustomTooltip />} />
+          <Tooltip content={<TradeoffTooltip />} />
           {budgetMs != null && (
             <ReferenceLine
               x={budgetMs}
@@ -250,14 +265,14 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
           {isSelecting && refAreaLeft != null && refAreaRight != null && (
             <ReferenceArea x1={refAreaLeft} x2={refAreaRight} strokeOpacity={0.3} fill="#6366f1" fillOpacity={0.1} />
           )}
-          <Customized component={ParetoLine} />
-          <Scatter data={points} shape={<CustomDot />}>
+          <Customized component={paretoLayer} />
+          <Scatter data={points} shape={dotRenderer as (props: unknown) => JSX.Element}>
             {points.map((_, i) => (
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}
           </Scatter>
         </ScatterChart>
-      </ResponsiveContainer>
+      </ChartFrame>
     </>
   )
 

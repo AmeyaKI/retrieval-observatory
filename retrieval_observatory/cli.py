@@ -58,7 +58,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
             split=cfg.dataset.split,
             max_queries=cfg.dataset.max_queries,
         )
-    elif cfg.dataset.name == "custom":
+    elif cfg.dataset.type == "custom" or cfg.dataset.name == "custom" or cfg.dataset.queries_path:
         if not cfg.dataset.queries_path:
             console.print("[red]Error: queries_path required for custom dataset[/red]")
             raise typer.Exit(1)
@@ -883,7 +883,7 @@ def _resolve_config_paths(cfg, base_dir: Path) -> None:
     for attr in ("queries_path", "corpus_path", "qrels_path"):
         value = getattr(ds, attr, None)
         if value and not Path(value).is_absolute():
-            setattr(ds, attr, str(base_dir / value))
+            setattr(ds, attr, str((base_dir / value).resolve()))
 
 
 async def _build_llm_judged_qrels(cfg, queries, all_results, queries_by_id):
@@ -1006,9 +1006,24 @@ async def _classifier_train(
 
     store = SQLiteStore(db_path=db_path)
     await store.init_db()
+    runs = await store.list_runs_for_dataset(dataset)
+    if not runs:
+        console.print(
+            f"[red]No benchmark runs found for dataset '{dataset}' in {db_path}.[/red]\n"
+            "[dim]Run a benchmark first, e.g.: retobs run --config examples/dashboard_demo/config.yaml[/dim]"
+        )
+        raise typer.Exit(1)
     samples = await load_labeled_queries(store, dataset)
     if not samples:
-        console.print(f"[red]No labeled queries found for dataset '{dataset}'. Run benchmarks first.[/red]")
+        diag_count = sum(len(await store.get_query_diagnostics(r["run_id"])) for r in runs)
+        console.print(
+            f"[red]No labeled queries found for dataset '{dataset}' ({len(runs)} run(s) in {db_path}).[/red]"
+        )
+        if diag_count == 0:
+            console.print(
+                "[dim]query_diagnostics is empty — the benchmark likely failed before completion. "
+                "Check: retobs validate --config <your-config.yaml>[/dim]"
+            )
         raise typer.Exit(1)
 
     out_path = str(out) if out else default_model_path(dataset)

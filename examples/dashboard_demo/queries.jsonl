@@ -1,0 +1,40 @@
+{"query_id": "q01", "text": "What is BM25 sparse retrieval?", "relevant_doc_ids": {"bm25_0": 2, "bm25_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q02", "text": "How does dense embedding retrieval work?", "relevant_doc_ids": {"dense_0": 2, "dense_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q03", "text": "Explain hybrid sparse and dense retrieval.", "relevant_doc_ids": {"hybrid_0": 2, "hybrid_1": 1, "fusion_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "medium"}}
+{"query_id": "q04", "text": "What does a cross-encoder reranker do?", "relevant_doc_ids": {"rerank_0": 2, "rerank_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q05", "text": "How does retrieval-augmented generation work?", "relevant_doc_ids": {"rag_0": 2, "rag_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q06", "text": "Define NDCG at ten for ranking evaluation.", "relevant_doc_ids": {"ndcg_0": 2, "ndcg_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q07", "text": "What is recall at K in IR benchmarks?", "relevant_doc_ids": {"recall_0": 2, "recall_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q08", "text": "Why does pipeline latency matter in production?", "relevant_doc_ids": {"latency_0": 2, "latency_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q09", "text": "Describe reciprocal rank fusion.", "relevant_doc_ids": {"fusion_0": 2, "fusion_1": 1, "hybrid_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "medium"}}
+{"query_id": "q10", "text": "Why chunk documents for RAG?", "relevant_doc_ids": {"chunk_0": 2, "chunk_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q11", "text": "How are text embeddings used in search?", "relevant_doc_ids": {"embed_0": 2, "embed_1": 1, "dense_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "medium"}}
+{"query_id": "q12", "text": "How do you evaluate a retrieval system?", "relevant_doc_ids": {"eval_0": 2, "eval_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q13", "text": "What are metadata filters in retrieval?", "relevant_doc_ids": {"filter_0": 2, "filter_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q14", "text": "Why cache benchmark retrieval results?", "relevant_doc_ids": {"cache_0": 2, "cache_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q15", "text": "What is a multi-stage retrieval pipeline?", "relevant_doc_ids": {"stage_0": 2, "stage_1": 1, "rag_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "medium"}}
+{"query_id": "q16", "text": "Compare BM25 and dense retrievers.", "relevant_doc_ids": {"bm25_0": 2, "dense_0": 1, "hybrid_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q17", "text": "When should you add a reranker stage?", "relevant_doc_ids": {"rerank_0": 2, "stage_0": 1, "latency_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q18", "text": "How does hybrid fusion improve recall?", "relevant_doc_ids": {"hybrid_0": 2, "fusion_0": 1, "bm25_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q19", "text": "What metrics matter for RAG retrieval quality?", "relevant_doc_ids": {"ndcg_0": 2, "recall_0": 1, "eval_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "medium"}}
+{"query_id": "q20", "text": "Explain mean reciprocal rank.", "relevant_doc_ids": {"eval_0": 2, "extra_6": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q21", "text": "What is mean average precision?", "relevant_doc_ids": {"eval_0": 2, "extra_5": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q22", "text": "How do vector databases support RAG?", "relevant_doc_ids": {"embed_0": 2, "extra_0": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q23", "text": "What is query expansion?", "relevant_doc_ids": {"bm25_0": 2, "extra_1": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "hard"}}
+{"query_id": "q24", "text": "Why use hard negatives in training?", "relevant_doc_ids": {"dense_0": 2, "extra_2": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "hard"}}
+{"query_id": "q25", "text": "How do latency budgets affect rerankers?", "relevant_doc_ids": {"latency_0": 2, "extra_6": 1, "rerank_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q26", "text": "What failure labels appear in diagnostics?", "relevant_doc_ids": {"eval_0": 2, "extra_7": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q27", "text": "How is query difficulty bucketed?", "relevant_doc_ids": {"eval_0": 2, "extra_8": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q28", "text": "What is classifier calibration in retrieval eval?", "relevant_doc_ids": {"eval_0": 2, "extra_9": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q29", "text": "What is stage attribution analysis?", "relevant_doc_ids": {"stage_0": 2, "extra_10": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q30", "text": "How do Pareto frontiers compare pipelines?", "relevant_doc_ids": {"latency_0": 2, "extra_11": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "hard"}}
+{"query_id": "q31", "text": "Segment metrics by number of relevant docs.", "relevant_doc_ids": {"eval_0": 2, "extra_12": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q32", "text": "Benchmark a live HTTP retrieval service.", "relevant_doc_ids": {"extra_13": 2, "eval_0": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q33", "text": "Visualize recall curves and latency tradeoffs.", "relevant_doc_ids": {"extra_14": 2, "eval_0": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q34", "text": "Combine BM25 with two reranking stages.", "relevant_doc_ids": {"bm25_0": 2, "rerank_0": 1, "stage_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q35", "text": "Does the second reranker pay for itself?", "relevant_doc_ids": {"rerank_0": 2, "stage_0": 1, "latency_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q36", "text": "Find documents about FAISS vector search.", "relevant_doc_ids": {"extra_0": 2, "embed_0": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q37", "text": "Improve precision without hurting recall too much.", "relevant_doc_ids": {"rerank_0": 2, "recall_0": 1, "ndcg_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "hard"}}
+{"query_id": "q38", "text": "Measure end-to-end pipeline latency percentiles.", "relevant_doc_ids": {"latency_0": 2, "extra_6": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "medium"}}
+{"query_id": "q39", "text": "Use observatory dashboards for pipeline comparison.", "relevant_doc_ids": {"extra_14": 2, "eval_0": 1}, "metadata": {"n_relevant": 2, "seed_difficulty": "easy"}}
+{"query_id": "q40", "text": "Production RAG wide retrieval narrow rerank pattern.", "relevant_doc_ids": {"stage_0": 2, "extra_6": 1, "rag_0": 1}, "metadata": {"n_relevant": 3, "seed_difficulty": "medium"}}

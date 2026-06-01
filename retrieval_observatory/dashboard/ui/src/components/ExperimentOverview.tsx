@@ -35,7 +35,7 @@ export default function ExperimentOverview({ runId }: { runId: string }) {
         <div className="mt-1 text-sm font-semibold text-gray-900">
           {overview.headline_winner ? formatMetricKey(overview.headline_winner.metric) : 'No winner yet'}
         </div>
-        {overview.headline_winner && (
+        {overview.headline_winner?.mean != null && (
           <div className="text-2xl font-bold tabular-nums mt-1">{overview.headline_winner.mean.toFixed(4)}</div>
         )}
       </div>

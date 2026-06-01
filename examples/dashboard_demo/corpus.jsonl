@@ -1,0 +1,45 @@
+{"id": "bm25_0", "text": "BM25 sparse retrieval ranks documents using term frequency and inverse document frequency.", "metadata": {"topic": "bm25"}}
+{"id": "bm25_1", "text": "BM25 sparse retrieval ranks documents using term frequency and inverse document frequency.", "metadata": {"topic": "bm25"}}
+{"id": "dense_0", "text": "Dense retrieval encodes queries and documents as neural embeddings for semantic search.", "metadata": {"topic": "dense"}}
+{"id": "dense_1", "text": "Dense retrieval encodes queries and documents as neural embeddings for semantic search.", "metadata": {"topic": "dense"}}
+{"id": "hybrid_0", "text": "Hybrid retrieval combines sparse BM25 scores with dense vector similarity using fusion.", "metadata": {"topic": "hybrid"}}
+{"id": "hybrid_1", "text": "Hybrid retrieval combines sparse BM25 scores with dense vector similarity using fusion.", "metadata": {"topic": "hybrid"}}
+{"id": "rerank_0", "text": "Cross-encoder rerankers rescore candidate documents for improved precision at the top.", "metadata": {"topic": "rerank"}}
+{"id": "rerank_1", "text": "Cross-encoder rerankers rescore candidate documents for improved precision at the top.", "metadata": {"topic": "rerank"}}
+{"id": "rag_0", "text": "Retrieval-augmented generation retrieves context before the language model generates an answer.", "metadata": {"topic": "rag"}}
+{"id": "rag_1", "text": "Retrieval-augmented generation retrieves context before the language model generates an answer.", "metadata": {"topic": "rag"}}
+{"id": "ndcg_0", "text": "NDCG at ten measures ranking quality with graded relevance in the top results.", "metadata": {"topic": "ndcg"}}
+{"id": "ndcg_1", "text": "NDCG at ten measures ranking quality with graded relevance in the top results.", "metadata": {"topic": "ndcg"}}
+{"id": "recall_0", "text": "Recall at K reports the fraction of relevant documents found in the top K hits.", "metadata": {"topic": "recall"}}
+{"id": "recall_1", "text": "Recall at K reports the fraction of relevant documents found in the top K hits.", "metadata": {"topic": "recall"}}
+{"id": "latency_0", "text": "Pipeline latency includes retrieval time plus reranking and network overhead.", "metadata": {"topic": "latency"}}
+{"id": "latency_1", "text": "Pipeline latency includes retrieval time plus reranking and network overhead.", "metadata": {"topic": "latency"}}
+{"id": "fusion_0", "text": "Reciprocal rank fusion merges ranked lists from multiple retrievers without score calibration.", "metadata": {"topic": "fusion"}}
+{"id": "fusion_1", "text": "Reciprocal rank fusion merges ranked lists from multiple retrievers without score calibration.", "metadata": {"topic": "fusion"}}
+{"id": "chunk_0", "text": "Document chunking splits long passages into smaller units for embedding and retrieval.", "metadata": {"topic": "chunk"}}
+{"id": "chunk_1", "text": "Document chunking splits long passages into smaller units for embedding and retrieval.", "metadata": {"topic": "chunk"}}
+{"id": "embed_0", "text": "Embedding models map text into vector space for approximate nearest neighbor search.", "metadata": {"topic": "embed"}}
+{"id": "embed_1", "text": "Embedding models map text into vector space for approximate nearest neighbor search.", "metadata": {"topic": "embed"}}
+{"id": "eval_0", "text": "Information retrieval evaluation uses labeled qrels to score recall, MRR, and NDCG.", "metadata": {"topic": "eval"}}
+{"id": "eval_1", "text": "Information retrieval evaluation uses labeled qrels to score recall, MRR, and NDCG.", "metadata": {"topic": "eval"}}
+{"id": "filter_0", "text": "Metadata filters restrict retrieval to a subset of documents before ranking.", "metadata": {"topic": "filter"}}
+{"id": "filter_1", "text": "Metadata filters restrict retrieval to a subset of documents before ranking.", "metadata": {"topic": "filter"}}
+{"id": "cache_0", "text": "Result caching avoids recomputing expensive reranker scores across benchmark reruns.", "metadata": {"topic": "cache"}}
+{"id": "cache_1", "text": "Result caching avoids recomputing expensive reranker scores across benchmark reruns.", "metadata": {"topic": "cache"}}
+{"id": "stage_0", "text": "Multi-stage pipelines chain a retriever with one or more reranking or fusion stages.", "metadata": {"topic": "stage"}}
+{"id": "stage_1", "text": "Multi-stage pipelines chain a retriever with one or more reranking or fusion stages.", "metadata": {"topic": "stage"}}
+{"id": "extra_0", "text": "Vector databases like FAISS and pgvector store embeddings for fast similarity search.", "metadata": {"topic": "extra"}}
+{"id": "extra_1", "text": "Query expansion adds synonyms or pseudo-relevant terms to improve sparse retrieval recall.", "metadata": {"topic": "extra"}}
+{"id": "extra_2", "text": "Hard negatives in contrastive training improve dense retriever discrimination.", "metadata": {"topic": "extra"}}
+{"id": "extra_3", "text": "Mean average precision summarizes ranking quality across many queries.", "metadata": {"topic": "extra"}}
+{"id": "extra_4", "text": "Mean reciprocal rank focuses on the rank of the first relevant document.", "metadata": {"topic": "extra"}}
+{"id": "extra_5", "text": "Production RAG systems often use a wide first stage and a narrow final stage.", "metadata": {"topic": "extra"}}
+{"id": "extra_6", "text": "Latency budgets force tradeoffs between quality gains and reranker cost.", "metadata": {"topic": "extra"}}
+{"id": "extra_7", "text": "Failure analysis labels candidate misses, reranker drops, and lexical mismatches.", "metadata": {"topic": "extra"}}
+{"id": "extra_8", "text": "Difficulty bucketing groups queries by cross-pipeline recall variance.", "metadata": {"topic": "extra"}}
+{"id": "extra_9", "text": "Classifier calibration checks whether predicted difficulty matches observed recall.", "metadata": {"topic": "extra"}}
+{"id": "extra_10", "text": "Stage attribution compares prefix pipelines to measure incremental reranker value.", "metadata": {"topic": "extra"}}
+{"id": "extra_11", "text": "Pareto frontiers highlight pipelines that are not dominated on quality and latency.", "metadata": {"topic": "extra"}}
+{"id": "extra_12", "text": "Segment breakdown plots metrics by number of relevant documents per query.", "metadata": {"topic": "extra"}}
+{"id": "extra_13", "text": "HTTP adapters let benchmarks call live retrieval microservices over REST.", "metadata": {"topic": "extra"}}
+{"id": "extra_14", "text": "Observatory dashboards visualize recall curves, funnels, and tradeoff scatter plots.", "metadata": {"topic": "extra"}}

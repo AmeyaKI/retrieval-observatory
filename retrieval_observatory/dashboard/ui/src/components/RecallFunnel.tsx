@@ -1,13 +1,14 @@
 import { useCallback, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  Legend,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { formatSeriesKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtQuality } from '../utils/format'
+import ChartFrame from './ChartFrame'
 
 interface Props {
   metrics: MetricsMap
@@ -164,7 +165,7 @@ export default function RecallFunnel({ metrics }: Props) {
           </div>
         )}
         <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
-          <ResponsiveContainer width="100%" height={220}>
+          <ChartFrame height={220}>
             <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
@@ -186,7 +187,7 @@ export default function RecallFunnel({ metrics }: Props) {
                 />
               ))}
             </BarChart>
-          </ResponsiveContainer>
+          </ChartFrame>
         </div>
       </div>
 
@@ -194,7 +195,7 @@ export default function RecallFunnel({ metrics }: Props) {
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">NDCG@10 per Stage</p>
         <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
-          <ResponsiveContainer width="100%" height={220}>
+          <ChartFrame height={220}>
             <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
@@ -216,7 +217,7 @@ export default function RecallFunnel({ metrics }: Props) {
                 />
               ))}
             </BarChart>
-          </ResponsiveContainer>
+          </ChartFrame>
         </div>
       </div>
     </div>

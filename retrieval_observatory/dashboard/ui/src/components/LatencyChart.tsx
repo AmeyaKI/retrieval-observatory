@@ -1,13 +1,14 @@
 import { useCallback, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer,
+  Legend,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtLatencyMs } from '../utils/format'
 import { ChartModal } from './ChartModal'
+import ChartFrame from './ChartFrame'
 
 interface Props {
   metrics: MetricsMap
@@ -117,7 +118,7 @@ export default function LatencyChart({ metrics }: Props) {
   const yMax = isZoomed ? dataMax * yZoomFactor : undefined
 
   const renderChart = (height: number) => (
-    <ResponsiveContainer width="100%" height={height}>
+    <ChartFrame height={height}>
       <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis dataKey="label" tick={{ fontSize: 11 }} />
@@ -128,7 +129,7 @@ export default function LatencyChart({ metrics }: Props) {
         <Bar dataKey="p95" fill="#f59e0b" name="P95 (tail)" radius={[3, 3, 0, 0]} />
         <Bar dataKey="p99" fill="#ef4444" name="P99 (worst-case)" radius={[3, 3, 0, 0]} />
       </BarChart>
-    </ResponsiveContainer>
+    </ChartFrame>
   )
 
   return (

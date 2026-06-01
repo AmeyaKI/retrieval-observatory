@@ -17,6 +17,25 @@ from retrieval_observatory.metrics.significance import benjamini_hochberg, boots
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
+# Never serve the SPA shell for these — browser would execute HTML as JS/CSS → blank page.
+_STATIC_EXTENSIONS = (".js", ".css", ".map", ".ico", ".png", ".svg", ".woff", ".woff2", ".json", ".txt")
+
+
+def _is_static_asset_path(path: str) -> bool:
+    normalized = path.lstrip("/")
+    if normalized.startswith("assets/"):
+        return True
+    return normalized.endswith(_STATIC_EXTENSIONS)
+
+
+def _index_response(index_path: str):
+    from fastapi.responses import FileResponse
+
+    return FileResponse(
+        index_path,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 try:
     from pydantic import BaseModel as _BaseModel
@@ -479,22 +498,31 @@ def create_app(db_path: str = ".retobs/results.db"):
 
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):
-        from fastapi.responses import FileResponse
         from fastapi.staticfiles import StaticFiles
+        from starlette.staticfiles import StaticFiles as StarletteStaticFiles
+
+        class _CachedStaticFiles(StarletteStaticFiles):
+            async def get_response(self, path: str, scope):  # type: ignore[override]
+                response = await super().get_response(path, scope)
+                if response.status_code == 200:
+                    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
 
         assets_dir = os.path.join(_UI_DIST, "assets")
         if os.path.exists(assets_dir):
-            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+            app.mount("/assets", _CachedStaticFiles(directory=assets_dir), name="assets")
 
         _index = os.path.join(_UI_DIST, "index.html")
 
         @app.get("/", include_in_schema=False)
         async def spa_root():
-            return FileResponse(_index)
+            return _index_response(_index)
 
         @app.get("/{full_path:path}", include_in_schema=False)
         async def spa_fallback(full_path: str):
-            return FileResponse(_index)
+            if _is_static_asset_path(full_path):
+                raise HTTPException(status_code=404, detail="Not found")
+            return _index_response(_index)
 
     return app
 

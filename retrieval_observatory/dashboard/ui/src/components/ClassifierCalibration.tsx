@@ -1,6 +1,8 @@
-import { Bar, BarChart, CartesianGrid, Cell, ErrorBar, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, ErrorBar, Tooltip, XAxis, YAxis } from 'recharts'
 import { useEffect, useState } from 'react'
 import { ClassifierCalibrationResponse, fetchClassifierCalibration } from '../api'
+import { fmtQuality } from '../utils/format'
+import ChartFrame from './ChartFrame'
 
 const CLASS_COLORS: Record<string, string> = {
   easy: '#22c55e',
@@ -43,25 +45,23 @@ export default function ClassifierCalibration({ runId }: { runId: string }) {
       <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">
         Classifier Calibration — Mean Recall@10 by Predicted Difficulty
       </div>
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-            <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} width={32} />
-            <Tooltip
-              formatter={(value: number) => value.toFixed(3)}
-              labelFormatter={(label) => `Predicted: ${label}`}
-            />
-            <Bar dataKey="mean" radius={[4, 4, 0, 0]}>
-              {chartData.map((entry) => (
-                <Cell key={entry.name} fill={CLASS_COLORS[entry.name] ?? '#94a3b8'} />
-              ))}
-              <ErrorBar dataKey="err" direction="y" width={4} strokeWidth={2} stroke="#64748b" />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <ChartFrame height={192}>
+        <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+          <YAxis domain={[0, 1]} tick={{ fontSize: 11 }} width={32} />
+          <Tooltip
+            formatter={(value: number) => fmtQuality(value)}
+            labelFormatter={(label) => `Predicted: ${label}`}
+          />
+          <Bar dataKey="mean" radius={[4, 4, 0, 0]}>
+            {chartData.map((entry) => (
+              <Cell key={entry.name} fill={CLASS_COLORS[entry.name] ?? '#94a3b8'} />
+            ))}
+            <ErrorBar dataKey="err" direction="y" width={4} strokeWidth={2} stroke="#64748b" />
+          </Bar>
+        </BarChart>
+      </ChartFrame>
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600">
         {data.classes.filter((c) => c.n > 0).map((c) => (
           <span key={c.class}>

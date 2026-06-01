@@ -47,9 +47,12 @@ export default function App() {
             </div>
           </div>
         )}
-        {selectedIds.length === 1 && (
-          <RunDetail run={runs.find((r) => r.run_id === selectedIds[0])!} />
-        )}
+        {selectedIds.length === 1 && (() => {
+          const run = runs.find((r) => r.run_id === selectedIds[0])
+          return run ? <RunDetail run={run} /> : (
+            <div className="p-6 text-sm text-gray-400">Loading run…</div>
+          )
+        })()}
         {selectedIds.length >= 2 && <ComparePanel runIds={selectedIds} />}
       </main>
     </div>

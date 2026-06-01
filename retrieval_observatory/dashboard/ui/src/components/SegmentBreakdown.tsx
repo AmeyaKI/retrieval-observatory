@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer,
 } from 'recharts'
 import { fetchSegmentMetrics, SegmentMetrics } from '../api'
 import { formatSeriesKey } from '../utils/formatMetricKey'
 import { fmtQuality } from '../utils/format'
 import { ChartModal } from './ChartModal'
+import ChartFrame from './ChartFrame'
 
 interface Props {
   runId: string
@@ -116,7 +116,7 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
   const displayLabel = (label: string) => (label.length > 36 ? `${label.slice(0, 33)}...` : label)
 
   const renderChart = (height: number) => (
-    <ResponsiveContainer width="100%" height={height}>
+    <ChartFrame height={height}>
       <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 44, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis
@@ -136,7 +136,7 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
           />
         ))}
       </BarChart>
-    </ResponsiveContainer>
+    </ChartFrame>
   )
 
   const legend = (

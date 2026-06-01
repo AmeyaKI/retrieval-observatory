@@ -1,12 +1,13 @@
 import { useCallback, useState } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, ErrorBar, ReferenceLine,
+  Legend, ErrorBar, ReferenceLine,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { formatSeriesKey } from '../utils/formatMetricKey'
 import { fmtQuality } from '../utils/format'
 import { ChartModal } from './ChartModal'
+import ChartFrame from './ChartFrame'
 
 interface Props {
   metrics: MetricsMap
@@ -107,7 +108,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
     .filter((r) => r.value !== undefined)
 
   const renderChart = (height: number) => (
-    <ResponsiveContainer width="100%" height={height}>
+    <ChartFrame height={height}>
       <LineChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis dataKey="k" label={{ value: 'K', position: 'insideBottomRight', offset: -4 }} tick={{ fontSize: 12 }} />
@@ -150,7 +151,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
           />
         ))}
       </LineChart>
-    </ResponsiveContainer>
+    </ChartFrame>
   )
 
   const footer = referenceLines.length > 0 && (
