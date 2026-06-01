@@ -43,7 +43,7 @@ export function formatMetricKey(key: string, multiStagePipelines?: Set<string>, 
   return `${metricLabel}  ·  ${pipelineLabel}${stageLabel}`
 }
 
-function toPipelineLabel(pipelineId: string): string {
+export function toPipelineLabel(pipelineId: string): string {
   return pipelineId
     .split('_')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))

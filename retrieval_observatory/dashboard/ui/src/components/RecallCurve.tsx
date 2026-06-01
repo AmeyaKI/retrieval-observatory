@@ -4,9 +4,9 @@ import {
   Legend, ErrorBar, ReferenceLine,
 } from 'recharts'
 import { MetricsMap } from '../api'
-import { formatSeriesKey } from '../utils/formatMetricKey'
 import { fmtQuality } from '../utils/format'
 import { buildPipelineColorMap, collectPipelineIds, getPipelineColor } from '../utils/chartColors'
+import { buildRecallSeries } from '../utils/pipelineStages'
 import { useChartZoom } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
@@ -19,6 +19,7 @@ interface Props {
 
 export default function RecallCurve({ metrics, baselines = {} }: Props) {
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
+  const [showIntermediateStages, setShowIntermediateStages] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
@@ -33,28 +34,24 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
     })
   }
 
-  const seriesMap: Record<string, Record<number, { mean: number; ci_low: number; ci_high: number }>> = {}
-  const seriesPipelineId: Record<string, string> = {}
-  const pipelineMaxStage: Record<string, number> = {}
+  const { seriesMap, seriesPipelineId, seriesKeys } = useMemo(() => {
+    const points = buildRecallSeries(metrics, { showIntermediateStages })
+    const map: Record<string, Record<number, { mean: number; ci_low: number; ci_high: number }>> = {}
+    const pipelineBySeries: Record<string, string> = {}
 
-  for (const [, entry] of Object.entries(metrics)) {
-    if (entry.metric_name !== 'recall' || entry.k === 0 || entry.stage_index < 0) continue
-    pipelineMaxStage[entry.pipeline_id] = Math.max(
-      pipelineMaxStage[entry.pipeline_id] ?? 0,
-      entry.stage_index,
-    )
-  }
+    for (const pt of points) {
+      pipelineBySeries[pt.seriesKey] = pt.pipelineId
+      if (!map[pt.seriesKey]) map[pt.seriesKey] = {}
+      map[pt.seriesKey][pt.k] = { mean: pt.mean, ci_low: pt.ci_low, ci_high: pt.ci_high }
+    }
 
-  for (const [, entry] of Object.entries(metrics)) {
-    if (entry.metric_name !== 'recall' || entry.k === 0 || entry.stage_index < 0) continue
-    const isMultiStage = (pipelineMaxStage[entry.pipeline_id] ?? 0) > 0
-    const seriesKey = formatSeriesKey(entry.pipeline_id, entry.stage_index, isMultiStage)
-    seriesPipelineId[seriesKey] = entry.pipeline_id
-    if (!seriesMap[seriesKey]) seriesMap[seriesKey] = {}
-    seriesMap[seriesKey][entry.k] = { mean: entry.mean, ci_low: entry.ci_low, ci_high: entry.ci_high }
-  }
+    return {
+      seriesMap: map,
+      seriesPipelineId: pipelineBySeries,
+      seriesKeys: Object.keys(map).sort(),
+    }
+  }, [metrics, showIntermediateStages])
 
-  const seriesKeys = Object.keys(seriesMap).sort()
   const pipelineColorMap = useMemo(
     () => buildPipelineColorMap(collectPipelineIds(metrics)),
     [metrics],
@@ -144,6 +141,23 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
 
   return (
     <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <p className="text-xs text-gray-500">
+          Final-stage recall per pipeline. Per-stage breakdown is in the Stage Recall Funnel below.
+        </p>
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showIntermediateStages}
+            onChange={(e) => {
+              setShowIntermediateStages(e.target.checked)
+              setHiddenSeries(new Set())
+            }}
+            className="rounded border-gray-300"
+          />
+          Show intermediate stages
+        </label>
+      </div>
       <ChartZoomControls
         domain={yDomain}
         isZoomed={isZoomed}

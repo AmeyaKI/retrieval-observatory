@@ -9,6 +9,7 @@ import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtQuality } from '../utils/format'
 import { buildPipelineColorMap, collectPipelineIds, getPipelineColor } from '../utils/chartColors'
+import { duplicateAblationSeriesKeys } from '../utils/pipelineStages'
 import { useChartZoom } from '../hooks/useChartZoom'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
@@ -72,7 +73,8 @@ export default function RecallFunnel({ metrics }: Props) {
   }
 
   const stages = Object.keys(stageRecall).sort()
-  const seriesList = [...seriesSet].sort()
+  const omittedSeries = useMemo(() => duplicateAblationSeriesKeys(metrics), [metrics])
+  const seriesList = [...seriesSet].sort().filter((s) => !omittedSeries.has(s))
   const pipelineColorMap = useMemo(
     () => buildPipelineColorMap(collectPipelineIds(metrics)),
     [metrics],
@@ -152,7 +154,7 @@ export default function RecallFunnel({ metrics }: Props) {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Each group shows per-stage metrics across pipeline combinations. Click legend items to show/hide series. ⌘/Ctrl+scroll on chart to zoom Y.
+          Each group shows per-stage metrics across pipeline combinations. Intermediate stages that match a standalone ablation pipeline (e.g. bm25) are omitted. Click legend items to show/hide series. ⌘/Ctrl+scroll on chart to zoom Y.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
         <ChartZoomControls
