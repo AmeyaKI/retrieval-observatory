@@ -57,6 +57,10 @@ function formatMetricName(name: string, k: number): string {
     return `Latency P${pct}`
   }
 
+  // Profile metrics from adapter latency breakdown
+  if (name === 'profile_compute_ms') return 'Compute (ms)'
+  if (name === 'profile_network_ms') return 'Network (ms)'
+
   const upper = name.toUpperCase()
 
   // Metrics with a meaningful K value

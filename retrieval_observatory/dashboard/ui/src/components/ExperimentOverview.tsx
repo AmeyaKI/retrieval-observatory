@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { fetchRunOverview, RunOverview as Overview } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
+import { METRIC_GLOSSARY, lookupFailureLabel } from '../utils/metricGlossary'
+import { MetricTooltip } from './MetricTooltip'
 import ClassifierCalibration from './ClassifierCalibration'
 
 export default function ExperimentOverview({ runId }: { runId: string }) {
@@ -50,15 +52,24 @@ export default function ExperimentOverview({ runId }: { runId: string }) {
         </div>
       </div>
       <div className="border border-gray-200 rounded p-3 bg-white">
-        <div className="text-xs uppercase tracking-wide text-gray-500">Failure Labels</div>
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="text-xs uppercase tracking-wide text-gray-500 flex items-center gap-1">
+          Failure Labels
+          <MetricTooltip text={METRIC_GLOSSARY.failure_labels_intro} />
+        </div>
+        <p className="text-[10px] text-gray-400 mt-1 mb-2">Per query×pipeline — explains why retrieval failed, not aggregate scores.</p>
+        <div className="mt-1 flex flex-wrap gap-2">
           {labels.length ? labels.map(([name, count]) => (
-            <span key={name} className="text-xs px-2 py-1 rounded bg-red-50 text-red-700">{name}: {count}</span>
+            <span
+              key={name}
+              className="text-xs px-2 py-1 rounded bg-red-50 text-red-700 cursor-help"
+              title={lookupFailureLabel(name) ?? name}
+            >
+              {name}: {count}
+            </span>
           )) : <span className="text-xs text-gray-400">No labeled failures</span>}
         </div>
       </div>
 
-      {/* Per-pipeline difficulty breakdown */}
       {pipelineEntries.length > 1 && (
         <div className="md:col-span-3 border border-gray-200 rounded p-3 bg-white">
           <div className="text-xs uppercase tracking-wide text-gray-500 mb-2">Difficulty by Pipeline</div>

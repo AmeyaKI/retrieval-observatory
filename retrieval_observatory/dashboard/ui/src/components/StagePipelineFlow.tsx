@@ -24,11 +24,22 @@ function toTitleCase(s: string): string {
 
 // Derive a human-readable label from the stage name encoded in the pipeline ID.
 // Pipeline IDs are "__"-joined stage names, e.g. "bm25__fast_rerank__precise_rerank".
+function pipelineDisplayName(pipelineId: string): string {
+  const knownPipelines: Record<string, string> = {
+    dense_only: 'Dense Bi-Encoder',
+    rrf_hybrid: 'RRF Fusion (BM25 + Dense)',
+  }
+  if (knownPipelines[pipelineId]) return knownPipelines[pipelineId]
+  return toTitleCase(pipelineId)
+}
+
 function stageNameFromPart(part: string): string {
   const knownMap: Record<string, string> = {
     bm25: 'BM25',
     dense: 'Dense Retriever',
+    dense_only: 'Dense Bi-Encoder',
     rrf: 'RRF Fusion',
+    rrf_hybrid: 'RRF Fusion',
   }
   if (knownMap[part]) return knownMap[part]
   return part
@@ -80,32 +91,30 @@ export default function StagePipelineFlow({ metrics }: Props) {
     }
   }
 
-  // Group by pipeline, filter to multi-stage pipelines only
   const byPipeline = new Map<string, StageInfo[]>()
   for (const info of stageMap.values()) {
     if (!byPipeline.has(info.pipelineId)) byPipeline.set(info.pipelineId, [])
     byPipeline.get(info.pipelineId)!.push(info)
   }
 
-  // Only show pipelines with >1 stage
-  const multiStagePipelines = [...byPipeline.entries()]
-    .filter(([, stages]) => stages.length > 1)
+  const allPipelines = [...byPipeline.entries()]
     .map(([pipelineId, stages]) => ({
       pipelineId,
       stages: stages.sort((a, b) => a.stageIndex - b.stageIndex),
     }))
+    .sort((a, b) => a.pipelineId.localeCompare(b.pipelineId))
 
-  if (multiStagePipelines.length === 0) return null
+  if (allPipelines.length === 0) return null
 
   return (
     <div className="space-y-6">
       <p className="text-xs text-gray-500">
-        Multi-stage pipeline flow — each box is one stage evaluated against ground truth qrels.
+        Each pipeline&apos;s stages evaluated against ground truth qrels. Single-stage pipelines show one retrieval box; multi-stage pipelines show the full flow.
         <MetricTooltip text={METRIC_GLOSSARY.stage} />
       </p>
-      {multiStagePipelines.map(({ pipelineId, stages }) => (
+      {allPipelines.map(({ pipelineId, stages }) => (
         <div key={pipelineId}>
-          <p className="text-xs font-semibold text-gray-600 mb-2">{toTitleCase(pipelineId)}</p>
+          <p className="text-xs font-semibold text-gray-600 mb-2">{pipelineDisplayName(pipelineId)}</p>
           <div className="flex items-stretch gap-0 overflow-x-auto">
             {stages.map((stage, i) => (
               <div key={stage.stageIndex} className="flex items-center">

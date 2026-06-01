@@ -24,6 +24,23 @@ function fmt(v: number | null): string {
   return v == null ? '—' : fmtQuality(v)
 }
 
+/** Pipelines that are not part of any __-prefix ablation pair. */
+function getIndependentPipelineIds(pipelineIds: string[]): string[] {
+  const idSet = new Set(pipelineIds)
+  const inPair = new Set<string>()
+  for (const pid of pipelineIds) {
+    const parts = pid.split('__')
+    if (parts.length > 1) {
+      const prefix = parts.slice(0, -1).join('__')
+      if (idSet.has(prefix)) {
+        inPair.add(pid)
+        inPair.add(prefix)
+      }
+    }
+  }
+  return pipelineIds.filter((id) => !inPair.has(id))
+}
+
 
 function StageContributionCard({
   contribution,
@@ -177,6 +194,9 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
   const defaultColor = { border: 'border-gray-200', bg: 'bg-gray-50', badge: 'text-gray-500 bg-gray-100 border-gray-200', label: 'text-gray-400' }
 
   const hasContributions = stageContributions && stageContributions.length > 0
+  const pipelineIds = ranked.map((s) => s.pipelineId)
+  const independentIds = getIndependentPipelineIds(pipelineIds)
+  const hasIndependentPipelines = independentIds.length > 0 && pipelineIds.length > independentIds.length + (hasContributions ? 1 : 0)
 
   return (
     <div className="mb-6">
@@ -224,7 +244,15 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
 
       {hasContributions && (
         <div>
-          <div className="text-sm font-semibold text-gray-700 mb-2">Stage Attribution</div>
+          <div className="text-sm font-semibold text-gray-700 mb-2">Stage Ablation Attribution</div>
+          {hasIndependentPipelines && (
+            <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-3">
+              Only prefix pairs (e.g. bm25 → bm25__rerank) appear here.
+              {independentIds.length > 0 && (
+                <> Independent pipelines ({independentIds.join(', ')}) are compared in Pipeline Verdict above.</>
+              )}
+            </p>
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {stageContributions!.map((c) => (
               <StageContributionCard

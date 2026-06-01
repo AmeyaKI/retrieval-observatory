@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
@@ -8,31 +8,23 @@ import { formatSeriesKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtQuality } from '../utils/format'
+import { buildPipelineColorMap, collectPipelineIds, getPipelineColor } from '../utils/chartColors'
+import { useChartZoom } from '../hooks/useChartZoom'
 import ChartFrame from './ChartFrame'
+import ChartZoomControls from './ChartZoomControls'
 
 interface Props {
   metrics: MetricsMap
 }
 
-const RECALL_COLORS = ['#6366f1', '#f59e0b', '#10b981', '#ef4444']
-const NDCG_COLORS = ['#818cf8', '#fcd34d', '#6ee7b7', '#fca5a5']
 
 export default function RecallFunnel({ metrics }: Props) {
   const [hiddenRecall, setHiddenRecall] = useState<Set<string>>(new Set())
   const [hiddenNdcg, setHiddenNdcg] = useState<Set<string>>(new Set())
-  const [yDomain, setYDomain] = useState<[number, number]>([0, 1])
-  const isYZoomed = yDomain[0] !== 0 || yDomain[1] !== 1
-
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!e.ctrlKey) return
-    e.preventDefault()
-    const factor = e.deltaY > 0 ? 1.15 : 0.87
-    setYDomain(([lo, hi]) => {
-      const center = (lo + hi) / 2
-      const half = Math.min(((hi - lo) * factor) / 2, 0.5)
-      return [Math.max(0, center - half), Math.min(1, center + half)]
-    })
-  }, [])
+  const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
+    initialDomain: [0, 1],
+    clampZeroOne: false,
+  })
 
   const toggleRecall = (dataKey: string) => setHiddenRecall((prev) => {
     const next = new Set(prev); next.has(dataKey) ? next.delete(dataKey) : next.add(dataKey); return next
@@ -45,6 +37,7 @@ export default function RecallFunnel({ metrics }: Props) {
   const stageRecall: Record<string, Record<string, StageEntry>> = {}
   const stageNdcg: Record<string, Record<string, number>> = {}
   const seriesSet = new Set<string>()
+  const seriesPipelineId: Record<string, string> = {}
 
   const pipelineMaxStage: Record<string, number> = {}
   for (const [, entry] of Object.entries(metrics)) {
@@ -60,6 +53,7 @@ export default function RecallFunnel({ metrics }: Props) {
     if (entry.stage_index < 0) continue
     const isMultiStage = (pipelineMaxStage[entry.pipeline_id] ?? 0) > 0
     const seriesLabel = formatSeriesKey(entry.pipeline_id, entry.stage_index, isMultiStage)
+    seriesPipelineId[seriesLabel] = entry.pipeline_id
     const stageLabel = entry.stage_index === 0 ? 'Stage 0 · Retrieval' : `Stage ${entry.stage_index} · Reranking`
 
     if (entry.metric_name === 'recall') {
@@ -78,7 +72,11 @@ export default function RecallFunnel({ metrics }: Props) {
   }
 
   const stages = Object.keys(stageRecall).sort()
-  const seriesList = [...seriesSet]
+  const seriesList = [...seriesSet].sort()
+  const pipelineColorMap = useMemo(
+    () => buildPipelineColorMap(collectPipelineIds(metrics)),
+    [metrics],
+  )
 
   if (stages.length === 0) return <p className="text-sm text-gray-400">No stage data.</p>
 
@@ -92,6 +90,17 @@ export default function RecallFunnel({ metrics }: Props) {
     }
     return row
   })
+
+  const visibleValues = chartData.flatMap((row) =>
+    seriesList.flatMap((s) => {
+      const vals: number[] = []
+      if (!hiddenRecall.has(`recall__${s}`)) vals.push(row[`recall__${s}`] as number)
+      if (!hiddenNdcg.has(`ndcg__${s}`)) vals.push(row[`ndcg__${s}`] as number)
+      return vals
+    }),
+  ).filter((v) => v != null)
+  const dataMin = visibleValues.length > 0 ? Math.min(...visibleValues) : 0
+  const dataMax = visibleValues.length > 0 ? Math.max(...visibleValues) : 1
 
   const makeLegendFormatter = (hiddenSet: Set<string>) =>
     (value: string, entry: any) => (
@@ -141,16 +150,19 @@ export default function RecallFunnel({ metrics }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Each group shows per-stage metrics across pipeline combinations. Click legend items to show/hide series. Pinch to zoom Y-axis.
+          Each group shows per-stage metrics across pipeline combinations. Click legend items to show/hide series. ⌘/Ctrl+scroll on chart to zoom Y.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
-        {isYZoomed && (
-          <button onClick={() => setYDomain([0, 1])} className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5 shrink-0 ml-2">
-            Reset zoom
-          </button>
-        )}
+        <ChartZoomControls
+          domain={yDomain}
+          isZoomed={isZoomed}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
+          onFit={() => fitToData(dataMin, dataMax)}
+          onReset={reset}
+        />
       </div>
 
       {/* Max-K Recall chart */}
@@ -176,13 +188,13 @@ export default function RecallFunnel({ metrics }: Props) {
                 onClick={(data) => toggleRecall(data.dataKey as string)}
                 formatter={makeLegendFormatter(hiddenRecall)}
               />
-              {seriesList.map((s, i) => (
+              {seriesList.map((s) => (
                 <Bar
                   key={`recall__${s}`}
                   dataKey={`recall__${s}`}
                   name={`Recall  ${s}`}
                   hide={hiddenRecall.has(`recall__${s}`)}
-                  fill={RECALL_COLORS[i % RECALL_COLORS.length]}
+                  fill={getPipelineColor(seriesPipelineId[s], pipelineColorMap)}
                   radius={[3, 3, 0, 0]}
                 />
               ))}
@@ -206,13 +218,14 @@ export default function RecallFunnel({ metrics }: Props) {
                 onClick={(data) => toggleNdcg(data.dataKey as string)}
                 formatter={makeLegendFormatter(hiddenNdcg)}
               />
-              {seriesList.map((s, i) => (
+              {seriesList.map((s) => (
                 <Bar
                   key={`ndcg__${s}`}
                   dataKey={`ndcg__${s}`}
                   name={`NDCG@10  ${s}`}
                   hide={hiddenNdcg.has(`ndcg__${s}`)}
-                  fill={NDCG_COLORS[i % NDCG_COLORS.length]}
+                  fill={getPipelineColor(seriesPipelineId[s], pipelineColorMap)}
+                  fillOpacity={0.75}
                   radius={[3, 3, 0, 0]}
                 />
               ))}

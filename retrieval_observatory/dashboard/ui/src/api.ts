@@ -208,6 +208,8 @@ export interface ClassifierCalibrationResponse {
   run_id: string
   has_predictions: boolean
   classes: ClassifierCalibrationClass[]
+  actual_classes?: ClassifierCalibrationClass[]
+  all_same_prediction?: boolean
 }
 
 export async function fetchClassifierCalibration(runId: string): Promise<ClassifierCalibrationResponse> {

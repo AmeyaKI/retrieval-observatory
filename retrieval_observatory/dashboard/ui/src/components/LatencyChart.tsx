@@ -1,14 +1,17 @@
-import { useCallback, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend,
+  Legend, Cell,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtLatencyMs } from '../utils/format'
+import { buildPipelineColorMap, collectPipelineIds, getPipelineColor, withAlpha } from '../utils/chartColors'
+import { useChartZoom } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
+import ChartZoomControls from './ChartZoomControls'
 
 interface Props {
   metrics: MetricsMap
@@ -45,15 +48,10 @@ function barLabel(pipelineId: string, stageIndex: number, isMulti: boolean): str
 
 export default function LatencyChart({ metrics }: Props) {
   const [expanded, setExpanded] = useState(false)
-  const [yZoomFactor, setYZoomFactor] = useState(1.0)
-  const isZoomed = yZoomFactor < 0.999
-
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!e.ctrlKey) return
-    e.preventDefault()
-    const factor = e.deltaY > 0 ? 1.15 : 0.87
-    setYZoomFactor((prev) => Math.max(0.05, Math.min(1.0, prev * factor)))
-  }, [])
+  const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
+    initialDomain: [0, 1],
+    clampZeroOne: false,
+  })
 
   const groups: Record<string, Record<string, number>> = {}
   const pipelineMaxStage: Record<string, number> = {}
@@ -82,6 +80,7 @@ export default function LatencyChart({ metrics }: Props) {
       const [pipelineId, stageStr] = rawKey.split('|||')
       const stageIndex = parseInt(stageStr, 10)
       return {
+        pipelineId,
         label: barLabel(pipelineId, stageIndex, isMultiStage(pipelineId)),
         p50: groups[rawKey]['latency_p50'] ?? 0,
         p95: groups[rawKey]['latency_p95'] ?? 0,
@@ -94,6 +93,7 @@ export default function LatencyChart({ metrics }: Props) {
     .map((rawKey) => {
       const [pipelineId] = rawKey.split('|||')
       return {
+        pipelineId,
         label: `${pipelineAbbrev(pipelineId)} · E2E Total`,
         p50: groups[rawKey]['latency_p50'] ?? 0,
         p95: groups[rawKey]['latency_p95'] ?? 0,
@@ -104,30 +104,52 @@ export default function LatencyChart({ metrics }: Props) {
 
   const chartData = [...perStageData, ...totalRows]
 
+  const pipelineColorMap = useMemo(
+    () => buildPipelineColorMap(collectPipelineIds(metrics)),
+    [metrics],
+  )
+
+  const latencyMax = useMemo(
+    () => Math.max(...chartData.map((r) => Math.max(r.p50, r.p95, r.p99)), 1),
+    [chartData],
+  )
+
+  const yMax = isZoomed ? yDomain[1] * latencyMax : undefined
+  const yMin = isZoomed ? yDomain[0] * latencyMax : 0
+
   const note = (
     <p className="text-xs text-gray-500 mb-2">
       P50 = median · P95 = 95th percentile · P99 = tail latency
       <MetricTooltip text={`${METRIC_GLOSSARY.latency_p50}\n\n${METRIC_GLOSSARY.latency_p95}\n\n${METRIC_GLOSSARY.latency_p99}`} />
       {totalRows.length > 0 && (
-        <span className="ml-2 text-gray-400">· "E2E Total" = true end-to-end percentiles computed on per-query total latency</span>
+        <span className="ml-2 text-gray-400">· &quot;E2E Total&quot; = end-to-end percentiles on per-query total latency</span>
       )}
     </p>
   )
-
-  const dataMax = Math.max(...chartData.map((r) => Math.max(r.p50, r.p95, r.p99)), 1) * 1.1
-  const yMax = isZoomed ? dataMax * yZoomFactor : undefined
 
   const renderChart = (height: number) => (
     <ChartFrame height={height}>
       <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-        <YAxis tickFormatter={(v) => `${fmtLatencyMs(v)}ms`} tick={{ fontSize: 11 }} domain={[0, yMax ?? 'auto']} />
+        <YAxis tickFormatter={(v) => `${fmtLatencyMs(v)}ms`} tick={{ fontSize: 11 }} domain={[yMin, yMax ?? 'auto']} />
         <Tooltip formatter={(v: number) => `${fmtLatencyMs(v)} ms`} />
         <Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="p50" fill="#6366f1" name="P50 (median)" radius={[3, 3, 0, 0]} />
-        <Bar dataKey="p95" fill="#f59e0b" name="P95 (tail)" radius={[3, 3, 0, 0]} />
-        <Bar dataKey="p99" fill="#ef4444" name="P99 (worst-case)" radius={[3, 3, 0, 0]} />
+        <Bar dataKey="p50" name="P50 (median)" radius={[3, 3, 0, 0]}>
+          {chartData.map((row, i) => (
+            <Cell key={`p50-${i}`} fill={getPipelineColor(row.pipelineId, pipelineColorMap)} />
+          ))}
+        </Bar>
+        <Bar dataKey="p95" name="P95 (tail)" radius={[3, 3, 0, 0]}>
+          {chartData.map((row, i) => (
+            <Cell key={`p95-${i}`} fill={withAlpha(getPipelineColor(row.pipelineId, pipelineColorMap), 0.72)} />
+          ))}
+        </Bar>
+        <Bar dataKey="p99" name="P99 (worst-case)" radius={[3, 3, 0, 0]}>
+          {chartData.map((row, i) => (
+            <Cell key={`p99-${i}`} fill={withAlpha(getPipelineColor(row.pipelineId, pipelineColorMap), 0.48)} />
+          ))}
+        </Bar>
       </BarChart>
     </ChartFrame>
   )
@@ -135,25 +157,30 @@ export default function LatencyChart({ metrics }: Props) {
   return (
     <div>
       {note}
-      <div className="flex justify-end gap-2 mb-1">
-        {isZoomed && (
-          <button onClick={() => setYZoomFactor(1.0)} className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5">
-            Reset zoom
-          </button>
-        )}
-        <button
-          onClick={() => setExpanded(true)}
-          className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5"
-        >
-          Expand ⤢
-        </button>
-      </div>
+      <ChartZoomControls
+        domain={yDomain}
+        isZoomed={isZoomed}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
+        onFit={() => fitToData(0, latencyMax, 0.05)}
+        onReset={reset}
+        onExpand={() => setExpanded(true)}
+      />
       <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
         {renderChart(260)}
       </div>
       {expanded && (
         <ChartModal title="Latency Percentiles" onClose={() => setExpanded(false)}>
           {note}
+          <ChartZoomControls
+            domain={yDomain}
+            isZoomed={isZoomed}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onFit={() => fitToData(0, latencyMax, 0.05)}
+            onReset={reset}
+            compact={false}
+          />
           <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
             {renderChart(500)}
           </div>

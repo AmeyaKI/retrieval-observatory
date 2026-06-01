@@ -28,16 +28,20 @@ function ciLabel(entry: MetricEntry, isLatency: boolean): string {
 function CIBadge({ entry, isLatency }: { entry: MetricEntry; isLatency: boolean }) {
   if (isLatency) return null
   if (entry.n < 30) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium">underpowered</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium cursor-help" title={METRIC_GLOSSARY.underpowered}>underpowered</span>
   }
   const relWidth = (entry.ci_high - entry.ci_low) / Math.max(Math.abs(entry.mean), 0.001)
   if (relWidth >= 0.35) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium">wide CI</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help" title={METRIC_GLOSSARY.wide_ci}>wide CI</span>
   }
   if (relWidth < 0.15) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium">stable</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium cursor-help" title={METRIC_GLOSSARY.stable}>stable</span>
   }
   return null
+}
+
+function isProfileMetric(name: string): boolean {
+  return name.startsWith('profile_')
 }
 
 /** Build a lookup: toPipelineId → { metricLabel → delta info } for the final-stage of each pipeline pair. */
@@ -391,7 +395,16 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                               zeroPctMed ? 'text-amber-600 bg-amber-50' :
                               'text-gray-400'
                             }`}>
-                              {isLatency ? '—' : `${entry.zero_pct}% (${entry.zero_count}/${entry.n})`}
+                              {isLatency || isProfileMetric(entry.metric_name) ? (
+                                isProfileMetric(entry.metric_name) && entry.zero_pct >= 99 ? (
+                                  <span
+                                    className="cursor-help"
+                                    title={entry.metric_name.includes('network') ? METRIC_GLOSSARY.profile_network_ms : METRIC_GLOSSARY.profile_compute_ms}
+                                  >
+                                    —
+                                  </span>
+                                ) : '—'
+                              ) : `${entry.zero_pct}% (${entry.zero_count}/${entry.n})`}
                             </td>
                             {hasBaselines && (
                               <td className="px-3 py-2 text-right text-gray-400 text-xs tabular-nums">

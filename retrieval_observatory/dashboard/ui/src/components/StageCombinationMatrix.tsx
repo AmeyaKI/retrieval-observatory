@@ -29,7 +29,9 @@ export default function StageCombinationMatrix({ runId, latencyBudgetMs }: Props
   if (!rows.length) return null
 
   return (
-    <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+    <div>
+      <p className="text-xs text-gray-500 mb-2">Stage metrics table — per-pipeline, per-stage aggregate signals (not a combination heatmap).</p>
+      <div className="overflow-x-auto border border-gray-200 rounded bg-white">
       <table className="min-w-full text-xs">
         <thead className="bg-gray-50">
           <tr>
@@ -70,6 +72,7 @@ export default function StageCombinationMatrix({ runId, latencyBudgetMs }: Props
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

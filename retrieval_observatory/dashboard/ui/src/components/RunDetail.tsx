@@ -11,9 +11,11 @@ import TradeoffScatter from './TradeoffScatter'
 import ExperimentOverview from './ExperimentOverview'
 import QueryExplorer from './QueryExplorer'
 import StageCombinationMatrix from './StageCombinationMatrix'
+import DashboardGuide from './DashboardGuide'
 
 interface Props {
   run: Run
+  wide?: boolean
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -44,7 +46,7 @@ function inferLatencyBudget(metrics: MetricsMap): number {
   return Math.round(sorted[Math.floor(sorted.length * 0.75)] * 2)
 }
 
-export default function RunDetail({ run }: Props) {
+export default function RunDetail({ run, wide = false }: Props) {
   const [metrics, setMetrics] = useState<MetricsMap | null>(null)
   const [overview, setOverview] = useState<RunOverview | null>(null)
   const [baselines, setBaselines] = useState<Record<string, number>>({})
@@ -86,6 +88,15 @@ export default function RunDetail({ run }: Props) {
 
   const stageContributions = useMemo(() => overview?.stage_contributions ?? [], [overview])
 
+  const pipelineCount = useMemo(() => {
+    if (!metrics) return 0
+    return new Set(
+      Object.values(metrics)
+        .filter((e) => e.stage_index >= 0)
+        .map((e) => e.pipeline_id)
+    ).size
+  }, [metrics])
+
   if (error) {
     return (
       <div className="p-6">
@@ -103,10 +114,10 @@ export default function RunDetail({ run }: Props) {
     )
   }
 
-  const hasContributions = stageContributions.length > 0
+  const showTradeoffExplorer = pipelineCount >= 2
 
   return (
-    <div className="p-6 max-w-5xl">
+    <div className={`p-6 ${wide ? 'max-w-full' : 'max-w-5xl'}`}>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-gray-900">{run.experiment_name}</h1>
@@ -114,7 +125,9 @@ export default function RunDetail({ run }: Props) {
         </div>
       </div>
 
-      {Object.values(metrics).some((e) => e.stage_index > 0) && (
+      <DashboardGuide />
+
+      {Object.values(metrics).some((e) => e.stage_index >= 0) && (
         <Section title="Pipeline Architecture">
           <StagePipelineFlow metrics={metrics} />
         </Section>
@@ -124,8 +137,8 @@ export default function RunDetail({ run }: Props) {
         <ExperimentOverview runId={run.run_id} />
       </Section>
 
-      {/* Tradeoff explorer sliders — shown when there are stage pairs to compare */}
-      {hasContributions && (
+      {/* Tradeoff explorer sliders — shown when comparing 2+ pipelines */}
+      {showTradeoffExplorer && (
         <div className="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
           <div className="text-sm font-semibold text-gray-700 mb-3">Tradeoff Explorer</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

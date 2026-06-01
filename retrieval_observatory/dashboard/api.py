@@ -296,10 +296,11 @@ def create_app(db_path: str = ".retobs/results.db"):
         }
 
         classes = []
+        actual_classes = []
         for cls in ("easy", "medium", "hard"):
-            qids = [qid for qid, pred in predicted_by_id.items() if pred == cls]
-            scores = [query_mean_recall[qid] for qid in qids if qid in query_mean_recall]
-            if not scores:
+            qids_pred = [qid for qid, pred in predicted_by_id.items() if pred == cls]
+            scores_pred = [query_mean_recall[qid] for qid in qids_pred if qid in query_mean_recall]
+            if not scores_pred:
                 classes.append({
                     "class": cls,
                     "n": 0,
@@ -308,23 +309,53 @@ def create_app(db_path: str = ".retobs/results.db"):
                     "ci_high": None,
                     "agreement_rate": None,
                 })
-                continue
-            ci_low, ci_high = bootstrap_ci(scores)
-            agreements = [
-                1.0 for qid in qids
-                if qid in actual_by_id and actual_by_id[qid] == cls
-            ]
-            agreement_rate = len(agreements) / len(qids) if qids else None
-            classes.append({
-                "class": cls,
-                "n": len(scores),
-                "mean_recall10": float(np.mean(scores)),
-                "ci_low": ci_low,
-                "ci_high": ci_high,
-                "agreement_rate": agreement_rate,
-            })
+            else:
+                ci_low, ci_high = bootstrap_ci(scores_pred)
+                agreements = [
+                    1.0 for qid in qids_pred
+                    if qid in actual_by_id and actual_by_id[qid] == cls
+                ]
+                agreement_rate = len(agreements) / len(qids_pred) if qids_pred else None
+                classes.append({
+                    "class": cls,
+                    "n": len(scores_pred),
+                    "mean_recall10": float(np.mean(scores_pred)),
+                    "ci_low": ci_low,
+                    "ci_high": ci_high,
+                    "agreement_rate": agreement_rate,
+                })
 
-        return {"run_id": run_id, "has_predictions": True, "classes": classes}
+            qids_actual = [qid for qid, actual in actual_by_id.items() if actual == cls]
+            scores_actual = [query_mean_recall[qid] for qid in qids_actual if qid in query_mean_recall]
+            if not scores_actual:
+                actual_classes.append({
+                    "class": cls,
+                    "n": 0,
+                    "mean_recall10": None,
+                    "ci_low": None,
+                    "ci_high": None,
+                    "agreement_rate": None,
+                })
+            else:
+                ci_low, ci_high = bootstrap_ci(scores_actual)
+                actual_classes.append({
+                    "class": cls,
+                    "n": len(scores_actual),
+                    "mean_recall10": float(np.mean(scores_actual)),
+                    "ci_low": ci_low,
+                    "ci_high": ci_high,
+                    "agreement_rate": None,
+                })
+
+        all_same_prediction = len(set(predicted_by_id.values())) <= 1 and len(predicted_by_id) > 0
+
+        return {
+            "run_id": run_id,
+            "has_predictions": True,
+            "classes": classes,
+            "actual_classes": actual_classes,
+            "all_same_prediction": all_same_prediction,
+        }
 
     @app.get("/runs/{run_id}/overview")
     async def get_run_overview(run_id: str) -> Dict[str, Any]:
@@ -540,13 +571,44 @@ def _difficulty_agreement(actual_class: str, predicted: str | None) -> str | Non
 
 
 def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Pick best final-stage NDCG@10 across pipelines (tie-break Recall@10)."""
+    final_stage_by_pipeline: Dict[str, int] = {}
+    for value in metrics.values():
+        pid = value.get("pipeline_id")
+        sidx = value.get("stage_index", -1)
+        if pid and sidx >= 0:
+            final_stage_by_pipeline[pid] = max(final_stage_by_pipeline.get(pid, -1), sidx)
+
     candidates = [
         {"metric": key, **value}
         for key, value in metrics.items()
-        if value.get("metric_name") in {"ndcg", "recall"} and value.get("k") in {10, 20}
+        if value.get("stage_index", -1) >= 0
+        and value.get("pipeline_id") in final_stage_by_pipeline
+        and value.get("stage_index") == final_stage_by_pipeline[value.get("pipeline_id")]
+        and value.get("metric_name") in {"ndcg", "recall"}
+        and value.get("k") in {10, 20}
     ]
     if not candidates:
         return None
+
+    ndcg10 = [c for c in candidates if c.get("metric_name") == "ndcg" and c.get("k") == 10]
+    if ndcg10:
+        best_ndcg = max(ndcg10, key=lambda row: row.get("mean", 0.0))
+        best_mean = best_ndcg.get("mean", 0.0)
+        tied = [c for c in ndcg10 if abs(c.get("mean", 0.0) - best_mean) < 1e-9]
+        if len(tied) == 1:
+            return best_ndcg
+        recall10 = {
+            c["pipeline_id"]: next(
+                (r.get("mean", 0.0) for r in candidates
+                 if r.get("pipeline_id") == c["pipeline_id"]
+                 and r.get("metric_name") == "recall" and r.get("k") == 10),
+                0.0,
+            )
+            for c in tied
+        }
+        return max(tied, key=lambda row: recall10.get(row.get("pipeline_id"), 0.0))
+
     return max(candidates, key=lambda row: row.get("mean", 0.0))
 
 

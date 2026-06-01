@@ -13,6 +13,20 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   stage: 'Pipeline Stage — Stage 0 is the initial retriever (e.g. BM25, dense bi-encoder) that searches the full corpus. Stage 1+ are rerankers that re-score the candidates from Stage 0 for higher precision. Each stage\'s metrics are evaluated independently against the ground truth.',
   p_value: 'Significance (paired bootstrap test, 1000 iterations). p < 0.05 means the performance difference between the two runs is statistically significant at the 95% confidence level. Requires both runs to have processed the same query set.',
   ref_bm25: 'Published BM25 baseline from the BEIR benchmark (Thakur et al. 2021, Table 2), using BM25 on Elasticsearch. Use this as a reference point — your results running the same BM25 logic should be close to this value.',
+  underpowered: 'Fewer than 30 queries — bootstrap confidence intervals are unreliable. Smoke runs (n=20) always show this badge. Run full sweeps for stable CIs.',
+  wide_ci: 'Relative CI width ≥ 35% of the mean — high variance across queries; treat the mean as directional only.',
+  stable: 'Relative CI width < 15% — consistent performance across queries.',
+  profile_compute_ms: 'Local compute time (ms) per query — CPU/GPU work in-process (BM25, bi-encoder, cross-encoder). 100% zero on network is normal for local adapters.',
+  profile_network_ms: 'Network/API time (ms) per query — HTTP round-trips (Cohere, remote vector DB). 100% zero on compute is normal for API-only adapters.',
+  failure_labels_intro: 'Post-hoc labels per query×pipeline from retrieval diagnostics. They explain why a query failed for a pipeline — not aggregate metric values.',
+  candidate_miss: 'Stage 0 retrieved zero relevant documents. Retrieval failure — a reranker cannot recover missed candidates.',
+  reranker_drop: 'Stage 0 had relevant hits but the final stage lost them all. Indicates reranker regression or over-aggressive truncation.',
+  lexical_mismatch: 'BM25 missed but a dense retriever found relevant docs. Lexical/query-vocabulary gap.',
+  semantic_mismatch: 'Dense retriever missed but BM25 found relevant docs. Semantic/embedding gap.',
+  id_or_qrel_issue: 'No pipeline retrieved any relevant doc. Possible qrel/corpus ID mismatch — check corpus loading.',
+  unstable: 'Query has high cross-pipeline variance (unstable difficulty bucket).',
+  actual_difficulty: 'Post-hoc difficulty from mean recall across all pipelines after the benchmark. Five diagnostic buckets map to easy/medium/hard for classifier agreement.',
+  predicted_difficulty: 'Pre-retrieval prediction from query text features (trained on prior benchmark diagnostics). Can differ from post-hoc actual when the model is undertrained.',
 }
 
 /** Look up a glossary entry by a metric name fragment (case-insensitive). Returns undefined if not found. */
@@ -27,5 +41,11 @@ export function lookupGlossary(metricName: string): string | undefined {
   if (lower.includes('p50')) return METRIC_GLOSSARY.latency_p50
   if (lower.includes('p95')) return METRIC_GLOSSARY.latency_p95
   if (lower.includes('p99')) return METRIC_GLOSSARY.latency_p99
+  if (lower.includes('profile_compute')) return METRIC_GLOSSARY.profile_compute_ms
+  if (lower.includes('profile_network')) return METRIC_GLOSSARY.profile_network_ms
   return undefined
+}
+
+export function lookupFailureLabel(label: string): string | undefined {
+  return METRIC_GLOSSARY[label as keyof typeof METRIC_GLOSSARY]
 }
