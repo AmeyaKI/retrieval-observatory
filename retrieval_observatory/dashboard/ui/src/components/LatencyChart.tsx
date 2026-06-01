@@ -1,13 +1,17 @@
 import { useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, Cell,
+  Legend,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtLatencyMs } from '../utils/format'
-import { buildPipelineColorMap, collectPipelineIds, getPipelineColor, withAlpha } from '../utils/chartColors'
+import {
+  detectLatencyPercentiles,
+  LATENCY_PERCENTILE_SERIES,
+  type LatencyPercentileSeries,
+} from '../utils/chartColors'
 import { useChartZoom } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
@@ -15,6 +19,16 @@ import ChartZoomControls from './ChartZoomControls'
 
 interface Props {
   metrics: MetricsMap
+}
+
+interface LatencyRow {
+  pipelineId: string
+  stageIndex: number
+  label: string
+  isTotal: boolean
+  p50: number | null
+  p95: number | null
+  p99: number | null
 }
 
 // Abbreviate one stage part of a pipeline ID: "fast_rerank" → "FR", "bm25" → "BM25"
@@ -46,6 +60,75 @@ function barLabel(pipelineId: string, stageIndex: number, isMulti: boolean): str
   return isMulti ? `${pipelineAbbrev(pipelineId)} · ${name}` : name
 }
 
+function buildLatencyGroups(metrics: MetricsMap): Record<string, Record<string, number>> {
+  const groups: Record<string, Record<string, number>> = {}
+  for (const entry of Object.values(metrics)) {
+    if (!entry.metric_name.startsWith('latency_p')) continue
+    const key = `${entry.pipeline_id}|||${entry.stage_index}`
+    if (!groups[key]) groups[key] = {}
+    groups[key][entry.metric_name] = entry.mean
+  }
+  return groups
+}
+
+function buildPipelineMaxStage(metrics: MetricsMap): Record<string, number> {
+  const maxStage: Record<string, number> = {}
+  for (const entry of Object.values(metrics)) {
+    if (entry.stage_index >= 0) {
+      maxStage[entry.pipeline_id] = Math.max(maxStage[entry.pipeline_id] ?? 0, entry.stage_index)
+    }
+  }
+  return maxStage
+}
+
+function rowFromGroup(
+  rawKey: string,
+  groups: Record<string, Record<string, number>>,
+  opts: { isTotal: boolean; isMultiStage: (id: string) => boolean },
+): LatencyRow {
+  const [pipelineId, stageStr] = rawKey.split('|||')
+  const stageIndex = parseInt(stageStr, 10)
+  const g = groups[rawKey]
+  return {
+    pipelineId,
+    stageIndex,
+    label: opts.isTotal
+      ? `${pipelineAbbrev(pipelineId)} · E2E Total`
+      : barLabel(pipelineId, stageIndex, opts.isMultiStage(pipelineId)),
+    isTotal: opts.isTotal,
+    p50: g.latency_p50 ?? null,
+    p95: g.latency_p95 ?? null,
+    p99: g.latency_p99 ?? null,
+  }
+}
+
+function LatencyTooltip({
+  active,
+  payload,
+  label,
+  percentileSeries,
+}: {
+  active?: boolean
+  payload?: Array<{ dataKey: string; value: number; color: string }>
+  label?: string
+  percentileSeries: LatencyPercentileSeries[]
+}) {
+  if (!active || !payload?.length) return null
+  const byKey = Object.fromEntries(percentileSeries.map((s) => [s.dataKey, s.label]))
+  return (
+    <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+      <p className="font-semibold mb-1">{label}</p>
+      {payload
+        .filter((p) => p.value != null)
+        .map((p) => (
+          <p key={p.dataKey} style={{ color: p.color }}>
+            {byKey[p.dataKey] ?? p.dataKey}: {fmtLatencyMs(p.value)} ms
+          </p>
+        ))}
+    </div>
+  )
+}
+
 export default function LatencyChart({ metrics }: Props) {
   const [expanded, setExpanded] = useState(false)
   const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
@@ -53,76 +136,62 @@ export default function LatencyChart({ metrics }: Props) {
     clampZeroOne: false,
   })
 
-  const groups: Record<string, Record<string, number>> = {}
-  const pipelineMaxStage: Record<string, number> = {}
+  const percentileSeries = useMemo(() => detectLatencyPercentiles(metrics), [metrics])
 
-  for (const [, entry] of Object.entries(metrics)) {
-    if (!entry.metric_name.startsWith('latency_p')) continue
-    const key = `${entry.pipeline_id}|||${entry.stage_index}`
-    if (!groups[key]) groups[key] = {}
-    groups[key][entry.metric_name] = entry.mean
-    if (entry.stage_index >= 0) {
-      pipelineMaxStage[entry.pipeline_id] = Math.max(
-        pipelineMaxStage[entry.pipeline_id] ?? 0,
-        entry.stage_index
-      )
-    }
+  const { chartData, totalRowCount } = useMemo(() => {
+    const groups = buildLatencyGroups(metrics)
+    const groupKeys = Object.keys(groups)
+    const pipelineMaxStage = buildPipelineMaxStage(metrics)
+    const isMultiStage = (pipelineId: string) => (pipelineMaxStage[pipelineId] ?? 0) > 0
+
+    const perStageData = groupKeys
+      .filter((k) => parseInt(k.split('|||')[1], 10) >= 0)
+      .sort((a, b) => {
+        const [pa, sa] = a.split('|||')
+        const [pb, sb] = b.split('|||')
+        const cmp = pa.localeCompare(pb)
+        return cmp !== 0 ? cmp : parseInt(sa, 10) - parseInt(sb, 10)
+      })
+      .map((rawKey) => rowFromGroup(rawKey, groups, { isTotal: false, isMultiStage }))
+
+    const totalRows = groupKeys
+      .filter((k) => parseInt(k.split('|||')[1], 10) === -1)
+      .sort((a, b) => a.localeCompare(b))
+      .map((rawKey) => rowFromGroup(rawKey, groups, { isTotal: true, isMultiStage }))
+
+    return { chartData: [...perStageData, ...totalRows], totalRowCount: totalRows.length }
+  }, [metrics])
+
+  if (chartData.length === 0 || percentileSeries.length === 0) {
+    return <p className="text-sm text-gray-400">No latency data.</p>
   }
 
-  const groupKeys = Object.keys(groups).sort()
-  if (groupKeys.length === 0) return <p className="text-sm text-gray-400">No latency data.</p>
-
-  const isMultiStage = (pipelineId: string) => (pipelineMaxStage[pipelineId] ?? 0) > 0
-
-  const perStageData = groupKeys
-    .filter((k) => parseInt(k.split('|||')[1], 10) >= 0)
-    .map((rawKey) => {
-      const [pipelineId, stageStr] = rawKey.split('|||')
-      const stageIndex = parseInt(stageStr, 10)
-      return {
-        pipelineId,
-        label: barLabel(pipelineId, stageIndex, isMultiStage(pipelineId)),
-        p50: groups[rawKey]['latency_p50'] ?? 0,
-        p95: groups[rawKey]['latency_p95'] ?? 0,
-        p99: groups[rawKey]['latency_p99'] ?? 0,
+  const latencyMax = useMemo(() => {
+    const values: number[] = []
+    for (const row of chartData) {
+      for (const s of percentileSeries) {
+        const v = row[s.dataKey]
+        if (v != null) values.push(v)
       }
-    })
-
-  const totalRows = groupKeys
-    .filter((k) => parseInt(k.split('|||')[1], 10) === -1)
-    .map((rawKey) => {
-      const [pipelineId] = rawKey.split('|||')
-      return {
-        pipelineId,
-        label: `${pipelineAbbrev(pipelineId)} · E2E Total`,
-        p50: groups[rawKey]['latency_p50'] ?? 0,
-        p95: groups[rawKey]['latency_p95'] ?? 0,
-        p99: groups[rawKey]['latency_p99'] ?? 0,
-        isTotal: true,
-      }
-    })
-
-  const chartData = [...perStageData, ...totalRows]
-
-  const pipelineColorMap = useMemo(
-    () => buildPipelineColorMap(collectPipelineIds(metrics)),
-    [metrics],
-  )
-
-  const latencyMax = useMemo(
-    () => Math.max(...chartData.map((r) => Math.max(r.p50, r.p95, r.p99)), 1),
-    [chartData],
-  )
+    }
+    return Math.max(...values, 1)
+  }, [chartData, percentileSeries])
 
   const yMax = isZoomed ? yDomain[1] * latencyMax : undefined
   const yMin = isZoomed ? yDomain[0] * latencyMax : 0
 
+  const missingP99 = !percentileSeries.some((s) => s.dataKey === 'p99')
+    && LATENCY_PERCENTILE_SERIES.some((s) => s.dataKey === 'p99')
+
   const note = (
     <p className="text-xs text-gray-500 mb-2">
-      P50 = median · P95 = 95th percentile · P99 = tail latency
+      Grouped bars use fixed colors per percentile (P50 / P95 / P99). Each x-axis label is a pipeline stage.
       <MetricTooltip text={`${METRIC_GLOSSARY.latency_p50}\n\n${METRIC_GLOSSARY.latency_p95}\n\n${METRIC_GLOSSARY.latency_p99}`} />
-      {totalRows.length > 0 && (
+      {totalRowCount > 0 && (
         <span className="ml-2 text-gray-400">· &quot;E2E Total&quot; = end-to-end percentiles on per-query total latency</span>
+      )}
+      {missingP99 && (
+        <span className="ml-2 text-gray-400">· P99 not collected in this run</span>
       )}
     </p>
   )
@@ -131,25 +200,24 @@ export default function LatencyChart({ metrics }: Props) {
     <ChartFrame height={height}>
       <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+        <XAxis dataKey="label" tick={{ fontSize: 11 }} interval={0} angle={chartData.length > 5 ? -20 : 0} textAnchor={chartData.length > 5 ? 'end' : 'middle'} height={chartData.length > 5 ? 56 : 30} />
         <YAxis tickFormatter={(v) => `${fmtLatencyMs(v)}ms`} tick={{ fontSize: 11 }} domain={[yMin, yMax ?? 'auto']} />
-        <Tooltip formatter={(v: number) => `${fmtLatencyMs(v)} ms`} />
-        <Legend wrapperStyle={{ fontSize: 12 }} />
-        <Bar dataKey="p50" name="P50 (median)" radius={[3, 3, 0, 0]}>
-          {chartData.map((row, i) => (
-            <Cell key={`p50-${i}`} fill={getPipelineColor(row.pipelineId, pipelineColorMap)} />
-          ))}
-        </Bar>
-        <Bar dataKey="p95" name="P95 (tail)" radius={[3, 3, 0, 0]}>
-          {chartData.map((row, i) => (
-            <Cell key={`p95-${i}`} fill={withAlpha(getPipelineColor(row.pipelineId, pipelineColorMap), 0.72)} />
-          ))}
-        </Bar>
-        <Bar dataKey="p99" name="P99 (worst-case)" radius={[3, 3, 0, 0]}>
-          {chartData.map((row, i) => (
-            <Cell key={`p99-${i}`} fill={withAlpha(getPipelineColor(row.pipelineId, pipelineColorMap), 0.48)} />
-          ))}
-        </Bar>
+        <Tooltip content={<LatencyTooltip percentileSeries={percentileSeries} />} />
+        <Legend
+          wrapperStyle={{ fontSize: 12 }}
+          formatter={(value: string, entry: { color?: string }) => (
+            <span style={{ color: entry.color ?? '#374151' }}>{value}</span>
+          )}
+        />
+        {percentileSeries.map((series) => (
+          <Bar
+            key={series.dataKey}
+            dataKey={series.dataKey}
+            name={series.label}
+            fill={series.color}
+            radius={[3, 3, 0, 0]}
+          />
+        ))}
       </BarChart>
     </ChartFrame>
   )

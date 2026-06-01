@@ -7,8 +7,28 @@ export const CHART_PALETTE = [
   '#CC79A7', // pink
   '#56B4E9', // sky blue
   '#F0E442', // yellow
-  '#000000', // black
+  '#949494', // neutral gray (fallback — avoid black in charts/legends)
 ]
+
+/** Fixed colors for latency percentile grouped bars (legend color = bar color). */
+export const LATENCY_PERCENTILE_SERIES = [
+  { dataKey: 'p50', metricName: 'latency_p50', label: 'P50 (median)', color: CHART_PALETTE[0] },
+  { dataKey: 'p95', metricName: 'latency_p95', label: 'P95 (tail)', color: CHART_PALETTE[1] },
+  { dataKey: 'p99', metricName: 'latency_p99', label: 'P99 (worst-case)', color: CHART_PALETTE[2] },
+] as const
+
+export type LatencyPercentileSeries = (typeof LATENCY_PERCENTILE_SERIES)[number]
+
+/** Return percentile series present in aggregated metrics (e.g. skip P99 when not configured). */
+export function detectLatencyPercentiles(
+  metrics: Record<string, { metric_name: string }>,
+): LatencyPercentileSeries[] {
+  const present = new Set<string>()
+  for (const entry of Object.values(metrics)) {
+    if (entry.metric_name.startsWith('latency_p')) present.add(entry.metric_name)
+  }
+  return LATENCY_PERCENTILE_SERIES.filter((s) => present.has(s.metricName))
+}
 
 /** Stable pipeline → color map (sorted by pipeline_id). */
 export function buildPipelineColorMap(pipelineIds: Iterable<string>): Map<string, string> {
@@ -22,16 +42,6 @@ export function buildPipelineColorMap(pipelineIds: Iterable<string>): Map<string
 
 export function getPipelineColor(pipelineId: string, colorMap: Map<string, string>): string {
   return colorMap.get(pipelineId) ?? CHART_PALETTE[0]
-}
-
-/** Apply alpha to a #RRGGBB hex color (for latency P95/P99 tiers). */
-export function withAlpha(hex: string, alpha: number): string {
-  const h = hex.replace('#', '')
-  if (h.length !== 6) return hex
-  const r = parseInt(h.slice(0, 2), 16)
-  const g = parseInt(h.slice(2, 4), 16)
-  const b = parseInt(h.slice(4, 6), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 /** Collect distinct pipeline IDs from aggregated metrics (stage_index >= 0). */
