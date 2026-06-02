@@ -13,6 +13,7 @@ import { duplicateAblationSeriesKeys } from '../utils/pipelineStages'
 import { useChartZoom } from '../hooks/useChartZoom'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
+import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
   metrics: MetricsMap
@@ -22,7 +23,7 @@ interface Props {
 export default function RecallFunnel({ metrics }: Props) {
   const [hiddenRecall, setHiddenRecall] = useState<Set<string>>(new Set())
   const [hiddenNdcg, setHiddenNdcg] = useState<Set<string>>(new Set())
-  const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
+  const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
@@ -154,14 +155,12 @@ export default function RecallFunnel({ metrics }: Props) {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Each group shows per-stage metrics across pipeline combinations. Intermediate stages that match a standalone ablation pipeline (e.g. bm25) are omitted. Click legend items to show/hide series. ⌘/Ctrl+scroll on chart to zoom Y.
+          Each group shows per-stage metrics across pipeline combinations. Intermediate stages that match a standalone ablation pipeline (e.g. bm25) are omitted. Click legend items to show/hide series. Hold ⌘ and pinch or scroll on a chart to zoom.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
         <ChartZoomControls
           domain={yDomain}
           isZoomed={isZoomed}
-          onZoomIn={zoomIn}
-          onZoomOut={zoomOut}
           onFit={() => fitToData(dataMin, dataMax)}
           onReset={reset}
         />
@@ -178,7 +177,7 @@ export default function RecallFunnel({ metrics }: Props) {
             Watch <span className="font-semibold">NDCG@10</span> below — if reranking works, it should <span className="font-semibold">rise</span> even as recall falls.
           </div>
         )}
-        <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+        <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
           <ChartFrame height={220}>
             <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -202,13 +201,13 @@ export default function RecallFunnel({ metrics }: Props) {
               ))}
             </BarChart>
           </ChartFrame>
-        </div>
+        </ChartZoomSurface>
       </div>
 
       {/* NDCG@10 chart */}
       <div>
         <p className="text-xs font-semibold text-gray-600 mb-1">NDCG@10 per Stage</p>
-        <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+        <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
           <ChartFrame height={220}>
             <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
@@ -233,7 +232,7 @@ export default function RecallFunnel({ metrics }: Props) {
               ))}
             </BarChart>
           </ChartFrame>
-        </div>
+        </ChartZoomSurface>
       </div>
     </div>
   )

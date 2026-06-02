@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
 interface Props {
@@ -8,11 +8,17 @@ interface Props {
 }
 
 export function ChartModal({ title, onClose, children }: Props) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [onClose])
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
 
   return createPortal(
     <div
@@ -20,7 +26,9 @@ export function ChartModal({ title, onClose, children }: Props) {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-5xl max-h-[90vh] overflow-auto"
+        ref={panelRef}
+        tabIndex={-1}
+        className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-5xl max-h-[90vh] overflow-auto outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">

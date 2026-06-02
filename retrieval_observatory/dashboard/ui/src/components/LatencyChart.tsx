@@ -16,6 +16,7 @@ import { useChartZoom } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
+import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
   metrics: MetricsMap
@@ -131,7 +132,7 @@ function LatencyTooltip({
 
 export default function LatencyChart({ metrics }: Props) {
   const [expanded, setExpanded] = useState(false)
-  const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
+  const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
@@ -162,10 +163,6 @@ export default function LatencyChart({ metrics }: Props) {
     return { chartData: [...perStageData, ...totalRows], totalRowCount: totalRows.length }
   }, [metrics])
 
-  if (chartData.length === 0 || percentileSeries.length === 0) {
-    return <p className="text-sm text-gray-400">No latency data.</p>
-  }
-
   const latencyMax = useMemo(() => {
     const values: number[] = []
     for (const row of chartData) {
@@ -174,8 +171,12 @@ export default function LatencyChart({ metrics }: Props) {
         if (v != null) values.push(v)
       }
     }
-    return Math.max(...values, 1)
+    return values.length > 0 ? Math.max(...values, 1) : 1
   }, [chartData, percentileSeries])
+
+  if (chartData.length === 0 || percentileSeries.length === 0) {
+    return <p className="text-sm text-gray-400">No latency data.</p>
+  }
 
   const yMax = isZoomed ? yDomain[1] * latencyMax : undefined
   const yMin = isZoomed ? yDomain[0] * latencyMax : 0
@@ -228,30 +229,26 @@ export default function LatencyChart({ metrics }: Props) {
       <ChartZoomControls
         domain={yDomain}
         isZoomed={isZoomed}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
         onFit={() => fitToData(0, latencyMax, 0.05)}
         onReset={reset}
         onExpand={() => setExpanded(true)}
       />
-      <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+      <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
         {renderChart(260)}
-      </div>
+      </ChartZoomSurface>
       {expanded && (
         <ChartModal title="Latency Percentiles" onClose={() => setExpanded(false)}>
           {note}
           <ChartZoomControls
             domain={yDomain}
             isZoomed={isZoomed}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
             onFit={() => fitToData(0, latencyMax, 0.05)}
             onReset={reset}
             compact={false}
           />
-          <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+          <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
             {renderChart(500)}
-          </div>
+          </ChartZoomSurface>
         </ChartModal>
       )}
     </div>

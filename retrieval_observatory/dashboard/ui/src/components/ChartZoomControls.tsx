@@ -1,8 +1,6 @@
 interface Props {
   domain: [number, number]
   isZoomed: boolean
-  onZoomIn: () => void
-  onZoomOut: () => void
   onFit?: () => void
   onReset: () => void
   onExpand?: () => void
@@ -13,17 +11,17 @@ interface Props {
 export default function ChartZoomControls({
   domain,
   isZoomed,
-  onZoomIn,
-  onZoomOut,
   onFit,
   onReset,
   onExpand,
   compact = true,
   fitLabel = 'Fit',
 }: Props) {
+  const zoomHint = '⌘ + trackpad pinch or scroll to zoom'
+
   if (compact) {
     return (
-      <div className="flex justify-end items-center gap-1.5 mb-1">
+      <div className="flex justify-end items-center gap-1.5 mb-1 flex-wrap">
         {isZoomed && (
           <span className="text-[10px] text-gray-400 font-mono">
             {domain[0].toFixed(2)}–{domain[1].toFixed(2)}
@@ -39,22 +37,6 @@ export default function ChartZoomControls({
             {fitLabel}
           </button>
         )}
-        <button
-          type="button"
-          onClick={onZoomIn}
-          title="Zoom in"
-          className="text-xs font-bold text-gray-500 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 rounded px-2 py-0.5"
-        >
-          +
-        </button>
-        <button
-          type="button"
-          onClick={onZoomOut}
-          title="Zoom out"
-          className="text-xs font-bold text-gray-500 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 rounded px-2 py-0.5"
-        >
-          −
-        </button>
         {isZoomed && (
           <button
             type="button"
@@ -73,13 +55,14 @@ export default function ChartZoomControls({
             Expand ⤢
           </button>
         )}
+        <span className="text-[10px] text-gray-400 w-full text-right sm:w-auto">{zoomHint}</span>
       </div>
     )
   }
 
   return (
-    <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-gray-500 font-medium">Y-axis:</span>
         {onFit && (
           <button
@@ -90,25 +73,9 @@ export default function ChartZoomControls({
             Fit to data
           </button>
         )}
-        <div className="flex items-center border border-gray-200 rounded overflow-hidden">
-          <button
-            type="button"
-            onClick={onZoomOut}
-            className="text-sm font-bold text-gray-600 hover:bg-gray-100 px-3 py-1 border-r border-gray-200"
-          >
-            −
-          </button>
-          <span className="text-xs text-gray-500 font-mono px-3 min-w-[110px] text-center select-none">
-            {domain[0].toFixed(2)} – {domain[1].toFixed(2)}
-          </span>
-          <button
-            type="button"
-            onClick={onZoomIn}
-            className="text-sm font-bold text-gray-600 hover:bg-gray-100 px-3 py-1 border-l border-gray-200"
-          >
-            +
-          </button>
-        </div>
+        <span className="text-xs text-gray-500 font-mono px-2 min-w-[110px] text-center select-none">
+          {domain[0].toFixed(2)} – {domain[1].toFixed(2)}
+        </span>
         {isZoomed && (
           <button
             type="button"
@@ -119,7 +86,7 @@ export default function ChartZoomControls({
           </button>
         )}
       </div>
-      <p className="text-xs text-gray-400">⌘/Ctrl + scroll on chart to zoom · Click legend to hide/show series</p>
+      <p className="text-xs text-gray-400">{zoomHint} · Click legend to hide/show series</p>
     </div>
   )
 }

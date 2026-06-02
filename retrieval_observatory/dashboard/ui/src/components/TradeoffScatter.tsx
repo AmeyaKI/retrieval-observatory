@@ -7,10 +7,11 @@ import { fetchParetoFrontier, ParetoFrontierResponse, ParetoPipelineEntry } from
 import { MetricTooltip } from './MetricTooltip'
 import { fmtQuality, fmtLatencyMs, fmtCost } from '../utils/format'
 import { buildPipelineColorMap, getPipelineColor } from '../utils/chartColors'
-import { useChartZoom, useNumericZoom } from '../hooks/useChartZoom'
+import { isZoomWheelEvent, useChartZoom, useNumericZoom, wheelDeltaToZoomFactor, pinchScaleToZoomFactor } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
+import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
   runId: string
@@ -140,11 +141,17 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
   const [refAreaRight, setRefAreaRight] = useState<number | null>(null)
   const [isSelecting, setIsSelecting] = useState(false)
 
-  const { domain: yDomain, zoomIn: zoomYIn, zoomOut: zoomYOut, fitToData: fitYToData, reset: resetY, handleWheel, isZoomed: isYZoomed } = useChartZoom({
+  const {
+    domain: yDomain,
+    fitToData: fitYToData,
+    reset: resetY,
+    zoomByFactor: zoomYByFactor,
+    isZoomed: isYZoomed,
+  } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
-  const { xDomain, zoomXIn, zoomXOut, fitXToData, resetX, isXZoomed } = useNumericZoom()
+  const { xDomain, zoomXByFactor, fitXToData, resetX, isXZoomed } = useNumericZoom()
 
   useEffect(() => {
     setFrontier(null)
@@ -189,6 +196,31 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
       <ParetoLineLayer {...props} frontierPoints={frontierPoints} />
     ),
     [frontierPoints],
+  )
+
+  const applyChartZoomFactor = useCallback(
+    (factor: number) => {
+      zoomYByFactor(factor)
+      zoomXByFactor(factor, xMin, xMax)
+    },
+    [zoomYByFactor, zoomXByFactor, xMin, xMax],
+  )
+
+  const handleChartWheel = useCallback(
+    (e: WheelEvent) => {
+      if (!isZoomWheelEvent(e)) return
+      e.preventDefault()
+      e.stopPropagation()
+      applyChartZoomFactor(wheelDeltaToZoomFactor(e.deltaY))
+    },
+    [applyChartZoomFactor],
+  )
+
+  const handleChartPinchScale = useCallback(
+    (scaleRatio: number) => {
+      applyChartZoomFactor(pinchScaleToZoomFactor(scaleRatio))
+    },
+    [applyChartZoomFactor],
   )
 
   if (loadError) {
@@ -318,26 +350,20 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
 
   const zoomControls = (
     <div className="flex flex-wrap justify-end items-center gap-1.5 mb-1">
-      <span className="text-[10px] text-gray-400 mr-1">Y:</span>
       <ChartZoomControls
         domain={yDomain}
         isZoomed={isYZoomed}
-        onZoomIn={zoomYIn}
-        onZoomOut={zoomYOut}
         onFit={() => fitYToData(yMin, yMax)}
         onReset={resetY}
+        onExpand={() => setExpanded(true)}
       />
-      <span className="text-[10px] text-gray-400 mx-1">X:</span>
       <button type="button" onClick={() => fitXToData(xMin, xMax)} className="text-xs text-gray-500 hover:text-indigo-600 border border-gray-200 rounded px-1.5 py-0.5">Fit X</button>
-      <button type="button" onClick={() => zoomXIn(xMin, xMax)} className="text-xs font-bold text-gray-500 hover:text-indigo-600 border border-gray-200 rounded px-2 py-0.5">+</button>
-      <button type="button" onClick={() => zoomXOut(xMin, xMax)} className="text-xs font-bold text-gray-500 hover:text-indigo-600 border border-gray-200 rounded px-2 py-0.5">−</button>
       {isXZoomed && (
         <button type="button" onClick={resetX} className="text-xs text-indigo-600 border border-indigo-200 rounded px-2 py-0.5">Reset X</button>
       )}
       {isZoomed && (
         <button type="button" onClick={resetZoom} className="text-xs text-indigo-600 border border-indigo-200 rounded px-2 py-0.5">Reset all</button>
       )}
-      <button type="button" onClick={() => setExpanded(true)} className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5">Expand ⤢</button>
     </div>
   )
 
@@ -346,7 +372,7 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
       <p className="text-xs text-gray-500 mb-2">
         Each point is one pipeline (final stage). Top-left = best (high NDCG@10, low latency).{' '}
         The dashed step-line connects <strong>Pareto-optimal</strong> pipelines only — dominated configs (e.g. same quality at much higher latency) are omitted from the frontier.{' '}
-        <span className="font-medium text-indigo-600">★</span> marks an optimal point on the chart. Drag to zoom X; ⌘/Ctrl+scroll to zoom Y.
+        <span className="font-medium text-indigo-600">★</span> marks an optimal point on the chart. Drag to select an X range; hold ⌘ and pinch or scroll to zoom both axes.
         <MetricTooltip text="A pipeline is Pareto-optimal if no other pipeline is simultaneously better on NDCG@10, Recall@10, and latency (P50 and P95). The frontier step-line links optimal points sorted by latency — it does not pass through dominated pipelines." />
       </p>
       {frontier.cost_included && (
@@ -359,16 +385,16 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
         <p className="text-xs text-gray-400 mb-2">{frontier.cost_excluded_reason}</p>
       )}
       {zoomControls}
-      <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+      <ChartZoomSurface onWheel={handleChartWheel} onPinchScale={handleChartPinchScale}>
         {renderChart(300)}
-      </div>
+      </ChartZoomSurface>
       {legend}
       {expanded && (
         <ChartModal title="Quality–Latency–Cost Tradeoff" onClose={() => setExpanded(false)}>
           {zoomControls}
-          <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+          <ChartZoomSurface onWheel={handleChartWheel} onPinchScale={handleChartPinchScale}>
             {renderChart(540)}
-          </div>
+          </ChartZoomSurface>
           {legend}
         </ChartModal>
       )}

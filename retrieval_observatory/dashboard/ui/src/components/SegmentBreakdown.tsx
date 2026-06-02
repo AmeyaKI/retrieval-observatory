@@ -10,6 +10,7 @@ import { useChartZoom } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
+import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
   runId: string
@@ -80,7 +81,7 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
   const [error, setError] = useState<string | null>(null)
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState(false)
-  const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
+  const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
@@ -229,20 +230,18 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
       <ChartZoomControls
         domain={yDomain}
         isZoomed={isZoomed}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
         onFit={() => fitToData(dataMin, dataMax)}
         onReset={reset}
         onExpand={() => setExpanded(true)}
       />
-      <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+      <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
         {renderChart(240)}
-      </div>
+      </ChartZoomSurface>
       {legend}
       {expanded && (
         <ChartModal title={`${metricLabel} by ${xLabel}`} onClose={() => setExpanded(false)}>
-          <ChartZoomControls domain={yDomain} isZoomed={isZoomed} onZoomIn={zoomIn} onZoomOut={zoomOut} onFit={() => fitToData(dataMin, dataMax)} onReset={reset} compact={false} />
-          <div onWheel={handleWheel} style={{ touchAction: 'none' }}>{renderChart(480)}</div>
+          <ChartZoomControls domain={yDomain} isZoomed={isZoomed} onFit={() => fitToData(dataMin, dataMax)} onReset={reset} compact={false} />
+          <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>{renderChart(480)}</ChartZoomSurface>
           {legend}
         </ChartModal>
       )}

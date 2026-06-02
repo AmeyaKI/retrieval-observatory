@@ -11,6 +11,7 @@ import { useChartZoom } from '../hooks/useChartZoom'
 import { ChartModal } from './ChartModal'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
+import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
   metrics: MetricsMap
@@ -21,7 +22,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
   const [showIntermediateStages, setShowIntermediateStages] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const { domain: yDomain, zoomIn, zoomOut, fitToData, reset, handleWheel, isZoomed } = useChartZoom({
+  const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
@@ -161,30 +162,26 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
       <ChartZoomControls
         domain={yDomain}
         isZoomed={isZoomed}
-        onZoomIn={zoomIn}
-        onZoomOut={zoomOut}
         onFit={() => fitToData(dataMin, dataMax)}
         onReset={reset}
         onExpand={() => setExpanded(true)}
       />
-      <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+      <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
         {renderChart(260)}
-      </div>
+      </ChartZoomSurface>
       {footer}
       {expanded && (
         <ChartModal title="Recall@K Curves" onClose={() => setExpanded(false)}>
           <ChartZoomControls
             domain={yDomain}
             isZoomed={isZoomed}
-            onZoomIn={zoomIn}
-            onZoomOut={zoomOut}
             onFit={() => fitToData(dataMin, dataMax)}
             onReset={reset}
             compact={false}
           />
-          <div onWheel={handleWheel} style={{ touchAction: 'none' }}>
+          <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
             {renderChart(480)}
-          </div>
+          </ChartZoomSurface>
           {footer}
         </ChartModal>
       )}

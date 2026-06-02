@@ -35,7 +35,7 @@ export default function DashboardGuide() {
           <ol className="list-decimal list-inside space-y-1">
             <li><strong>Experiment Overview</strong> — headline winner, query difficulty, failure labels, classifier calibration.</li>
             <li><strong>Pipeline Verdict</strong> — all pipelines ranked by final-stage NDCG@10. Stage Ablation Attribution only applies to prefix pairs (e.g. bm25 → bm25__rerank).</li>
-            <li><strong>Charts</strong> — compare quality/latency tradeoffs. Use Fit/+/- or ⌘/Ctrl+scroll over a chart to zoom.</li>
+            <li><strong>Charts</strong> — compare quality/latency tradeoffs. Expand a chart, then hold ⌘ and pinch or scroll on the trackpad to zoom (like a webpage).</li>
             <li><strong>Query Explorer</strong> — per-query actual vs predicted difficulty and agreement.</li>
           </ol>
           <p className="text-indigo-700">
