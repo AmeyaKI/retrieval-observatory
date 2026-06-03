@@ -53,6 +53,8 @@ include = ["retrieval_observatory*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# Avoid pytest-rerunfailures (often auto-loaded in Conda) — it can segfault with numpy on macOS.
+addopts = "-p no:rerunfailures"
 
 [tool.coverage.run]
 source = ["retrieval_observatory"]

@@ -203,6 +203,16 @@ retobs serve --db .retobs/results.db --port 8000
 
 Open `http://localhost:8000` — move the latency budget slider and watch the stage verdict update live.
 
+Load multiple result databases in one dashboard (sidebar tabs per DB):
+
+```bash
+retobs serve --db .retobs/publish_smoke_scifact.db --db .retobs/dashboard_demo.db
+# or comma-separated:
+retobs serve --db .retobs/a.db,.retobs/b.db
+# or env var (colon-separated):
+RETOBS_DASHBOARD_DBS=.retobs/a.db:.retobs/b.db retobs serve
+```
+
 ---
 
 ## YAML Stage Combinations
@@ -459,7 +469,7 @@ retobs init      --mode MODE --output PATH                Generate starter confi
 retobs validate  --config PATH [--db PATH]                Validate config and dataset before running
 retobs run       --config PATH [--no-cache]               Run a benchmark experiment
                              [--latency-budget-ms N]      Print verdict against stage latency delta
-retobs serve     --db PATH [--port N]                     Start dashboard
+retobs serve     --db PATH [--db PATH ...] [--port N]      Start dashboard (repeat --db for multiple SQLite files)
 retobs compare   RUN_ID_1 RUN_ID_2 --db PATH              Compare runs with paired bootstrap tests
 retobs inspect   RUN_ID --query QUERY_ID [--pipeline ID]  Debug per-query retrieval results
 ```
