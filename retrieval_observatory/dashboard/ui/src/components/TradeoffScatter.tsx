@@ -101,6 +101,16 @@ function ParetoLineLayer({
   )
 }
 
+function starPath(cx: number, cy: number, outerR: number, innerR: number): string {
+  const points: string[] = []
+  for (let i = 0; i < 10; i += 1) {
+    const angle = (Math.PI / 2) + (i * Math.PI) / 5
+    const r = i % 2 === 0 ? outerR : innerR
+    points.push(`${cx + r * Math.cos(angle)},${cy - r * Math.sin(angle)}`)
+  }
+  return `M ${points.join(' L ')} Z`
+}
+
 function makeDotRenderer(
   color: string,
   showCostSizing: boolean,
@@ -111,23 +121,21 @@ function makeDotRenderer(
     if (!pt || cx == null || cy == null) return null
     const cost = pt.costPer1k ?? 0
     const r = showCostSizing && cost > 0 ? 5 + (cost / maxCost) * 9 : 7
+    if (pt.isParetoOptimal) {
+      const outer = r + 1
+      const inner = outer * 0.42
+      return (
+        <path
+          d={starPath(cx, cy, outer, inner)}
+          fill={color}
+          fillOpacity={0.9}
+          stroke="white"
+          strokeWidth={1.5}
+        />
+      )
+    }
     return (
-      <g>
-        <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={1.5} />
-        {pt.isParetoOptimal && (
-          <text
-            x={cx}
-            y={cy - r - 4}
-            textAnchor="middle"
-            fontSize={14}
-            fill="#4338ca"
-            fontWeight="bold"
-            style={{ pointerEvents: 'none' }}
-          >
-            ★
-          </text>
-        )}
-      </g>
+      <circle cx={cx} cy={cy} r={r} fill={color} fillOpacity={0.85} stroke="white" strokeWidth={1.5} />
     )
   }
 }
@@ -325,16 +333,27 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
 
   const legend = (
     <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2 justify-center items-center text-xs text-gray-600">
-      {points.map((pt) => (
-        <div key={pt.pipelineId} className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: getPipelineColor(pt.pipelineId, colorMap) }} />
-          <span>{pt.label}</span>
-        </div>
-      ))}
+      {points.map((pt) => {
+        const color = getPipelineColor(pt.pipelineId, colorMap)
+        return (
+          <div key={pt.pipelineId} className="flex items-center gap-1.5">
+            {pt.isParetoOptimal ? (
+              <svg width={14} height={14} viewBox="0 0 14 14" className="shrink-0" aria-hidden>
+                <path d={starPath(7, 7, 6.5, 2.8)} fill={color} stroke="white" strokeWidth={0.75} />
+              </svg>
+            ) : (
+              <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+            )}
+            <span>{pt.label}</span>
+          </div>
+        )
+      })}
       <span className="text-gray-300 hidden sm:inline">|</span>
-      <div className="flex items-center gap-1.5">
-        <span className="text-indigo-600 font-bold text-sm leading-none">★</span>
-        <span>Pareto optimal ({paretoOptimalCount} of {points.length})</span>
+      <div className="flex items-center gap-1.5 text-gray-500">
+        <svg width={12} height={12} viewBox="0 0 14 14" className="shrink-0" aria-hidden>
+          <path d={starPath(7, 7, 6, 2.5)} fill="#9ca3af" stroke="#e5e7eb" strokeWidth={0.75} />
+        </svg>
+        <span>Star = Pareto optimal ({paretoOptimalCount} of {points.length})</span>
       </div>
       {frontierPoints.length >= 2 && (
         <>
@@ -372,7 +391,7 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
       <p className="text-xs text-gray-500 mb-2">
         Each point is one pipeline (final stage). Top-left = best (high NDCG@10, low latency).{' '}
         The dashed step-line connects <strong>Pareto-optimal</strong> pipelines only — dominated configs (e.g. same quality at much higher latency) are omitted from the frontier.{' '}
-        <span className="font-medium text-indigo-600">★</span> marks an optimal point on the chart. Drag to select an X range; hold ⌘ and pinch or scroll to zoom both axes.
+        A <strong>star</strong> replaces the dot for optimal pipelines (same color as that pipeline). Drag to select an X range; hold ⌘ and pinch or scroll to zoom both axes.
         <MetricTooltip text="A pipeline is Pareto-optimal if no other pipeline is simultaneously better on NDCG@10, Recall@10, and latency (P50 and P95). The frontier step-line links optimal points sorted by latency — it does not pass through dominated pipelines." />
       </p>
       {frontier.cost_included && (
@@ -390,7 +409,7 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
       </ChartZoomSurface>
       {legend}
       {expanded && (
-        <ChartModal title="Quality–Latency–Cost Tradeoff" onClose={() => setExpanded(false)}>
+        <ChartModal title="Quality–Latency Tradeoff" onClose={() => setExpanded(false)}>
           {zoomControls}
           <ChartZoomSurface onWheel={handleChartWheel} onPinchScale={handleChartPinchScale}>
             {renderChart(540)}

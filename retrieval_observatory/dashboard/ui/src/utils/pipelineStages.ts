@@ -166,3 +166,58 @@ export function duplicateAblationSeriesKeys(metrics: MetricsMap): Set<string> {
 export function isRecallMetricEntry(entry: MetricEntry): boolean {
   return entry.metric_name === 'recall' && entry.k > 0 && entry.stage_index >= 0
 }
+
+/** Human-readable stage component name from pipeline id (e.g. fast_rerank → Fast Reranker). */
+export function stageComponentLabel(pipelineId: string, stageIndex: number): string {
+  const part = pipelineId.split('__')[stageIndex] ?? ''
+  const known: Record<string, string> = {
+    bm25: 'BM25',
+    dense_only: 'Dense Bi-Encoder',
+    rrf_hybrid: 'RRF Fusion',
+    cohere_rerank: 'Cohere Rerank',
+  }
+  if (known[part]) return known[part]
+  return part
+    .replace(/_rerank$/, ' Reranker')
+    .replace(/_retriever$/, ' Retriever')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/** Collect sorted recall@K values present in metrics. */
+export function collectRecallKValues(metrics: MetricsMap): number[] {
+  const ks = new Set<number>()
+  for (const entry of Object.values(metrics)) {
+    if (entry.metric_name === 'recall' && entry.k > 0 && entry.stage_index >= 0) {
+      ks.add(entry.k)
+    }
+  }
+  return [...ks].sort((a, b) => a - b)
+}
+
+export interface StageRecallCell {
+  pipelineId: string
+  stageIndex: number
+  k: number
+  mean: number
+}
+
+/** Per-stage recall for each pipeline that has that stage index. */
+export function buildStageRecallGrid(metrics: MetricsMap, k: number): {
+  maxStageIndex: number
+  pipelineIds: string[]
+  values: Map<string, number>
+} {
+  const maxStage = buildPipelineMaxStage(metrics)
+  const pipelineIds = [...collectPipelineIdSet(metrics)].sort()
+  const values = new Map<string, number>()
+
+  for (const entry of Object.values(metrics)) {
+    if (entry.metric_name !== 'recall' || entry.k !== k || entry.stage_index < 0) continue
+    const key = `${entry.pipeline_id}|${entry.stage_index}`
+    values.set(key, entry.mean)
+  }
+
+  const maxStageIndex = Math.max(0, ...Object.values(maxStage))
+  return { maxStageIndex, pipelineIds, values }
+}

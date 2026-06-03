@@ -1,15 +1,19 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from 'recharts'
 import { MetricsMap } from '../api'
-import { formatSeriesKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { fmtQuality } from '../utils/format'
 import { buildPipelineColorMap, collectPipelineIds, getPipelineColor } from '../utils/chartColors'
-import { duplicateAblationSeriesKeys } from '../utils/pipelineStages'
+import {
+  buildPipelineMaxStage,
+  buildStageRecallGrid,
+  collectRecallKValues,
+  stageComponentLabel,
+} from '../utils/pipelineStages'
 import { useChartZoom } from '../hooks/useChartZoom'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
@@ -19,220 +23,270 @@ interface Props {
   metrics: MetricsMap
 }
 
+function recallCellKey(pipelineId: string, stageIndex: number): string {
+  return `${pipelineId}|${stageIndex}`
+}
 
 export default function RecallFunnel({ metrics }: Props) {
   const [hiddenRecall, setHiddenRecall] = useState<Set<string>>(new Set())
   const [hiddenNdcg, setHiddenNdcg] = useState<Set<string>>(new Set())
+
+  const recallKValues = useMemo(() => collectRecallKValues(metrics), [metrics])
+  const defaultK = recallKValues.includes(10) ? 10 : recallKValues[recallKValues.length - 1] ?? 10
+  const [selectedK, setSelectedK] = useState<number>(defaultK)
+
+  useEffect(() => {
+    setSelectedK(defaultK)
+  }, [defaultK, metrics])
+
+  const activeK = recallKValues.includes(selectedK) ? selectedK : defaultK
+
   const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
 
-  const toggleRecall = (dataKey: string) => setHiddenRecall((prev) => {
-    const next = new Set(prev); next.has(dataKey) ? next.delete(dataKey) : next.add(dataKey); return next
-  })
-  const toggleNdcg = (dataKey: string) => setHiddenNdcg((prev) => {
-    const next = new Set(prev); next.has(dataKey) ? next.delete(dataKey) : next.add(dataKey); return next
-  })
-
-  type StageEntry = { mean: number; k: number }
-  const stageRecall: Record<string, Record<string, StageEntry>> = {}
-  const stageNdcg: Record<string, Record<string, number>> = {}
-  const seriesSet = new Set<string>()
-  const seriesPipelineId: Record<string, string> = {}
-
-  const pipelineMaxStage: Record<string, number> = {}
-  for (const [, entry] of Object.entries(metrics)) {
-    if (entry.metric_name !== 'recall' && entry.metric_name !== 'ndcg') continue
-    if (entry.stage_index < 0) continue
-    pipelineMaxStage[entry.pipeline_id] = Math.max(
-      pipelineMaxStage[entry.pipeline_id] ?? 0,
-      entry.stage_index
-    )
-  }
-
-  for (const [, entry] of Object.entries(metrics)) {
-    if (entry.stage_index < 0) continue
-    const isMultiStage = (pipelineMaxStage[entry.pipeline_id] ?? 0) > 0
-    const seriesLabel = formatSeriesKey(entry.pipeline_id, entry.stage_index, isMultiStage)
-    seriesPipelineId[seriesLabel] = entry.pipeline_id
-    const stageLabel = entry.stage_index === 0 ? 'Stage 0 · Retrieval' : `Stage ${entry.stage_index} · Reranking`
-
-    if (entry.metric_name === 'recall') {
-      seriesSet.add(seriesLabel)
-      if (!stageRecall[stageLabel]) stageRecall[stageLabel] = {}
-      const existing = stageRecall[stageLabel][seriesLabel]
-      if (existing === undefined || entry.k > existing.k) {
-        stageRecall[stageLabel][seriesLabel] = { mean: entry.mean, k: entry.k }
-      }
-    }
-    if (entry.metric_name === 'ndcg' && entry.k === 10) {
-      seriesSet.add(seriesLabel)
-      if (!stageNdcg[stageLabel]) stageNdcg[stageLabel] = {}
-      stageNdcg[stageLabel][seriesLabel] = entry.mean
-    }
-  }
-
-  const stages = Object.keys(stageRecall).sort()
-  const omittedSeries = useMemo(() => duplicateAblationSeriesKeys(metrics), [metrics])
-  const seriesList = [...seriesSet].sort().filter((s) => !omittedSeries.has(s))
+  const maxStageByPipeline = useMemo(() => buildPipelineMaxStage(metrics), [metrics])
   const pipelineColorMap = useMemo(
     () => buildPipelineColorMap(collectPipelineIds(metrics)),
     [metrics],
   )
 
-  if (stages.length === 0) return <p className="text-sm text-gray-400">No stage data.</p>
+  const recallGrid = useMemo(() => buildStageRecallGrid(metrics, activeK), [metrics, activeK])
 
-  const hasMultipleStages = stages.length > 1
-
-  const chartData = stages.map((stage) => {
-    const row: Record<string, string | number> = { stage }
-    for (const s of seriesList) {
-      row[`recall__${s}`] = stageRecall[stage]?.[s]?.mean ?? 0
-      row[`ndcg__${s}`] = stageNdcg[stage]?.[s] ?? 0
+  const stageNdcg = useMemo(() => {
+    const values = new Map<string, number>()
+    for (const entry of Object.values(metrics)) {
+      if (entry.metric_name !== 'ndcg' || entry.k !== 10 || entry.stage_index < 0) continue
+      values.set(recallCellKey(entry.pipeline_id, entry.stage_index), entry.mean)
     }
-    return row
+    return values
+  }, [metrics])
+
+  const maxStageIndex = useMemo(() => {
+    const fromRecall = recallGrid.maxStageIndex
+    let max = fromRecall
+    for (const key of stageNdcg.keys()) {
+      const stageIndex = parseInt(key.split('|')[1] ?? '0', 10)
+      max = Math.max(max, stageIndex)
+    }
+    return max
+  }, [recallGrid.maxStageIndex, stageNdcg])
+
+  const pipelineIds = recallGrid.pipelineIds
+
+  const toggleRecall = (pipelineId: string) => setHiddenRecall((prev) => {
+    const next = new Set(prev)
+    next.has(pipelineId) ? next.delete(pipelineId) : next.add(pipelineId)
+    return next
+  })
+  const toggleNdcg = (pipelineId: string) => setHiddenNdcg((prev) => {
+    const next = new Set(prev)
+    next.has(pipelineId) ? next.delete(pipelineId) : next.add(pipelineId)
+    return next
   })
 
-  const visibleValues = chartData.flatMap((row) =>
-    seriesList.flatMap((s) => {
-      const vals: number[] = []
-      if (!hiddenRecall.has(`recall__${s}`)) vals.push(row[`recall__${s}`] as number)
-      if (!hiddenNdcg.has(`ndcg__${s}`)) vals.push(row[`ndcg__${s}`] as number)
-      return vals
-    }),
-  ).filter((v) => v != null)
-  const dataMin = visibleValues.length > 0 ? Math.min(...visibleValues) : 0
-  const dataMax = visibleValues.length > 0 ? Math.max(...visibleValues) : 1
+  const buildChartRows = useMemo(() => {
+    return (valueMap: Map<string, number>) => {
+      const rows: Record<string, string | number>[] = []
+      for (let stageIndex = 0; stageIndex <= maxStageIndex; stageIndex += 1) {
+        const row: Record<string, string | number> = { stage: `Stage ${stageIndex}` }
+        let hasAny = false
+        for (const pipelineId of pipelineIds) {
+          if ((maxStageByPipeline[pipelineId] ?? 0) < stageIndex) continue
+          const v = valueMap.get(recallCellKey(pipelineId, stageIndex))
+          if (v === undefined) continue
+          row[pipelineId] = v
+          hasAny = true
+        }
+        if (hasAny) rows.push(row)
+      }
+      return rows
+    }
+  }, [maxStageIndex, pipelineIds, maxStageByPipeline])
+
+  const recallChartData = useMemo(() => buildChartRows(recallGrid.values), [buildChartRows, recallGrid.values])
+  const ndcgChartData = useMemo(() => buildChartRows(stageNdcg), [buildChartRows, stageNdcg])
+
+  if (recallKValues.length === 0 && stageNdcg.size === 0) {
+    return <p className="text-sm text-gray-400">No stage data.</p>
+  }
+
+  const hasMultipleStages = maxStageIndex > 0
+
+  const visibleRecallValues = recallChartData.flatMap((row) =>
+    pipelineIds
+      .filter((pid) => !hiddenRecall.has(pid) && row[pid] != null)
+      .map((pid) => row[pid] as number),
+  )
+  const visibleNdcgValues = ndcgChartData.flatMap((row) =>
+    pipelineIds
+      .filter((pid) => !hiddenNdcg.has(pid) && row[pid] != null)
+      .map((pid) => row[pid] as number),
+  )
+  const recallDataMin = visibleRecallValues.length > 0 ? Math.min(...visibleRecallValues) : 0
+  const recallDataMax = visibleRecallValues.length > 0 ? Math.max(...visibleRecallValues) : 1
+  const ndcgDataMin = visibleNdcgValues.length > 0 ? Math.min(...visibleNdcgValues) : 0
+  const ndcgDataMax = visibleNdcgValues.length > 0 ? Math.max(...visibleNdcgValues) : 1
 
   const makeLegendFormatter = (hiddenSet: Set<string>) =>
-    (value: string, entry: any) => (
-      <span style={{
-        opacity: hiddenSet.has(entry.dataKey) ? 0.35 : 1,
-        cursor: 'pointer',
-        textDecoration: hiddenSet.has(entry.dataKey) ? 'line-through' : 'none',
-      }}>
-        {value}
-      </span>
-    )
+    (value: string, entry: any) => {
+      const pid = String(entry.dataKey ?? value)
+      return (
+        <span style={{
+          opacity: hiddenSet.has(pid) ? 0.35 : 1,
+          cursor: 'pointer',
+          textDecoration: hiddenSet.has(pid) ? 'line-through' : 'none',
+        }}>
+          {pid}
+        </span>
+      )
+    }
 
   const RecallTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null
-    return (
-      <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
-        <p className="font-semibold mb-1">{label}</p>
-        {payload.map((p: any) => {
-          const s = p.dataKey.replace(/^recall__/, '')
-          const stageEntry = stageRecall[label]?.[s]
-          return (
-            <p key={p.dataKey} style={{ color: p.color }}>
-              {`Recall@${stageEntry?.k ?? '?'} ${s}: ${fmtQuality(p.value)}`}
-            </p>
-          )
-        })}
-      </div>
-    )
+      if (!active || !payload?.length || !label) return null
+      const stageIndex = parseInt(String(label).replace('Stage ', ''), 10)
+      return (
+        <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+          <p className="font-semibold mb-1">{label}</p>
+          {payload.map((p: any) => {
+            const pipelineId = String(p.dataKey)
+            const stageName = stageComponentLabel(pipelineId, stageIndex)
+            return (
+              <p key={p.dataKey} style={{ color: p.color }}>
+                {`Recall@${activeK} ${stageName}: ${fmtQuality(p.value)}`}
+              </p>
+            )
+          })}
+        </div>
+      )
   }
 
   const NdcgTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null
-    return (
-      <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
-        <p className="font-semibold mb-1">{label}</p>
-        {payload.map((p: any) => {
-          const s = p.dataKey.replace(/^ndcg__/, '')
-          return (
-            <p key={p.dataKey} style={{ color: p.color }}>
-              {`NDCG@10 ${s}: ${fmtQuality(p.value)}`}
-            </p>
-          )
-        })}
-      </div>
-    )
+      if (!active || !payload?.length || !label) return null
+      const stageIndex = parseInt(String(label).replace('Stage ', ''), 10)
+      return (
+        <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+          <p className="font-semibold mb-1">{label}</p>
+          {payload.map((p: any) => {
+            const pipelineId = String(p.dataKey)
+            const stageName = stageComponentLabel(pipelineId, stageIndex)
+            return (
+              <p key={p.dataKey} style={{ color: p.color }}>
+                {`NDCG@10 ${stageName}: ${fmtQuality(p.value)}`}
+              </p>
+            )
+          })}
+        </div>
+      )
   }
+
+  const kSelector = recallKValues.length > 1 ? (
+    <div className="flex flex-col gap-1 shrink-0 pr-2">
+      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Recall@K</span>
+      {recallKValues.map((k) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => setSelectedK(k)}
+          className={`text-xs border rounded px-2 py-1 text-left font-mono ${
+            activeK === k
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-300 font-semibold'
+              : 'text-gray-600 border-gray-200 hover:border-indigo-200 hover:text-indigo-600'
+          }`}
+        >
+          @{k}
+        </button>
+      ))}
+    </div>
+  ) : null
 
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Each group shows per-stage metrics across pipeline combinations. Intermediate stages that match a standalone ablation pipeline (e.g. bm25) are omitted. Click legend items to show/hide series. Hold ⌘ and pinch or scroll on a chart to zoom.
+          Grouped by pipeline stage: each stage row shows only pipelines that include that stage (e.g. Stage 0 = all pipelines with retrieval; Stage 1 = pipelines with a second stage). Click legend to show/hide. Hold ⌘ and pinch or scroll on a chart to zoom.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
         <ChartZoomControls
           domain={yDomain}
           isZoomed={isZoomed}
-          onFit={() => fitToData(dataMin, dataMax)}
+          onFit={() => fitToData(Math.min(recallDataMin, ndcgDataMin), Math.max(recallDataMax, ndcgDataMax))}
           onReset={reset}
         />
       </div>
 
-      {/* Max-K Recall chart */}
-      <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">Max-K Recall per Stage</p>
-        {hasMultipleStages && (
-          <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-            <span className="font-semibold">Note on Recall drop Stage 0 → Stage 1:</span> Stage 0 recall is measured
-            at a wide k (e.g. 100) and is the <span className="font-semibold">upper bound</span> for later stages.
-            The drop at Stage 1 reflects intentional truncation (100 → 20 docs), not a regression.
-            Watch <span className="font-semibold">NDCG@10</span> below — if reranking works, it should <span className="font-semibold">rise</span> even as recall falls.
-          </div>
-        )}
-        <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
-          <ChartFrame height={220}>
-            <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[yDomain[0], yDomain[1]]} />
-              <Tooltip content={<RecallTooltip />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11 }}
-                onClick={(data) => toggleRecall(data.dataKey as string)}
-                formatter={makeLegendFormatter(hiddenRecall)}
-              />
-              {seriesList.map((s) => (
-                <Bar
-                  key={`recall__${s}`}
-                  dataKey={`recall__${s}`}
-                  name={`Recall  ${s}`}
-                  hide={hiddenRecall.has(`recall__${s}`)}
-                  fill={getPipelineColor(seriesPipelineId[s], pipelineColorMap)}
-                  radius={[3, 3, 0, 0]}
-                />
-              ))}
-            </BarChart>
-          </ChartFrame>
-        </ChartZoomSurface>
-      </div>
+      <div className="flex gap-2 items-start">
+        {kSelector}
+        <div className="flex-1 min-w-0 space-y-6">
+          {recallKValues.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-1">Recall@{activeK} per Stage</p>
+              {hasMultipleStages && (
+                <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                  <span className="font-semibold">Note:</span> Recall often drops after Stage 0 because later stages score fewer documents (e.g. top-50 → top-10). Check NDCG@10 below — it should rise if reranking helps.
+                </div>
+              )}
+              <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
+                <ChartFrame height={220}>
+                  <BarChart data={recallChartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[yDomain[0], yDomain[1]]} />
+                    <Tooltip content={<RecallTooltip />} />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11 }}
+                      onClick={(data) => toggleRecall(data.dataKey as string)}
+                      formatter={makeLegendFormatter(hiddenRecall)}
+                    />
+                    {pipelineIds.map((pid) => (
+                      <Bar
+                        key={pid}
+                        dataKey={pid}
+                        name={pid}
+                        hide={hiddenRecall.has(pid)}
+                        fill={getPipelineColor(pid, pipelineColorMap)}
+                        radius={[3, 3, 0, 0]}
+                      />
+                    ))}
+                  </BarChart>
+                </ChartFrame>
+              </ChartZoomSurface>
+            </div>
+          )}
 
-      {/* NDCG@10 chart */}
-      <div>
-        <p className="text-xs font-semibold text-gray-600 mb-1">NDCG@10 per Stage</p>
-        <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
-          <ChartFrame height={220}>
-            <BarChart data={chartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[yDomain[0], yDomain[1]]} />
-              <Tooltip content={<NdcgTooltip />} />
-              <Legend
-                wrapperStyle={{ fontSize: 11 }}
-                onClick={(data) => toggleNdcg(data.dataKey as string)}
-                formatter={makeLegendFormatter(hiddenNdcg)}
-              />
-              {seriesList.map((s) => (
-                <Bar
-                  key={`ndcg__${s}`}
-                  dataKey={`ndcg__${s}`}
-                  name={`NDCG@10  ${s}`}
-                  hide={hiddenNdcg.has(`ndcg__${s}`)}
-                  fill={getPipelineColor(seriesPipelineId[s], pipelineColorMap)}
-                  fillOpacity={0.75}
-                  radius={[3, 3, 0, 0]}
-                />
-              ))}
-            </BarChart>
-          </ChartFrame>
-        </ChartZoomSurface>
+          {stageNdcg.size > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-600 mb-1">NDCG@10 per Stage</p>
+              <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
+                <ChartFrame height={220}>
+                  <BarChart data={ndcgChartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="stage" tick={{ fontSize: 11 }} />
+                    <YAxis tickFormatter={(v) => v.toFixed(2)} tick={{ fontSize: 12 }} domain={[yDomain[0], yDomain[1]]} />
+                    <Tooltip content={<NdcgTooltip />} />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11 }}
+                      onClick={(data) => toggleNdcg(data.dataKey as string)}
+                      formatter={makeLegendFormatter(hiddenNdcg)}
+                    />
+                    {pipelineIds.map((pid) => (
+                      <Bar
+                        key={`ndcg-${pid}`}
+                        dataKey={pid}
+                        name={pid}
+                        hide={hiddenNdcg.has(pid)}
+                        fill={getPipelineColor(pid, pipelineColorMap)}
+                        fillOpacity={0.75}
+                        radius={[3, 3, 0, 0]}
+                      />
+                    ))}
+                  </BarChart>
+                </ChartFrame>
+              </ChartZoomSurface>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

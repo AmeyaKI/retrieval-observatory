@@ -220,7 +220,7 @@ export default function RunDetail({ run, wide = false }: Props) {
         <LatencyChart metrics={metrics} />
       </Section>
 
-      <Section title="Quality–Latency–Cost Tradeoff">
+      <Section title="Quality–Latency Tradeoff">
         <TradeoffScatter runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
