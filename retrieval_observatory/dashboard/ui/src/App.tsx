@@ -1,26 +1,77 @@
 import { useEffect, useState } from 'react'
-import { fetchRuns, Run } from './api'
+import {
+  DbSource,
+  fetchDbs,
+  fetchRuns,
+  Run,
+  RunSelection,
+  selectionKey,
+} from './api'
+import DbTabs from './components/DbTabs'
 import RunsSidebar from './components/RunsSidebar'
 import RunDetail from './components/RunDetail'
 import ComparePanel from './components/ComparePanel'
 
 export default function App() {
+  const [sources, setSources] = useState<DbSource[]>([])
+  const [activeDbId, setActiveDbId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Run[]>([])
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [selected, setSelected] = useState<RunSelection[]>([])
+  const [resolvedRun, setResolvedRun] = useState<Run | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
-    fetchRuns()
-      .then(setRuns)
+    fetchDbs()
+      .then((dbs) => {
+        setSources(dbs)
+        if (dbs.length > 0) {
+          setActiveDbId(dbs[0].db_id)
+        }
+      })
       .catch((e) => setError(e.message))
   }, [])
 
-  const toggleSelect = (runId: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(runId) ? prev.filter((id) => id !== runId) : [...prev, runId]
+  useEffect(() => {
+    if (!activeDbId) {
+      setRuns([])
+      return
+    }
+    fetchRuns(activeDbId)
+      .then(setRuns)
+      .catch((e) => setError(e.message))
+  }, [activeDbId])
+
+  useEffect(() => {
+    if (selected.length !== 1) {
+      setResolvedRun(null)
+      return
+    }
+    const sel = selected[0]
+    const local = runs.find(
+      (r) => r.run_id === sel.runId && (r.db_id ?? activeDbId) === sel.dbId,
     )
+    if (local) {
+      setResolvedRun(local)
+      return
+    }
+    fetchRuns(sel.dbId)
+      .then((all) => setResolvedRun(all.find((r) => r.run_id === sel.runId) ?? null))
+      .catch((e) => setError(e.message))
+  }, [selected, runs, activeDbId])
+
+  const toggleSelect = (dbId: string, runId: string) => {
+    const key = selectionKey({ dbId, runId })
+    setSelected((prev) => {
+      const exists = prev.some((s) => selectionKey(s) === key)
+      if (exists) {
+        return prev.filter((s) => selectionKey(s) !== key)
+      }
+      return [...prev, { dbId, runId }]
+    })
   }
+
+  const selectedKeys = new Set(selected.map(selectionKey))
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
@@ -38,7 +89,13 @@ export default function App() {
             {error}
           </div>
         )}
-        <RunsSidebar runs={runs} selectedIds={selectedIds} onToggle={toggleSelect} />
+        <DbTabs sources={sources} activeDbId={activeDbId} onSelect={setActiveDbId} />
+        <RunsSidebar
+          runs={runs}
+          selectedKeys={selectedKeys}
+          onToggle={toggleSelect}
+          activeDbId={activeDbId}
+        />
       </aside>
 
       <main className="flex-1 overflow-auto min-w-0">
@@ -63,7 +120,7 @@ export default function App() {
           <span className="text-xs text-gray-500">Toggle run list</span>
         </div>
 
-        {selectedIds.length === 0 && (
+        {selected.length === 0 && (
           <div className="flex items-center justify-center h-[calc(100%-3rem)] text-gray-400">
             <div className="text-center">
               <p className="text-lg">Select a run from the sidebar</p>
@@ -71,13 +128,13 @@ export default function App() {
             </div>
           </div>
         )}
-        {selectedIds.length === 1 && (() => {
-          const run = runs.find((r) => r.run_id === selectedIds[0])
-          return run ? <RunDetail run={run} wide={!sidebarOpen} /> : (
-            <div className="p-6 text-sm text-gray-400">Loading run…</div>
-          )
-        })()}
-        {selectedIds.length >= 2 && <ComparePanel runIds={selectedIds} />}
+        {selected.length === 1 && resolvedRun && (
+          <RunDetail run={resolvedRun} dbId={selected[0].dbId} wide={!sidebarOpen} />
+        )}
+        {selected.length === 1 && !resolvedRun && (
+          <div className="p-6 text-sm text-gray-400">Loading run…</div>
+        )}
+        {selected.length >= 2 && <ComparePanel selections={selected} />}
       </main>
     </div>
   )

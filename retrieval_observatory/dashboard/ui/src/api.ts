@@ -1,11 +1,32 @@
 const BASE = window.location.origin
 
+export interface DbSource {
+  db_id: string
+  label: string
+  path: string
+  run_count: number
+}
+
 export interface Run {
   run_id: string
+  db_id?: string
   experiment_name: string
   started_at: string
   finished_at: string | null
   config_json: string
+}
+
+export interface RunSelection {
+  dbId: string
+  runId: string
+}
+
+export function selectionKey(sel: RunSelection): string {
+  return `${sel.dbId}:${sel.runId}`
+}
+
+function runBase(dbId: string, runId: string): string {
+  return `${BASE}/dbs/${encodeURIComponent(dbId)}/runs/${encodeURIComponent(runId)}`
 }
 
 export interface MetricEntry {
@@ -35,26 +56,41 @@ export interface ComparisonEntry {
   metric: string
   p_value?: number
   paired_n?: number
-  [runId: string]: RunMetricValues | string | number | undefined
+  [runKey: string]: RunMetricValues | string | number | undefined
 }
 
-export async function fetchRuns(): Promise<Run[]> {
-  const res = await fetch(`${BASE}/runs`)
-  if (!res.ok) throw new Error('Failed to fetch runs')
+export async function fetchDbs(): Promise<DbSource[]> {
+  const res = await fetch(`${BASE}/dbs`)
+  if (!res.ok) throw new Error('Failed to fetch databases')
   return res.json()
 }
 
-export async function fetchMetrics(runId: string): Promise<MetricsMap> {
-  const res = await fetch(`${BASE}/runs/${runId}/metrics`)
+export async function fetchRuns(dbId: string): Promise<Run[]> {
+  const res = await fetch(`${BASE}/dbs/${encodeURIComponent(dbId)}/runs`)
+  if (!res.ok) throw new Error(`Failed to fetch runs for database ${dbId}`)
+  return res.json()
+}
+
+export async function fetchMetrics(dbId: string, runId: string): Promise<MetricsMap> {
+  const res = await fetch(`${runBase(dbId, runId)}/metrics`)
   if (!res.ok) throw new Error(`Failed to fetch metrics for run ${runId}`)
   return res.json()
 }
 
-export async function fetchComparison(runIds: string[]): Promise<{ comparison: ComparisonEntry[]; run_ids: string[] }> {
+export async function fetchComparison(
+  selections: RunSelection[],
+): Promise<{
+  comparison: ComparisonEntry[]
+  selections: Array<{ db_id: string; run_id: string }>
+  run_ids: string[]
+  warnings: string[]
+}> {
   const res = await fetch(`${BASE}/compare`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ run_ids: runIds }),
+    body: JSON.stringify({
+      selections: selections.map((s) => ({ db_id: s.dbId, run_id: s.runId })),
+    }),
   })
   if (!res.ok) {
     const body = await res.text()
@@ -76,8 +112,14 @@ export interface SegmentMetrics {
 }
 
 /** Returns per-segment aggregated metrics grouped by a query metadata field. */
-export async function fetchSegmentMetrics(runId: string, field: string = 'n_relevant'): Promise<SegmentMetrics> {
-  const res = await fetch(`${BASE}/runs/${runId}/metrics/by-segment?field=${encodeURIComponent(field)}`)
+export async function fetchSegmentMetrics(
+  dbId: string,
+  runId: string,
+  field: string = 'n_relevant',
+): Promise<SegmentMetrics> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/metrics/by-segment?field=${encodeURIComponent(field)}`,
+  )
   if (!res.ok) throw new Error(`Failed to fetch segment metrics for run ${runId}`)
   return res.json()
 }
@@ -119,8 +161,8 @@ export interface RunOverview {
   stage_contributions: StageContribution[]
 }
 
-export async function fetchRunOverview(runId: string): Promise<RunOverview> {
-  const res = await fetch(`${BASE}/runs/${runId}/overview`)
+export async function fetchRunOverview(dbId: string, runId: string): Promise<RunOverview> {
+  const res = await fetch(`${runBase(dbId, runId)}/overview`)
   if (!res.ok) throw new Error(`Failed to fetch overview for run ${runId}`)
   return res.json()
 }
@@ -134,14 +176,20 @@ export interface QueryDiagnostic {
   stage_hits: Record<string, string[]>
 }
 
-export async function fetchDiagnostics(runId: string): Promise<{ summary: RunOverview['diagnostics']; items: QueryDiagnostic[] }> {
-  const res = await fetch(`${BASE}/runs/${runId}/diagnostics`)
+export async function fetchDiagnostics(
+  dbId: string,
+  runId: string,
+): Promise<{ summary: RunOverview['diagnostics']; items: QueryDiagnostic[] }> {
+  const res = await fetch(`${runBase(dbId, runId)}/diagnostics`)
   if (!res.ok) throw new Error(`Failed to fetch diagnostics for run ${runId}`)
   return res.json()
 }
 
-export async function fetchStageMatrix(runId: string): Promise<{ run_id: string; cells: Array<MetricEntry & { metric: string; estimated_cost_per_1k: number }> }> {
-  const res = await fetch(`${BASE}/runs/${runId}/stage-matrix`)
+export async function fetchStageMatrix(
+  dbId: string,
+  runId: string,
+): Promise<{ run_id: string; cells: Array<MetricEntry & { metric: string; estimated_cost_per_1k: number }> }> {
+  const res = await fetch(`${runBase(dbId, runId)}/stage-matrix`)
   if (!res.ok) throw new Error(`Failed to fetch stage matrix for run ${runId}`)
   return res.json()
 }
@@ -173,8 +221,8 @@ export interface ParetoFrontierResponse {
   frontier_order: string[]
 }
 
-export async function fetchParetoFrontier(runId: string): Promise<ParetoFrontierResponse> {
-  const res = await fetch(`${BASE}/runs/${runId}/pareto-frontier`)
+export async function fetchParetoFrontier(dbId: string, runId: string): Promise<ParetoFrontierResponse> {
+  const res = await fetch(`${runBase(dbId, runId)}/pareto-frontier`)
   if (!res.ok) throw new Error(`Failed to fetch Pareto frontier for run ${runId}`)
   return res.json()
 }
@@ -189,8 +237,8 @@ export interface QueryLabelRow {
   agreement: 'match' | 'adjacent' | 'mismatch' | null
 }
 
-export async function fetchQueryLabels(runId: string): Promise<{ items: QueryLabelRow[] }> {
-  const res = await fetch(`${BASE}/runs/${runId}/query-labels`)
+export async function fetchQueryLabels(dbId: string, runId: string): Promise<{ items: QueryLabelRow[] }> {
+  const res = await fetch(`${runBase(dbId, runId)}/query-labels`)
   if (!res.ok) throw new Error(`Failed to fetch query labels for run ${runId}`)
   return res.json()
 }
@@ -212,8 +260,11 @@ export interface ClassifierCalibrationResponse {
   all_same_prediction?: boolean
 }
 
-export async function fetchClassifierCalibration(runId: string): Promise<ClassifierCalibrationResponse> {
-  const res = await fetch(`${BASE}/runs/${runId}/classifier-calibration`)
+export async function fetchClassifierCalibration(
+  dbId: string,
+  runId: string,
+): Promise<ClassifierCalibrationResponse> {
+  const res = await fetch(`${runBase(dbId, runId)}/classifier-calibration`)
   if (!res.ok) throw new Error(`Failed to fetch classifier calibration for run ${runId}`)
   return res.json()
 }

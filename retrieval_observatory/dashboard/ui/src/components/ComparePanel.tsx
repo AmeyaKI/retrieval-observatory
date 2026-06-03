@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { fetchComparison, ComparisonEntry } from '../api'
+import { fetchComparison, ComparisonEntry, RunSelection, selectionKey } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 
 interface Props {
-  runIds: string[]
+  selections: RunSelection[]
 }
 
 function fmt(v: number | null | undefined): string {
@@ -13,17 +13,24 @@ function fmt(v: number | null | undefined): string {
   return v.toFixed(4)
 }
 
-export default function ComparePanel({ runIds }: Props) {
+export default function ComparePanel({ selections }: Props) {
   const [comparison, setComparison] = useState<ComparisonEntry[] | null>(null)
+  const [warnings, setWarnings] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  const runKeys = selections.map((s) => `${s.dbId}/${s.runId}`)
 
   useEffect(() => {
     setComparison(null)
+    setWarnings([])
     setError(null)
-    fetchComparison(runIds)
-      .then((data) => setComparison(data.comparison))
+    fetchComparison(selections)
+      .then((data) => {
+        setComparison(data.comparison)
+        setWarnings(data.warnings ?? [])
+      })
       .catch((e) => setError(e.message))
-  }, [runIds.join(',')])
+  }, [selections.map(selectionKey).join(',')])
 
   if (error) {
     return (
@@ -45,15 +52,25 @@ export default function ComparePanel({ runIds }: Props) {
   return (
     <div className="p-6 max-w-6xl">
       <h1 className="text-xl font-bold text-gray-900 mb-1">Run Comparison</h1>
-      <p className="text-sm text-gray-500 mb-6 font-mono">{runIds.join(' vs ')}</p>
+      <p className="text-sm text-gray-500 mb-4 font-mono">{runKeys.join(' vs ')}</p>
+
+      {warnings.length > 0 && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900">
+          {warnings.map((w) => (
+            <p key={w}>{w}</p>
+          ))}
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
             <tr className="bg-gray-100 text-left">
               <th className="px-3 py-2 font-semibold text-gray-700">Metric</th>
-              {runIds.map((id) => (
-                <th key={id} className="px-3 py-2 font-semibold text-gray-700 text-right font-mono">{id}</th>
+              {runKeys.map((key) => (
+                <th key={key} className="px-3 py-2 font-semibold text-gray-700 text-right font-mono text-xs">
+                  {key}
+                </th>
               ))}
               <th className="px-3 py-2 font-semibold text-gray-700 text-right">
                 p-value
@@ -68,10 +85,10 @@ export default function ComparePanel({ runIds }: Props) {
               return (
                 <tr key={row.metric} className="hover:bg-gray-50">
                   <td className="px-3 py-2 text-xs text-gray-800">{formatMetricKey(row.metric)}</td>
-                  {runIds.map((id) => {
-                    const v = row[id] as { mean: number | null; std: number | null } | undefined
+                  {runKeys.map((key) => {
+                    const v = row[key] as { mean: number | null; std: number | null } | undefined
                     return (
-                      <td key={id} className="px-3 py-2 text-right tabular-nums text-xs">
+                      <td key={key} className="px-3 py-2 text-right tabular-nums text-xs">
                         {v?.mean != null ? (
                           <>
                             <span className="font-medium">{fmt(v.mean)}</span>

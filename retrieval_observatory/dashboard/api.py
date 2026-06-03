@@ -5,6 +5,7 @@ import os
 import shutil
 import uuid
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List
 
 import numpy as np
@@ -14,6 +15,7 @@ from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs, parse_metric_key
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
+from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
@@ -42,19 +44,123 @@ try:
 
     class CompareRequest(_BaseModel):
         run_ids: List[str]
+
+    class RunSelection(_BaseModel):
+        db_id: str
+        run_id: str
+
+    class MultiCompareRequest(_BaseModel):
+        selections: List[RunSelection]
 except ImportError:
     CompareRequest = None  # type: ignore
+    RunSelection = None  # type: ignore
+    MultiCompareRequest = None  # type: ignore
 
 
-def create_app(db_path: str = ".retobs/results.db"):
+def _selection_key(db_id: str, run_id: str) -> str:
+    return f"{db_id}/{run_id}"
+
+
+def _dataset_fingerprint(manifest: Dict[str, Any] | None) -> str | None:
+    if not manifest:
+        return None
+    dataset = manifest.get("dataset")
+    if not dataset:
+        return None
+    return json.dumps(dataset, sort_keys=True, default=str)
+
+
+def _compare_warnings(fingerprints: List[str | None]) -> List[str]:
+    known = {fp for fp in fingerprints if fp is not None}
+    if len(known) > 1:
+        return ["Runs use different datasets; metrics may not be comparable."]
+    return []
+
+
+async def _build_comparison(
+    selections: List[tuple],
+    registry: DbRegistry,
+    engine: MetricsEngine,
+) -> Dict[str, Any]:
+    """Compare runs across one or more databases. selections: [(db_id, run_id), ...]."""
+    if len(selections) < 2:
+        raise ValueError("Provide at least 2 runs")
+
+    warnings: List[str] = []
+    fingerprints: List[str | None] = []
+    for db_id, run_id in selections:
+        store = registry.get_store(db_id)
+        manifest = await store.get_run_manifest(run_id)
+        fingerprints.append(_dataset_fingerprint(manifest))
+    warnings.extend(_compare_warnings(fingerprints))
+
+    keys = [_selection_key(db_id, run_id) for db_id, run_id in selections]
+    aggregated: Dict[str, Dict] = {}
+    for (db_id, run_id), key in zip(selections, keys):
+        store = registry.get_store(db_id)
+        aggregated[key] = await engine.aggregate(run_id, store)
+
+    all_metric_keys = sorted(set().union(*(agg.keys() for agg in aggregated.values())))
+    comparison = []
+    same_dataset = len({fp for fp in fingerprints if fp is not None}) <= 1
+
+    for metric_key in all_metric_keys:
+        entry: Dict[str, Any] = {"metric": metric_key}
+        for key in keys:
+            agg = aggregated[key].get(metric_key, {})
+            entry[key] = {
+                "mean": agg.get("mean"),
+                "std": agg.get("std"),
+                "ci_low": agg.get("ci_low"),
+                "ci_high": agg.get("ci_high"),
+            }
+        if same_dataset and len(selections) >= 2:
+            db_a, run_a = selections[0]
+            db_b, run_b = selections[1]
+            store_a = registry.get_store(db_a)
+            store_b = registry.get_store(db_b)
+            metrics_1 = await store_a.get_metrics(run_a)
+            metrics_2 = await store_b.get_metrics(run_b)
+            s1, s2, n_pairs = paired_scores_by_query(metrics_1, metrics_2, metric_key)
+            if s1 and s2:
+                try:
+                    entry["p_value"] = paired_bootstrap_test(s1, s2)
+                    entry["paired_n"] = n_pairs
+                except Exception:
+                    pass
+        comparison.append(entry)
+
+    return {
+        "comparison": comparison,
+        "selections": [{"db_id": db_id, "run_id": run_id} for db_id, run_id in selections],
+        "run_ids": [run_id for _, run_id in selections],
+        "warnings": warnings,
+    }
+
+
+def create_app(
+    registry: DbRegistry | None = None,
+    db_path: str | None = None,
+    db_paths: List[str] | None = None,
+    enable_uploads: bool = True,
+):
     try:
-        from fastapi import FastAPI, File, HTTPException, UploadFile
+        from fastapi import APIRouter, Body, FastAPI, File, HTTPException, UploadFile
         from fastapi.middleware.cors import CORSMiddleware
         from pydantic import BaseModel
     except ImportError as e:
         raise ImportError("Dashboard requires fastapi. Install with: pip install fastapi") from e
 
-    app = FastAPI(title="Retrieval Observatory", version="0.1.0")
+    if registry is None:
+        paths = db_paths if db_paths else ([db_path] if db_path else [".retobs/results.db"])
+        registry = DbRegistry(paths)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        await registry.init_all()
+        yield
+
+    app = FastAPI(title="Retrieval Observatory", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -62,77 +168,73 @@ def create_app(db_path: str = ".retobs/results.db"):
         allow_headers=["*"],
     )
 
-    store = SQLiteStore(db_path=db_path)
     engine = MetricsEngine()
+    default_store = registry.get_store(registry.default_db_id)  # type: ignore[arg-type]
 
-    @app.on_event("startup")
-    async def startup():
-        await store.init_db()
+    def _store_for(db_id: str) -> SQLiteStore:
+        try:
+            return registry.get_store(db_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Unknown database '{db_id}'")
 
-    @app.get("/runs")
-    async def list_runs() -> List[Dict]:
-        return await store.list_runs()
+    @app.get("/dbs")
+    async def list_databases() -> List[Dict]:
+        return await registry.list_sources()
 
-    @app.get("/runs/{run_id}/metrics")
-    async def get_run_metrics(run_id: str) -> Dict[str, Any]:
+    @app.post("/compare")
+    async def compare_runs_endpoint(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        if "selections" in body:
+            parsed = MultiCompareRequest.model_validate(body)
+            if len(parsed.selections) < 2:
+                raise HTTPException(status_code=400, detail="Provide at least 2 run selections")
+            selections = [(s.db_id, s.run_id) for s in parsed.selections]
+        elif "run_ids" in body:
+            if not registry.is_single:
+                raise HTTPException(
+                    status_code=400,
+                    detail="run_ids compare requires a single loaded database; use selections with db_id",
+                )
+            parsed_legacy = CompareRequest.model_validate(body)
+            if len(parsed_legacy.run_ids) < 2:
+                raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
+            sole = registry.default_db_id
+            selections = [(sole, run_id) for run_id in parsed_legacy.run_ids]
+        else:
+            raise HTTPException(status_code=400, detail="Provide selections or run_ids")
+        for db_id, _ in selections:
+            _store_for(db_id)
+        result = await _build_comparison(selections, registry, engine)
+        if "run_ids" in body and registry.is_single:
+            result["run_ids"] = body["run_ids"]
+        return result
+
+    db_router = APIRouter(prefix="/dbs/{db_id}")
+
+    @db_router.get("/runs")
+    async def list_runs(db_id: str) -> List[Dict]:
+        _store_for(db_id)
+        return await registry.list_runs(db_id)
+
+    @db_router.post("/compare")
+    async def compare_runs_in_db(db_id: str, req: CompareRequest) -> Dict[str, Any]:
+        if len(req.run_ids) < 2:
+            raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
+        _store_for(db_id)
+        selections = [(db_id, run_id) for run_id in req.run_ids]
+        return await _build_comparison(selections, registry, engine)
+
+    @db_router.get("/runs/{run_id}/metrics")
+    async def get_run_metrics(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
         return agg
 
-    @app.post("/compare")
-    async def compare_runs(req: CompareRequest) -> Dict[str, Any]:
-        if len(req.run_ids) < 2:
-            raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
-
-        from collections import defaultdict
-        result: Dict[str, Any] = {}
-
-        aggregated = {}
-        raw_scores = {}
-        for run_id in req.run_ids:
-            aggregated[run_id] = await engine.aggregate(run_id, store)
-            metrics = await store.get_metrics(run_id)
-            scores: dict = defaultdict(list)
-            for row in metrics:
-                key = f"{row['pipeline_id']}|stage{row['stage_index']}|{row['metric_name']}@{row['k']}"
-                scores[key].append(row["value"])
-            raw_scores[run_id] = dict(scores)
-
-        all_keys = sorted(set().union(*(agg.keys() for agg in aggregated.values())))
-        comparison = []
-        for key in all_keys:
-            entry: Dict[str, Any] = {"metric": key}
-            for run_id in req.run_ids:
-                agg = aggregated[run_id].get(key, {})
-                entry[run_id] = {
-                    "mean": agg.get("mean"),
-                    "std": agg.get("std"),
-                    "ci_low": agg.get("ci_low"),
-                    "ci_high": agg.get("ci_high"),
-                }
-            # Pairwise significance for first two runs, joined by query_id.
-            metrics_1 = await store.get_metrics(req.run_ids[0])
-            metrics_2 = await store.get_metrics(req.run_ids[1])
-            s1, s2, n_pairs = paired_scores_by_query(metrics_1, metrics_2, key)
-            if s1 and s2:
-                try:
-                    entry["p_value"] = paired_bootstrap_test(s1, s2)
-                    entry["paired_n"] = n_pairs
-                except Exception:
-                    # Keep comparison available even when one metric key has invalid score arrays.
-                    pass
-            comparison.append(entry)
-
-        return {"comparison": comparison, "run_ids": req.run_ids}
-
-    @app.get("/runs/{run_id}/metrics/by-segment")
-    async def get_run_metrics_by_segment(run_id: str, field: str = "n_relevant") -> Dict[str, Any]:
-        """Return per-segment aggregated metrics for a run.
-
-        Groups metric_scores rows by a query metadata field (e.g. 'n_relevant').
-        Returns {segment_value: {metric_key: {mean, std, ci_low, ci_high, n}}}.
-        """
+    @db_router.get("/runs/{run_id}/metrics/by-segment")
+    async def get_run_metrics_by_segment(db_id: str, run_id: str, field: str = "n_relevant") -> Dict[str, Any]:
+        """Return per-segment aggregated metrics grouped by a query metadata field."""
+        store = _store_for(db_id)
         raw_metrics = await store.get_metrics(run_id)
         if not raw_metrics:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
@@ -191,20 +293,23 @@ def create_app(db_path: str = ".retobs/results.db"):
         name = dataset_name.removeprefix("beir/")
         return _BEIR_BASELINES.get(name, {})
 
-    @app.get("/runs/{run_id}/manifest")
-    async def get_manifest(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/manifest")
+    async def get_manifest(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         manifest = await store.get_run_manifest(run_id)
         if not manifest:
             raise HTTPException(status_code=404, detail=f"No manifest for run '{run_id}'")
         return manifest
 
-    @app.get("/runs/{run_id}/diagnostics")
-    async def get_diagnostics(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/diagnostics")
+    async def get_diagnostics(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         rows = await store.get_query_diagnostics(run_id)
         return {"summary": aggregate_diagnostics(rows), "items": rows}
 
-    @app.get("/runs/{run_id}/query-labels")
-    async def get_query_labels(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/query-labels")
+    async def get_query_labels(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         metrics_rows = await store.get_metrics(run_id)
         run_queries = await store.get_run_queries(run_id) if hasattr(store, "get_run_queries") else []
@@ -247,8 +352,9 @@ def create_app(db_path: str = ".retobs/results.db"):
             })
         return {"items": items}
 
-    @app.get("/runs/{run_id}/classifier-calibration")
-    async def get_classifier_calibration(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/classifier-calibration")
+    async def get_classifier_calibration(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         metrics_rows = await store.get_metrics(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         if not metrics_rows:
@@ -357,8 +463,9 @@ def create_app(db_path: str = ".retobs/results.db"):
             "all_same_prediction": all_same_prediction,
         }
 
-    @app.get("/runs/{run_id}/overview")
-    async def get_run_overview(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/overview")
+    async def get_run_overview(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         runs = [run for run in await store.list_runs() if run["run_id"] == run_id]
         if not runs:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
@@ -376,8 +483,9 @@ def create_app(db_path: str = ".retobs/results.db"):
             "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
         }
 
-    @app.get("/runs/{run_id}/queries/{query_id}")
-    async def get_query_result(run_id: str, query_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/queries/{query_id}")
+    async def get_query_result(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         results = [r for r in await store.get_results(run_id) if r.query_id == query_id]
         diagnostics = await store.get_query_diagnostics(run_id, query_id=query_id)
         return {
@@ -408,8 +516,9 @@ def create_app(db_path: str = ".retobs/results.db"):
             ],
         }
 
-    @app.get("/runs/{run_id}/stage-matrix")
-    async def get_stage_matrix(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/stage-matrix")
+    async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
         run_rows = [run for run in await store.list_runs() if run["run_id"] == run_id]
         config = json.loads(run_rows[0]["config_json"]) if run_rows else {}
@@ -421,8 +530,9 @@ def create_app(db_path: str = ".retobs/results.db"):
             cells.append({"metric": key, "estimated_cost_per_1k": _pipeline_cost_per_1k(config, value["pipeline_id"], costs), **value})
         return {"run_id": run_id, "cells": cells}
 
-    @app.get("/runs/{run_id}/pareto-frontier")
-    async def get_pareto_frontier(run_id: str) -> Dict[str, Any]:
+    @db_router.get("/runs/{run_id}/pareto-frontier")
+    async def get_pareto_frontier(db_id: str, run_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
@@ -471,61 +581,123 @@ def create_app(db_path: str = ".retobs/results.db"):
             "frontier_order": result.frontier_order,
         }
 
-    try:
-        import multipart  # noqa: F401
-
-        @app.post("/validate")
-        async def validate_uploaded_config(config_file: UploadFile = File(...)) -> Dict[str, Any]:
-            from retrieval_observatory.config.schema import ExperimentConfig
-            from retrieval_observatory.datasets.validation import validate_experiment_config
-            import yaml
-
-            content = await config_file.read()
-            cfg = ExperimentConfig.model_validate(yaml.safe_load(content))
-            report = validate_experiment_config(cfg, config_file.filename)
-            await store.save_validation_report(report, config_path=config_file.filename)
-            return report
-
-        @app.post("/experiments/prepare")
-        async def prepare_experiment(
-            config_file: UploadFile = File(...),
-            queries_file: UploadFile | None = File(None),
-            corpus_file: UploadFile | None = File(None),
-            qrels_file: UploadFile | None = File(None),
-        ) -> Dict[str, Any]:
-            upload_id = str(uuid.uuid4())[:8]
-            upload_dir = os.path.join(".retobs", "uploads", upload_id)
-            os.makedirs(upload_dir, exist_ok=True)
-
-            async def _save(upload: UploadFile | None, filename: str) -> str | None:
-                if upload is None:
-                    return None
-                path = os.path.join(upload_dir, filename)
-                with open(path, "wb") as f:
-                    shutil.copyfileobj(upload.file, f)
-                return path
-
-            config_path = await _save(config_file, "experiment.yaml")
-            queries_path = await _save(queries_file, "queries.jsonl")
-            corpus_path = await _save(corpus_file, "corpus.jsonl")
-            qrels_path = await _save(qrels_file, "qrels.jsonl")
-
-            return {
-                "upload_id": upload_id,
-                "config_path": config_path,
-                "queries_path": queries_path,
-                "corpus_path": corpus_path,
-                "qrels_path": qrels_path,
-                "run_command": f"retobs run --config {config_path}",
-            }
-    except ImportError:
+    def _register_upload_unavailable() -> None:
         @app.post("/validate")
         async def validate_upload_unavailable() -> Dict[str, Any]:
-            raise HTTPException(status_code=501, detail="Install retrieval-observatory[dashboard] with python-multipart to use upload validation.")
+            raise HTTPException(
+                status_code=501,
+                detail="Install retrieval-observatory[dashboard] with python-multipart to use upload validation.",
+            )
 
         @app.post("/experiments/prepare")
         async def prepare_upload_unavailable() -> Dict[str, Any]:
-            raise HTTPException(status_code=501, detail="Install retrieval-observatory[dashboard] with python-multipart to use experiment uploads.")
+            raise HTTPException(
+                status_code=501,
+                detail="Install retrieval-observatory[dashboard] with python-multipart to use experiment uploads.",
+            )
+
+    if enable_uploads:
+        try:
+            import multipart  # noqa: F401
+
+            @app.post("/validate")
+            async def validate_uploaded_config(config_file: UploadFile = File(...)) -> Dict[str, Any]:
+                from retrieval_observatory.config.schema import ExperimentConfig
+                from retrieval_observatory.datasets.validation import validate_experiment_config
+                import yaml
+
+                content = await config_file.read()
+                cfg = ExperimentConfig.model_validate(yaml.safe_load(content))
+                report = validate_experiment_config(cfg, config_file.filename)
+                await default_store.save_validation_report(report, config_path=config_file.filename)
+                return report
+
+            @app.post("/experiments/prepare")
+            async def prepare_experiment(
+                config_file: UploadFile = File(...),
+                queries_file: UploadFile | None = File(None),
+                corpus_file: UploadFile | None = File(None),
+                qrels_file: UploadFile | None = File(None),
+            ) -> Dict[str, Any]:
+                upload_id = str(uuid.uuid4())[:8]
+                upload_dir = os.path.join(".retobs", "uploads", upload_id)
+                os.makedirs(upload_dir, exist_ok=True)
+
+                async def _save(upload: UploadFile | None, filename: str) -> str | None:
+                    if upload is None:
+                        return None
+                    path = os.path.join(upload_dir, filename)
+                    with open(path, "wb") as f:
+                        shutil.copyfileobj(upload.file, f)
+                    return path
+
+                config_path = await _save(config_file, "experiment.yaml")
+                queries_path = await _save(queries_file, "queries.jsonl")
+                corpus_path = await _save(corpus_file, "corpus.jsonl")
+                qrels_path = await _save(qrels_file, "qrels.jsonl")
+
+                return {
+                    "upload_id": upload_id,
+                    "config_path": config_path,
+                    "queries_path": queries_path,
+                    "corpus_path": corpus_path,
+                    "qrels_path": qrels_path,
+                    "run_command": f"retobs run --config {config_path}",
+                }
+        except Exception:
+            _register_upload_unavailable()
+    else:
+        _register_upload_unavailable()
+
+    app.include_router(db_router)
+
+    # Backward-compatible aliases when a single database is loaded.
+    if registry.is_single:
+        _sole_db = registry.default_db_id
+
+        @app.get("/runs")
+        async def legacy_list_runs() -> List[Dict]:
+            return await registry.list_runs(_sole_db)
+
+        @app.get("/runs/{run_id}/metrics")
+        async def legacy_run_metrics(run_id: str) -> Dict[str, Any]:
+            return await get_run_metrics(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/metrics/by-segment")
+        async def legacy_run_metrics_by_segment(run_id: str, field: str = "n_relevant") -> Dict[str, Any]:
+            return await get_run_metrics_by_segment(_sole_db, run_id, field)
+
+        @app.get("/runs/{run_id}/manifest")
+        async def legacy_manifest(run_id: str) -> Dict[str, Any]:
+            return await get_manifest(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/diagnostics")
+        async def legacy_diagnostics(run_id: str) -> Dict[str, Any]:
+            return await get_diagnostics(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/query-labels")
+        async def legacy_query_labels(run_id: str) -> Dict[str, Any]:
+            return await get_query_labels(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/classifier-calibration")
+        async def legacy_classifier_calibration(run_id: str) -> Dict[str, Any]:
+            return await get_classifier_calibration(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/overview")
+        async def legacy_overview(run_id: str) -> Dict[str, Any]:
+            return await get_run_overview(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/queries/{query_id}")
+        async def legacy_query_result(run_id: str, query_id: str) -> Dict[str, Any]:
+            return await get_query_result(_sole_db, run_id, query_id)
+
+        @app.get("/runs/{run_id}/stage-matrix")
+        async def legacy_stage_matrix(run_id: str) -> Dict[str, Any]:
+            return await get_stage_matrix(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/pareto-frontier")
+        async def legacy_pareto(run_id: str) -> Dict[str, Any]:
+            return await get_pareto_frontier(_sole_db, run_id)
 
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):

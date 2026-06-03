@@ -15,6 +15,7 @@ import DashboardGuide from './DashboardGuide'
 
 interface Props {
   run: Run
+  dbId: string
   wide?: boolean
 }
 
@@ -46,7 +47,7 @@ function inferLatencyBudget(metrics: MetricsMap): number {
   return Math.round(sorted[Math.floor(sorted.length * 0.75)] * 2)
 }
 
-export default function RunDetail({ run, wide = false }: Props) {
+export default function RunDetail({ run, dbId, wide = false }: Props) {
   const [metrics, setMetrics] = useState<MetricsMap | null>(null)
   const [overview, setOverview] = useState<RunOverview | null>(null)
   const [baselines, setBaselines] = useState<Record<string, number>>({})
@@ -62,13 +63,13 @@ export default function RunDetail({ run, wide = false }: Props) {
     setMetrics(null)
     setOverview(null)
     setError(null)
-    fetchMetrics(run.run_id)
+    fetchMetrics(dbId, run.run_id)
       .then((m) => {
         setMetrics(m)
         setLatencyBudgetMs(inferLatencyBudget(m))
       })
       .catch((e) => setError(e.message))
-    fetchRunOverview(run.run_id)
+    fetchRunOverview(dbId, run.run_id)
       .then((ov) => {
         setOverview(ov)
         if (typeof ov.manifest?.latency_budget_ms === 'number') {
@@ -76,7 +77,7 @@ export default function RunDetail({ run, wide = false }: Props) {
         }
       })
       .catch(() => setOverview(null))
-  }, [run.run_id])
+  }, [dbId, run.run_id])
 
   useEffect(() => {
     if (datasetName) {
@@ -134,7 +135,7 @@ export default function RunDetail({ run, wide = false }: Props) {
       )}
 
       <Section title="Experiment Overview">
-        <ExperimentOverview runId={run.run_id} />
+        <ExperimentOverview dbId={dbId} runId={run.run_id} />
       </Section>
 
       {/* Tradeoff explorer sliders — shown when comparing 2+ pipelines */}
@@ -221,19 +222,19 @@ export default function RunDetail({ run, wide = false }: Props) {
       </Section>
 
       <Section title="Quality–Latency Tradeoff">
-        <TradeoffScatter runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
+        <TradeoffScatter dbId={dbId} runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
       <Section title="Stage Combination Matrix">
-        <StageCombinationMatrix runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
+        <StageCombinationMatrix dbId={dbId} runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
       <Section title="Query Explorer">
-        <QueryExplorer runId={run.run_id} />
+        <QueryExplorer dbId={dbId} runId={run.run_id} />
       </Section>
 
       <Section title="NDCG@10 by Number of Relevant Docs">
-        <SegmentBreakdown runId={run.run_id} field="n_relevant" targetMetric="ndcg" />
+        <SegmentBreakdown dbId={dbId} runId={run.run_id} field="n_relevant" targetMetric="ndcg" />
       </Section>
     </div>
   )

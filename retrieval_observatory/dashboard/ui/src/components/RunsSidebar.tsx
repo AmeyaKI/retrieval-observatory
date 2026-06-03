@@ -1,9 +1,10 @@
-import { Run } from '../api'
+import { Run, selectionKey } from '../api'
 
 interface Props {
   runs: Run[]
-  selectedIds: string[]
-  onToggle: (runId: string) => void
+  selectedKeys: Set<string>
+  activeDbId: string | null
+  onToggle: (dbId: string, runId: string) => void
 }
 
 function formatDate(iso: string | null): string {
@@ -14,11 +15,19 @@ function formatDate(iso: string | null): string {
   })
 }
 
-export default function RunsSidebar({ runs, selectedIds, onToggle }: Props) {
-  if (runs.length === 0) {
+export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }: Props) {
+  if (!activeDbId) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-gray-400">No runs yet</p>
+        <p className="text-sm text-gray-400">No database selected</p>
+      </div>
+    )
+  }
+
+  if (runs.length === 0) {
+    return (
+      <div className="flex-1 flex items-center justify-center px-4">
+        <p className="text-sm text-gray-400 text-center">No runs in this database</p>
       </div>
     )
   }
@@ -26,11 +35,13 @@ export default function RunsSidebar({ runs, selectedIds, onToggle }: Props) {
   return (
     <ul className="flex-1 overflow-y-auto divide-y divide-gray-100">
       {runs.map((run) => {
-        const selected = selectedIds.includes(run.run_id)
+        const dbId = run.db_id ?? activeDbId
+        const key = selectionKey({ dbId, runId: run.run_id })
+        const selected = selectedKeys.has(key)
         return (
           <li
-            key={run.run_id}
-            onClick={() => onToggle(run.run_id)}
+            key={key}
+            onClick={() => onToggle(dbId, run.run_id)}
             className={`px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
               selected ? 'bg-indigo-50 border-l-2 border-indigo-500' : ''
             }`}
@@ -39,7 +50,7 @@ export default function RunsSidebar({ runs, selectedIds, onToggle }: Props) {
               <input
                 type="checkbox"
                 checked={selected}
-                onChange={() => onToggle(run.run_id)}
+                onChange={() => onToggle(dbId, run.run_id)}
                 onClick={(e) => e.stopPropagation()}
                 className="accent-indigo-600"
               />

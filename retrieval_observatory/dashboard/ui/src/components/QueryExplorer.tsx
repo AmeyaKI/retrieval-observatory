@@ -16,14 +16,14 @@ function formatProba(proba: Record<string, number> | null | undefined): string {
   return ALL_CLASSES.map((c) => `${c}:${((proba[c] ?? 0) * 100).toFixed(0)}%`).join(' ')
 }
 
-export default function QueryExplorer({ runId }: { runId: string }) {
+export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: string }) {
   const [items, setItems] = useState<QueryLabelRow[]>([])
   const [filter, setFilter] = useState('')
   const [mismatchOnly, setMismatchOnly] = useState(false)
 
   useEffect(() => {
-    fetchQueryLabels(runId).then((data) => setItems(data.items)).catch(() => setItems([]))
-  }, [runId])
+    fetchQueryLabels(dbId, runId).then((data) => setItems(data.items)).catch(() => setItems([]))
+  }, [dbId, runId])
 
   const filtered = useMemo(() => {
     const needle = filter.toLowerCase()

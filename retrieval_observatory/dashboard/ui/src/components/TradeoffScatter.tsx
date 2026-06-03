@@ -14,6 +14,7 @@ import ChartZoomControls from './ChartZoomControls'
 import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
+  dbId: string
   runId: string
   latencyBudgetMs?: number
 }
@@ -140,7 +141,7 @@ function makeDotRenderer(
   }
 }
 
-export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
+export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props) {
   const [expanded, setExpanded] = useState(false)
   const [frontier, setFrontier] = useState<ParetoFrontierResponse | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -164,10 +165,10 @@ export default function TradeoffScatter({ runId, latencyBudgetMs }: Props) {
   useEffect(() => {
     setFrontier(null)
     setLoadError(null)
-    fetchParetoFrontier(runId)
+    fetchParetoFrontier(dbId, runId)
       .then(setFrontier)
       .catch((e) => setLoadError(e.message))
-  }, [runId])
+  }, [dbId, runId])
 
   const points = useMemo(
     () => (frontier?.pipelines ?? []).map(toChartPoint),

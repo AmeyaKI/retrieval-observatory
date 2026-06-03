@@ -6,6 +6,7 @@ import { fmtQuality, fmtLatencyMs, fmtCost } from '../utils/format'
 type Cell = MetricEntry & { metric: string; estimated_cost_per_1k: number }
 
 interface Props {
+  dbId: string
   runId: string
   /** Latency budget in ms — highlights latency_p50 cells green/red */
   latencyBudgetMs?: number
@@ -15,12 +16,12 @@ function fmtCell(v: number, isLatency: boolean): string {
   return isLatency ? fmtLatencyMs(v) : fmtQuality(v)
 }
 
-export default function StageCombinationMatrix({ runId, latencyBudgetMs }: Props) {
+export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }: Props) {
   const [cells, setCells] = useState<Cell[]>([])
 
   useEffect(() => {
-    fetchStageMatrix(runId).then((data) => setCells(data.cells)).catch(() => setCells([]))
-  }, [runId])
+    fetchStageMatrix(dbId, runId).then((data) => setCells(data.cells)).catch(() => setCells([]))
+  }, [dbId, runId])
 
   const rows = cells
     .filter((cell) => ['recall', 'ndcg', 'latency_p50', 'latency_p95'].includes(cell.metric_name))

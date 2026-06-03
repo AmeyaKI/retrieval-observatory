@@ -13,6 +13,7 @@ import ChartZoomControls from './ChartZoomControls'
 import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
+  dbId: string
   runId: string
   field?: string
   targetMetric?: string
@@ -76,7 +77,7 @@ function buildSegmentChart(data: SegmentMetrics, targetMetric: string) {
   return { chartData, seriesLabels, segValues, seriesKeysSorted, pipelineIds }
 }
 
-export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMetric = 'ndcg' }: Props) {
+export default function SegmentBreakdown({ dbId, runId, field = 'n_relevant', targetMetric = 'ndcg' }: Props) {
   const [data, setData] = useState<SegmentMetrics | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
@@ -89,10 +90,10 @@ export default function SegmentBreakdown({ runId, field = 'n_relevant', targetMe
   useEffect(() => {
     setData(null)
     setError(null)
-    fetchSegmentMetrics(runId, field)
+    fetchSegmentMetrics(dbId, runId, field)
       .then(setData)
       .catch((e) => setError(e.message))
-  }, [runId, field])
+  }, [dbId, runId, field])
 
   const built = useMemo(
     () => (data ? buildSegmentChart(data, targetMetric) : null),

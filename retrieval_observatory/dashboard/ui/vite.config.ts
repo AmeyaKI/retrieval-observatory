@@ -9,8 +9,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/dbs': 'http://localhost:8000',
       '/runs': 'http://localhost:8000',
       '/compare': 'http://localhost:8000',
+      '/datasets': 'http://localhost:8000',
     },
   },
 })

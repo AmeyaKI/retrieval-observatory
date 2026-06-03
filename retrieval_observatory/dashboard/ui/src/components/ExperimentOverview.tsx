@@ -5,13 +5,13 @@ import { METRIC_GLOSSARY, lookupFailureLabel } from '../utils/metricGlossary'
 import { MetricTooltip } from './MetricTooltip'
 import ClassifierCalibration from './ClassifierCalibration'
 
-export default function ExperimentOverview({ runId }: { runId: string }) {
+export default function ExperimentOverview({ dbId, runId }: { dbId: string; runId: string }) {
   const [overview, setOverview] = useState<Overview | null>(null)
 
   useEffect(() => {
     setOverview(null)
-    fetchRunOverview(runId).then(setOverview).catch(() => setOverview(null))
-  }, [runId])
+    fetchRunOverview(dbId, runId).then(setOverview).catch(() => setOverview(null))
+  }, [dbId, runId])
 
   if (!overview) return null
 
@@ -98,7 +98,7 @@ export default function ExperimentOverview({ runId }: { runId: string }) {
         </div>
       )}
 
-      <ClassifierCalibration runId={runId} />
+      <ClassifierCalibration dbId={dbId} runId={runId} />
     </div>
   )
 }

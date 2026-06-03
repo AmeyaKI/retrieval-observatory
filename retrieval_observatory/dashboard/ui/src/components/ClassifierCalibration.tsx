@@ -34,13 +34,13 @@ function buildChartRows(
   })
 }
 
-export default function ClassifierCalibration({ runId }: { runId: string }) {
+export default function ClassifierCalibration({ dbId, runId }: { dbId: string; runId: string }) {
   const [data, setData] = useState<ClassifierCalibrationResponse | null>(null)
   const [view, setView] = useState<'predicted' | 'actual'>('predicted')
 
   useEffect(() => {
-    fetchClassifierCalibration(runId).then(setData).catch(() => setData(null))
-  }, [runId])
+    fetchClassifierCalibration(dbId, runId).then(setData).catch(() => setData(null))
+  }, [dbId, runId])
 
   if (!data) return null
 

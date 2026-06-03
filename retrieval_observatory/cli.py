@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -288,11 +289,31 @@ async def _compare(run_id_1: str, run_id_2: str, db_path: str) -> None:
     console.print("[dim]q-value: Benjamini-Hochberg FDR-adjusted p-value. Use q < 0.05 for significance.[/dim]")
 
 
+def _collect_dashboard_db_paths(cli_dbs: Optional[List[str]]) -> List[str]:
+    """Merge repeated --db flags, comma-separated paths, and RETOBS_DASHBOARD_DBS."""
+    paths: List[str] = []
+    if cli_dbs:
+        for arg in cli_dbs:
+            for part in arg.split(","):
+                p = part.strip()
+                if p:
+                    paths.append(p)
+    env = os.environ.get("RETOBS_DASHBOARD_DBS")
+    if env:
+        for part in env.split(":"):
+            p = part.strip()
+            if p:
+                paths.append(p)
+    if not paths:
+        paths = [".retobs/results.db"]
+    return paths
+
+
 @app.command()
 def serve(
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(8000, "--port"),
-    db_path: str = typer.Option(".retobs/results.db", "--db"),
+    db: Optional[List[str]] = typer.Option(None, "--db", help="SQLite DB path(s); repeat or comma-separate."),
 ) -> None:
     """Start the FastAPI dashboard server."""
     try:
@@ -301,14 +322,29 @@ def serve(
         console.print("[red]uvicorn not installed. Run: pip install uvicorn[/red]")
         raise typer.Exit(1)
 
+    db_paths = _collect_dashboard_db_paths(db)
+    missing = [p for p in db_paths if not Path(p).exists()]
+    if missing:
+        for p in missing:
+            console.print(f"[red]Database not found:[/red] {p}")
+        raise typer.Exit(1)
+
     try:
         from retrieval_observatory.dashboard.api import create_app
-        dashboard_app = create_app(db_path=db_path)
+        from retrieval_observatory.dashboard.registry import DbRegistry
+
+        registry = DbRegistry(db_paths)
+        dashboard_app = create_app(registry=registry)
         display_host = "localhost" if host in ("0.0.0.0", "::") else host
         console.print(f"[bold green]Dashboard:[/bold green] http://{display_host}:{port}")
+        if len(db_paths) > 1:
+            console.print(f"[dim]Loaded {len(db_paths)} databases: {', '.join(registry.list_db_ids())}[/dim]")
         uvicorn.run(dashboard_app, host=host, port=port)
     except ImportError:
         console.print("[red]Dashboard not available. Install fastapi: pip install fastapi uvicorn[/red]")
+        raise typer.Exit(1)
+    except (FileNotFoundError, ValueError) as e:
+        console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
 
 
