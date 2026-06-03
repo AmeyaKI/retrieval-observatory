@@ -8,6 +8,8 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   latency_p50: 'P50 — Median latency. Half of all queries complete faster than this value, half slower. Best represents the typical user experience.',
   latency_p95: 'P95 — 95th percentile latency. 95% of queries complete within this time. High P95 relative to P50 indicates occasional slow outliers (tail latency), which degrade real-world user experience.',
   latency_p99: 'P99 — 99th percentile tail latency. The slowest 1% of queries. Critical for SLA evaluation and for detecting timeout-prone queries.',
+  latency_percentile_summary:
+    'Percentile summary across per-query latencies — not a bootstrap mean. Std and 95% CI are not shown because these rows are scalar percentiles (P50/P95/P99), not distributions over queries.',
   zero_pct: '% Zero Scores — percentage of queries where this metric scored exactly 0. For recall/NDCG: zero means no relevant documents were retrieved at all for those queries. High zero% reveals that the retriever completely fails on a subset of queries, which a simple mean hides.',
   ci: '95% Confidence Interval — computed via bootstrap resampling (1000 iterations). If two CIs overlap substantially, the difference between runs may not be statistically meaningful. Narrow CIs indicate stable, consistent performance.',
   stage: 'Pipeline Stage — Stage 0 is the initial retriever (e.g. BM25, dense bi-encoder) that searches the full corpus. Stage 1+ are rerankers that re-score the candidates from Stage 0 for higher precision. Each stage\'s metrics are evaluated independently against the ground truth.',
@@ -15,6 +17,10 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   ref_bm25: 'Published BM25 baseline from the BEIR benchmark (Thakur et al. 2021, Table 2), using BM25 on Elasticsearch. Use this as a reference point — your results running the same BM25 logic should be close to this value.',
   underpowered: 'Fewer than 30 queries — bootstrap confidence intervals are unreliable. Smoke runs (n=20) always show this badge. Run full sweeps for stable CIs.',
   wide_ci: 'Relative CI width ≥ 35% of the mean — high variance across queries; treat the mean as directional only.',
+  wide_ci_abs:
+    'Absolute CI width ≥ 0.05 on a low mean (< 0.2) — common for sparse metrics like Recall@1; the mean understates how often queries fail completely. Check % Zero.',
+  high_zero_pct:
+    'More than 20% of queries scored 0 on this metric — no relevant documents in top-K for that fraction of queries. The mean overstates typical performance.',
   stable: 'Relative CI width < 15% — consistent performance across queries.',
   profile_compute_ms: 'Local compute time (ms) per query — CPU/GPU work in-process (BM25, bi-encoder, cross-encoder). 100% zero on network is normal for local adapters.',
   profile_network_ms: 'Network/API time (ms) per query — HTTP round-trips (Cohere, remote vector DB). 100% zero on compute is normal for API-only adapters.',

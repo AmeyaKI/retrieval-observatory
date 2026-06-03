@@ -784,6 +784,22 @@ def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
     return max(candidates, key=lambda row: row.get("mean", 0.0))
 
 
+def _is_quality_metric_row(value: Dict[str, Any]) -> bool:
+    name = value.get("metric_name") or ""
+    if name.startswith("latency") or name.startswith("profile_"):
+        return False
+    if name in ("failure_rate", "timeout_rate", "dropout_count"):
+        return False
+    return value.get("stage_index", 0) >= 0
+
+
+def _headline_metric_label(metric_name: str, k: int) -> str | None:
+    """Metrics we surface in run-level warnings (avoid profile/latency noise)."""
+    if metric_name in ("ndcg", "recall", "mrr", "map"):
+        return f"{metric_name}@{k}" if k else metric_name
+    return None
+
+
 def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifest: Dict | None) -> List[str]:
     warnings = []
     if any(value.get("metric_name") == "failure_rate" and value.get("mean", 0.0) > 0 for value in metrics.values()):
@@ -792,6 +808,53 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
         warnings.append("Some queries look like possible document ID or qrel mismatches.")
     if manifest and manifest.get("dataset", {}).get("missing_qrel_doc_ids", 0):
         warnings.append("Some qrel document IDs were missing from the loaded corpus.")
+    if manifest and manifest.get("cache_results"):
+        warnings.append(
+            "Result caching was enabled for this run (manifest: cache_results=true). "
+            "Latency percentiles may be optimistic on re-runs; use --no-cache for cold-path timing."
+        )
+    zero_by_pipeline: Dict[str, List[str]] = defaultdict(list)
+    ci_by_pipeline: Dict[str, List[str]] = defaultdict(list)
+    for value in metrics.values():
+        if not _is_quality_metric_row(value):
+            continue
+        mname = value.get("metric_name") or ""
+        k = int(value.get("k") or 0)
+        label = _headline_metric_label(mname, k)
+        if label is None:
+            continue
+        pid = value.get("pipeline_id", "?")
+        zero_pct = value.get("zero_pct") or 0.0
+        if zero_pct > 20:
+            zero_by_pipeline[pid].append(
+                f"{label} {zero_pct:.1f}% ({value.get('zero_count', 0)}/{value.get('n', 0)} queries)"
+            )
+        if (value.get("n") or 0) < 30:
+            continue
+        mean = abs(value.get("mean") or 0.0)
+        ci_low = value.get("ci_low")
+        ci_high = value.get("ci_high")
+        if ci_low is None or ci_high is None:
+            continue
+        ci_width = ci_high - ci_low
+        rel_width = ci_width / max(mean, 0.001)
+        if rel_width >= 0.35:
+            ci_by_pipeline[pid].append(f"{label} (CI width {ci_width:.3f}, {rel_width * 100:.0f}% of mean)")
+        elif ci_width >= 0.05 and mean < 0.2:
+            ci_by_pipeline[pid].append(f"{label} (mean {mean:.3f}, CI width {ci_width:.3f})")
+
+    for pid, parts in sorted(zero_by_pipeline.items()):
+        warnings.append(
+            f"{pid}: elevated zero-score rate — "
+            + "; ".join(parts)
+            + ". No relevant documents in top-K for those queries; means overstate typical performance."
+        )
+    for pid, parts in sorted(ci_by_pipeline.items()):
+        warnings.append(
+            f"{pid}: wide or sparse confidence intervals on "
+            + "; ".join(parts)
+            + ". Treat means as directional."
+        )
     return warnings
 
 

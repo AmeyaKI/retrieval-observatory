@@ -21,23 +21,67 @@ function fmtCell(v: number, isLatency: boolean): string {
   return isLatency ? fmtLatencyMs(v) : fmtQuality(v)
 }
 
-function ciLabel(entry: MetricEntry, isLatency: boolean): string {
+function isLatencyPercentile(metricName: string): boolean {
+  return metricName.startsWith('latency_p')
+}
+
+function ciLabel(entry: MetricEntry, isLatencyPercentileRow: boolean): string {
+  if (isLatencyPercentileRow) return '—'
+  const isLatency = entry.metric_name.startsWith('latency')
   return `[${fmtCell(entry.ci_low, isLatency)}, ${fmtCell(entry.ci_high, isLatency)}]`
 }
 
-function CIBadge({ entry, isLatency }: { entry: MetricEntry; isLatency: boolean }) {
-  if (isLatency) return null
+function latencySummaryHint(): JSX.Element {
+  return (
+    <span
+      className="ml-1 text-[9px] text-gray-400 cursor-help"
+      title={METRIC_GLOSSARY.latency_percentile_summary}
+    >
+      (pct)
+    </span>
+  )
+}
+
+function CIBadge({ entry }: { entry: MetricEntry }) {
+  if (isLatencyPercentile(entry.metric_name)) return null
   if (entry.n < 30) {
     return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium cursor-help" title={METRIC_GLOSSARY.underpowered}>underpowered</span>
   }
-  const relWidth = (entry.ci_high - entry.ci_low) / Math.max(Math.abs(entry.mean), 0.001)
+  const ciWidth = entry.ci_high - entry.ci_low
+  const meanAbs = Math.abs(entry.mean)
+  const relWidth = ciWidth / Math.max(meanAbs, 0.001)
   if (relWidth >= 0.35) {
     return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help" title={METRIC_GLOSSARY.wide_ci}>wide CI</span>
+  }
+  if (ciWidth >= 0.05 && meanAbs < 0.2) {
+    return (
+      <span
+        className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help"
+        title={METRIC_GLOSSARY.wide_ci_abs}
+      >
+        sparse CI
+      </span>
+    )
   }
   if (relWidth < 0.15) {
     return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium cursor-help" title={METRIC_GLOSSARY.stable}>stable</span>
   }
   return null
+}
+
+function ZeroRateBadge({ zeroPct }: { zeroPct: number }) {
+  if (zeroPct <= 20) return null
+  const high = zeroPct > 40
+  return (
+    <span
+      className={`ml-1.5 text-[9px] px-1 py-0.5 rounded font-medium cursor-help ${
+        high ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+      }`}
+      title={METRIC_GLOSSARY.high_zero_pct}
+    >
+      {high ? 'high zeros' : 'zeros warning'}
+    </span>
+  )
 }
 
 function isProfileMetric(name: string): boolean {
@@ -327,6 +371,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                       {rows.map(([key, entry]) => {
                         const pv = pValues?.[key]
                         const significant = pv !== undefined && pv < 0.05
+                        const isLatencyPct = isLatencyPercentile(entry.metric_name)
                         const isLatency = entry.metric_name.startsWith('latency')
                         const isP50 = entry.metric_name === 'latency_p50'
                         const isP99 = entry.metric_name === 'latency_p99'
@@ -361,7 +406,9 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                             </td>
                             <td className={`px-3 py-2 text-right tabular-nums font-medium ${meanCellClass}`}>
                               {fmtCell(entry.mean, isLatency)}
-                              <CIBadge entry={entry} isLatency={isLatency} />
+                              {isLatencyPct && latencySummaryHint()}
+                              <CIBadge entry={entry} />
+                              <ZeroRateBadge zeroPct={entry.zero_pct} />
                               {delta && (
                                 <span
                                   className={`ml-1.5 text-[9px] px-1 py-0.5 rounded font-medium ${
@@ -379,10 +426,14 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                               )}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                              {fmtCell(entry.std, isLatency)}
+                              {isLatencyPct ? (
+                                <span className="text-gray-400" title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
+                              ) : (
+                                fmtCell(entry.std, isLatency)
+                              )}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">
-                              {ciLabel(entry, isLatency)}
+                              {ciLabel(entry, isLatencyPct)}
                             </td>
                             <td className="px-3 py-2 text-right text-gray-500">
                               {isP99 && entry.n < 100
@@ -395,7 +446,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                               zeroPctMed ? 'text-amber-600 bg-amber-50' :
                               'text-gray-400'
                             }`}>
-                              {isLatency || isProfileMetric(entry.metric_name) ? (
+                              {isLatencyPct || isProfileMetric(entry.metric_name) ? (
                                 isProfileMetric(entry.metric_name) && entry.zero_pct >= 99 ? (
                                   <span
                                     className="cursor-help"
@@ -459,9 +510,14 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                           </td>
                           <td className={`px-3 py-2 text-right tabular-nums font-semibold ${meanCellClass}`}>
                             {fmtLatencyMs(entry.mean)}
+                            {latencySummaryHint()}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-gray-500">—</td>
-                          <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">—</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                            <span title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-600 text-xs">
+                            <span title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
+                          </td>
                           <td className="px-3 py-2 text-right text-gray-500">
                             {isP99 && entry.n < 100
                               ? <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>

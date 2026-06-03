@@ -123,8 +123,8 @@ function makeDotRenderer(
     const cost = pt.costPer1k ?? 0
     const r = showCostSizing && cost > 0 ? 5 + (cost / maxCost) * 9 : 7
     if (pt.isParetoOptimal) {
-      const outer = r + 1
-      const inner = outer * 0.42
+      const outer = r
+      const inner = outer * 0.5
       return (
         <path
           d={starPath(cx, cy, outer, inner)}
@@ -340,7 +340,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
           <div key={pt.pipelineId} className="flex items-center gap-1.5">
             {pt.isParetoOptimal ? (
               <svg width={14} height={14} viewBox="0 0 14 14" className="shrink-0" aria-hidden>
-                <path d={starPath(7, 7, 6.5, 2.8)} fill={color} stroke="white" strokeWidth={0.75} />
+                <path d={starPath(7, 7, 7, 3.5)} fill={color} stroke="white" strokeWidth={0.75} />
               </svg>
             ) : (
               <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
@@ -352,7 +352,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
       <span className="text-gray-300 hidden sm:inline">|</span>
       <div className="flex items-center gap-1.5 text-gray-500">
         <svg width={12} height={12} viewBox="0 0 14 14" className="shrink-0" aria-hidden>
-          <path d={starPath(7, 7, 6, 2.5)} fill="#9ca3af" stroke="#e5e7eb" strokeWidth={0.75} />
+          <path d={starPath(7, 7, 7, 3.5)} fill="#9ca3af" stroke="#e5e7eb" strokeWidth={0.75} />
         </svg>
         <span>Star = Pareto optimal ({paretoOptimalCount} of {points.length})</span>
       </div>
