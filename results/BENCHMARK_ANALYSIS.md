@@ -95,9 +95,9 @@ On **SciFact and FiQA**, `dense_only` is the sole Pareto-optimal configuration �
 
 > **NFCorpus caveat:** NDCG@10 bootstrap CIs overlap among dense, rerank, and RRF. Do not claim a single NDCG winner on that dataset.
 
-![Quality–Latency Tradeoff — NFCorpus](screenshots/pareto-frontier-nfcorpus.png)
+Quality–Latency Tradeoff — NFCorpus
 
-![Quality–Latency Tradeoff — FiQA](screenshots/pareto-frontier-fiqa.png)
+Quality–Latency Tradeoff — FiQA
 
 ---
 
@@ -176,7 +176,7 @@ On all three full sweeps, `bm25__rerank` increases **both** NDCG@10 and Recall@1
 
 **Why this matters:** Reranking is justified when you need recall gains from an existing BM25 pool and can pay ~1.1 s/query P50 on CPU. It is **not** a substitute for dense retrieval on FiQA (dense NDCG 0.369 vs rerank 0.260).
 
-![Stage Attribution: bm25 → bm25__rerank](screenshots/stage-attribution-nfcorpus.png)
+Stage Attribution: bm25 → bm25__rerank
 
 Cross-encoder stage P50 ≈ **1,090 ms** across datasets (scoring 100 BM25 candidates on CPU).
 
@@ -218,7 +218,7 @@ Monotonic decline across buckets validates the classifier as a **routing signal*
 
 For comparison, **actual** difficulty buckets on BM25 alone: easy (n=13) mean Recall@10 **0.767** vs hard (n=183) **0.028** — gap **0.739**.
 
-![Classifier Calibration](screenshots/classifier-calibration-nfcorpus.png)
+Classifier Calibration
 
 **Caveat:** The classifier predicts observatory difficulty under *your* pipelines on *your* corpus — not intrinsic question hardness. Train and evaluate on the same dataset.
 

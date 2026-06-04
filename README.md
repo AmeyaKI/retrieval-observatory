@@ -4,7 +4,7 @@ Most RAG evaluation tools score end-to-end answer quality and stop there. They d
 
 **Headline result:** On BEIR/FiQA, dense retrieval (`all-MiniLM-L6-v2`) outperforms BM25 by **+132% NDCG@10** (0.369 vs 0.159) at **~130× lower latency** than cross-encoder reranking. On SciFact and FiQA, dense-only is the **sole Pareto-optimal** pipeline. On NFCorpus, dense/rerank/RRF NDCG CIs overlap — no single winner on quality alone.
 
-![Quality–Latency Tradeoff — NFCorpus Pareto frontier](results/screenshots/pareto-frontier-nfcorpus.png)
+Quality–Latency Tradeoff — NFCorpus Pareto frontier
 
 ---
 
@@ -40,11 +40,13 @@ For a multi-pipeline sweep, see [configs/beir_publish/](configs/beir_publish/) a
 
 Cross-dataset summary (full BEIR test splits, 4 independent pipelines). See [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) for motivation, Pareto analysis, classifier calibration, and limitations.
 
-| Dataset | bm25 NDCG@10 | dense_only | rrf_hybrid | bm25__rerank | Pareto optimal |
-| ------- | ------------ | ---------- | ---------- | ------------ | -------------- |
-| NFCorpus (323q) | 0.264 | **0.310** | 0.304 | 0.310 | bm25, dense_only |
-| SciFact (300q) | 0.544 | **0.640** | 0.623 | 0.628 | dense_only |
-| FiQA (648q) | 0.159 | **0.369** | 0.290 | 0.260 | dense_only |
+
+| Dataset         | bm25 NDCG@10 | dense_only | rrf_hybrid | bm25__rerank | Pareto optimal   |
+| --------------- | ------------ | ---------- | ---------- | ------------ | ---------------- |
+| NFCorpus (323q) | 0.264        | **0.310**  | 0.304      | 0.310        | bm25, dense_only |
+| SciFact (300q)  | 0.544        | **0.640**  | 0.623      | 0.628        | dense_only       |
+| FiQA (648q)     | 0.159        | **0.369**  | 0.290      | 0.260        | dense_only       |
+
 
 Four pipelines: `bm25`, `dense_only`, `rrf_hybrid`, `bm25__rerank`. Stage attribution uses the bm25 → bm25__rerank prefix pair only. JSON exports and regeneration: [results/RESULTS_OVERVIEW.md](results/RESULTS_OVERVIEW.md).
 
@@ -321,15 +323,19 @@ costs:
 The `adapter.http` stage wraps any REST endpoint. Your server must accept:
 
 **Request** — `POST` with JSON body:
+
 ```json
 {"query": "user question text", "k": 100}
 ```
+
 When query filters are set, a `filters` object is also included.
 
 **Response** — JSON in either shape:
+
 ```json
 {"documents": [{"id": "doc_1", "text": "...", "score": 0.92}]}
 ```
+
 ```json
 [{"id": "doc_1", "text": "...", "score": 0.92}]
 ```
@@ -346,7 +352,7 @@ Each document object must include the configured ID field (default `id`). Text a
     score_field: relevance
 ```
 
-See [`examples/http_quickstart/server.py`](examples/http_quickstart/server.py) for a reference implementation.
+See `[examples/http_quickstart/server.py](examples/http_quickstart/server.py)` for a reference implementation.
 
 ### Custom Python retriever via `adapter.import`
 
@@ -373,7 +379,7 @@ def build_retriever(corpus: dict | None, stage_cfg: dict, **kwargs):
     return retriever_or_reranker, k
 ```
 
-Runnable example: [`examples/custom_retriever/`](examples/custom_retriever/)
+Runnable example: `[examples/custom_retriever/](examples/custom_retriever/)`
 
 ---
 
@@ -550,4 +556,3 @@ PostgreSQL backend (`asyncpg`) is community-supported and not CI-tested. SQLite 
 ```bash
 pip install -e ".[demo,dashboard,dense,dev,llm-judge]"
 ```
-
