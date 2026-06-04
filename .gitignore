@@ -37,3 +37,4 @@ TODO
 *.db
 .archive/
 .prompts/
+.claude/
