@@ -38,12 +38,12 @@ Each dataset tests different retrieval properties. Together they span sparse-lab
 These are **four independent pipelines**, not a single ablation chain:
 
 
-| Pipeline       | Design choice                                                          |
-| -------------- | ---------------------------------------------------------------------- |
-| `bm25`         | Lexical baseline (`rank-bm25`, top-100)                                |
-| `dense_only`   | Bi-encoder retrieval (`all-MiniLM-L6-v2`, top-100)                     |
-| `rrf_hybrid`   | Reciprocal rank fusion of BM25 + dense (`rrf_k=60`)                    |
-| `bm25__rerank` | BM25 top-100 → cross-encoder rerank (`ms-marco-MiniLM-L-6-v2`, top-10) |
+| Pipeline       | Design choice                                                                              |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `bm25`         | "BM25"Lexical baseline (`rank-bm25`, top-100)                                             |
+| `dense_only`   | "bi-encoder"Bi-encoder retrieval (`all-MiniLM-L6-v2`, top-100)                            |
+| `rrf_hybrid`   | "BM25 + bi-encoder"Reciprocal rank fusion of BM25 + dense (`rrf_k=60`)                    |
+| `bm25__rerank` | "BM25 --> reranker"BM25 top-100 → cross-encoder rerank (`ms-marco-MiniLM-L-6-v2`, top-10) |
 
 
 Stage attribution (bm25 → bm25__rerank) uses the prefix pair only. Verdict and Pareto analysis compare all four pipelines in parallel.
