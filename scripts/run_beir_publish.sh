@@ -63,13 +63,13 @@ case "$TARGET" in
     run_config examples/beir_publish/smoke_cascade_nfcorpus.yaml
     ;;
   full-sweep)
-    run_config examples/beir_publish/sweep_nfcorpus.yaml
-    run_config examples/beir_publish/sweep_scifact.yaml
-    run_config examples/beir_publish/sweep_fiqa.yaml
+    run_config configs/beir_publish/sweep_nfcorpus.yaml
+    run_config configs/beir_publish/sweep_scifact.yaml
+    run_config configs/beir_publish/sweep_fiqa.yaml
     ;;
   cohere-nfcorpus)
     load_cohere_env
-    run_config examples/beir_publish/cohere_nfcorpus.yaml
+    run_config configs/beir_publish/cohere_nfcorpus.yaml
     ;;
   cascade-nfcorpus)
     run_config examples/beir_publish/cascade_nfcorpus.yaml

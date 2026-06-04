@@ -1,0 +1,69 @@
+{
+  "difficulty_buckets": {
+    "discriminative": 280,
+    "easy": 864,
+    "hard": 56
+  },
+  "failure_labels": {
+    "candidate_miss": 171,
+    "lexical_mismatch": 106,
+    "id_or_qrel_issue": 56,
+    "reranker_drop": 14,
+    "semantic_mismatch": 11
+  },
+  "by_pipeline": {
+    "bm25": {
+      "n": 300,
+      "labels": {
+        "candidate_miss": 63,
+        "lexical_mismatch": 49,
+        "id_or_qrel_issue": 14
+      },
+      "difficulty_buckets": {
+        "discriminative": 70,
+        "easy": 216,
+        "hard": 14
+      }
+    },
+    "bm25__rerank": {
+      "n": 300,
+      "labels": {
+        "candidate_miss": 63,
+        "lexical_mismatch": 57,
+        "id_or_qrel_issue": 14,
+        "reranker_drop": 14
+      },
+      "difficulty_buckets": {
+        "discriminative": 70,
+        "easy": 216,
+        "hard": 14
+      }
+    },
+    "dense_only": {
+      "n": 300,
+      "labels": {
+        "candidate_miss": 25,
+        "id_or_qrel_issue": 14,
+        "semantic_mismatch": 11
+      },
+      "difficulty_buckets": {
+        "discriminative": 70,
+        "easy": 216,
+        "hard": 14
+      }
+    },
+    "rrf_hybrid": {
+      "n": 300,
+      "labels": {
+        "candidate_miss": 20,
+        "id_or_qrel_issue": 14
+      },
+      "difficulty_buckets": {
+        "discriminative": 70,
+        "easy": 216,
+        "hard": 14
+      }
+    }
+  },
+  "n": 1200
+}

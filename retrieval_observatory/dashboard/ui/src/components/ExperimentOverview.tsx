@@ -92,12 +92,6 @@ export default function ExperimentOverview({ dbId, runId }: { dbId: string; runI
         </div>
       )}
 
-      {overview.warnings.length > 0 && (
-        <div className="md:col-span-3 border border-amber-200 rounded p-3 bg-amber-50 text-sm text-amber-800">
-          {overview.warnings.join(' ')}
-        </div>
-      )}
-
       <ClassifierCalibration dbId={dbId} runId={runId} />
     </div>
   )

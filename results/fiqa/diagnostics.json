@@ -1,0 +1,74 @@
+{
+  "difficulty_buckets": {
+    "medium": 472,
+    "discriminative": 1180,
+    "easy": 488,
+    "hard": 452
+  },
+  "failure_labels": {
+    "candidate_miss": 754,
+    "lexical_mismatch": 470,
+    "reranker_drop": 44,
+    "id_or_qrel_issue": 284,
+    "semantic_mismatch": 14
+  },
+  "by_pipeline": {
+    "bm25": {
+      "n": 648,
+      "labels": {
+        "candidate_miss": 288,
+        "lexical_mismatch": 217,
+        "id_or_qrel_issue": 71
+      },
+      "difficulty_buckets": {
+        "medium": 118,
+        "discriminative": 295,
+        "easy": 122,
+        "hard": 113
+      }
+    },
+    "bm25__rerank": {
+      "n": 648,
+      "labels": {
+        "candidate_miss": 288,
+        "lexical_mismatch": 253,
+        "reranker_drop": 44,
+        "id_or_qrel_issue": 71
+      },
+      "difficulty_buckets": {
+        "medium": 118,
+        "discriminative": 295,
+        "easy": 122,
+        "hard": 113
+      }
+    },
+    "dense_only": {
+      "n": 648,
+      "labels": {
+        "candidate_miss": 85,
+        "id_or_qrel_issue": 71,
+        "semantic_mismatch": 14
+      },
+      "difficulty_buckets": {
+        "medium": 118,
+        "discriminative": 295,
+        "easy": 122,
+        "hard": 113
+      }
+    },
+    "rrf_hybrid": {
+      "n": 648,
+      "labels": {
+        "candidate_miss": 93,
+        "id_or_qrel_issue": 71
+      },
+      "difficulty_buckets": {
+        "medium": 118,
+        "discriminative": 295,
+        "easy": 122,
+        "hard": 113
+      }
+    }
+  },
+  "n": 2592
+}

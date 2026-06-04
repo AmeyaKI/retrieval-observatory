@@ -1,0 +1,59 @@
+[
+  {
+    "from_pipeline": "bm25",
+    "to_pipeline": "bm25__cohere_rerank",
+    "deltas": {
+      "map": {
+        "before": 0.10997106472390838,
+        "after": 0.12833986007473158,
+        "absolute": 0.018368795350823197,
+        "pct": 16.70329863309008,
+        "q_value": 0.393,
+        "significant": false
+      },
+      "mrr": {
+        "before": 0.4677354031110316,
+        "after": 0.5185099846390169,
+        "absolute": 0.05077458152798525,
+        "pct": 10.855406965192309,
+        "q_value": 0.1215,
+        "significant": false
+      },
+      "ndcg@10": {
+        "before": 0.2635339223081618,
+        "after": 0.32871021677680157,
+        "absolute": 0.06517629446863976,
+        "pct": 24.731652721514255,
+        "q_value": 0.0,
+        "significant": true
+      },
+      "recall@1": {
+        "before": 0.04308762120062764,
+        "after": 0.05835637870497793,
+        "absolute": 0.015268757504350292,
+        "pct": 35.4365292835611,
+        "q_value": 0.393,
+        "significant": false
+      },
+      "recall@5": {
+        "before": 0.09889872734162576,
+        "after": 0.12341494537100468,
+        "absolute": 0.024516218029378922,
+        "pct": 24.78921487502319,
+        "q_value": 0.0,
+        "significant": true
+      },
+      "recall@10": {
+        "before": 0.11873017375066057,
+        "after": 0.15103730162308515,
+        "absolute": 0.03230712787242458,
+        "pct": 27.210545434112817,
+        "q_value": 0.0,
+        "significant": true
+      }
+    },
+    "latency_p50_before_ms": null,
+    "latency_p50_after_ms": 585.8749579929281,
+    "latency_delta_ms": null
+  }
+]

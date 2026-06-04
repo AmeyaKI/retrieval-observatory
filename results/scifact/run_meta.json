@@ -1,0 +1,5 @@
+{
+  "run_id": "49b423cf",
+  "experiment_name": "beir-publish-sweep-scifact",
+  "db_path": ".retobs/publish_sweep_scifact.db"
+}

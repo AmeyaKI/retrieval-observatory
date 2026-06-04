@@ -12,6 +12,7 @@ import ExperimentOverview from './ExperimentOverview'
 import QueryExplorer from './QueryExplorer'
 import StageCombinationMatrix from './StageCombinationMatrix'
 import DashboardGuide from './DashboardGuide'
+import DataQualityWarnings from './DataQualityWarnings'
 
 interface Props {
   run: Run
@@ -188,16 +189,7 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
         minQualityDelta={minQualityDelta}
       />
 
-      {overview && overview.warnings.length > 0 && (
-        <div className="mb-4 p-3 border border-amber-300 rounded-lg bg-amber-50">
-          <div className="text-xs font-semibold text-amber-800 mb-1">Data Quality Warnings</div>
-          <ul className="list-disc list-inside space-y-0.5">
-            {overview.warnings.map((w, i) => (
-              <li key={i} className="text-xs text-amber-700">{w}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {overview && <DataQualityWarnings warnings={overview.warnings} />}
 
       <Section title="Metrics Summary">
         <MetricsTable

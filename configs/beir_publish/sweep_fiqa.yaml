@@ -1,10 +1,12 @@
-# BEIR publish full sweep — SciFact
-# Canonical copy: configs/beir_publish/sweep_scifact.yaml
+# BEIR publish full sweep — FiQA (648 test queries, 4 pipelines)
+# Financial QA; largest corpus in sweep (57k docs); strongest dense-vs-BM25 separation.
+# Reproduce: ./scripts/run_beir_publish.sh full-sweep
 
 experiment:
-  name: beir-publish-sweep-scifact
+  name: beir-publish-sweep-fiqa
 
 dataset:
+  name: beir/fiqa
   split: test
 
 stages:
@@ -60,5 +62,5 @@ execution:
 
 output:
   store: sqlite
-  db_path: .retobs/publish_sweep_scifact.db
+  db_path: .retobs/publish_sweep_fiqa.db
   export: [json]

@@ -1,0 +1,45 @@
+{
+  "difficulty_buckets": {
+    "hard": 506,
+    "discriminative": 46,
+    "easy": 18,
+    "medium": 76
+  },
+  "failure_labels": {
+    "candidate_miss": 299,
+    "id_or_qrel_issue": 168,
+    "unstable": 168,
+    "reranker_drop": 10
+  },
+  "by_pipeline": {
+    "bm25": {
+      "n": 323,
+      "labels": {
+        "candidate_miss": 84,
+        "id_or_qrel_issue": 84
+      },
+      "difficulty_buckets": {
+        "hard": 253,
+        "discriminative": 23,
+        "easy": 9,
+        "medium": 38
+      }
+    },
+    "bm25__cohere_rerank": {
+      "n": 323,
+      "labels": {
+        "candidate_miss": 215,
+        "id_or_qrel_issue": 84,
+        "unstable": 168,
+        "reranker_drop": 10
+      },
+      "difficulty_buckets": {
+        "hard": 253,
+        "discriminative": 23,
+        "easy": 9,
+        "medium": 38
+      }
+    }
+  },
+  "n": 646
+}

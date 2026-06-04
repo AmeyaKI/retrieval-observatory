@@ -15,7 +15,6 @@ DATASETS = [
     ("scifact", ".retobs/publish_sweep_scifact.db", "49b423cf"),
     ("fiqa", ".retobs/publish_sweep_fiqa.db", "0784ed30"),
     ("cohere_nfcorpus", ".retobs/publish_cohere_nfcorpus.db", "a6dad22f"),
-    ("cascade_smoke_nfcorpus", ".retobs/publish_smoke_cascade_nfcorpus.db", "3bae7430"),
 ]
 
 

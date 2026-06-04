@@ -1,5 +1,7 @@
-# BEIR publish — BM25 vs BM25+Cohere (full NFCorpus). Requires COHERE_API_KEY.
-# Canonical copy: configs/beir_publish/cohere_nfcorpus.yaml
+# BEIR publish — BM25 vs BM25+Cohere rerank (full NFCorpus, 323 queries)
+# Requires COHERE_API_KEY in environment or .env file.
+# Reproduce: ./scripts/run_beir_publish.sh cohere-nfcorpus
+# Note: publication run had 155/323 queries complete (API rate limits); rerun with --no-cache.
 
 experiment:
   name: beir-publish-cohere-nfcorpus
@@ -22,7 +24,7 @@ stages:
 combinations:
   include:
     - [bm25, cohere_rerank]
-  ablations: true
+  ablations: true       # Also runs bm25 baseline for comparison
 
 metrics:
   recall_at_k: [1, 5, 10]

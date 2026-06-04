@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import DataQualityWarnings from './DataQualityWarnings'
 import { fetchComparison, ComparisonEntry, RunSelection, selectionKey } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
@@ -54,13 +55,7 @@ export default function ComparePanel({ selections }: Props) {
       <h1 className="text-xl font-bold text-gray-900 mb-1">Run Comparison</h1>
       <p className="text-sm text-gray-500 mb-4 font-mono">{runKeys.join(' vs ')}</p>
 
-      {warnings.length > 0 && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-900">
-          {warnings.map((w) => (
-            <p key={w}>{w}</p>
-          ))}
-        </div>
-      )}
+      <DataQualityWarnings warnings={warnings} />
 
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">

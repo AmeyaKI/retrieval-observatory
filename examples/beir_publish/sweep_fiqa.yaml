@@ -1,8 +1,10 @@
+# BEIR publish full sweep — FiQA
+# Canonical copy: configs/beir_publish/sweep_fiqa.yaml
+
 experiment:
   name: beir-publish-sweep-fiqa
 
 dataset:
-  name: beir/fiqa
   split: test
 
 stages:

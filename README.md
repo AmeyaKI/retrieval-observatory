@@ -1,11 +1,59 @@
 # retrieval-observatory (retobs)
 
-**Should you add that reranker?** retobs answers this with data.
+Most RAG evaluation tools score end-to-end answer quality and stop there. They don't tell you **which stage helped**, **what it cost in latency**, or **which queries will fail before you run retrieval**. retobs is an open-source multi-stage retrieval benchmark and local dashboard that measures per-stage contribution, failure diagnosis, latency–quality tradeoffs, and query difficulty — so you can decide whether to add that reranker (or switch to dense) with evidence, not intuition.
 
-retobs measures what each stage in your retrieval pipeline actually contributes — quality improvement, latency cost, and failure mode — and tells you whether the tradeoff is worth it at your latency budget.
+**Headline result:** On BEIR/FiQA, dense retrieval (`all-MiniLM-L6-v2`) outperforms BM25 by **+132% NDCG@10** (0.369 vs 0.159) at **~130× lower latency** than cross-encoder reranking. On SciFact and FiQA, dense-only is the **sole Pareto-optimal** pipeline. On NFCorpus, dense/rerank/RRF NDCG CIs overlap — no single winner on quality alone.
+
+![Quality–Latency Tradeoff — NFCorpus Pareto frontier](docs/screenshots/pareto-frontier-nfcorpus.png)
+
+---
+
+## Install
+
+PyPI package coming soon. For now, install from source:
+
+```bash
+git clone https://github.com/akiwalkar/retrieval-observatory.git && cd retrieval-observatory
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[demo,dashboard,dense]"
+```
+
+---
+
+## Quickstart (~5 minutes)
+
+Run BM25 on 50 SciFact queries, then open the dashboard:
+
+```bash
+retobs validate --config examples/quickstart_scifact.yaml
+retobs run --config examples/quickstart_scifact.yaml
+retobs serve --db .retobs/quickstart_scifact.db
+```
+
+Open `http://localhost:8000` — explore metrics, latency, and query-level diagnostics.
+
+For a multi-pipeline sweep, see [configs/beir_publish/](configs/beir_publish/) and `./scripts/run_beir_publish.sh full-sweep`.
+
+---
+
+## Benchmark Results
+
+Cross-dataset summary (full BEIR test splits, 4 independent pipelines). See [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) for motivation, Pareto analysis, classifier calibration, and limitations.
+
+| Dataset | bm25 NDCG@10 | dense_only | rrf_hybrid | bm25__rerank | Pareto optimal |
+| ------- | ------------ | ---------- | ---------- | ------------ | -------------- |
+| NFCorpus (323q) | 0.264 | **0.310** | 0.304 | 0.310 | bm25, dense_only |
+| SciFact (300q) | 0.544 | **0.640** | 0.623 | 0.628 | dense_only |
+| FiQA (648q) | 0.159 | **0.369** | 0.290 | 0.260 | dense_only |
+
+Four pipelines: `bm25`, `dense_only`, `rrf_hybrid`, `bm25__rerank`. Stage attribution uses the bm25 → bm25__rerank prefix pair only. JSON exports and regeneration: [results/RESULTS_OVERVIEW.md](results/RESULTS_OVERVIEW.md).
+
+---
+
+## What retobs tells you
 
 ```
-Stage Contribution: bm25 → bm25__reranker
+Stage Contribution: bm25 → bm25__rerank
 ┌───────────────┬──────────┬──────────┬──────────────┬────────────────┐
 │ Metric        │ Before   │ After    │ Δ            │ Significant?   │
 ├───────────────┼──────────┼──────────┼──────────────┼────────────────┤
@@ -13,40 +61,16 @@ Stage Contribution: bm25 → bm25__reranker
 │ ndcg@10       │ 0.2640   │ 0.3100   │ +0.0460 (+17%)│ q=0.012 ✓    │
 │ Latency P50   │ 2ms      │ 4,057ms  │ +4,055ms     │ —             │
 └───────────────┴──────────┴──────────┴──────────────┴────────────────┘
-  recall@10 changed +0.0190 (+16.0%) ✓ significant. Latency cost: +4,055ms P50.
-  → Adjust your latency budget in the dashboard to explore tradeoffs.
 ```
 
-What retobs tells you:
-
-1. **Stage attribution** — Recall@10 went from 0.119 → 0.138 (+16%) by adding the reranker. BH-corrected significance: q=0.041 ✓.
-2. **Failure diagnosis** — 42% of remaining failures are candidate misses at stage 0. The reranker can't fix what the retriever never found.
-3. **Latency-quality tradeoff** — That gain cost 4,000ms/query on CPU. The dashboard lets you slide your latency budget and see the verdict update live.
+1. **Stage attribution** — What did each stage add in quality, cost, and latency? BH-corrected significance on paired queries.
+2. **Failure diagnosis** — Candidate misses, lexical mismatches, reranker drops — labeled per query.
+3. **Latency–quality tradeoff** — Pareto frontier and budget slider; see whether reranking is worth it at your latency budget.
 
 Core promise:
 
-- Given any retrieval pipeline, retobs produces comparable **Recall@K, Precision@K, NDCG@K, MRR, MAP, latency percentiles, and estimated cost per 1k queries**.
-- Pipelines can be multi-stage, and each stage is analyzed independently for attribution and failure diagnosis.
-- Temporal recall is supported for time-sensitive datasets with query anchors and document timestamps.
-
----
-
-## Benchmark Results
-
-Real numbers on BEIR/nfcorpus (323 queries, 3,633 docs). 95% CIs via paired bootstrap.
-
-
-| Pipeline                                       | Recall@10                | NDCG@10                  | MRR                      | Latency P50 |
-| ---------------------------------------------- | ------------------------ | ------------------------ | ------------------------ | ----------- |
-| BM25-only (`rank-bm25`)                        | 0.119 [0.098, 0.141]     | 0.264 [0.233, 0.295]     | 0.468 [0.418, 0.514]     | 2 ms        |
-| Dense-only (`all-MiniLM-L6-v2` + FAISS)        | **0.153 [0.129, 0.179]** | **0.310 [0.278, 0.341]** | 0.510 [0.464, 0.555]     | 539 ms*     |
-| BM25 → CrossEncoder (`ms-marco-MiniLM-L-6-v2`) | 0.138 [0.115, 0.163]     | 0.310 [0.275, 0.345]     | **0.530 [0.480, 0.581]** | 4,057 ms**  |
-
-
- Query encoding on CPU; latency drops significantly with GPU or batched encoding.  
- Scoring 100 BM25 candidates through a cross-encoder on CPU; GPU reduces this substantially.
-
-Full data and observations: [results/nfcorpus/README.md](results/nfcorpus/README.md)
+- Comparable **Recall@K, NDCG@K, MRR, MAP, latency percentiles, and estimated cost per 1k queries** across pipelines.
+- Multi-stage pipelines with independent stage analysis and temporal recall for time-sensitive datasets.
 
 ---
 

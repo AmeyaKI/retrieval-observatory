@@ -24,10 +24,13 @@ TODO
 
 # Docs (project-specific; keep GOALS.md)
 *.md
+!README.md
+!RESULTS.md
 !GOALS.md
 !CLAUDE.md
 !AGENTS.md
 !results/**/*.md
+!docs/**/*.md
 
 
 # local data / files

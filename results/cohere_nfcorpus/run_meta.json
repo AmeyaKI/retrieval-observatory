@@ -1,0 +1,5 @@
+{
+  "run_id": "a6dad22f",
+  "experiment_name": "beir-publish-cohere-nfcorpus",
+  "db_path": ".retobs/publish_cohere_nfcorpus.db"
+}

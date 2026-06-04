@@ -1,10 +1,12 @@
-# BEIR publish full sweep — SciFact
-# Canonical copy: configs/beir_publish/sweep_scifact.yaml
+# BEIR publish full sweep — SciFact (300 test queries, 4 pipelines)
+# Scientific fact-checking; stresses dense vs lexical on short scientific claims.
+# Reproduce: ./scripts/run_beir_publish.sh full-sweep
 
 experiment:
   name: beir-publish-sweep-scifact
 
 dataset:
+  name: beir/scifact
   split: test
 
 stages:

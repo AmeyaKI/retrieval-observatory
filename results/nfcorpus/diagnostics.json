@@ -1,0 +1,74 @@
+{
+  "difficulty_buckets": {
+    "hard": 732,
+    "discriminative": 80,
+    "easy": 52,
+    "medium": 428
+  },
+  "failure_labels": {
+    "candidate_miss": 270,
+    "id_or_qrel_issue": 164,
+    "lexical_mismatch": 108,
+    "reranker_drop": 28,
+    "semantic_mismatch": 10
+  },
+  "by_pipeline": {
+    "bm25": {
+      "n": 323,
+      "labels": {
+        "candidate_miss": 84,
+        "id_or_qrel_issue": 41,
+        "lexical_mismatch": 43
+      },
+      "difficulty_buckets": {
+        "hard": 183,
+        "discriminative": 20,
+        "easy": 13,
+        "medium": 107
+      }
+    },
+    "bm25__rerank": {
+      "n": 323,
+      "labels": {
+        "candidate_miss": 84,
+        "id_or_qrel_issue": 41,
+        "lexical_mismatch": 65,
+        "reranker_drop": 28
+      },
+      "difficulty_buckets": {
+        "hard": 183,
+        "discriminative": 20,
+        "easy": 13,
+        "medium": 107
+      }
+    },
+    "dense_only": {
+      "n": 323,
+      "labels": {
+        "candidate_miss": 51,
+        "id_or_qrel_issue": 41,
+        "semantic_mismatch": 10
+      },
+      "difficulty_buckets": {
+        "hard": 183,
+        "discriminative": 20,
+        "easy": 13,
+        "medium": 107
+      }
+    },
+    "rrf_hybrid": {
+      "n": 323,
+      "labels": {
+        "candidate_miss": 51,
+        "id_or_qrel_issue": 41
+      },
+      "difficulty_buckets": {
+        "hard": 183,
+        "discriminative": 20,
+        "easy": 13,
+        "medium": 107
+      }
+    }
+  },
+  "n": 1292
+}

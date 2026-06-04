@@ -1,0 +1,5 @@
+{
+  "run_id": "0784ed30",
+  "experiment_name": "beir-publish-sweep-fiqa",
+  "db_path": ".retobs/publish_sweep_fiqa.db"
+}
