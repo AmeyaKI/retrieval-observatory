@@ -44,7 +44,7 @@ Open `http://localhost:8000`. Select each DB tab and run `37d3a79c` / `49b423cf`
 - [ ] DB tabs switch without errors; no blank panels after load
 - [ ] Tradeoff Explorer latency budget slider updates verdict card
 - [ ] No console errors in browser devtools
-- [ ] Screenshot assets in `docs/screenshots/` match live dashboard Pareto layout
+- [ ] Screenshot assets in `results/screenshots/` match live dashboard Pareto layout
 
 ## Automated API smoke (optional)
 

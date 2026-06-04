@@ -51,8 +51,8 @@ pip install -e ".[demo,dashboard,dense]"
 
 Configs: [configs/beir_publish/](../configs/beir_publish/)
 
-## Screenshots
+## Screenshots and release checklist
 
-Dashboard visualizations for the README and analysis: [docs/screenshots/](../docs/screenshots/)
+Dashboard visualizations for the README and [BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md): [screenshots/](screenshots/)
 
-Generated from publish sweep DBs via `scripts/generate_dashboard_screenshots.py`.
+Pre-release spot-check: [dashboard_audit.md](dashboard_audit.md)

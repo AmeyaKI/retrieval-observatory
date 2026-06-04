@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Generate publication dashboard screenshots from publish SQLite DBs."""
+"""Generate publication dashboard screenshots from publish SQLite DBs.
+
+Writes PNGs to results/screenshots/ (embedded in BENCHMARK_ANALYSIS.md and README).
+"""
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +21,7 @@ from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "docs" / "screenshots"
+OUT = ROOT / "results" / "screenshots"
 
 # Sorted pipeline_id order → Okabe-Ito palette (matches dashboard chartColors.ts)
 PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9"]

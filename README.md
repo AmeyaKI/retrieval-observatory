@@ -4,7 +4,7 @@ Most RAG evaluation tools score end-to-end answer quality and stop there. They d
 
 **Headline result:** On BEIR/FiQA, dense retrieval (`all-MiniLM-L6-v2`) outperforms BM25 by **+132% NDCG@10** (0.369 vs 0.159) at **~130× lower latency** than cross-encoder reranking. On SciFact and FiQA, dense-only is the **sole Pareto-optimal** pipeline. On NFCorpus, dense/rerank/RRF NDCG CIs overlap — no single winner on quality alone.
 
-![Quality–Latency Tradeoff — NFCorpus Pareto frontier](docs/screenshots/pareto-frontier-nfcorpus.png)
+![Quality–Latency Tradeoff — NFCorpus Pareto frontier](results/screenshots/pareto-frontier-nfcorpus.png)
 
 ---
 
