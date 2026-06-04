@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
+from collections import defaultdict
 from pathlib import Path
+from typing import Any, Dict, List
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -13,6 +14,7 @@ import numpy as np
 from retrieval_observatory.dashboard.api import _compute_stage_contributions, _extract_final_stage_metrics
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
+from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,25 +55,56 @@ async def _load_pareto(db_path: str, run_id: str):
     return compute_pareto_frontier(inputs)
 
 
-async def _load_classifier(db_path: str, run_id: str):
+async def _load_classifier(db_path: str, run_id: str) -> List[Dict[str, Any]]:
+    """Match dashboard classifier-calibration API: mean final-stage recall@10 per query, grouped by predicted class."""
     store = SQLiteStore(db_path=db_path)
-    rows = await store.get_metrics(run_id)
-    from collections import defaultdict
+    metrics_rows = await store.get_metrics(run_id)
 
-    by_pred: dict[str, list[float]] = defaultdict(list)
-    for row in rows:
-        if row.get("metric_name") != "recall@10" or row.get("stage_index", 0) < 0:
-            continue
-        meta = row.get("query_metadata_json")
-        if not meta:
-            continue
-        if isinstance(meta, str):
-            meta = json.loads(meta)
-        pred = meta.get("predicted_difficulty")
+    predicted_by_id: Dict[str, str] = {}
+    for row in metrics_rows:
+        pred = (row.get("query_metadata") or {}).get("predicted_difficulty")
         if pred:
-            by_pred[pred].append(float(row.get("value") or 0))
-    order = ["easy", "medium", "hard"]
-    return {k: float(np.mean(by_pred[k])) if by_pred[k] else 0.0 for k in order if by_pred.get(k)}
+            predicted_by_id.setdefault(row["query_id"], pred)
+
+    if not predicted_by_id:
+        raise RuntimeError(f"No classifier predictions found in {db_path} run {run_id}")
+
+    recall_rows = [
+        r for r in metrics_rows
+        if r["metric_name"] == "recall" and r["k"] == 10 and r["stage_index"] >= 0
+    ]
+    max_stage_by_pipeline: Dict[str, int] = {}
+    for r in recall_rows:
+        pid = r["pipeline_id"]
+        max_stage_by_pipeline[pid] = max(max_stage_by_pipeline.get(pid, -1), r["stage_index"])
+
+    per_query_recall: Dict[str, List[float]] = defaultdict(list)
+    for r in recall_rows:
+        pid = r["pipeline_id"]
+        if r["stage_index"] != max_stage_by_pipeline.get(pid, r["stage_index"]):
+            continue
+        per_query_recall[r["query_id"]].append(float(r["value"]))
+
+    query_mean_recall = {
+        qid: float(np.mean(vals)) for qid, vals in per_query_recall.items() if vals
+    }
+
+    classes: List[Dict[str, Any]] = []
+    for cls in ("easy", "medium", "hard"):
+        qids = [qid for qid, pred in predicted_by_id.items() if pred == cls]
+        scores = [query_mean_recall[qid] for qid in qids if qid in query_mean_recall]
+        if not scores:
+            classes.append({"class": cls, "n": 0, "mean_recall10": None, "ci_low": None, "ci_high": None})
+            continue
+        ci_low, ci_high = bootstrap_ci(scores)
+        classes.append({
+            "class": cls,
+            "n": len(scores),
+            "mean_recall10": float(np.mean(scores)),
+            "ci_low": ci_low,
+            "ci_high": ci_high,
+        })
+    return classes
 
 
 async def _load_stage_contribution(db_path: str, run_id: str):
@@ -140,21 +173,62 @@ def plot_pareto(result, title: str, out_path: Path) -> None:
     plt.close(fig)
 
 
-def plot_classifier(recall_by_bucket: dict[str, float], out_path: Path) -> None:
-    order = ["easy", "medium", "hard"]
-    labels = [b.capitalize() for b in order if b in recall_by_bucket]
-    values = [recall_by_bucket[b] for b in order if b in recall_by_bucket]
-    colors = ["#009E73", "#0072B2", "#D55E00"]
+def plot_classifier(classes: List[Dict[str, Any]], out_path: Path) -> None:
+    # Match dashboard ClassifierCalibration.tsx colors
+    class_colors = {"easy": "#22c55e", "medium": "#3b82f6", "hard": "#ef4444"}
+
+    labels: List[str] = []
+    values: List[float] = []
+    yerr_lo: List[float] = []
+    yerr_hi: List[float] = []
+    colors: List[str] = []
+    ns: List[int] = []
+
+    for row in classes:
+        if row.get("n", 0) == 0 or row.get("mean_recall10") is None:
+            continue
+        cls = row["class"]
+        mean = row["mean_recall10"]
+        ci_low = row.get("ci_low") if row.get("ci_low") is not None else mean
+        ci_high = row.get("ci_high") if row.get("ci_high") is not None else mean
+        labels.append(cls.capitalize())
+        values.append(mean)
+        yerr_lo.append(mean - ci_low)
+        yerr_hi.append(ci_high - mean)
+        colors.append(class_colors.get(cls, "#6b7280"))
+        ns.append(row["n"])
+
+    if not values:
+        raise RuntimeError("Classifier calibration has no data to plot")
 
     fig, ax = plt.subplots(figsize=(8, 5), dpi=120)
     fig.patch.set_facecolor("white")
-    bars = ax.bar(labels, values, color=colors[: len(values)], edgecolor="white", linewidth=0.8)
+    x = np.arange(len(labels))
+    bars = ax.bar(
+        x,
+        values,
+        color=colors,
+        edgecolor="white",
+        linewidth=0.8,
+        yerr=[yerr_lo, yerr_hi],
+        capsize=4,
+        error_kw={"elinewidth": 1.2, "ecolor": "#374151"},
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, fontsize=11)
     ax.set_ylabel("Mean Recall@10 (predicted bucket)", fontsize=11)
     ax.set_xlabel("Predicted difficulty", fontsize=11)
     ax.set_title("Classifier Calibration — NFCorpus (323 queries)", fontsize=13, fontweight="bold", pad=12)
-    ax.set_ylim(0, max(values) * 1.15 if values else 1)
-    for bar, val in zip(bars, values):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02, f"{val:.3f}", ha="center", fontsize=10)
+    ax.set_ylim(0, max(values) * 1.25)
+    for bar, val, n in zip(bars, values, ns):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.03,
+            f"{val:.3f}\n(n={n})",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="y", alpha=0.25)
