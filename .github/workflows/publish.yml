@@ -53,11 +53,11 @@ jobs:
         run: twine check dist/*
 
       - name: Publish to TestPyPI
+        environment: testpypi
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
-        environment: testpypi
 
       - name: Smoke install from TestPyPI
         run: |
@@ -72,7 +72,7 @@ jobs:
           /tmp/testpypi-smoke/bin/retobs --help
 
       - name: Publish to PyPI
+        environment: pypi
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-        environment: pypi
