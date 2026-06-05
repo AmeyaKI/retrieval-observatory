@@ -4,14 +4,9 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  id-token: write
-  contents: read
-
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -52,16 +47,36 @@ jobs:
       - name: Check metadata
         run: twine check dist/*
 
-      - name: Publish to TestPyPI
-        environment: testpypi
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
 
       - name: Smoke install from TestPyPI
         run: |
-          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          VERSION=$(curl -s https://test.pypi.org/pypi/retrieval-observatory/json | python -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
           python -m venv /tmp/testpypi-smoke
           /tmp/testpypi-smoke/bin/pip install --upgrade pip
           /tmp/testpypi-smoke/bin/pip install \
@@ -71,8 +86,19 @@ jobs:
           /tmp/testpypi-smoke/bin/python -c "from retrieval_observatory import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
           /tmp/testpypi-smoke/bin/retobs --help
 
-      - name: Publish to PyPI
-        environment: pypi
-        uses: pypa/gh-action-pypi-publish@release/v1
+  publish-pypi:
+    needs: publish-testpypi
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
