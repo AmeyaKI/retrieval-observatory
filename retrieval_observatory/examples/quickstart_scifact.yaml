@@ -1,0 +1,34 @@
+# 5-minute quickstart — BM25 on SciFact (50 queries)
+# PyPI: retobs run --config "$(python -c 'from retrieval_observatory import EXAMPLES_DIR; print(EXAMPLES_DIR / \"quickstart_scifact.yaml\")')"
+# Then: retobs serve --db .retobs/quickstart_scifact.db
+
+experiment:
+  name: quickstart-scifact-bm25
+
+dataset:
+  name: beir/scifact
+  split: test
+  max_queries: 50       # Subset for fast first run on a laptop
+
+pipelines:
+  - id: bm25
+    stages:
+      - type: adapter.bm25
+        config:
+          k: 100
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 4
+  timeout_seconds: 60
+  cache_results: false  # Honest latency on first run
+
+output:
+  store: sqlite
+  db_path: .retobs/quickstart_scifact.db
+  export: [json]

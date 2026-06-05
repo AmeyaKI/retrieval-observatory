@@ -1,5 +1,7 @@
 # retrieval-observatory (retobs)
 
+[![PyPI version](https://badge.fury.io/py/retrieval-observatory.svg)](https://pypi.org/project/retrieval-observatory/)
+
 Most RAG evaluation tools score end-to-end answer quality and stop there. They don't tell you **which stage helped**, **what it cost in latency**, or **which queries will fail before you run retrieval**. retobs is an open-source multi-stage retrieval benchmark and local dashboard that measures per-stage contribution, failure diagnosis, latency–quality tradeoffs, and query difficulty — so you can decide whether to add that reranker (or switch to dense) with evidence, not intuition.
 
 **Headline result:** On BEIR/FiQA, dense retrieval (`all-MiniLM-L6-v2`) outperforms BM25 by **+132% NDCG@10** (0.369 vs 0.159) at **~130× lower latency** than cross-encoder reranking. On SciFact and FiQA, dense-only is the **sole Pareto-optimal** pipeline. On NFCorpus, dense/rerank/RRF NDCG CIs overlap — no single winner on quality alone.
@@ -10,10 +12,14 @@ Quality–Latency Tradeoff — NFCorpus Pareto frontier
 
 ## Install
 
-PyPI package coming soon. For now, install from source:
+```bash
+pip install "retrieval-observatory[demo,dashboard,dense]"
+```
+
+For development from source:
 
 ```bash
-git clone https://github.com/akiwalkar/retrieval-observatory.git && cd retrieval-observatory
+git clone https://github.com/AmeyaKI/retrieval-observatory.git && cd retrieval-observatory
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[demo,dashboard,dense]"
 ```
@@ -22,7 +28,18 @@ pip install -e ".[demo,dashboard,dense]"
 
 ## Quickstart (~5 minutes)
 
-Run BM25 on 50 SciFact queries, then open the dashboard:
+Run BM25 on 50 SciFact queries, then open the dashboard.
+
+**PyPI install** (bundled example config):
+
+```bash
+CFG="$(python -c 'from retrieval_observatory import EXAMPLES_DIR; print(EXAMPLES_DIR / "quickstart_scifact.yaml")')"
+retobs validate --config "$CFG"
+retobs run --config "$CFG"
+retobs serve --db .retobs/quickstart_scifact.db
+```
+
+**From a git clone** (repo `examples/` tree):
 
 ```bash
 retobs validate --config examples/quickstart_scifact.yaml
@@ -32,7 +49,15 @@ retobs serve --db .retobs/quickstart_scifact.db
 
 Open `http://localhost:8000` — explore metrics, latency, and query-level diagnostics.
 
-For a multi-pipeline sweep, see [configs/beir_publish/](configs/beir_publish/) and `./scripts/run_beir_publish.sh full-sweep`.
+### Full examples and BEIR publish configs
+
+The PyPI wheel includes quickstart YAMLs only. For the full `examples/` demos (HTTP quickstart, temporal demo, dashboard demo with JSONL data) and multi-dataset BEIR sweeps, clone the repo:
+
+```bash
+git clone https://github.com/AmeyaKI/retrieval-observatory.git
+cd retrieval-observatory
+./scripts/run_beir_publish.sh full-sweep   # uses configs/beir_publish/
+```
 
 ---
 
@@ -90,7 +115,7 @@ retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer
 
 ---
 
-## Install
+## Install (development)
 
 ```bash
 python -m venv .venv
@@ -522,13 +547,13 @@ python -m compileall retrieval_observatory -q
 
 ## Dashboard Development
 
-The dashboard frontend is pre-built (`dist/` is checked in), so `retobs serve` works without Node. To modify the React UI:
+The dashboard UI is **pre-built in the PyPI wheel**, so `retobs serve` works after `pip install` with no Node.js required. When developing from a git clone and editing React sources, rebuild the UI:
 
 ```bash
 cd retrieval_observatory/dashboard/ui
 npm install
 npm run dev      # hot-reloading dev server on :5173 (proxies API to retobs serve)
-npm run build    # rebuild dist/ (commit the output)
+npm run build    # rebuild dist/ before python -m build or tagging a release
 ```
 
 Or use `make dashboard-dev` / `make dashboard-build` from the repo root.
