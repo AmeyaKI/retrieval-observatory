@@ -74,18 +74,28 @@ jobs:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
 
-      - name: Smoke install from TestPyPI
+      - name: Verify package appears on TestPyPI
         run: |
-          VERSION=$(curl -s https://test.pypi.org/pypi/retrieval-observatory/json | python -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
-          python -m venv /tmp/testpypi-smoke
-          /tmp/testpypi-smoke/bin/pip install --upgrade pip
-          # PyPI first for dependencies; TestPyPI only for retrieval-observatory (TestPyPI has typosquat packages like FASTAPI-1.0).
-          /tmp/testpypi-smoke/bin/pip install \
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
+          echo "Expecting retrieval-observatory ${VERSION} on TestPyPI"
+          curl -sf "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
+
+      - name: Smoke install built wheel
+        run: |
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --upgrade pip
+          # Do NOT pip install extras from TestPyPI — it hosts typosquats (e.g. fastapi==1.0)
+          # that satisfy our version constraints. Install the exact uploaded wheel + deps from PyPI.
+          /tmp/smoke/bin/pip install \
             --index-url https://pypi.org/simple/ \
-            --extra-index-url https://test.pypi.org/simple/ \
-            "retrieval-observatory[dashboard]==${VERSION}"
-          /tmp/testpypi-smoke/bin/python -c "from retrieval_observatory import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
-          /tmp/testpypi-smoke/bin/retobs --help
+            --only-binary=:all: \
+            "${WHEEL}[dashboard]"
+          /tmp/smoke/bin/python -c "from retrieval_observatory import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
+          UI_INDEX=$(/tmp/smoke/bin/python -c "from retrieval_observatory import PACKAGE_DIR; print(PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
+          test -f "$UI_INDEX"
+          /tmp/smoke/bin/retobs --help
 
   publish-pypi:
     needs: publish-testpypi
@@ -103,3 +113,9 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+
+      - name: Verify package on PyPI
+        run: |
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
+          curl -sf "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
