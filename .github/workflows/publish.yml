@@ -79,9 +79,10 @@ jobs:
           VERSION=$(curl -s https://test.pypi.org/pypi/retrieval-observatory/json | python -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
           python -m venv /tmp/testpypi-smoke
           /tmp/testpypi-smoke/bin/pip install --upgrade pip
+          # PyPI first for dependencies; TestPyPI only for retrieval-observatory (TestPyPI has typosquat packages like FASTAPI-1.0).
           /tmp/testpypi-smoke/bin/pip install \
-            --index-url https://test.pypi.org/simple/ \
-            --extra-index-url https://pypi.org/simple/ \
+            --index-url https://pypi.org/simple/ \
+            --extra-index-url https://test.pypi.org/simple/ \
             "retrieval-observatory[dashboard]==${VERSION}"
           /tmp/testpypi-smoke/bin/python -c "from retrieval_observatory import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
           /tmp/testpypi-smoke/bin/retobs --help

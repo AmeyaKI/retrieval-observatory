@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "retrieval-observatory"
-version = "0.1.0"
+version = "0.1.1"
 description = "Framework-agnostic benchmarking for hybrid RAG retrieval pipelines"
 readme = "README.md"
 requires-python = ">=3.10"
