@@ -1,12 +1,14 @@
 # retrieval-observatory (retobs)
 
-[![PyPI version](https://badge.fury.io/py/retrieval-observatory.svg)](https://pypi.org/project/retrieval-observatory/)
+[PyPI version](https://pypi.org/project/retrieval-observatory/)
 
 Most RAG evaluation tools score end-to-end answer quality and stop there. They don't tell you **which stage helped**, **what it cost in latency**, or **which queries will fail before you run retrieval**. retobs is an open-source multi-stage retrieval benchmark and local dashboard that measures per-stage contribution, failure diagnosis, latency–quality tradeoffs, and query difficulty — so you can decide whether to add that reranker (or switch to dense) with evidence, not intuition.
 
 **Headline result:** On BEIR/FiQA, dense retrieval (`all-MiniLM-L6-v2`) outperforms BM25 by **+132% NDCG@10** (0.369 vs 0.159) at **~130× lower latency** than cross-encoder reranking. On SciFact and FiQA, dense-only is the **sole Pareto-optimal** pipeline. On NFCorpus, dense/rerank/RRF NDCG CIs overlap — no single winner on quality alone.
 
 Quality–Latency Tradeoff — NFCorpus Pareto frontier
+
+
 
 ---
 
@@ -581,3 +583,4 @@ PostgreSQL backend (`asyncpg`) is community-supported and not CI-tested. SQLite 
 ```bash
 pip install -e ".[demo,dashboard,dense,dev,llm-judge]"
 ```
+
