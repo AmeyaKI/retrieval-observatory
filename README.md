@@ -1,6 +1,6 @@
 # retrieval-observatory (retobs)
 
-[![PyPI version](https://img.shields.io/pypi/v/retrieval-observatory.svg)](https://pypi.org/project/retrieval-observatory/)
+[PyPI version](https://pypi.org/project/retrieval-observatory/)
 
 Most RAG evaluation tools score end-to-end answer quality and stop there. They don't tell you **which stage helped**, **what it cost in latency**, or **which queries will fail before you run retrieval**. retobs is an open-source multi-stage retrieval benchmark and local dashboard that measures per-stage contribution, failure diagnosis, latency–quality tradeoffs, and query difficulty — so you can decide whether to add that reranker (or switch to dense) with evidence, not intuition.
 
@@ -8,11 +8,13 @@ Most RAG evaluation tools score end-to-end answer quality and stop there. They d
 
 ## Benchmark Results (3 BEIR datasets, 1,271 queries)
 
-| Dataset | BM25 NDCG@10 | Dense NDCG@10 | Improvement | Pareto winner |
-|---------|-------------|--------------|-------------|---------------|
-| NFCorpus (biomedical) | 0.264 | **0.310** | +17.6% | dense_only, bm25 |
-| SciFact (scientific claims) | 0.544 | **0.640** | +17.7% | dense_only |
-| FiQA (financial QA) | 0.159 | **0.369** | **+132%** | dense_only |
+
+| Dataset                     | BM25 NDCG@10 | Dense NDCG@10 | Improvement | Pareto winner    |
+| --------------------------- | ------------ | ------------- | ----------- | ---------------- |
+| NFCorpus (biomedical)       | 0.264        | **0.310**     | +17.6%      | dense_only, bm25 |
+| SciFact (scientific claims) | 0.544        | **0.640**     | +17.7%      | dense_only       |
+| FiQA (financial QA)         | 0.159        | **0.369**     | **+132%**   | dense_only       |
+
 
 Dense retrieval (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA — matching or beating cross-encoder reranking at **133–228× lower latency**. Full numbers, confidence intervals, and failure analysis: [RESULTS.md](RESULTS.md)
 
@@ -41,11 +43,13 @@ Stage Contribution: bm25 → bm25__rerank
 
 ## How It's Different
 
-| Tool | What it measures |
-|---|---|
-| BEIR | End-to-end pipeline accuracy on fixed datasets |
-| RAGAs / TruLens | Answer quality given retrieved context |
-| **retobs** | **Per-stage contribution: what did each stage add in quality, cost, and latency?** |
+
+| Tool            | What it measures                                                                   |
+| --------------- | ---------------------------------------------------------------------------------- |
+| BEIR            | End-to-end pipeline accuracy on fixed datasets                                     |
+| RAGAs / TruLens | Answer quality given retrieved context                                             |
+| **retobs**      | **Per-stage contribution: what did each stage add in quality, cost, and latency?** |
+
 
 retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer between "I have a retrieval pipeline" and "I understand how to improve it."
 
@@ -193,3 +197,4 @@ Full reference with all flags: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets with statistical analysis
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete technical reference: all adapters, YAML options, dataset formats, dashboard features
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive into the 4-pipeline sweep: Pareto analysis, classifier calibration, statistical methodology
+

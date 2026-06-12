@@ -268,3 +268,230 @@ export async function fetchClassifierCalibration(
   if (!res.ok) throw new Error(`Failed to fetch classifier calibration for run ${runId}`)
   return res.json()
 }
+
+// ───────────────────────── Forge ─────────────────────────
+
+export interface ForgeDatasetSummary {
+  total_queries?: number
+  total_scenarios?: number
+  corpus_size?: number
+  validated?: number
+  by_difficulty?: Record<string, number>
+  by_query_type?: Record<string, number>
+  by_scenario_type?: Record<string, number>
+}
+
+export interface ForgeDataset {
+  dataset_id: string
+  created_at: string
+  corpus_path: string
+  output_dir: string
+  summary: ForgeDatasetSummary
+}
+
+export interface ForgeScenario {
+  scenario_id: string
+  scenario_type: string
+  anchor_doc_ids: string[]
+  evidence_summary: string
+}
+
+export interface ForgeDatasetDetail extends ForgeDataset {
+  scenarios: ForgeScenario[]
+  validation_coverage: number
+}
+
+export interface ForgeQuery {
+  query_id: string
+  text: string
+  scenario_id: string
+  query_type: string
+  difficulty_label: string
+  failure_category: string | null
+  validated: boolean
+  positive_doc_ids: string[]
+}
+
+export interface ForgeRunRef {
+  run_id: string
+  experiment_name: string
+  started_at: string
+}
+
+export async function fetchForgeDatasets(): Promise<ForgeDataset[]> {
+  const res = await fetch(`${BASE}/forge/datasets`)
+  if (!res.ok) throw new Error('Failed to fetch Forge datasets')
+  return res.json()
+}
+
+export async function fetchForgeDataset(datasetId: string): Promise<ForgeDatasetDetail> {
+  const res = await fetch(`${BASE}/forge/datasets/${encodeURIComponent(datasetId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch Forge dataset ${datasetId}`)
+  return res.json()
+}
+
+export async function fetchForgeQueries(
+  datasetId: string,
+  filters: { scenario_type?: string; difficulty?: string; query_type?: string; validated_only?: boolean } = {},
+): Promise<ForgeQuery[]> {
+  const params = new URLSearchParams()
+  if (filters.scenario_type) params.set('scenario_type', filters.scenario_type)
+  if (filters.difficulty) params.set('difficulty', filters.difficulty)
+  if (filters.query_type) params.set('query_type', filters.query_type)
+  if (filters.validated_only) params.set('validated_only', 'true')
+  const qs = params.toString()
+  const res = await fetch(`${BASE}/forge/datasets/${encodeURIComponent(datasetId)}/queries${qs ? `?${qs}` : ''}`)
+  if (!res.ok) throw new Error(`Failed to fetch queries for Forge dataset ${datasetId}`)
+  return res.json()
+}
+
+export async function fetchForgeDatasetRuns(datasetId: string): Promise<ForgeRunRef[]> {
+  const res = await fetch(`${BASE}/forge/datasets/${encodeURIComponent(datasetId)}/runs`)
+  if (!res.ok) throw new Error(`Failed to fetch runs for Forge dataset ${datasetId}`)
+  return res.json()
+}
+
+// ───────────────────────── TraceLens ─────────────────────────
+
+export interface TraceService {
+  service: string
+  trace_count: number
+  last_seen: string
+}
+
+export interface TraceRow {
+  trace_id: string
+  service: string
+  query_id: string
+  query_text: string
+  pipeline_id: string
+  status: string
+  total_latency_ms: number
+  timestamp: string
+  predicted_difficulty: string | null
+  suspected_failures: string[]
+  metadata: Record<string, unknown>
+}
+
+export interface TraceStage {
+  stage_index: number
+  stage_id: string
+  latency_ms: number
+  candidate_count: number
+  documents: { id: string; text?: string; score: number; rank: number; title?: string }[]
+}
+
+export interface TraceDetail extends TraceRow {
+  stages: TraceStage[]
+}
+
+export interface TraceSummary {
+  trace_count: number
+  ok_rate: number
+  error_rate: number
+  latency_p50: number
+  latency_p95: number
+  suspected_failure_rate: number
+}
+
+export interface TraceDistribution {
+  n: number
+  by_difficulty: Record<string, number>
+  by_status: Record<string, number>
+  by_length_bin: Record<string, number>
+  by_failure_label: Record<string, number>
+  latency_percentiles: Record<string, number>
+}
+
+export interface DriftFinding {
+  feature: string
+  method: string
+  statistic: number
+  drifted: boolean
+  severity: string
+  baseline: Record<string, number>
+  recent: Record<string, number>
+}
+
+export interface FailureHotspot {
+  segment: string
+  difficulty: string
+  label: string
+  pipeline: string
+  count: number
+  rate: number
+}
+
+export interface QueryClusterRow {
+  cluster: string
+  size: number
+  share: number
+  examples: string[]
+  suspected_rate: number
+  latency_p50: number
+}
+
+function windowParams(service: string, since?: string): string {
+  const p = new URLSearchParams({ service })
+  if (since) p.set('since', since)
+  return p.toString()
+}
+
+export async function fetchTraceServices(): Promise<TraceService[]> {
+  const res = await fetch(`${BASE}/tracelens/services`)
+  if (!res.ok) throw new Error('Failed to fetch trace services')
+  return res.json()
+}
+
+export async function fetchTraceSummary(service: string, since?: string): Promise<TraceSummary> {
+  const res = await fetch(`${BASE}/tracelens/summary?${windowParams(service, since)}`)
+  if (!res.ok) throw new Error('Failed to fetch trace summary')
+  return res.json()
+}
+
+export async function fetchTraces(
+  service: string,
+  filters: { since?: string; status?: string; difficulty?: string; suspected_only?: boolean } = {},
+): Promise<TraceRow[]> {
+  const p = new URLSearchParams({ service })
+  if (filters.since) p.set('since', filters.since)
+  if (filters.status) p.set('status', filters.status)
+  if (filters.difficulty) p.set('difficulty', filters.difficulty)
+  if (filters.suspected_only) p.set('suspected_only', 'true')
+  const res = await fetch(`${BASE}/tracelens/traces?${p.toString()}`)
+  if (!res.ok) throw new Error('Failed to fetch traces')
+  return res.json()
+}
+
+export async function fetchTraceDetail(traceId: string): Promise<TraceDetail> {
+  const res = await fetch(`${BASE}/tracelens/traces/${encodeURIComponent(traceId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch trace ${traceId}`)
+  return res.json()
+}
+
+export async function fetchTraceDistribution(service: string, since?: string): Promise<TraceDistribution> {
+  const res = await fetch(`${BASE}/tracelens/distribution?${windowParams(service, since)}`)
+  if (!res.ok) throw new Error('Failed to fetch trace distribution')
+  return res.json()
+}
+
+export async function fetchTraceDrift(service: string, baseline?: string, recent?: string): Promise<DriftFinding[]> {
+  const p = new URLSearchParams({ service })
+  if (baseline) p.set('baseline', baseline)
+  if (recent) p.set('recent', recent)
+  const res = await fetch(`${BASE}/tracelens/drift?${p.toString()}`)
+  if (!res.ok) throw new Error('Failed to fetch drift findings')
+  return res.json()
+}
+
+export async function fetchTraceHotspots(service: string, since?: string): Promise<FailureHotspot[]> {
+  const res = await fetch(`${BASE}/tracelens/hotspots?${windowParams(service, since)}`)
+  if (!res.ok) throw new Error('Failed to fetch failure hotspots')
+  return res.json()
+}
+
+export async function fetchTraceClusters(service: string, since?: string): Promise<QueryClusterRow[]> {
+  const res = await fetch(`${BASE}/tracelens/clusters?${windowParams(service, since)}`)
+  if (!res.ok) throw new Error('Failed to fetch query clusters')
+  return res.json()
+}

@@ -13,6 +13,7 @@ import QueryExplorer from './QueryExplorer'
 import StageCombinationMatrix from './StageCombinationMatrix'
 import DashboardGuide from './DashboardGuide'
 import DataQualityWarnings from './DataQualityWarnings'
+import StressTestResults from './StressTestResults'
 
 interface Props {
   run: Run
@@ -236,6 +237,9 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
       <Section title="Performance by Corpus Density" subtitle="NDCG@10 grouped by number of relevant documents per query — harder when more docs are relevant">
         <SegmentBreakdown dbId={dbId} runId={run.run_id} field="n_relevant" targetMetric="ndcg" />
       </Section>
+
+      {/* Renders only when the run's queries carry Forge metadata (scenario_type / difficulty_label). */}
+      <StressTestResults dbId={dbId} runId={run.run_id} />
     </div>
   )
 }

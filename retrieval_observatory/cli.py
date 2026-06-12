@@ -15,8 +15,10 @@ from rich.table import Table
 app = typer.Typer(name="retobs", help="Retrieval Observatory — RAG pipeline benchmarking.")
 classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
 forge_app = typer.Typer(name="forge", help="Generate corpus-specific stress-test evaluation datasets.")
+tracelens_app = typer.Typer(name="tracelens", help="Production retrieval observability — inspect and monitor live traces.")
 app.add_typer(classifier_app, name="classifier")
 app.add_typer(forge_app, name="forge")
+app.add_typer(tracelens_app, name="tracelens")
 console = Console()
 
 
@@ -1247,6 +1249,7 @@ def forge_run(
     validation_budget: int = typer.Option(300, "--validation-budget", help="Max LLM calls for the validation pass."),
     fmt: str = typer.Option("beir", "--format", help="Output format: beir (default) or custom."),
     max_per_type: int = typer.Option(30, "--max-scenarios", help="Max scenarios to detect per scenario type."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to register the dataset in (so it appears in the dashboard)."),
 ) -> None:
     """Generate a corpus-specific stress-test evaluation dataset using Forge.
 
@@ -1271,6 +1274,7 @@ def forge_run(
         validation_budget=validation_budget,
         fmt=fmt,
         max_per_type=max_per_type,
+        db_path=db,
     ))
 
 
@@ -1288,6 +1292,7 @@ async def _forge_run(
     validation_budget: int,
     fmt: str,
     max_per_type: int,
+    db_path: str = ".retobs/results.db",
 ) -> None:
     from retrieval_observatory.forge.engine import ForgeEngine
     from retrieval_observatory.forge.generation.generator import ForgeGenerator
@@ -1376,11 +1381,188 @@ async def _forge_run(
         table.add_row(f"  Query type: {qtype}", str(count))
     console.print(table)
 
+    # Register the dataset in the store so it shows up in the dashboard's Forge workspace.
+    try:
+        from retrieval_observatory.store.sqlite import SQLiteStore
+        store = SQLiteStore(db_path=db_path)
+        await store.init_db()
+        await store.save_forge_dataset(
+            dataset_id=dataset.dataset_id,
+            summary_json=json.dumps(summary),
+            corpus_path=corpus_path,
+            output_dir=output_dir,
+        )
+        await store.save_forge_scenarios(
+            dataset.dataset_id,
+            json.dumps([
+                {
+                    "scenario_id": s.scenario_id,
+                    "scenario_type": s.scenario_type,
+                    "anchor_doc_ids": s.anchor_doc_ids,
+                    "evidence_summary": s.evidence_summary,
+                }
+                for s in dataset.scenarios
+            ]),
+        )
+        await store.save_forge_queries(
+            dataset.dataset_id,
+            json.dumps([
+                {
+                    "query_id": q.query_id,
+                    "text": q.text,
+                    "scenario_id": q.scenario_id,
+                    "query_type": q.query_type,
+                    "difficulty_label": q.difficulty_label,
+                    "failure_category": q.failure_category,
+                    "validated": q.validated,
+                    "positive_doc_ids": q.positive_doc_ids,
+                }
+                for q in dataset.queries
+            ]),
+        )
+        console.print(f"[dim]Registered dataset {dataset.dataset_id} in {db_path} (visible in dashboard).[/dim]")
+    except Exception as e:
+        console.print(f"[yellow]Warning: could not register dataset in store: {e}[/yellow]")
+
     console.print(f"\n[green]Dataset saved to:[/green] {output_dir}")
     console.print(f"[dim]LLM calls used: {generator.calls_used} / {generator.budget}[/dim]")
     console.print(
         f"\n[dim]Tip: Use this dataset with retobs run by pointing your config to the exported corpus.jsonl and queries.jsonl.[/dim]"
     )
+
+
+@tracelens_app.command("demo")
+def tracelens_demo(
+    service: str = typer.Option("demo", "--service", help="Service name to attach the synthetic traces to."),
+    n: int = typer.Option(200, "--n", help="Number of synthetic traces to seed."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to write traces into."),
+) -> None:
+    """Seed synthetic production traces so the TraceLens dashboard has data to explore."""
+    asyncio.run(_tracelens_demo(service, n, db))
+
+
+async def _tracelens_demo(service: str, n: int, db_path: str) -> None:
+    import random
+    from datetime import datetime, timedelta, timezone
+    from retrieval_observatory.store.sqlite import SQLiteStore
+    from retrieval_observatory.tracing import TraceRecorder, StoreSink
+    from retrieval_observatory.types import Document
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    recorder = TraceRecorder(service=service, sink=StoreSink(store))
+
+    templates = [
+        "what is the refund policy",
+        "compare the 2022 and 2024 pricing tiers",
+        "how do I reset my password",
+        "did the API change after the 2023 migration versus the legacy endpoint",
+        "AWS vs Amazon Web Services billing differences",
+        "explain the onboarding flow step by step including edge cases and retries",
+        "latest security advisory",
+        "why was my account suspended and how do I appeal the decision",
+    ]
+    pipelines = ["bm25", "hybrid", "hybrid__rerank"]
+    now = datetime.now(timezone.utc)
+
+    seeded = 0
+    for i in range(n):
+        q = random.choice(templates)
+        pipeline = random.choice(pipelines)
+        # Spread timestamps across the last 7 days.
+        ts = now - timedelta(minutes=random.randint(0, 7 * 24 * 60))
+        async with recorder.trace(query_text=q, pipeline_id=pipeline) as t:
+            t.trace.timestamp = ts
+            roll = random.random()
+            base_lat = random.uniform(20, 120)
+            if roll < 0.08:
+                # empty candidates failure
+                t.stage("bm25", [], base_lat)
+                t.set_results([])
+            elif roll < 0.16:
+                # latency spike
+                docs = [Document(id=f"d{j}", text="x", score=random.uniform(0.3, 0.9), rank=j + 1) for j in range(8)]
+                t.stage("bm25", docs, base_lat + random.uniform(2000, 4000))
+                t.set_results(docs[:5])
+            else:
+                docs = [Document(id=f"d{j}", text="x", score=random.uniform(0.4, 0.95), rank=j + 1) for j in range(10)]
+                t.stage("bm25", docs, base_lat)
+                if "rerank" in pipeline:
+                    kept = docs[:5]
+                    t.stage("rerank", kept, random.uniform(30, 90))
+                    t.set_results(kept)
+                else:
+                    t.set_results(docs[:5])
+        seeded += 1
+
+    console.print(f"[green]Seeded {seeded} synthetic traces[/green] for service '[bold]{service}[/bold]' in {db_path}.")
+    console.print("[dim]Open the dashboard (retobs serve) → TraceLens mode to explore them.[/dim]")
+
+
+@tracelens_app.command("stats")
+def tracelens_stats(
+    service: str = typer.Option(..., "--service", help="Service name to summarize."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to read from."),
+) -> None:
+    """Print a summary of stored traces for a service (count, error rate, latency, suspected failures)."""
+    asyncio.run(_tracelens_stats(service, db))
+
+
+async def _tracelens_stats(service: str, db_path: str) -> None:
+    from retrieval_observatory.store.sqlite import SQLiteStore
+    from retrieval_observatory.tracing.monitor.distribution import summarize, compute_distribution
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    rows = await store.list_traces(service, limit=1_000_000)
+    if not rows:
+        console.print(f"[yellow]No traces found for service '{service}'.[/yellow]")
+        return
+    s = summarize(rows)
+    dist = compute_distribution(rows)
+
+    table = Table(title=f"TraceLens — {service}", show_header=True)
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="bold")
+    table.add_row("Traces", str(s["trace_count"]))
+    table.add_row("OK rate", f"{s['ok_rate'] * 100:.1f}%")
+    table.add_row("Error rate", f"{s['error_rate'] * 100:.1f}%")
+    table.add_row("Latency p50", f"{s['latency_p50']:.0f} ms")
+    table.add_row("Latency p95", f"{s['latency_p95']:.0f} ms")
+    table.add_row("Suspected-failure rate", f"{s['suspected_failure_rate'] * 100:.1f}%")
+    console.print(table)
+
+    if dist["by_failure_label"]:
+        console.print("[dim]Suspected failures are label-free proxy signals, not measured Recall.[/dim]")
+        ftable = Table(title="Suspected failure signals", show_header=True)
+        ftable.add_column("Signal", style="cyan")
+        ftable.add_column("Count", style="bold")
+        for label, count in sorted(dist["by_failure_label"].items(), key=lambda x: -x[1]):
+            ftable.add_row(label, str(count))
+        console.print(ftable)
+
+
+@tracelens_app.command("purge")
+def tracelens_purge(
+    service: str = typer.Option(..., "--service", help="Service whose traces to purge."),
+    older_than_days: Optional[int] = typer.Option(None, "--older-than-days", help="Only purge traces older than N days."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to purge from."),
+) -> None:
+    """Delete stored traces for a service (optionally only those older than N days)."""
+    asyncio.run(_tracelens_purge(service, older_than_days, db))
+
+
+async def _tracelens_purge(service: str, older_than_days: Optional[int], db_path: str) -> None:
+    from datetime import datetime, timedelta, timezone
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    cutoff = None
+    if older_than_days is not None:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
+    deleted = await store.purge_traces(service=service, older_than=cutoff)
+    console.print(f"[green]Purged {deleted} traces[/green] for service '{service}'.")
 
 
 if __name__ == "__main__":

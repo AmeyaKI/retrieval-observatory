@@ -132,6 +132,55 @@ CREATE TABLE IF NOT EXISTS forge_scenarios (
 )
 """
 
+_CREATE_FORGE_QUERIES = """
+CREATE TABLE IF NOT EXISTS forge_queries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dataset_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    query_type TEXT NOT NULL,
+    difficulty_label TEXT NOT NULL,
+    failure_category TEXT,
+    validated INTEGER NOT NULL DEFAULT 0,
+    positive_doc_ids_json TEXT NOT NULL DEFAULT '[]'
+)
+"""
+_CREATE_FORGE_QUERIES_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_forge_queries_dataset ON forge_queries(dataset_id)"
+)
+
+_CREATE_TRACES = """
+CREATE TABLE IF NOT EXISTS traces (
+    trace_id TEXT PRIMARY KEY,
+    service TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    pipeline_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total_latency_ms REAL NOT NULL,
+    timestamp TEXT NOT NULL,
+    predicted_difficulty TEXT,
+    suspected_failures_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+)
+"""
+_CREATE_TRACES_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_traces_service_ts ON traces(service, timestamp)"
+)
+
+_CREATE_TRACE_STAGES = """
+CREATE TABLE IF NOT EXISTS trace_stages (
+    trace_id TEXT NOT NULL,
+    stage_index INTEGER NOT NULL,
+    stage_id TEXT NOT NULL,
+    latency_ms REAL NOT NULL,
+    candidate_count INTEGER NOT NULL,
+    documents_json TEXT NOT NULL,
+    PRIMARY KEY (trace_id, stage_index)
+)
+"""
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
@@ -151,6 +200,11 @@ class SQLiteStore:
             await db.execute(_CREATE_RUN_QUERIES)
             await db.execute(_CREATE_FORGE_DATASETS)
             await db.execute(_CREATE_FORGE_SCENARIOS)
+            await db.execute(_CREATE_FORGE_QUERIES)
+            await db.execute(_CREATE_FORGE_QUERIES_IDX)
+            await db.execute(_CREATE_TRACES)
+            await db.execute(_CREATE_TRACES_IDX)
+            await db.execute(_CREATE_TRACE_STAGES)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -596,3 +650,218 @@ class SQLiteStore:
                 d["anchor_doc_ids"] = []
             result.append(d)
         return result
+
+    async def save_forge_queries(self, dataset_id: str, queries_json: str) -> None:
+        queries = json.loads(queries_json)
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM forge_queries WHERE dataset_id = ?", (dataset_id,))
+            for q in queries:
+                await db.execute(
+                    "INSERT INTO forge_queries (dataset_id, query_id, text, scenario_id, query_type, "
+                    "difficulty_label, failure_category, validated, positive_doc_ids_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        dataset_id,
+                        q.get("query_id", ""),
+                        q.get("text", ""),
+                        q.get("scenario_id", ""),
+                        q.get("query_type", ""),
+                        q.get("difficulty_label", "medium"),
+                        q.get("failure_category"),
+                        1 if q.get("validated") else 0,
+                        json.dumps(q.get("positive_doc_ids", [])),
+                    ),
+                )
+            await db.commit()
+
+    async def get_forge_queries(
+        self,
+        dataset_id: str,
+        scenario_type: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        query_type: Optional[str] = None,
+        validated_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict]:
+        # scenario_type filter requires joining against the scenarios table by scenario_id
+        where = ["q.dataset_id = ?"]
+        params: List = [dataset_id]
+        if difficulty:
+            where.append("q.difficulty_label = ?")
+            params.append(difficulty)
+        if query_type:
+            where.append("q.query_type = ?")
+            params.append(query_type)
+        if validated_only:
+            where.append("q.validated = 1")
+        join = ""
+        if scenario_type:
+            join = "JOIN forge_scenarios s ON s.dataset_id = q.dataset_id AND s.scenario_id = q.scenario_id"
+            where.append("s.scenario_type = ?")
+            params.append(scenario_type)
+        sql = (
+            "SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label, "
+            "q.failure_category, q.validated, q.positive_doc_ids_json "
+            f"FROM forge_queries q {join} WHERE " + " AND ".join(where) +
+            " ORDER BY q.id LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["validated"] = bool(d.get("validated"))
+            try:
+                d["positive_doc_ids"] = json.loads(d.pop("positive_doc_ids_json", "[]"))
+            except Exception:
+                d["positive_doc_ids"] = []
+            result.append(d)
+        return result
+
+    # ───────────────────────── TraceLens ─────────────────────────
+
+    async def save_trace(self, trace) -> None:
+        await self.save_traces_batch([trace])
+
+    async def save_traces_batch(self, traces) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            for t in traces:
+                await db.execute(
+                    "INSERT OR REPLACE INTO traces (trace_id, service, query_id, query_text, pipeline_id, "
+                    "status, total_latency_ms, timestamp, predicted_difficulty, suspected_failures_json, metadata_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        t.trace_id, t.service, t.query_id, t.query_text, t.pipeline_id,
+                        t.status, t.total_latency_ms, t.timestamp.isoformat(),
+                        t.predicted_difficulty, json.dumps(t.suspected_failures),
+                        json.dumps(t.metadata),
+                    ),
+                )
+                await db.execute("DELETE FROM trace_stages WHERE trace_id = ?", (t.trace_id,))
+                for s in t.snapshots:
+                    docs = [
+                        {"id": d.id, "text": getattr(d, "text", ""), "score": d.score,
+                         "rank": d.rank, "title": getattr(d, "title", "")}
+                        for d in s.documents
+                    ]
+                    await db.execute(
+                        "INSERT INTO trace_stages (trace_id, stage_index, stage_id, latency_ms, candidate_count, documents_json) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (t.trace_id, s.stage_index, s.stage_id, s.latency_ms,
+                         s.candidate_count or len(s.documents), json.dumps(docs)),
+                    )
+            await db.commit()
+
+    async def list_services(self) -> List[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT service, COUNT(*) AS trace_count, MAX(timestamp) AS last_seen "
+                "FROM traces GROUP BY service ORDER BY last_seen DESC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
+
+    async def list_traces(
+        self,
+        service: str,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        status: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        suspected_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict]:
+        where = ["service = ?"]
+        params: List = [service]
+        if since:
+            where.append("timestamp >= ?")
+            params.append(since)
+        if until:
+            where.append("timestamp <= ?")
+            params.append(until)
+        if status:
+            where.append("status = ?")
+            params.append(status)
+        if difficulty:
+            where.append("predicted_difficulty = ?")
+            params.append(difficulty)
+        if suspected_only:
+            where.append("suspected_failures_json != '[]'")
+        sql = (
+            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
+            "timestamp, predicted_difficulty, suspected_failures_json, metadata_json FROM traces WHERE "
+            + " AND ".join(where) + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._trace_row_to_dict(dict(r)) for r in rows]
+
+    async def get_trace(self, trace_id: str) -> Optional[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
+                "timestamp, predicted_difficulty, suspected_failures_json, metadata_json FROM traces WHERE trace_id = ?",
+                (trace_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if not row:
+                return None
+            d = self._trace_row_to_dict(dict(row))
+            async with db.execute(
+                "SELECT stage_index, stage_id, latency_ms, candidate_count, documents_json "
+                "FROM trace_stages WHERE trace_id = ? ORDER BY stage_index",
+                (trace_id,),
+            ) as cursor:
+                stage_rows = await cursor.fetchall()
+        stages = []
+        for sr in stage_rows:
+            sd = dict(sr)
+            try:
+                sd["documents"] = json.loads(sd.pop("documents_json", "[]"))
+            except Exception:
+                sd["documents"] = []
+            stages.append(sd)
+        d["stages"] = stages
+        return d
+
+    async def purge_traces(self, service: Optional[str] = None, older_than: Optional[str] = None) -> int:
+        where = []
+        params: List = []
+        if service:
+            where.append("service = ?")
+            params.append(service)
+        if older_than:
+            where.append("timestamp < ?")
+            params.append(older_than)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT trace_id FROM traces" + clause, tuple(params)) as cursor:
+                ids = [r[0] for r in await cursor.fetchall()]
+            await db.execute("DELETE FROM traces" + clause, tuple(params))
+            if ids:
+                qmarks = ",".join("?" for _ in ids)
+                await db.execute(f"DELETE FROM trace_stages WHERE trace_id IN ({qmarks})", tuple(ids))
+            await db.commit()
+        return len(ids)
+
+    @staticmethod
+    def _trace_row_to_dict(d: Dict) -> Dict:
+        try:
+            d["suspected_failures"] = json.loads(d.pop("suspected_failures_json", "[]"))
+        except Exception:
+            d["suspected_failures"] = []
+        try:
+            d["metadata"] = json.loads(d.pop("metadata_json", "{}"))
+        except Exception:
+            d["metadata"] = {}
+        return d
