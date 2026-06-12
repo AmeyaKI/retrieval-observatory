@@ -5,7 +5,48 @@ from statistics import mean, pstdev
 from typing import Dict, Iterable, List, Set
 
 from retrieval_observatory.metrics.ranking import dedupe_preserve_rank
-from retrieval_observatory.types import PipelineResult
+from retrieval_observatory.types import CandidateLineage, PipelineResult
+
+
+def compute_candidate_lineage(result: PipelineResult) -> List[CandidateLineage]:
+    """Return per-stage candidate flow for a single pipeline result."""
+    lineages: List[CandidateLineage] = []
+    prev_ids: Set[str] = set()
+
+    for snap in result.snapshots:
+        curr_ids = {d.id for d in snap.documents}
+        if not prev_ids:
+            # First stage — everything is new
+            lineages.append(CandidateLineage(
+                stage_index=snap.stage_index,
+                stage_id=snap.stage_id,
+                entered=sorted(curr_ids),
+                survived=[],
+                dropped=[],
+                churn_rate=0.0,
+            ))
+        else:
+            survived = sorted(curr_ids & prev_ids)
+            dropped = sorted(prev_ids - curr_ids)
+            entered = sorted(curr_ids - prev_ids)
+            churn_rate = len(dropped) / max(len(prev_ids), 1)
+            lineages.append(CandidateLineage(
+                stage_index=snap.stage_index,
+                stage_id=snap.stage_id,
+                entered=entered,
+                survived=survived,
+                dropped=dropped,
+                churn_rate=churn_rate,
+            ))
+        prev_ids = curr_ids
+
+    return lineages
+
+
+def compute_churn_rate(lineages: List[CandidateLineage]) -> float:
+    """Average churn rate across all non-first stages (0.0 if single-stage pipeline)."""
+    non_first = [lin.churn_rate for lin in lineages if lin.stage_index > 0]
+    return mean(non_first) if non_first else 0.0
 
 
 def build_query_diagnostics(
@@ -56,23 +97,53 @@ def build_query_diagnostics(
 
         if relevant and not first_ids & relevant:
             labels.append("candidate_miss")
+
         if len(result.snapshots) > 1 and first_ids & relevant and not final_ids & relevant:
             labels.append("reranker_drop")
+
+        # Late-stage drop: relevant doc survived to penultimate stage but absent from final
+        if len(result.snapshots) > 2:
+            penultimate_ids = {d.id for d in result.snapshots[-2].documents}
+            if penultimate_ids & relevant and not final_ids & relevant:
+                if "reranker_drop" not in labels:
+                    labels.append("late_stage_drop")
+
+        # Ranking failure: relevant doc present in final candidates but ranked below K
+        if relevant and final_ids & relevant:
+            k = result.snapshots[-1].documents[0].rank if result.snapshots[-1].documents else 0
+            max_k = len(result.snapshots[-1].documents)
+            top_k_ids = {d.id for d in result.snapshots[-1].documents if d.rank <= max_k}
+            if not top_k_ids & relevant:
+                labels.append("ranking_failure")
+
         any_stage_hit = any(row_hits for row_hits in stage_hits.values())
-        if relevant and not any_stage_hit and not any(final_sets.get((result.query_id, pid), set()) & relevant for pid in _pipeline_ids(by_query[result.query_id])):
+        if relevant and not any_stage_hit and not any(
+            final_sets.get((result.query_id, pid), set()) & relevant
+            for pid in _pipeline_ids(by_query[result.query_id])
+        ):
             labels.append("id_or_qrel_issue")
 
-        # Cross-pipeline lexical/semantic hints use adapter names as a lightweight signal.
+        # Cross-pipeline lexical/semantic hints via adapter name as lightweight signal
         if result.pipeline_id.lower().find("bm25") >= 0 and not final_ids & relevant:
-            if any("dense" in pid.lower() and final_sets.get((result.query_id, pid), set()) & relevant for pid in _pipeline_ids(by_query[result.query_id])):
+            if any(
+                "dense" in pid.lower() and final_sets.get((result.query_id, pid), set()) & relevant
+                for pid in _pipeline_ids(by_query[result.query_id])
+            ):
                 labels.append("lexical_mismatch")
         if "dense" in result.pipeline_id.lower() and not final_ids & relevant:
-            if any("bm25" in pid.lower() and final_sets.get((result.query_id, pid), set()) & relevant for pid in _pipeline_ids(by_query[result.query_id])):
+            if any(
+                "bm25" in pid.lower() and final_sets.get((result.query_id, pid), set()) & relevant
+                for pid in _pipeline_ids(by_query[result.query_id])
+            ):
                 labels.append("semantic_mismatch")
 
         bucket = buckets.get(result.query_id, "unknown")
         if bucket == "unstable" and "unstable" not in labels:
             labels.append("unstable")
+
+        # Compute candidate lineage for churn metrics
+        lineages = compute_candidate_lineage(result) if result.status == "OK" else []
+        churn = compute_churn_rate(lineages)
 
         rows.append(
             {
@@ -83,6 +154,7 @@ def build_query_diagnostics(
                 "failure_labels": sorted(set(labels)),
                 "missing_relevant_ids": missing,
                 "stage_hits": stage_hits,
+                "churn_rate": round(churn, 4),
             }
         )
     return rows

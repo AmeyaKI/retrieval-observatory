@@ -121,10 +121,16 @@ export default function App() {
         </div>
 
         {selected.length === 0 && (
-          <div className="flex items-center justify-center h-[calc(100%-3rem)] text-gray-400">
-            <div className="text-center">
-              <p className="text-lg">Select a run from the sidebar</p>
-              <p className="text-sm mt-1">Check multiple runs to compare them</p>
+          <div className="flex items-center justify-center h-[calc(100%-3rem)]">
+            <div className="text-center max-w-sm">
+              <div className="text-4xl mb-4 select-none">📊</div>
+              <p className="text-lg font-semibold text-gray-700">Select a run to explore</p>
+              <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+                Click any run in the sidebar to view its metrics, charts, and query-level diagnostics.
+              </p>
+              <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+                Check two or more runs to compare them side-by-side with significance tests.
+              </p>
             </div>
           </div>
         )}

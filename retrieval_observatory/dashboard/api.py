@@ -651,6 +651,50 @@ def create_app(
 
     app.include_router(db_router)
 
+    # ---------------------------------------------------------------------------
+    # Forge endpoints — synthetic dataset management
+    # ---------------------------------------------------------------------------
+    forge_router = APIRouter(prefix="/forge")
+
+    @forge_router.get("/datasets")
+    async def list_forge_datasets(db_id: str = registry.default_db_id or "") -> List[Dict[str, Any]]:
+        """List all Forge-generated synthetic datasets saved in the store."""
+        try:
+            store = registry.get_store(db_id or registry.default_db_id or "")
+            if store and hasattr(store, "get_forge_datasets"):
+                return await store.get_forge_datasets()
+        except Exception:
+            pass
+        return []
+
+    @forge_router.get("/datasets/{dataset_id}")
+    async def get_forge_dataset(dataset_id: str) -> Dict[str, Any]:
+        """Return summary and scenario breakdown for a Forge dataset."""
+        try:
+            store = registry.get_store(registry.default_db_id or "")
+            if store:
+                datasets = await store.get_forge_datasets()
+                dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
+                if dataset:
+                    scenarios = await store.get_forge_scenarios(dataset_id) if hasattr(store, "get_forge_scenarios") else []
+                    return {**dataset, "scenarios": scenarios}
+        except Exception:
+            pass
+        raise HTTPException(status_code=404, detail=f"Forge dataset {dataset_id!r} not found")
+
+    @forge_router.get("/datasets/{dataset_id}/scenarios")
+    async def get_forge_dataset_scenarios(dataset_id: str) -> List[Dict[str, Any]]:
+        """Return scenarios for a Forge dataset."""
+        try:
+            store = registry.get_store(registry.default_db_id or "")
+            if store and hasattr(store, "get_forge_scenarios"):
+                return await store.get_forge_scenarios(dataset_id)
+        except Exception:
+            pass
+        return []
+
+    app.include_router(forge_router)
+
     # Backward-compatible aliases when a single database is loaded.
     if registry.is_single:
         _sole_db = registry.default_db_id

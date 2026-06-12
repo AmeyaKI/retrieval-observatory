@@ -14,7 +14,9 @@ from rich.table import Table
 
 app = typer.Typer(name="retobs", help="Retrieval Observatory — RAG pipeline benchmarking.")
 classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
+forge_app = typer.Typer(name="forge", help="Generate corpus-specific stress-test evaluation datasets.")
 app.add_typer(classifier_app, name="classifier")
+app.add_typer(forge_app, name="forge")
 console = Console()
 
 
@@ -312,7 +314,7 @@ def _collect_dashboard_db_paths(cli_dbs: Optional[List[str]]) -> List[str]:
 @app.command()
 def serve(
     host: str = typer.Option("0.0.0.0", "--host"),
-    port: int = typer.Option(8000, "--port"),
+    port: int = typer.Option(4000, "--port"),
     db: Optional[List[str]] = typer.Option(None, "--db", help="SQLite DB path(s); repeat or comma-separate."),
 ) -> None:
     """Start the FastAPI dashboard server."""
@@ -1159,6 +1161,226 @@ async def _classifier_report(
         raise typer.Exit(1)
 
     _print_classifier_report(report)
+
+
+# ---------------------------------------------------------------------------
+# Forge commands — synthetic evaluation dataset generation
+# ---------------------------------------------------------------------------
+
+def _load_corpus_from_jsonl(corpus_path: str) -> dict:
+    """Load corpus from JSONL file into {doc_id: {text, title}} dict."""
+    import json as _json
+    corpus = {}
+    with open(corpus_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            doc = _json.loads(line)
+            doc_id = doc.get("id") or doc.get("_id") or doc.get("doc_id")
+            if doc_id:
+                corpus[str(doc_id)] = {
+                    "text": doc.get("text", ""),
+                    "title": doc.get("title", ""),
+                }
+    return corpus
+
+
+@forge_app.command("scan")
+def forge_scan(
+    corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
+    scenario_types: str = typer.Option("temporal,alias", "--scenario-types", help="Comma-separated scenario types to detect."),
+    max_per_type: int = typer.Option(30, "--max-per-type", help="Max scenarios to detect per type."),
+) -> None:
+    """Scan a corpus for retrieval failure scenarios — no LLM or API key needed.
+
+    This is the dry-run step. Use it to preview what scenarios Forge found before
+    spending any LLM budget on query generation.
+    """
+    from retrieval_observatory.forge.scenarios.registry import detect_all
+
+    console.print(f"[bold]Forge Scan:[/bold] {corpus}")
+    corp = _load_corpus_from_jsonl(str(corpus))
+    console.print(f"Loaded [bold]{len(corp)}[/bold] documents.")
+
+    types = [t.strip() for t in scenario_types.split(",") if t.strip()]
+    scenarios = detect_all(corp, types=types, max_per_type=max_per_type)
+
+    if not scenarios:
+        console.print("[yellow]No scenarios detected. Try a larger or more diverse corpus.[/yellow]")
+        return
+
+    table = Table(title=f"Detected Scenarios ({len(scenarios)} total)", show_lines=True)
+    table.add_column("Type", style="cyan", width=12)
+    table.add_column("ID", style="dim", width=16)
+    table.add_column("Docs", width=6)
+    table.add_column("Evidence", no_wrap=False)
+
+    by_type: dict = {}
+    for s in scenarios:
+        by_type[s.scenario_type] = by_type.get(s.scenario_type, 0) + 1
+        table.add_row(
+            s.scenario_type,
+            s.scenario_id,
+            str(len(s.anchor_doc_ids)),
+            s.evidence_summary[:120] + ("…" if len(s.evidence_summary) > 120 else ""),
+        )
+
+    console.print(table)
+    for t, count in by_type.items():
+        console.print(f"  [green]{t}:[/green] {count} scenario(s)")
+    console.print(f"\n[dim]Run [bold]retobs forge run --corpus {corpus}[/bold] to generate queries from these scenarios.[/dim]")
+
+
+@forge_app.command("run")
+def forge_run(
+    corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
+    output: Path = typer.Option(..., "--output", "-o", help="Output directory for the generated dataset."),
+    scenario_types: str = typer.Option("temporal,alias", "--scenario-types", help="Comma-separated scenario types."),
+    query_types: str = typer.Option("paraphrase", "--query-types", help="Comma-separated query types: paraphrase,temporal,adversarial."),
+    n_per_type: int = typer.Option(3, "--n-per-type", help="Queries generated per scenario per query type."),
+    n_queries: Optional[int] = typer.Option(None, "--n-queries", help="Total query budget (caps generation). Overrides n-per-type if smaller."),
+    llm_provider: str = typer.Option("gemini", "--llm-provider", help="LLM provider: gemini (default, free), openai, anthropic."),
+    llm_model: Optional[str] = typer.Option(None, "--llm-model", help="Model name override (default depends on provider)."),
+    llm_budget: int = typer.Option(500, "--budget", help="Max LLM API calls for generation."),
+    validate: bool = typer.Option(False, "--validate", help="Run LLM validation pass to expand qrels beyond extractive labels."),
+    validation_budget: int = typer.Option(300, "--validation-budget", help="Max LLM calls for the validation pass."),
+    fmt: str = typer.Option("beir", "--format", help="Output format: beir (default) or custom."),
+    max_per_type: int = typer.Option(30, "--max-scenarios", help="Max scenarios to detect per scenario type."),
+) -> None:
+    """Generate a corpus-specific stress-test evaluation dataset using Forge.
+
+    Step 1: Scans your corpus for failure patterns (temporal confusion, alias mismatches).
+    Step 2: Uses an LLM to generate targeted hard queries for each scenario.
+    Step 3: Builds extractive ground truth (source doc = relevant).
+    Step 4: Exports as a BEIR-compatible dataset you can benchmark against.
+
+    Requires: GOOGLE_API_KEY (default), OPENAI_API_KEY, or ANTHROPIC_API_KEY.
+    """
+    asyncio.run(_forge_run(
+        corpus_path=str(corpus),
+        output_dir=str(output),
+        scenario_types=[t.strip() for t in scenario_types.split(",") if t.strip()],
+        query_types=[t.strip() for t in query_types.split(",") if t.strip()],
+        n_per_type=n_per_type,
+        n_queries=n_queries,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        llm_budget=llm_budget,
+        validate=validate,
+        validation_budget=validation_budget,
+        fmt=fmt,
+        max_per_type=max_per_type,
+    ))
+
+
+async def _forge_run(
+    corpus_path: str,
+    output_dir: str,
+    scenario_types: list,
+    query_types: list,
+    n_per_type: int,
+    n_queries: Optional[int],
+    llm_provider: str,
+    llm_model: Optional[str],
+    llm_budget: int,
+    validate: bool,
+    validation_budget: int,
+    fmt: str,
+    max_per_type: int,
+) -> None:
+    from retrieval_observatory.forge.engine import ForgeEngine
+    from retrieval_observatory.forge.generation.generator import ForgeGenerator
+    from retrieval_observatory.forge.stress.suite import StressTestSuite
+
+    console.print(f"[bold green]Forge:[/bold green] Loading corpus from {corpus_path}")
+    corp = _load_corpus_from_jsonl(corpus_path)
+    console.print(f"Loaded [bold]{len(corp)}[/bold] documents.")
+
+    # Scenario scan first (free)
+    console.print("[bold]Step 1/4:[/bold] Scanning corpus for failure scenarios...")
+    from retrieval_observatory.forge.scenarios.registry import detect_all
+    scenarios = detect_all(corp, types=scenario_types, max_per_type=max_per_type)
+    console.print(f"  Found [bold]{len(scenarios)}[/bold] scenario(s).")
+    if not scenarios:
+        console.print("[yellow]No scenarios found. Your corpus may be too small or homogeneous.[/yellow]")
+        console.print("[dim]Tip: Try a corpus with 100+ documents spanning multiple time periods or using abbreviations.[/dim]")
+        return
+
+    # Compute budget-adjusted n_per_type
+    effective_n = n_per_type
+    if n_queries is not None:
+        total_gen_calls = len(scenarios) * len(query_types)
+        if total_gen_calls > 0:
+            effective_n = max(1, n_queries // total_gen_calls)
+
+    console.print(f"[bold]Step 2/4:[/bold] Generating queries ({llm_provider} / {llm_model or 'default'})...")
+    try:
+        generator = ForgeGenerator.from_provider(
+            provider=llm_provider,
+            model=llm_model,
+            budget=llm_budget,
+        )
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise typer.Exit(1)
+
+    engine = ForgeEngine(
+        corpus=corp,
+        generator=generator,
+        scenario_types=scenario_types,
+        max_scenarios_per_type=max_per_type,
+    )
+
+    judge = None
+    if validate:
+        console.print("[bold]Step 3/4:[/bold] LLM validation pass enabled — expanding qrels...")
+        try:
+            from retrieval_observatory.datasets.llm_judge import GeminiJudge, OpenAIJudge, AnthropicJudge
+            if llm_provider == "gemini":
+                judge = GeminiJudge(model=llm_model or "gemini-2.0-flash")
+            elif llm_provider == "openai":
+                judge = OpenAIJudge(model=llm_model or "gpt-4o-mini")
+            else:
+                judge = AnthropicJudge(model=llm_model or "claude-haiku-4-5-20251001")
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not init LLM judge for validation: {e}[/yellow]")
+    else:
+        console.print("[bold]Step 3/4:[/bold] Building extractive ground truth (no LLM needed)...")
+
+    dataset = await engine.run(
+        query_types=query_types,
+        n_per_type=effective_n,
+        validate=validate,
+        judge=judge,
+        validation_budget=validation_budget,
+        output_dir=output_dir,
+        output_format=fmt,
+    )
+
+    console.print(f"[bold]Step 4/4:[/bold] Exporting dataset → {output_dir}")
+
+    suite = StressTestSuite(dataset)
+    summary = suite.summary()
+
+    table = Table(title="Forge Dataset Summary", show_header=True)
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="bold")
+    table.add_row("Total queries", str(summary["total_queries"]))
+    table.add_row("Total scenarios", str(summary["total_scenarios"]))
+    table.add_row("Corpus documents", str(summary["corpus_size"]))
+    table.add_row("Validated (LLM)", str(summary["validated"]))
+    for diff, count in summary["by_difficulty"].items():
+        table.add_row(f"  Difficulty: {diff}", str(count))
+    for qtype, count in summary["by_query_type"].items():
+        table.add_row(f"  Query type: {qtype}", str(count))
+    console.print(table)
+
+    console.print(f"\n[green]Dataset saved to:[/green] {output_dir}")
+    console.print(f"[dim]LLM calls used: {generator.calls_used} / {generator.budget}[/dim]")
+    console.print(
+        f"\n[dim]Tip: Use this dataset with retobs run by pointing your config to the exported corpus.jsonl and queries.jsonl.[/dim]"
+    )
 
 
 if __name__ == "__main__":

@@ -111,6 +111,27 @@ CREATE TABLE IF NOT EXISTS run_queries (
 )
 """
 
+_CREATE_FORGE_DATASETS = """
+CREATE TABLE IF NOT EXISTS forge_datasets (
+    dataset_id TEXT PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    corpus_path TEXT NOT NULL DEFAULT '',
+    output_dir TEXT NOT NULL DEFAULT '',
+    summary_json TEXT NOT NULL
+)
+"""
+
+_CREATE_FORGE_SCENARIOS = """
+CREATE TABLE IF NOT EXISTS forge_scenarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dataset_id TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    scenario_type TEXT NOT NULL,
+    anchor_doc_ids_json TEXT NOT NULL,
+    evidence_summary TEXT NOT NULL
+)
+"""
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
@@ -128,6 +149,8 @@ class SQLiteStore:
             await db.execute(_CREATE_VALIDATION_REPORTS)
             await db.execute(_CREATE_QUERY_DIAGNOSTICS)
             await db.execute(_CREATE_RUN_QUERIES)
+            await db.execute(_CREATE_FORGE_DATASETS)
+            await db.execute(_CREATE_FORGE_SCENARIOS)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -504,3 +527,72 @@ class SQLiteStore:
             async with db.execute(sql, run_ids) as cursor:
                 rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def save_forge_dataset(
+        self,
+        dataset_id: str,
+        summary_json: str,
+        corpus_path: str,
+        output_dir: str,
+    ) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO forge_datasets (dataset_id, created_at, corpus_path, output_dir, summary_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (dataset_id, datetime.now(timezone.utc).isoformat(), corpus_path, output_dir, summary_json),
+            )
+            await db.commit()
+
+    async def get_forge_datasets(self) -> List[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT dataset_id, created_at, corpus_path, output_dir, summary_json FROM forge_datasets ORDER BY created_at DESC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["summary"] = json.loads(d.pop("summary_json", "{}"))
+            except Exception:
+                d["summary"] = {}
+            result.append(d)
+        return result
+
+    async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
+        scenarios = json.loads(scenarios_json)
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM forge_scenarios WHERE dataset_id = ?", (dataset_id,))
+            for s in scenarios:
+                await db.execute(
+                    "INSERT INTO forge_scenarios (dataset_id, scenario_id, scenario_type, anchor_doc_ids_json, evidence_summary) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        dataset_id,
+                        s.get("scenario_id", ""),
+                        s.get("scenario_type", ""),
+                        json.dumps(s.get("anchor_doc_ids", [])),
+                        s.get("evidence_summary", ""),
+                    ),
+                )
+            await db.commit()
+
+    async def get_forge_scenarios(self, dataset_id: str) -> List[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT scenario_id, scenario_type, anchor_doc_ids_json, evidence_summary "
+                "FROM forge_scenarios WHERE dataset_id = ?",
+                (dataset_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["anchor_doc_ids"] = json.loads(d.pop("anchor_doc_ids_json", "[]"))
+            except Exception:
+                d["anchor_doc_ids"] = []
+            result.append(d)
+        return result

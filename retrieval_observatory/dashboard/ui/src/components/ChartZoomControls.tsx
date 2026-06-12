@@ -3,6 +3,8 @@ interface Props {
   isZoomed: boolean
   onFit?: () => void
   onReset: () => void
+  onZoomIn?: () => void
+  onZoomOut?: () => void
   onExpand?: () => void
   compact?: boolean
   fitLabel?: string
@@ -13,11 +15,13 @@ export default function ChartZoomControls({
   isZoomed,
   onFit,
   onReset,
+  onZoomIn,
+  onZoomOut,
   onExpand,
   compact = true,
   fitLabel = 'Fit',
 }: Props) {
-  const zoomHint = '⌘ + trackpad pinch or scroll to zoom'
+  const zoomHint = 'Pinch to zoom · Drag to pan'
 
   if (compact) {
     return (
@@ -26,6 +30,26 @@ export default function ChartZoomControls({
           <span className="text-[10px] text-gray-400 font-mono">
             {domain[0].toFixed(2)}–{domain[1].toFixed(2)}
           </span>
+        )}
+        {onZoomIn && (
+          <button
+            type="button"
+            onClick={onZoomIn}
+            title="Zoom in"
+            className="text-xs text-gray-500 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 rounded px-1.5 py-0.5 font-mono leading-none"
+          >
+            +
+          </button>
+        )}
+        {onZoomOut && (
+          <button
+            type="button"
+            onClick={onZoomOut}
+            title="Zoom out"
+            className="text-xs text-gray-500 hover:text-indigo-600 border border-gray-200 hover:border-indigo-300 rounded px-1.5 py-0.5 font-mono leading-none"
+          >
+            −
+          </button>
         )}
         {onFit && (
           <button
@@ -41,7 +65,7 @@ export default function ChartZoomControls({
           <button
             type="button"
             onClick={onReset}
-            className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5"
+            className="text-xs text-indigo-600 hover:text-indigo-800 border border-indigo-200 rounded px-2 py-0.5 font-medium"
           >
             Reset
           </button>
@@ -50,6 +74,7 @@ export default function ChartZoomControls({
           <button
             type="button"
             onClick={onExpand}
+            title="Open in expanded view"
             className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded px-2 py-0.5"
           >
             Expand ⤢
@@ -64,6 +89,26 @@ export default function ChartZoomControls({
     <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs text-gray-500 font-medium">Y-axis:</span>
+        {onZoomIn && (
+          <button
+            type="button"
+            onClick={onZoomIn}
+            title="Zoom in"
+            className="text-xs bg-white text-gray-600 hover:bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono"
+          >
+            +
+          </button>
+        )}
+        {onZoomOut && (
+          <button
+            type="button"
+            onClick={onZoomOut}
+            title="Zoom out"
+            className="text-xs bg-white text-gray-600 hover:bg-gray-50 border border-gray-200 rounded px-2 py-1 font-mono"
+          >
+            −
+          </button>
+        )}
         {onFit && (
           <button
             type="button"

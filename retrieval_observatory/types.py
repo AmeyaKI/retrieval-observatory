@@ -58,6 +58,17 @@ class PipelineResult:
     error_traceback: Optional[str] = None
 
 
+@dataclass
+class CandidateLineage:
+    """Per-stage tracking of candidate document flow through a pipeline."""
+    stage_index: int
+    stage_id: str
+    entered: List[str]    # doc IDs first appearing at this stage
+    survived: List[str]   # doc IDs carried forward from the previous stage
+    dropped: List[str]    # doc IDs present in previous stage but absent here
+    churn_rate: float     # fraction of previous candidates that were dropped
+
+
 @runtime_checkable
 class BaseRetriever(Protocol):
     retriever_id: str
