@@ -74,7 +74,7 @@ interface Props {
 
 export default function ModeRail({ mode, onSelect }: Props) {
   return (
-    <nav className="shrink-0 w-16 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-1">
+    <nav className="shrink-0 w-20 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-1">
       <div className="mb-3 w-9 h-9 rounded-lg bg-gray-900 text-white flex items-center justify-center text-[11px] font-bold tracking-tight select-none" title="Retrieval Observatory">
         RO
       </div>
@@ -96,7 +96,7 @@ export default function ModeRail({ mode, onSelect }: Props) {
             <span className={`flex items-center justify-center w-9 h-9 rounded-lg ${active ? m.activeBg : ''}`}>
               {m.icon(active)}
             </span>
-            <span className="text-[9px] font-medium leading-none">{m.label}</span>
+            <span className="text-[10px] font-medium leading-none whitespace-nowrap px-0.5">{m.label}</span>
           </button>
         )
       })}
