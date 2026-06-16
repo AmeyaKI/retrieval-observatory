@@ -1504,18 +1504,24 @@ def demo(
     db: str = typer.Option(".retobs/demo/results.db", "--db", help="SQLite DB to write all data into."),
     service: str = typer.Option("demo", "--service", help="TraceLens service name for synthetic traces."),
     n_traces: int = typer.Option(300, "--n-traces", help="Synthetic TraceLens traces to seed."),
+    keep_db: bool = typer.Option(False, "--keep-db", help="Append to existing DB instead of starting fresh."),
 ) -> None:
-    """Build a full synthetic RAG demo: corpus → Forge → BM25 benchmark → TraceLens.
+    """Build a full reliability-platform demo: Forge → baseline + degraded benchmarks → TraceLens → Advisor.
 
-    No API keys required. Everything runs locally.
+    No API keys required. Seeds flawed/degraded data so all four dashboard modes are worth exploring.
 
     After completion: retobs serve --db <db>  →  http://localhost:4000
-    Explore all three dashboard modes: Benchmarks, Forge, TraceLens.
     """
-    asyncio.run(_demo(output_dir=str(output_dir), db_path=db, tracelens_service=service, n_traces=n_traces))
+    asyncio.run(_demo(
+        output_dir=str(output_dir),
+        db_path=db,
+        tracelens_service=service,
+        n_traces=n_traces,
+        keep_db=keep_db,
+    ))
 
 
-async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces: int) -> None:
+async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces: int, keep_db: bool = False) -> None:
     from retrieval_observatory.forge.types import SyntheticDataset, SyntheticQuery, CorpusScenario
     from retrieval_observatory.forge.datasets.exporter import export_dataset
     from retrieval_observatory.forge.scenarios.registry import detect_all
@@ -1524,8 +1530,13 @@ async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    db_path_obj = Path(db_path)
+    if db_path_obj.exists() and not keep_db:
+        db_path_obj.unlink()
+        console.print(f"[dim]Removed existing demo DB: {db_path}[/dim]")
+
     # ── Step 1: Write synthetic corpus ──────────────────────────────────────
-    console.print("\n[bold cyan]Step 1/5[/bold cyan] Building synthetic RAG-domain corpus...")
+    console.print("\n[bold cyan]Step 1/8[/bold cyan] Building synthetic RAG-domain corpus...")
     corpus_docs = _demo_corpus_docs()
     corpus_path = out / "corpus.jsonl"
     corpus_path.write_text("\n".join(json.dumps(d) for d in corpus_docs), encoding="utf-8")
@@ -1533,7 +1544,7 @@ async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces:
     console.print(f"  [green]✓[/green] {len(corpus_docs)} documents → {corpus_path}")
 
     # ── Step 2: Forge scan (real detector, no LLM) ───────────────────────────
-    console.print("\n[bold cyan]Step 2/5[/bold cyan] Scanning corpus for failure scenarios (no LLM)...")
+    console.print("\n[bold cyan]Step 2/8[/bold cyan] Scanning corpus for failure scenarios (no LLM)...")
     scenarios = detect_all(corpus_dict, types=["temporal", "alias"], max_per_type=20)
     temporal = [s for s in scenarios if s.scenario_type == "temporal"]
     alias = [s for s in scenarios if s.scenario_type == "alias"]
@@ -1542,12 +1553,12 @@ async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces:
         console.print("[yellow]  No scenarios detected. Check corpus content.[/yellow]")
 
     # ── Step 3: Build synthetic queries (no LLM) ─────────────────────────────
-    console.print("\n[bold cyan]Step 3/5[/bold cyan] Building synthetic queries (hand-crafted, no LLM)...")
+    console.print("\n[bold cyan]Step 3/8[/bold cyan] Building synthetic queries (hand-crafted, no LLM)...")
     synthetic_queries, qrels = _build_demo_queries(scenarios, corpus_dict)
     console.print(f"  [green]✓[/green] {len(synthetic_queries)} queries ({len(qrels)} with qrels)")
 
     # ── Step 4: Export Forge dataset and register in store ────────────────────
-    console.print("\n[bold cyan]Step 4/5[/bold cyan] Exporting Forge dataset and registering in store...")
+    console.print("\n[bold cyan]Step 4/8[/bold cyan] Exporting Forge dataset and registering in store...")
     forge_dir = out / "forge_dataset"
     dataset = SyntheticDataset(
         dataset_id="demo",
@@ -1592,40 +1603,101 @@ async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces:
     console.print(f"         {summary['n_scenarios']} scenarios, {summary['n_queries']} queries, "
                   f"difficulty mix: {summary.get('queries_by_difficulty', {})}")
 
-    # ── Step 5: Run BM25 benchmark on the Forge dataset ──────────────────────
-    console.print("\n[bold cyan]Step 5/5[/bold cyan] Running BM25 benchmark on the Forge stress dataset...")
-    config_path = out / "benchmark_config.yaml"
-    config_path.write_text(
-        _demo_config_yaml(
-            queries_path=str((forge_dir / "queries.jsonl").resolve()),
-            corpus_path=str((forge_dir / "corpus.jsonl").resolve()),
-            db_path=db_path,
-        ),
+    # ── Step 5: Baseline BM25 benchmark (healthy k) ─────────────────────────
+    console.print("\n[bold cyan]Step 5/8[/bold cyan] Running baseline BM25 benchmark (k=20)...")
+    baseline_config = out / "benchmark_baseline.yaml"
+    degraded_config = out / "benchmark_degraded.yaml"
+    queries_path = str((forge_dir / "queries.jsonl").resolve())
+    corpus_path = str((forge_dir / "corpus.jsonl").resolve())
+    baseline_config.write_text(
+        _demo_config_yaml(queries_path, corpus_path, db_path, k=20, experiment_name="forge-stress-baseline"),
         encoding="utf-8",
     )
-    await _run(config_path, skip_smoke_test=True, no_cache=False)
+    degraded_config.write_text(
+        _demo_config_yaml(queries_path, corpus_path, db_path, k=1, experiment_name="forge-stress-degraded"),
+        encoding="utf-8",
+    )
+    (out / "benchmark_config.yaml").write_text(baseline_config.read_text(encoding="utf-8"), encoding="utf-8")
+    await _run(baseline_config, skip_smoke_test=True, no_cache=False, latency_budget_ms=800)
 
-    # ── Bonus: Seed TraceLens traces ──────────────────────────────────────────
-    console.print(f"\n[bold cyan]Bonus[/bold cyan]  Seeding {n_traces} synthetic TraceLens traces for service '{tracelens_service}'...")
-    await _tracelens_demo(tracelens_service, n_traces, db_path)
+    runs = await store.list_runs()
+    baseline_run_id = runs[0]["run_id"] if runs else "?"
+    console.print(f"  [green]✓[/green] Baseline run: [bold]{baseline_run_id}[/bold]")
+
+    # ── Step 6: Degraded BM25 benchmark (starved k) ───────────────────────────
+    console.print("\n[bold cyan]Step 6/8[/bold cyan] Running degraded BM25 benchmark (k=1) for Advisor regression demo...")
+    await _run(degraded_config, skip_smoke_test=True, no_cache=True, latency_budget_ms=800)
+
+    runs = await store.list_runs()
+    candidate_run_id = runs[0]["run_id"] if runs else "?"
+    console.print(f"  [green]✓[/green] Degraded run: [bold]{candidate_run_id}[/bold]")
+
+    # ── Step 7: Seed TraceLens with drift + failure hotspots ──────────────────
+    console.print(f"\n[bold cyan]Step 7/8[/bold cyan] Seeding {n_traces} showcase TraceLens traces (drift + hotspots)...")
+    await _seed_showcase_traces(tracelens_service, n_traces, db_path)
+
+    # ── Step 8: Advisor regression check ──────────────────────────────────────
+    console.print("\n[bold cyan]Step 8/8[/bold cyan] Running Advisor regression check...")
+    from retrieval_observatory.advisor.regression import detect_regressions
+    from retrieval_observatory.advisor.recommend import recommend
+
+    findings = await detect_regressions(baseline_run_id, candidate_run_id, store)
+    recs = await recommend(candidate_run_id, store)
+
+    all_fq = await store.get_forge_queries(dataset.dataset_id, limit=500)
+    temporal = [q for q in all_fq if q.get("failure_category") == "temporal_confusion"]
+    sample_query_id = (
+        temporal[0]["query_id"] if temporal else (all_fq[0]["query_id"] if all_fq else "temporal-0-0")
+    )
 
     # ── Done ──────────────────────────────────────────────────────────────────
     console.print(f"\n{'─' * 60}")
-    console.print(f"[bold green]Demo ready![/bold green] Everything is in: {db_path}")
-    console.print(f"\nStart the dashboard:")
-    console.print(f"  [bold]retobs serve --db {db_path}[/bold]")
+    console.print(f"[bold green]Demo ready![/bold green] Database: [bold]{db_path}[/bold]")
+    console.print(f"\n[bold]Run IDs[/bold]")
+    console.print(f"  Baseline (healthy):  {baseline_run_id}")
+    console.print(f"  Degraded (regressed): {candidate_run_id}")
+    console.print(f"  Sample query (lineage): {sample_query_id}")
+
+    if findings:
+        console.print(f"\n[bold yellow]Advisor regressions detected ({len(findings)}):[/bold yellow]")
+        for f in findings[:5]:
+            console.print(
+                f"  • {f.metric}: {f.before:.3f} → {f.after:.3f} (q={f.q_value:.4f}, {f.severity})"
+            )
+    else:
+        console.print("\n[yellow]Advisor: no significant regressions (unexpected — check query count).[/yellow]")
+
+    if recs:
+        console.print(f"\n[bold violet]Top recommendations for degraded run ({len(recs)}):[/bold violet]")
+        for i, rec in enumerate(recs[:3], 1):
+            console.print(f"  {i}. {rec.action}")
+
+    console.print(f"\n[bold]Start the dashboard:[/bold]")
+    console.print(f"  retobs serve --db {db_path}")
     console.print(f"  → http://localhost:4000")
-    console.print(f"\nExplore the three modes:")
-    console.print(f"  [bold cyan]Benchmarks[/bold cyan]  BM25 run on the Forge stress dataset, with Stress Test Results section")
-    console.print(f"  [bold yellow]Forge[/bold yellow]       'demo' dataset — {summary['n_scenarios']} scenarios, {summary['n_queries']} queries, Query Browser, label trust banner")
-    console.print(f"  [bold green]TraceLens[/bold green]   '{tracelens_service}' service — {n_traces} synthetic traces, Overview, Drift, Hotspots, Clusters")
+    console.print(f"\n[bold]Explore all four modes:[/bold]")
+    console.print(f"  [bold cyan]Benchmarks[/bold cyan]  Compare baseline vs degraded — stage attribution, failure labels, query explorer")
+    console.print(f"  [bold yellow]Forge[/bold yellow]       #/forge/demo — temporal + alias stress queries, View lineage →")
+    console.print(f"  [bold green]TraceLens[/bold green]   #/tracelens/{tracelens_service} — drift (recent vs baseline window), hotspots")
+    console.print(f"  [bold magenta]Advisor[/bold magenta]     #/advisor — recommendations + regression center (runs above)")
+    console.print(f"  [dim]Query lineage:[/dim]  #/query/{sample_query_id}")
+    console.print(f"\n[bold]CLI:[/bold]")
+    console.print(f"  retobs advisor check --baseline {baseline_run_id} --candidate {candidate_run_id} --db {db_path}")
+    console.print(f"  retobs advisor recommend --run {candidate_run_id} --db {db_path}")
     console.print(f"{'─' * 60}\n")
 
 
-def _demo_config_yaml(queries_path: str, corpus_path: str, db_path: str) -> str:
+def _demo_config_yaml(
+    queries_path: str,
+    corpus_path: str,
+    db_path: str,
+    *,
+    k: int = 20,
+    experiment_name: str = "forge-stress-demo",
+) -> str:
     return f"""\
 experiment:
-  name: "forge-stress-demo"
+  name: "{experiment_name}"
 
 dataset:
   type: custom
@@ -1637,7 +1709,7 @@ stages:
   bm25:
     type: adapter.bm25
     config:
-      k: 20
+      k: {k}
 
 combinations:
   include:
@@ -2286,6 +2358,146 @@ def _build_demo_queries(
     return queries, qrels
 
 
+def _append_demo_forge_tags(trace) -> None:
+    """Add Forge failure_category tags so query lineage prod-matches work in the demo."""
+    text = trace.query_text.lower()
+    tags = list(trace.suspected_failures or [])
+    temporal_markers = ("2022", "2023", "2024", "current", "latest", "earlier version", "changed over time", "versus")
+    alias_markers = ("aws vs", "amazon web services", " rrf ", " rag ", " bm25 ", " ann ")
+    if any(m in text for m in temporal_markers) and "temporal_confusion" not in tags:
+        tags.append("temporal_confusion")
+    if any(m in text for m in alias_markers) and "alias_mismatch" not in tags:
+        tags.append("alias_mismatch")
+    trace.suspected_failures = tags
+
+
+async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
+    """Seed production traces designed for drift, hotspots, and lineage categorical matches."""
+    import random
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from retrieval_observatory.store.sqlite import SQLiteStore
+    from retrieval_observatory.tracing.enrich import enrich
+    from retrieval_observatory.tracing.types import RetrievalTrace
+    from retrieval_observatory.types import Document, StageSnapshot
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+
+    random.seed(42)
+    now = datetime.now(timezone.utc)
+
+    healthy_queries = [
+        "what is the refund policy",
+        "how do I reset my password",
+        "explain the onboarding flow step by step",
+    ]
+    temporal_queries = [
+        "compare the 2022 and 2024 pricing tiers",
+        "what is the current api reference documentation",
+        "show me the latest security guidelines",
+        "how has subscription pricing changed over time",
+        "what were the security guidelines in the earlier version",
+    ]
+    alias_queries = [
+        "AWS vs Amazon Web Services billing differences",
+        "how does RAG work and when should I use it",
+        "configure RRF for my hybrid retrieval pipeline",
+        "BM25 vs alternative approaches comparison",
+    ]
+    hard_queries = [
+        "why was my account suspended and how do I appeal the decision",
+        "did the API change after the 2023 migration versus the legacy endpoint",
+    ]
+
+    pipelines = ["bm25", "hybrid", "hybrid__rerank"]
+    traces: list = []
+
+    def _docs(count: int, score_lo: float = 0.4, score_hi: float = 0.95) -> list:
+        return [
+            Document(id=f"d{j}", text="doc", score=random.uniform(score_lo, score_hi), rank=j + 1)
+            for j in range(count)
+        ]
+
+    for i in range(n):
+        recent_window = i >= int(n * 0.55)
+        if recent_window:
+            ts = now - timedelta(hours=random.randint(1, 72))
+            failure_roll = random.random()
+        else:
+            ts = now - timedelta(days=random.uniform(9, 14), hours=random.randint(0, 12))
+            failure_roll = random.random() * 0.35
+
+        if failure_roll < 0.12:
+            q = random.choice(temporal_queries + hard_queries)
+            pipeline = random.choice(pipelines)
+            snapshots = [StageSnapshot(0, "bm25", [], random.uniform(15, 80), candidate_count=0)]
+            final: list = []
+            latency = snapshots[0].latency_ms
+            status = "OK"
+        elif failure_roll < 0.22:
+            q = random.choice(hard_queries + temporal_queries)
+            pipeline = "hybrid__rerank"
+            docs = _docs(10)
+            snapshots = [
+                StageSnapshot(0, "bm25", docs, random.uniform(40, 120), candidate_count=10),
+                StageSnapshot(1, "rerank", _docs(1, 0.1, 0.2), random.uniform(2500, 4500), candidate_count=1),
+            ]
+            final = snapshots[1].documents
+            latency = sum(s.latency_ms for s in snapshots)
+            status = "OK"
+        elif failure_roll < 0.32 and recent_window:
+            q = random.choice(alias_queries)
+            pipeline = "hybrid__rerank"
+            docs = _docs(10)
+            kept = docs[:2]
+            snapshots = [
+                StageSnapshot(0, "bm25", docs, random.uniform(30, 90), candidate_count=10),
+                StageSnapshot(1, "rerank", kept, random.uniform(50, 150), candidate_count=2),
+            ]
+            final = kept
+            latency = sum(s.latency_ms for s in snapshots)
+            status = "OK"
+        else:
+            q = random.choice(healthy_queries + alias_queries[:1])
+            pipeline = random.choice(pipelines)
+            docs = _docs(8, 0.6, 0.98)
+            snapshots = [StageSnapshot(0, "bm25", docs, random.uniform(15, 60), candidate_count=8)]
+            if "rerank" in pipeline:
+                kept = docs[:5]
+                snapshots.append(
+                    StageSnapshot(1, "rerank", kept, random.uniform(25, 70), candidate_count=5)
+                )
+                final = kept
+            else:
+                final = docs[:5]
+            latency = sum(s.latency_ms for s in snapshots)
+            status = "OK"
+
+        trace = RetrievalTrace(
+            trace_id=uuid.uuid4().hex,
+            service=service,
+            query_id=uuid.uuid4().hex[:8],
+            query_text=q,
+            pipeline_id=pipeline,
+            snapshots=snapshots,
+            total_latency_ms=latency,
+            status=status,
+            timestamp=ts,
+            final_results=final,
+        )
+        enrich(trace, latency_budget_ms=800.0)
+        _append_demo_forge_tags(trace)
+        traces.append(trace)
+
+    await store.save_traces_batch(traces)
+    console.print(
+        f"  [green]✓[/green] {len(traces)} traces — "
+        f"~{int(n * 0.45)} baseline-window (healthy) + ~{int(n * 0.55)} recent (elevated failures for drift)"
+    )
+
+
 @tracelens_app.command("demo")
 def tracelens_demo(
     service: str = typer.Option("demo", "--service", help="Service name to attach the synthetic traces to."),
@@ -2297,60 +2509,7 @@ def tracelens_demo(
 
 
 async def _tracelens_demo(service: str, n: int, db_path: str) -> None:
-    import random
-    from datetime import datetime, timedelta, timezone
-    from retrieval_observatory.store.sqlite import SQLiteStore
-    from retrieval_observatory.tracing import TraceRecorder, StoreSink
-    from retrieval_observatory.types import Document
-
-    store = SQLiteStore(db_path=db_path)
-    await store.init_db()
-    recorder = TraceRecorder(service=service, sink=StoreSink(store))
-
-    templates = [
-        "what is the refund policy",
-        "compare the 2022 and 2024 pricing tiers",
-        "how do I reset my password",
-        "did the API change after the 2023 migration versus the legacy endpoint",
-        "AWS vs Amazon Web Services billing differences",
-        "explain the onboarding flow step by step including edge cases and retries",
-        "latest security advisory",
-        "why was my account suspended and how do I appeal the decision",
-    ]
-    pipelines = ["bm25", "hybrid", "hybrid__rerank"]
-    now = datetime.now(timezone.utc)
-
-    seeded = 0
-    for i in range(n):
-        q = random.choice(templates)
-        pipeline = random.choice(pipelines)
-        # Spread timestamps across the last 7 days.
-        ts = now - timedelta(minutes=random.randint(0, 7 * 24 * 60))
-        async with recorder.trace(query_text=q, pipeline_id=pipeline) as t:
-            t.trace.timestamp = ts
-            roll = random.random()
-            base_lat = random.uniform(20, 120)
-            if roll < 0.08:
-                # empty candidates failure
-                t.stage("bm25", [], base_lat)
-                t.set_results([])
-            elif roll < 0.16:
-                # latency spike
-                docs = [Document(id=f"d{j}", text="x", score=random.uniform(0.3, 0.9), rank=j + 1) for j in range(8)]
-                t.stage("bm25", docs, base_lat + random.uniform(2000, 4000))
-                t.set_results(docs[:5])
-            else:
-                docs = [Document(id=f"d{j}", text="x", score=random.uniform(0.4, 0.95), rank=j + 1) for j in range(10)]
-                t.stage("bm25", docs, base_lat)
-                if "rerank" in pipeline:
-                    kept = docs[:5]
-                    t.stage("rerank", kept, random.uniform(30, 90))
-                    t.set_results(kept)
-                else:
-                    t.set_results(docs[:5])
-        seeded += 1
-
-    console.print(f"[green]Seeded {seeded} synthetic traces[/green] for service '[bold]{service}[/bold]' in {db_path}.")
+    await _seed_showcase_traces(service, n, db_path)
     console.print("[dim]Open the dashboard (retobs serve) → TraceLens mode to explore them.[/dim]")
 
 
