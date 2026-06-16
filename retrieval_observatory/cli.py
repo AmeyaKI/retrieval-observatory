@@ -16,9 +16,11 @@ app = typer.Typer(name="retobs", help="Retrieval Observatory — RAG pipeline be
 classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
 forge_app = typer.Typer(name="forge", help="Generate corpus-specific stress-test evaluation datasets.")
 tracelens_app = typer.Typer(name="tracelens", help="Production retrieval observability — inspect and monitor live traces.")
+advisor_app = typer.Typer(name="advisor", help="Reliability advisor — regressions, recommendations, golden sets.")
 app.add_typer(classifier_app, name="classifier")
 app.add_typer(forge_app, name="forge")
 app.add_typer(tracelens_app, name="tracelens")
+app.add_typer(advisor_app, name="advisor")
 console = Console()
 
 
@@ -33,7 +35,7 @@ def run(
     asyncio.run(_run(config, skip_smoke_test, no_cache, latency_budget_ms))
 
 
-async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False, latency_budget_ms: Optional[int] = None) -> None:
+async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False, latency_budget_ms: Optional[int] = None, golden_set: Optional[str] = None) -> None:
     from retrieval_observatory.config.schema import ExperimentConfig
     from retrieval_observatory.config.validator import validate_id_consistency
     from retrieval_observatory.datasets.beir import BEIRDataset
@@ -42,7 +44,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
     from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.pipeline.factory import build_pipeline_from_config
-    from retrieval_observatory.runner.manifest import build_run_manifest
+    from retrieval_observatory.runner.manifest import build_run_manifest, detect_forge_dataset_id
     from retrieval_observatory.runner.benchmark import BenchmarkRunner
     from retrieval_observatory.runner.cache import ResultCache, StageResultCache
     from retrieval_observatory.store.sqlite import SQLiteStore
@@ -114,7 +116,17 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
             qrels,
             corpus if isinstance(corpus, dict) else None,
         )
-        await store.save_run_manifest(run_id, build_run_manifest(cfg, fingerprint, latency_budget_ms=latency_budget_ms))
+        forge_dataset_id = detect_forge_dataset_id(cfg)
+        await store.save_run_manifest(
+            run_id,
+            build_run_manifest(
+                cfg,
+                fingerprint,
+                latency_budget_ms=latency_budget_ms,
+                forge_dataset_id=forge_dataset_id,
+                golden_set=golden_set,
+            ),
+        )
     if hasattr(store, "save_run_queries"):
         await store.save_run_queries(run_id, queries, cfg.dataset.name)
     console.print(f"[bold]Run ID:[/bold] {run_id}")
@@ -1431,6 +1443,849 @@ async def _forge_run(
     )
 
 
+@forge_app.command("list")
+def forge_list(
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB to read from."),
+) -> None:
+    """List Forge datasets registered in the store."""
+    asyncio.run(_forge_list(db))
+
+
+async def _forge_list(db_path: str) -> None:
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    if not Path(db_path).exists():
+        console.print(f"[red]Database not found:[/red] {db_path}")
+        console.print("[dim]Run 'retobs demo' to create a demo database, or 'retobs forge run' to generate a dataset.[/dim]")
+        return
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    datasets = await store.get_forge_datasets()
+
+    if not datasets:
+        console.print(f"[yellow]No Forge datasets in {db_path}.[/yellow]")
+        console.print("[dim]Run: retobs forge run --corpus <corpus.jsonl> --output <dir> --db " + db_path + "[/dim]")
+        return
+
+    table = Table(title=f"Forge Datasets — {db_path}", show_header=True)
+    table.add_column("Dataset ID", style="bold cyan")
+    table.add_column("Created", style="dim")
+    table.add_column("Scenarios", justify="right")
+    table.add_column("Queries", justify="right")
+    table.add_column("Validated", justify="right")
+    table.add_column("Corpus Path", style="dim")
+
+    for d in datasets:
+        s = d.get("summary", {})
+        created = (d.get("created_at") or "")[:19]
+        corpus_path = str(d.get("corpus_path") or "")
+        corpus_short = ("…" + corpus_path[-38:]) if len(corpus_path) > 40 else corpus_path
+        table.add_row(
+            d["dataset_id"],
+            created,
+            str(s.get("n_scenarios", "?")),
+            str(s.get("n_queries", "?")),
+            str(s.get("validated", 0)),
+            corpus_short,
+        )
+
+    console.print(table)
+    console.print(f"[dim]{len(datasets)} dataset(s). Use 'retobs serve --db {db_path}' to explore in the dashboard.[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# Demo command — full end-to-end synthetic pipeline, no API keys needed
+# ---------------------------------------------------------------------------
+
+@app.command()
+def demo(
+    output_dir: Path = typer.Option(Path(".retobs/demo"), "--output-dir", "-o", help="Directory for all demo outputs."),
+    db: str = typer.Option(".retobs/demo/results.db", "--db", help="SQLite DB to write all data into."),
+    service: str = typer.Option("demo", "--service", help="TraceLens service name for synthetic traces."),
+    n_traces: int = typer.Option(300, "--n-traces", help="Synthetic TraceLens traces to seed."),
+) -> None:
+    """Build a full synthetic RAG demo: corpus → Forge → BM25 benchmark → TraceLens.
+
+    No API keys required. Everything runs locally.
+
+    After completion: retobs serve --db <db>  →  http://localhost:4000
+    Explore all three dashboard modes: Benchmarks, Forge, TraceLens.
+    """
+    asyncio.run(_demo(output_dir=str(output_dir), db_path=db, tracelens_service=service, n_traces=n_traces))
+
+
+async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces: int) -> None:
+    from retrieval_observatory.forge.types import SyntheticDataset, SyntheticQuery, CorpusScenario
+    from retrieval_observatory.forge.datasets.exporter import export_dataset
+    from retrieval_observatory.forge.scenarios.registry import detect_all
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    # ── Step 1: Write synthetic corpus ──────────────────────────────────────
+    console.print("\n[bold cyan]Step 1/5[/bold cyan] Building synthetic RAG-domain corpus...")
+    corpus_docs = _demo_corpus_docs()
+    corpus_path = out / "corpus.jsonl"
+    corpus_path.write_text("\n".join(json.dumps(d) for d in corpus_docs), encoding="utf-8")
+    corpus_dict = {d["id"]: {"text": d["text"], "title": d["title"]} for d in corpus_docs}
+    console.print(f"  [green]✓[/green] {len(corpus_docs)} documents → {corpus_path}")
+
+    # ── Step 2: Forge scan (real detector, no LLM) ───────────────────────────
+    console.print("\n[bold cyan]Step 2/5[/bold cyan] Scanning corpus for failure scenarios (no LLM)...")
+    scenarios = detect_all(corpus_dict, types=["temporal", "alias"], max_per_type=20)
+    temporal = [s for s in scenarios if s.scenario_type == "temporal"]
+    alias = [s for s in scenarios if s.scenario_type == "alias"]
+    console.print(f"  [green]✓[/green] {len(scenarios)} scenarios detected — {len(temporal)} temporal, {len(alias)} alias")
+    if not scenarios:
+        console.print("[yellow]  No scenarios detected. Check corpus content.[/yellow]")
+
+    # ── Step 3: Build synthetic queries (no LLM) ─────────────────────────────
+    console.print("\n[bold cyan]Step 3/5[/bold cyan] Building synthetic queries (hand-crafted, no LLM)...")
+    synthetic_queries, qrels = _build_demo_queries(scenarios, corpus_dict)
+    console.print(f"  [green]✓[/green] {len(synthetic_queries)} queries ({len(qrels)} with qrels)")
+
+    # ── Step 4: Export Forge dataset and register in store ────────────────────
+    console.print("\n[bold cyan]Step 4/5[/bold cyan] Exporting Forge dataset and registering in store...")
+    forge_dir = out / "forge_dataset"
+    dataset = SyntheticDataset(
+        dataset_id="demo",
+        corpus=corpus_dict,
+        queries=synthetic_queries,
+        qrels=qrels,
+        scenarios=scenarios,
+        metadata={"source": "retobs demo"},
+    )
+    export_dataset(dataset, str(forge_dir), fmt="custom")
+    summary = dataset.summary()
+
+    db_dir = Path(db_path).parent
+    db_dir.mkdir(parents=True, exist_ok=True)
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    await store.save_forge_dataset(
+        dataset_id=dataset.dataset_id,
+        summary_json=json.dumps(summary),
+        corpus_path=str(corpus_path.resolve()),
+        output_dir=str(forge_dir.resolve()),
+    )
+    await store.save_forge_scenarios(
+        dataset.dataset_id,
+        json.dumps([
+            {"scenario_id": s.scenario_id, "scenario_type": s.scenario_type,
+             "anchor_doc_ids": s.anchor_doc_ids, "evidence_summary": s.evidence_summary}
+            for s in scenarios
+        ]),
+    )
+    await store.save_forge_queries(
+        dataset.dataset_id,
+        json.dumps([
+            {"query_id": q.query_id, "text": q.text, "scenario_id": q.scenario_id,
+             "query_type": q.query_type, "difficulty_label": q.difficulty_label,
+             "failure_category": q.failure_category, "validated": q.validated,
+             "positive_doc_ids": q.positive_doc_ids}
+            for q in synthetic_queries
+        ]),
+    )
+    console.print(f"  [green]✓[/green] Forge dataset 'demo' registered in {db_path}")
+    console.print(f"         {summary['n_scenarios']} scenarios, {summary['n_queries']} queries, "
+                  f"difficulty mix: {summary.get('queries_by_difficulty', {})}")
+
+    # ── Step 5: Run BM25 benchmark on the Forge dataset ──────────────────────
+    console.print("\n[bold cyan]Step 5/5[/bold cyan] Running BM25 benchmark on the Forge stress dataset...")
+    config_path = out / "benchmark_config.yaml"
+    config_path.write_text(
+        _demo_config_yaml(
+            queries_path=str((forge_dir / "queries.jsonl").resolve()),
+            corpus_path=str((forge_dir / "corpus.jsonl").resolve()),
+            db_path=db_path,
+        ),
+        encoding="utf-8",
+    )
+    await _run(config_path, skip_smoke_test=True, no_cache=False)
+
+    # ── Bonus: Seed TraceLens traces ──────────────────────────────────────────
+    console.print(f"\n[bold cyan]Bonus[/bold cyan]  Seeding {n_traces} synthetic TraceLens traces for service '{tracelens_service}'...")
+    await _tracelens_demo(tracelens_service, n_traces, db_path)
+
+    # ── Done ──────────────────────────────────────────────────────────────────
+    console.print(f"\n{'─' * 60}")
+    console.print(f"[bold green]Demo ready![/bold green] Everything is in: {db_path}")
+    console.print(f"\nStart the dashboard:")
+    console.print(f"  [bold]retobs serve --db {db_path}[/bold]")
+    console.print(f"  → http://localhost:4000")
+    console.print(f"\nExplore the three modes:")
+    console.print(f"  [bold cyan]Benchmarks[/bold cyan]  BM25 run on the Forge stress dataset, with Stress Test Results section")
+    console.print(f"  [bold yellow]Forge[/bold yellow]       'demo' dataset — {summary['n_scenarios']} scenarios, {summary['n_queries']} queries, Query Browser, label trust banner")
+    console.print(f"  [bold green]TraceLens[/bold green]   '{tracelens_service}' service — {n_traces} synthetic traces, Overview, Drift, Hotspots, Clusters")
+    console.print(f"{'─' * 60}\n")
+
+
+def _demo_config_yaml(queries_path: str, corpus_path: str, db_path: str) -> str:
+    return f"""\
+experiment:
+  name: "forge-stress-demo"
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: "{queries_path}"
+  corpus_path: "{corpus_path}"
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 20
+
+combinations:
+  include:
+    - [bm25]
+
+metrics:
+  recall_at_k: [5, 10, 20]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 4
+  timeout_seconds: 60
+  cache_results: false
+
+output:
+  store: sqlite
+  db_path: "{db_path}"
+  export: [json]
+"""
+
+
+def _demo_corpus_docs() -> list:
+    """Synthetic RAG-platform corpus with temporal pairs and alias patterns.
+
+    Temporal pairs: same topic + shared vocabulary, different years → triggers temporal detector.
+    Alias groups: 'Full Form (ABBR)' defining doc + standalone-ABBR-only docs → triggers alias detector.
+    """
+    return [
+        # ── Temporal group 1: API Reference ────────────────────────────────
+        {
+            "id": "api-ref-2021", "timestamp": "2021-03-15T00:00:00",
+            "title": "API Reference — Version 1 (2021)",
+            "text": (
+                "The Version 1 API launched in 2021 provides REST endpoints for search and retrieval. "
+                "Authentication uses bearer tokens issued via the OAuth flow. Rate limits in 2021 were "
+                "set at 1000 requests per minute for standard plans. The search endpoint accepts query "
+                "text and returns ranked results with relevance scores. Pagination uses offset and limit "
+                "parameters. Error codes follow HTTP conventions: 401 for unauthorized, 429 for rate "
+                "limit exceeded. The 2021 release introduced batch query support for improved throughput. "
+                "Token expiry defaults to 8 hours; refresh tokens valid for 30 days."
+            ),
+        },
+        {
+            "id": "api-ref-2023", "timestamp": "2023-09-01T00:00:00",
+            "title": "API Reference — Version 2 (2023 Update)",
+            "text": (
+                "The Version 2 API released in 2023 redesigned REST endpoints for improved performance. "
+                "Authentication supports API keys in addition to OAuth bearer tokens. Rate limits expanded "
+                "in 2023 to 10000 requests per minute for professional plans. The search endpoint supports "
+                "semantic filters and hybrid scoring. Pagination uses cursor-based navigation. Error handling "
+                "now includes retry-after headers for rate limit responses. New in 2023: streaming responses "
+                "and webhook callbacks for async queries. Token refresh flows simplified with PKCE support."
+            ),
+        },
+        # ── Temporal group 2: Subscription Pricing ─────────────────────────
+        {
+            "id": "pricing-2022", "timestamp": "2022-01-10T00:00:00",
+            "title": "Subscription Pricing — 2022",
+            "text": (
+                "Subscription pricing tiers for 2022: Starter plan costs $29 per month with 10000 monthly "
+                "API calls and basic analytics. Professional plan at $99 per month includes 100000 calls, "
+                "priority support, and advanced dashboard access. Enterprise subscription requires contacting "
+                "sales for custom pricing. All 2022 subscription plans include SSL encryption and 99.9 percent "
+                "uptime SLA. Volume discounts apply for annual subscriptions. Monthly billing cycles close on "
+                "the first of each month."
+            ),
+        },
+        {
+            "id": "pricing-2024", "timestamp": "2024-02-01T00:00:00",
+            "title": "Subscription Pricing — 2024 Revision",
+            "text": (
+                "Updated subscription pricing tiers effective 2024: Starter plan is now $19 per month with "
+                "25000 monthly API calls — reduced pricing with expanded limits. Professional plan at $79 per "
+                "month includes 250000 monthly calls, semantic search, dedicated support, and custom analytics. "
+                "Enterprise subscription in 2024 includes SSO, unlimited calls, and custom SLA negotiation. "
+                "All 2024 subscription plans maintain SSL encryption. Annual subscription discounts increased "
+                "to 20 percent. New monthly billing dashboards provide cost forecasting."
+            ),
+        },
+        # ── Temporal group 3: Security Guidelines ──────────────────────────
+        {
+            "id": "security-2022", "timestamp": "2022-06-01T00:00:00",
+            "title": "Security Guidelines — 2022",
+            "text": (
+                "Security guidelines for 2022 mandate encryption of all data in transit using TLS 1.2 or "
+                "higher. Access control policies require multi-factor authentication for administrator accounts. "
+                "Audit logging captures all read and write operations with timestamp and user identity. "
+                "Compliance with SOC 2 Type II required for enterprise customers in 2022. Data encryption at "
+                "rest uses AES-256 across all storage tiers. Security incidents must be reported within 24 "
+                "hours under the 2022 policy. Penetration testing required quarterly."
+            ),
+        },
+        {
+            "id": "security-2024", "timestamp": "2024-04-15T00:00:00",
+            "title": "Security Guidelines — 2024 Update",
+            "text": (
+                "Updated security guidelines for 2024 require TLS 1.3 for all data encryption in transit. "
+                "Access control policies now support role-based permissions with granular resource controls. "
+                "Audit logging in 2024 includes full query content for compliance investigations. Requirements "
+                "expanded to include GDPR and CCPA in addition to SOC 2. Data encryption standards upgraded "
+                "across all storage tiers. Security incident reporting threshold reduced to 4 hours under the "
+                "2024 policy. Automated penetration testing now runs continuously."
+            ),
+        },
+        # ── Temporal group 4: Release Notes ────────────────────────────────
+        {
+            "id": "release-notes-2022", "timestamp": "2022-12-01T00:00:00",
+            "title": "Release Notes — December 2022",
+            "text": (
+                "December 2022 release highlights: improved latency for hybrid search queries by 40 percent. "
+                "New recall metrics dashboard for monitoring retrieval quality over time. BM25 index rebuild "
+                "speed increased 3x. Fixed recall regression introduced in the October 2022 release. "
+                "Reranker model updated to improve precision on long-tail queries. Query cache now supports "
+                "TTL configuration. Latency p99 reduced from 800ms to 450ms for standard plans. "
+                "Deprecation notice: legacy v0 search endpoint removed in this release."
+            ),
+        },
+        {
+            "id": "release-notes-2024", "timestamp": "2024-08-01T00:00:00",
+            "title": "Release Notes — August 2024",
+            "text": (
+                "August 2024 release highlights: latency p50 reduced by 25 percent for all search queries "
+                "through kernel-level index optimization. Recall@10 improved by 8 percent on long queries. "
+                "New reranker model trained on 2024 query logs achieves higher precision on ambiguous queries. "
+                "BM25 index now supports incremental updates without full rebuild. Hybrid search latency "
+                "improvements benefit all plans. Query cache hit rate monitoring added to the metrics dashboard. "
+                "Deprecated: offset-based pagination removed — migrate to cursor-based pagination."
+            ),
+        },
+        # ── Alias group 1: RAG (Retrieval Augmented Generation) ────────────
+        {
+            "id": "rag-overview", "timestamp": "2023-01-01T00:00:00",
+            "title": "Retrieval Augmented Generation Overview",
+            "text": (
+                "Retrieval Augmented Generation (RAG) is an architecture combining information retrieval "
+                "with generative language models. RAG systems first retrieve relevant documents from a "
+                "knowledge base, then provide them as context for answer generation. The RAG approach "
+                "reduces hallucination by grounding responses in retrieved evidence. Implementing RAG "
+                "requires three components: a document corpus, a retrieval engine, and a language model. "
+                "RAG pipelines can use sparse retrieval, dense vector search, or hybrid combinations. "
+                "Retrieval quality directly impacts generation accuracy in any RAG system."
+            ),
+        },
+        {
+            "id": "rag-pipeline-guide", "timestamp": "2023-03-01T00:00:00",
+            "title": "RAG Pipeline Configuration Guide",
+            "text": (
+                "Configuring your RAG pipeline requires careful attention to retrieval parameters. "
+                "The query processing stage in a RAG pipeline should normalize text before retrieval. "
+                "Chunking strategy significantly impacts RAG performance — shorter chunks improve "
+                "precision while longer chunks preserve context. Context window management determines "
+                "how many retrieved documents the RAG pipeline passes to the generator. Monitoring "
+                "retrieval quality metrics helps identify when your RAG pipeline needs retuning. "
+                "Production RAG deployments benefit from caching frequent queries."
+            ),
+        },
+        {
+            "id": "rag-evaluation-guide", "timestamp": "2023-05-01T00:00:00",
+            "title": "RAG Evaluation Framework",
+            "text": (
+                "Evaluating a RAG system requires measuring retrieval and generation quality independently. "
+                "For the retrieval component of your RAG system, track recall, precision, and ranking "
+                "metrics. The generation component of RAG evaluation should assess factual accuracy and "
+                "relevance. Human evaluation remains essential for RAG quality assessment since automated "
+                "metrics miss nuance. RAG evaluation datasets should include queries across difficulty "
+                "levels. Continuous evaluation pipelines ensure RAG quality does not degrade with updates."
+            ),
+        },
+        {
+            "id": "rag-limitations", "timestamp": "2023-07-01T00:00:00",
+            "title": "RAG Known Limitations and Mitigations",
+            "text": (
+                "Common limitations of RAG systems include retrieval latency, context window constraints, "
+                "and corpus staleness. A RAG system that retrieves irrelevant documents propagates errors "
+                "into the generated response. Mitigating RAG latency requires caching, async retrieval, "
+                "and index optimization. Context compression techniques help when retrieved documents "
+                "exceed the language model context window in a RAG pipeline. Staleness is managed by "
+                "scheduling periodic corpus updates and monitoring query drift in your RAG deployment."
+            ),
+        },
+        # ── Alias group 2: RRF (Reciprocal Rank Fusion) ────────────────────
+        {
+            "id": "rrf-overview", "timestamp": "2023-02-01T00:00:00",
+            "title": "Reciprocal Rank Fusion Overview",
+            "text": (
+                "Reciprocal Rank Fusion (RRF) is a method for combining ranked lists from multiple "
+                "retrieval systems. RRF assigns scores using the formula: score = sum of 1/(k + rank_i) "
+                "where k is a smoothing constant (typically 60). The RRF approach is robust because it "
+                "does not require score normalization across systems. Combining BM25 and dense retrieval "
+                "with RRF consistently outperforms either system alone on diverse query sets. "
+                "RRF implementation requires only rank positions, not raw scores."
+            ),
+        },
+        {
+            "id": "rrf-configuration", "timestamp": "2023-04-01T00:00:00",
+            "title": "RRF Configuration Reference",
+            "text": (
+                "Configuring RRF for your hybrid pipeline involves setting the k parameter and defining "
+                "participating retrievers. The k parameter controls how much weight RRF gives to top-ranked "
+                "versus lower-ranked results — smaller k emphasizes top results more strongly. For most "
+                "production deployments k=60 provides good balance for RRF performance. You can configure "
+                "RRF with any number of retrieval systems: sparse, dense, or specialized domain retrievers. "
+                "Testing RRF configurations requires evaluation against held-out query sets."
+            ),
+        },
+        {
+            "id": "rrf-benchmarks", "timestamp": "2023-06-01T00:00:00",
+            "title": "RRF Performance Benchmarks",
+            "text": (
+                "Benchmark results show RRF consistently improves retrieval quality across diverse query "
+                "types. On information-seeking queries, RRF achieves 8 to 15 percent relative improvement "
+                "compared to single-system retrieval. For navigational queries, RRF gains are more modest. "
+                "RRF excels at tail queries where neither sparse nor dense retrieval alone is reliable. "
+                "Latency overhead of RRF is negligible since it only merges pre-retrieved result lists. "
+                "Production RRF deployments typically process thousands of merges per second."
+            ),
+        },
+        # ── Alias group 3: ANN (Approximate Nearest Neighbor) ──────────────
+        {
+            "id": "ann-overview", "timestamp": "2023-01-15T00:00:00",
+            "title": "Approximate Nearest Neighbor Search Overview",
+            "text": (
+                "Approximate Nearest Neighbor (ANN) search finds vectors close to a query vector without "
+                "scanning the entire index. ANN algorithms trade exact accuracy for significant speed gains "
+                "at scale. Main ANN approaches include HNSW, IVF, and LSH. ANN recall depends on index "
+                "parameters: higher recall requires more search effort. Vector databases implement ANN "
+                "search at scale with configurable recall targets. ANN performance benchmarks measure "
+                "queries per second versus recall tradeoff curves across different index configurations."
+            ),
+        },
+        {
+            "id": "ann-index-guide", "timestamp": "2023-03-15T00:00:00",
+            "title": "ANN Index Configuration",
+            "text": (
+                "Building an effective ANN index requires tuning construction parameters for your dataset "
+                "size and query latency requirements. The HNSW algorithm provides strong ANN performance "
+                "with tunable recall via the ef parameter at search time. For large-scale ANN deployments "
+                "with billions of vectors, IVF-based approaches with product quantization reduce memory. "
+                "ANN index updates require balancing insertion latency against recall degradation. "
+                "Benchmarking your ANN configuration should measure p50, p95, and p99 latency alongside recall."
+            ),
+        },
+        {
+            "id": "ann-performance", "timestamp": "2023-05-15T00:00:00",
+            "title": "ANN Performance Tuning Guide",
+            "text": (
+                "Optimizing ANN throughput requires understanding the recall-latency tradeoff for your "
+                "workload. The ef_search parameter in HNSW directly controls ANN recall: increasing "
+                "ef_search improves recall at the cost of higher query latency. Batching queries "
+                "significantly improves ANN throughput on GPU-accelerated indices. Monitoring ANN recall "
+                "drift is critical — corpus updates can degrade recall without configuration changes. "
+                "ANN index sharding allows horizontal scaling for high-throughput production deployments."
+            ),
+        },
+        # ── Alias group 4: NDCG (Normalized Discounted Cumulative Gain) ────
+        {
+            "id": "ndcg-guide", "timestamp": "2023-02-15T00:00:00",
+            "title": "Normalized Discounted Cumulative Gain Guide",
+            "text": (
+                "Normalized Discounted Cumulative Gain (NDCG) measures ranking quality by comparing a "
+                "system's ranked list against an ideal ranking. NDCG computes a score between 0 and 1 "
+                "where 1 indicates perfect ranking. The discounting factor in NDCG reduces the contribution "
+                "of relevant documents at lower ranks. NDCG supports graded relevance judgments, making it "
+                "more nuanced than binary recall or precision. NDCG@10 and NDCG@100 are the most common "
+                "cutoffs in information retrieval benchmarks."
+            ),
+        },
+        {
+            "id": "ndcg-evaluation", "timestamp": "2023-04-15T00:00:00",
+            "title": "Evaluation Using NDCG Metrics",
+            "text": (
+                "Reporting NDCG results for retrieval system comparisons requires consistent cutoff values "
+                "across experiments. NDCG scores are not directly comparable between datasets with different "
+                "relevance grade distributions. When interpreting NDCG improvements, verify statistical "
+                "significance using paired tests rather than point estimate differences. A 1-point absolute "
+                "improvement in NDCG corresponds to different practical quality gains depending on query "
+                "difficulty distribution. Industry benchmarks report NDCG at cutoff 10 for fair comparison."
+            ),
+        },
+        {
+            "id": "ndcg-best-practices", "timestamp": "2023-06-15T00:00:00",
+            "title": "NDCG Best Practices for RAG Systems",
+            "text": (
+                "Applying NDCG evaluation to RAG systems requires careful experimental design. NDCG should "
+                "be measured on held-out queries not used during system tuning to avoid overfitting to the "
+                "evaluation set. For pipelines, report NDCG separately for the retrieval stage and the "
+                "end-to-end stage. NDCG variations between runs indicate instability — high NDCG variance "
+                "benefits from ensemble approaches. Tracking rolling NDCG averages in production monitoring "
+                "is more reliable than point estimates. NDCG regression alerts should trigger on significant drops."
+            ),
+        },
+        # ── General corpus docs ─────────────────────────────────────────────
+        {
+            "id": "bm25-overview", "timestamp": "2023-01-01T00:00:00",
+            "title": "BM25 Lexical Retrieval",
+            "text": (
+                "BM25 (Best Match 25) is a probabilistic ranking function used in lexical search. It scores "
+                "documents based on term frequency and inverse document frequency, with length normalization. "
+                "BM25 parameters k1 and b control term saturation and length normalization respectively. "
+                "Default values k1=1.5, b=0.75 work well for most corpora. BM25 excels at keyword-matching "
+                "queries but struggles with semantic paraphrases. Index building with BM25 is fast and "
+                "requires no GPU or neural models. BM25 remains a strong baseline for sparse retrieval."
+            ),
+        },
+        {
+            "id": "hybrid-retrieval", "timestamp": "2023-01-01T00:00:00",
+            "title": "Hybrid Retrieval: Combining Sparse and Dense",
+            "text": (
+                "Hybrid retrieval combines lexical search (BM25) with dense vector search to capture both "
+                "keyword matches and semantic similarity. The most common combination method is RRF, which "
+                "merges ranked lists from each retriever. Alpha-weighted linear interpolation is another "
+                "approach that requires score normalization. Hybrid retrieval consistently outperforms "
+                "either method alone on benchmark datasets. Latency is approximately the sum of both "
+                "retrievers plus a negligible merge cost. Corpus indexing for hybrid systems requires "
+                "maintaining both inverted and vector indices in parallel."
+            ),
+        },
+        {
+            "id": "reranking-guide", "timestamp": "2023-02-01T00:00:00",
+            "title": "Cross-Encoder Reranking Guide",
+            "text": (
+                "Cross-encoder rerankers jointly encode query and document to produce a fine-grained "
+                "relevance score. Unlike bi-encoder models, cross-encoders compute query-document "
+                "interactions at inference time, resulting in higher accuracy but more latency. Rerankers "
+                "are typically applied to the top-k candidates from a first-stage retriever. Common "
+                "reranker models: ms-marco-MiniLM for English, multilingual models for diverse corpora. "
+                "Reranker latency scales linearly with k — reranking top-50 is typical for quality "
+                "improvement with acceptable latency overhead."
+            ),
+        },
+        {
+            "id": "chunking-strategies", "timestamp": "2023-03-01T00:00:00",
+            "title": "Document Chunking Strategies for RAG",
+            "text": (
+                "Chunking divides source documents into segments for indexing in a RAG corpus. Fixed-size "
+                "chunks (e.g., 512 tokens) are simple but may split sentences. Sentence-based chunking "
+                "preserves semantic units at the cost of variable chunk sizes. Sliding window chunking "
+                "with overlap ensures context is not lost at chunk boundaries. Hierarchical chunking "
+                "indexes both paragraph and document-level representations. Optimal chunk size depends "
+                "on query type: short chunks work for factual queries, longer chunks for synthesis tasks."
+            ),
+        },
+        {
+            "id": "evaluation-metrics", "timestamp": "2023-03-15T00:00:00",
+            "title": "Retrieval Evaluation Metrics Overview",
+            "text": (
+                "Key metrics for retrieval evaluation: Recall@K measures the fraction of relevant documents "
+                "retrieved in the top-K results. Precision@K measures the fraction of top-K results that "
+                "are relevant. MRR (Mean Reciprocal Rank) focuses on the rank of the first relevant result. "
+                "MAP (Mean Average Precision) averages precision across all recall levels. NDCG accounts "
+                "for graded relevance and rank position. For RAG systems, end-to-end generation quality "
+                "metrics like faithfulness and answer relevance complement retrieval metrics."
+            ),
+        },
+        {
+            "id": "query-expansion", "timestamp": "2023-04-01T00:00:00",
+            "title": "Query Expansion Techniques",
+            "text": (
+                "Query expansion adds terms to the original query to improve recall for under-specified "
+                "queries. Pseudo-relevance feedback expands using terms from top retrieved documents. "
+                "Synonym expansion uses a thesaurus or word embeddings to add related terms. LLM-based "
+                "expansion generates hypothetical documents that improve dense retrieval recall. "
+                "Query expansion improves recall but can hurt precision if expansion terms are noisy. "
+                "Expansion is most effective for short, ambiguous queries in specialized domains."
+            ),
+        },
+        {
+            "id": "production-monitoring", "timestamp": "2023-05-01T00:00:00",
+            "title": "Production Retrieval Monitoring",
+            "text": (
+                "Monitoring production retrieval systems requires tracking both technical and quality metrics. "
+                "Technical metrics include query latency (p50, p95, p99), error rates, and index freshness. "
+                "Quality signals without labels include empty result rates, low-score result rates, and "
+                "query abandonment rates. Drift detection compares current query distributions against "
+                "a baseline window to identify distribution shifts. Alerting on suspected retrieval failures "
+                "enables proactive quality management before users report problems."
+            ),
+        },
+        {
+            "id": "embedding-models", "timestamp": "2023-06-01T00:00:00",
+            "title": "Embedding Model Selection Guide",
+            "text": (
+                "Selecting an embedding model for dense retrieval requires balancing accuracy, latency, "
+                "and cost. Bi-encoder models like sentence-transformers encode query and document separately "
+                "for efficient retrieval. Larger embedding dimensions generally improve retrieval quality "
+                "at the cost of increased index storage and search latency. Domain-specific fine-tuning "
+                "significantly improves retrieval quality over general-purpose models for specialized corpora. "
+                "Benchmarking embedding models on BEIR datasets provides a standardized quality comparison."
+            ),
+        },
+        {
+            "id": "index-optimization", "timestamp": "2023-07-01T00:00:00",
+            "title": "Index Optimization Best Practices",
+            "text": (
+                "Optimizing retrieval indices reduces query latency and infrastructure costs. For BM25, "
+                "disable storing term positions if phrase queries are not required. Quantizing dense "
+                "vectors to int8 reduces memory 4x with minimal recall loss. Partitioning large indices "
+                "by document metadata enables faster filtered queries. Warm-up queries after index load "
+                "prevent cold-start latency spikes in production. Monitoring index staleness ensures "
+                "retrieval quality does not degrade as the corpus evolves over time."
+            ),
+        },
+        {
+            "id": "cost-optimization", "timestamp": "2023-08-01T00:00:00",
+            "title": "Cost Optimization for Retrieval Systems",
+            "text": (
+                "Cost optimization in retrieval systems targets compute, storage, and API spend. Caching "
+                "frequent queries eliminates redundant retrieval computation — cache hit rates above 20 "
+                "percent significantly reduce costs. Quantized dense indices reduce storage and accelerate "
+                "search. Smaller reranker models (e.g., 6-layer cross-encoders) offer 80 percent of the "
+                "quality at 30 percent of the latency and cost. Batching embedding requests reduces API "
+                "costs for cloud-hosted models. Right-sizing replicas based on p99 latency requirements "
+                "avoids over-provisioning."
+            ),
+        },
+        {
+            "id": "vector-databases", "timestamp": "2023-09-01T00:00:00",
+            "title": "Vector Database Comparison",
+            "text": (
+                "Vector databases store dense embeddings and support approximate nearest neighbor search "
+                "at scale. Key players: Pinecone (managed, serverless option), Weaviate (open-source, "
+                "multimodal), Qdrant (high-performance, Rust-based), Chroma (lightweight, local-first). "
+                "Selection criteria: scale requirements, filtering capabilities, update frequency, "
+                "managed vs self-hosted preference, and cost. Most vector databases support metadata "
+                "filtering alongside vector similarity search. Integration with embedding APIs is "
+                "straightforward for all major vector database providers."
+            ),
+        },
+        {
+            "id": "metadata-filtering", "timestamp": "2023-10-01T00:00:00",
+            "title": "Metadata Filtering in Retrieval",
+            "text": (
+                "Metadata filtering restricts retrieval to documents matching attribute constraints "
+                "before or after vector search. Pre-filtering reduces the candidate set before ANN "
+                "search — effective for high-cardinality filters but degrades recall on small post-filter "
+                "sets. Post-filtering retrieves broadly then removes non-matching documents — safer for "
+                "recall but requires over-retrieval. Hybrid approaches use the filter to guide index "
+                "partitioning. Common filter attributes: document date, source, language, category, "
+                "and access permissions. Indexed metadata dramatically reduces filter evaluation cost."
+            ),
+        },
+        {
+            "id": "latency-optimization", "timestamp": "2023-11-01T00:00:00",
+            "title": "Retrieval Latency Optimization",
+            "text": (
+                "Reducing retrieval latency requires profiling the full request path: query encoding, "
+                "index search, reranking, and result serialization. Async execution of independent stages "
+                "cuts wall-clock time for multi-stage pipelines. Early termination in ANN search stops "
+                "exploration once enough high-confidence candidates are found. Speculative prefetching "
+                "warms the reranker cache for likely follow-up queries. Hardware acceleration with GPU "
+                "reduces dense retrieval latency 5-10x. Target p99 latency as the optimization criterion "
+                "rather than average latency to improve worst-case user experience."
+            ),
+        },
+        {
+            "id": "dataset-preparation", "timestamp": "2023-12-01T00:00:00",
+            "title": "Evaluation Dataset Preparation",
+            "text": (
+                "Preparing a high-quality evaluation dataset is the most critical step in retrieval "
+                "benchmarking. Queries should represent realistic user intent distributions, not just "
+                "easy factual lookups. Relevance judgments require either human annotators or LLM-based "
+                "grading with validation. Include hard negatives — documents topically similar to relevant "
+                "ones but not actually relevant — to stress-test ranking quality. Dataset splits must "
+                "avoid query-document leakage between train and test. Minimum dataset size for reliable "
+                "metric estimation: 100 queries for point estimates, 500 for significance testing."
+            ),
+        },
+        {
+            "id": "sparse-vs-dense", "timestamp": "2024-01-01T00:00:00",
+            "title": "Sparse vs Dense Retrieval Tradeoffs",
+            "text": (
+                "Sparse retrieval (BM25, SPLADE) matches on exact term overlap — fast, interpretable, "
+                "and effective for keyword-heavy queries. Dense retrieval (bi-encoders) captures semantic "
+                "similarity even without term overlap — better for paraphrase and synonym queries. "
+                "Sparse methods have zero cold-start latency and require no GPU. Dense methods require "
+                "embedding all corpus documents upfront and maintaining a vector index. In practice, "
+                "hybrid pipelines combining sparse and dense retrieval outperform either alone on "
+                "most diverse real-world query distributions."
+            ),
+        },
+        {
+            "id": "recall-at-k-guide", "timestamp": "2024-02-01T00:00:00",
+            "title": "Recall@K Interpretation Guide",
+            "text": (
+                "Recall@K measures what fraction of all relevant documents for a query appear in the "
+                "top-K results. For RAG systems, Recall@10 is typically the target since language models "
+                "process 5-10 retrieved documents. Recall@100 measures first-stage retriever coverage "
+                "before reranking. Recall is bounded by the depth of relevance judgments — incomplete "
+                "annotation inflates apparent recall. When comparing systems, always use the same K and "
+                "the same qrel depth. Statistical significance for recall differences requires at least "
+                "50 queries; bootstrap confidence intervals quantify uncertainty."
+            ),
+        },
+    ]
+
+
+def _build_demo_queries(
+    scenarios: list,
+    corpus_dict: dict,
+) -> tuple:
+    """Create hand-crafted synthetic queries matched to detected Forge scenarios.
+
+    Each query gets scenario_type and difficulty_label in its metadata so the
+    by-segment endpoint can power the StressTestResults cross-link in the dashboard.
+    """
+    from retrieval_observatory.forge.types import SyntheticQuery
+    import re as _re
+
+    queries: list = []
+    qrels: dict = {}
+
+    temporal_scenarios = [s for s in scenarios if s.scenario_type == "temporal"]
+    alias_scenarios = [s for s in scenarios if s.scenario_type == "alias"]
+
+    # ── Temporal query templates ────────────────────────────────────────────
+    # These are designed so the query text is ambiguous between the old and new
+    # version of the same topic — exactly the retrieval failure pattern.
+    _TEMPORAL_TEMPLATES = [
+        ("What is the current {topic}?", "temporal", "hard"),
+        ("Show me the latest {topic} documentation.", "temporal", "hard"),
+        ("How has {topic} changed over time?", "paraphrase", "medium"),
+        ("What were the {topic} guidelines in the earlier version?", "paraphrase", "easy"),
+        ("Updated {topic} policy and terms.", "temporal", "extreme"),
+    ]
+
+    for i, scenario in enumerate(temporal_scenarios[:5]):
+        anchor_ids = list(scenario.anchor_doc_ids)
+        if not anchor_ids:
+            continue
+        # Derive a topic label from the first anchor doc's title
+        first_doc = corpus_dict.get(anchor_ids[0], {})
+        title = first_doc.get("title", "")
+        # Strip years, trailing version/update qualifiers, and empty parentheses
+        topic = _re.sub(r"\b(19|20)\d{2}\b", "", title)
+        topic = _re.sub(r"\b(version|update|revision|release|v\d+)\b.*", "", topic, flags=_re.IGNORECASE)
+        topic = _re.sub(r"\(\s*\)", "", topic)
+        topic = topic.strip(" —-–|").lower()
+        topic = _re.sub(r"\s+", " ", topic).strip()
+        if not topic:
+            topic = "retrieval configuration"
+
+        for tmpl, qtype, difficulty in _TEMPORAL_TEMPLATES:
+            q_text = tmpl.format(topic=topic)
+            q_id = f"temporal-{i}-{len(queries)}"
+            queries.append(SyntheticQuery(
+                query_id=q_id,
+                text=q_text,
+                scenario_id=scenario.scenario_id,
+                query_type=qtype,
+                positive_doc_ids=anchor_ids,
+                difficulty_label=difficulty,
+                failure_category="temporal_confusion",
+                validated=False,
+                metadata={"scenario_type": "temporal"},
+            ))
+            qrels[q_id] = {doc_id: 2 for doc_id in anchor_ids}
+
+    # ── Alias query templates ───────────────────────────────────────────────
+    # Queries use the abbreviation only — the relevant doc uses the full form.
+    _ALIAS_TEMPLATES = [
+        ("How does {abbr} work and when should I use it?", "paraphrase", "hard"),
+        ("Configure {abbr} for my retrieval pipeline.", "paraphrase", "hard"),
+        ("What are the performance characteristics of {abbr}?", "paraphrase", "medium"),
+        ("Best practices for {abbr} in production deployments.", "adversarial", "extreme"),
+        ("{abbr} vs alternative approaches — comparison.", "adversarial", "hard"),
+    ]
+
+    for i, scenario in enumerate(alias_scenarios[:5]):
+        anchor_ids = list(scenario.anchor_doc_ids)
+        if not anchor_ids:
+            continue
+        # Extract abbreviation from evidence summary (pattern: "abbreviation: ABBR")
+        abbr_match = _re.search(r"abbreviation[:\s]+([A-Z]{2,6})", scenario.evidence_summary, _re.IGNORECASE)
+        if not abbr_match:
+            # Fallback: look for uppercase acronym
+            abbr_match = _re.search(r"\b([A-Z]{2,6})\b", scenario.evidence_summary)
+        abbr = abbr_match.group(1).upper() if abbr_match else "ABBR"
+
+        for tmpl, qtype, difficulty in _ALIAS_TEMPLATES:
+            q_text = tmpl.format(abbr=abbr)
+            q_id = f"alias-{i}-{len(queries)}"
+            queries.append(SyntheticQuery(
+                query_id=q_id,
+                text=q_text,
+                scenario_id=scenario.scenario_id,
+                query_type=qtype,
+                positive_doc_ids=anchor_ids,
+                difficulty_label=difficulty,
+                failure_category="alias_mismatch",
+                validated=False,
+                metadata={"scenario_type": "alias"},
+            ))
+            qrels[q_id] = {doc_id: 2 for doc_id in anchor_ids}
+
+    # ── General easy queries (balanced difficulty distribution) ─────────────
+    _GENERAL_QUERIES: list = [
+        ("What is BM25 retrieval and how does it score documents?",
+         ["bm25-overview"], "easy", "paraphrase"),
+        ("How do I combine BM25 and vector search in a hybrid pipeline?",
+         ["hybrid-retrieval", "rrf-overview"], "easy", "paraphrase"),
+        ("When should I use a cross-encoder reranker?",
+         ["reranking-guide"], "easy", "paraphrase"),
+        ("What document chunking strategy is best for question answering?",
+         ["chunking-strategies"], "easy", "paraphrase"),
+        ("How do I interpret Recall@10 for my retrieval system?",
+         ["recall-at-k-guide", "evaluation-metrics"], "medium", "paraphrase"),
+        ("What is the difference between sparse and dense retrieval?",
+         ["sparse-vs-dense", "bm25-overview", "ann-overview"], "medium", "paraphrase"),
+        ("How do I reduce query latency in production?",
+         ["latency-optimization", "index-optimization"], "medium", "paraphrase"),
+        ("Which vector database should I choose?",
+         ["vector-databases"], "easy", "paraphrase"),
+        ("How do I filter search results by metadata?",
+         ["metadata-filtering"], "easy", "paraphrase"),
+        ("How do I build an evaluation dataset for my retrieval system?",
+         ["dataset-preparation"], "medium", "paraphrase"),
+        ("What metrics should I track to monitor retrieval quality in production?",
+         ["production-monitoring", "evaluation-metrics"], "hard", "adversarial"),
+        ("How do embedding model choices affect RAG system accuracy?",
+         ["embedding-models", "rag-overview"], "medium", "paraphrase"),
+    ]
+
+    for q_text, pos_ids, difficulty, qtype in _GENERAL_QUERIES:
+        # Filter to only doc IDs that exist in corpus
+        valid_pos = [d for d in pos_ids if d in corpus_dict]
+        if not valid_pos:
+            continue
+        q_id = f"general-{len(queries)}"
+        # Use the first detected scenario of either type, or a dummy id
+        scene_id = scenarios[0].scenario_id if scenarios else "general"
+        queries.append(SyntheticQuery(
+            query_id=q_id,
+            text=q_text,
+            scenario_id=scene_id,
+            query_type=qtype,
+            positive_doc_ids=valid_pos,
+            difficulty_label=difficulty,
+            failure_category=None,
+            validated=False,
+            metadata={"scenario_type": "general"},
+        ))
+        qrels[q_id] = {doc_id: 2 for doc_id in valid_pos}
+
+    return queries, qrels
+
+
 @tracelens_app.command("demo")
 def tracelens_demo(
     service: str = typer.Option("demo", "--service", help="Service name to attach the synthetic traces to."),
@@ -1563,6 +2418,149 @@ async def _tracelens_purge(service: str, older_than_days: Optional[int], db_path
         cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
     deleted = await store.purge_traces(service=service, older_than=cutoff)
     console.print(f"[green]Purged {deleted} traces[/green] for service '{service}'.")
+
+
+def _open_store(db_path: str):
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    return store
+
+
+@advisor_app.command("check")
+def advisor_check(
+    baseline: str = typer.Option(..., "--baseline", help="Baseline run ID."),
+    candidate: str = typer.Option(..., "--candidate", help="Candidate run ID."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+) -> None:
+    """Compare two runs and exit non-zero if significant regressions are found."""
+    asyncio.run(_advisor_check(baseline, candidate, db))
+
+
+async def _advisor_check(baseline: str, candidate: str, db_path: str) -> None:
+    from retrieval_observatory.advisor.regression import detect_regressions
+
+    store = _open_store(db_path)
+    await store.init_db()
+    findings = await detect_regressions(baseline, candidate, store)
+    if not findings:
+        console.print("[green]No significant regressions detected.[/green]")
+        return
+    table = Table(title="Regressions")
+    table.add_column("Metric")
+    table.add_column("Before")
+    table.add_column("After")
+    table.add_column("Delta")
+    table.add_column("q-value")
+    table.add_column("Severity")
+    table.add_column("n pairs")
+    for f in findings:
+        table.add_row(
+            f.metric,
+            f"{f.before:.4f}",
+            f"{f.after:.4f}",
+            f"{f.delta:+.4f}",
+            f"{f.q_value:.4f}",
+            f.severity,
+            str(f.n_pairs),
+        )
+    console.print(table)
+    raise typer.Exit(1)
+
+
+@advisor_app.command("recommend")
+def advisor_recommend_cmd(
+    run_id: str = typer.Option(..., "--run", help="Run ID to analyze."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+) -> None:
+    """Print ranked, evidence-cited recommendations for a run."""
+    asyncio.run(_advisor_recommend(run_id, db))
+
+
+async def _advisor_recommend(run_id: str, db_path: str) -> None:
+    from retrieval_observatory.advisor.recommend import recommend
+
+    store = _open_store(db_path)
+    await store.init_db()
+    recs = await recommend(run_id, store)
+    if not recs:
+        console.print("[green]No recommendations — diagnostics look healthy.[/green]")
+        return
+    for i, rec in enumerate(recs, 1):
+        console.print(f"\n[bold]{i}. {rec.action}[/bold]")
+        console.print(f"   {rec.rationale}")
+        for ev in rec.evidence:
+            console.print(f"   • {ev}")
+
+
+golden_app = typer.Typer(name="golden", help="Golden set management.")
+advisor_app.add_typer(golden_app, name="golden")
+
+
+@golden_app.command("run")
+def golden_run(
+    set_name: str = typer.Option(..., "--set", help="Golden set name."),
+    config: Path = typer.Option(..., "--config", "-c", help="Experiment YAML config."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+) -> None:
+    """Run a golden benchmark tagged with the given set name."""
+    asyncio.run(_golden_run(set_name, config, db))
+
+
+async def _golden_run(set_name: str, config_path: Path, db_path: str) -> None:
+    store = _open_store(db_path)
+    await store.init_db()
+    existing = await store.get_golden_set(set_name)
+    if not existing:
+        console.print(f"[red]Golden set '{set_name}' not found. Create it first.[/red]")
+        raise typer.Exit(1)
+    await _run(config_path, skip_smoke_test=False, no_cache=False, golden_set=set_name)
+
+
+@golden_app.command("list")
+def golden_list(
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+) -> None:
+    """List registered golden sets."""
+    asyncio.run(_golden_list(db))
+
+
+async def _golden_list(db_path: str) -> None:
+    store = _open_store(db_path)
+    await store.init_db()
+    sets = await store.list_golden_sets()
+    if not sets:
+        console.print("No golden sets registered.")
+        return
+    table = Table(title="Golden Sets")
+    table.add_column("Name")
+    table.add_column("Created")
+    for row in sets:
+        table.add_row(row["name"], row.get("created_at", ""))
+    console.print(table)
+
+
+@golden_app.command("create")
+def golden_create(
+    set_name: str = typer.Option(..., "--set", help="Golden set name."),
+    queries_file: Path = typer.Option(..., "--queries", help="JSON file: list of {query_id, text, relevant_doc_ids}."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+) -> None:
+    """Register a golden set from a JSON queries file."""
+    asyncio.run(_golden_create(set_name, queries_file, db))
+
+
+async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> None:
+    from retrieval_observatory.advisor.golden import save_golden_set
+
+    data = json.loads(queries_file.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        console.print("[red]Queries file must be a JSON list.[/red]")
+        raise typer.Exit(1)
+    store = _open_store(db_path)
+    await store.init_db()
+    await save_golden_set(store, set_name, data)
+    console.print(f"[green]Registered golden set '{set_name}' ({len(data)} queries).[/green]")
 
 
 if __name__ == "__main__":

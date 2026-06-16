@@ -495,3 +495,99 @@ export async function fetchTraceClusters(service: string, since?: string): Promi
   if (!res.ok) throw new Error('Failed to fetch query clusters')
   return res.json()
 }
+
+export interface QueryLineageOrigin {
+  source: 'forge' | 'dataset'
+  query_text: string | null
+  dataset_name: string | null
+  forge: {
+    dataset_id: string
+    scenario_id: string
+    scenario_type: string
+    query_type: string
+    difficulty_label: string
+    failure_category: string | null
+    validated: boolean
+    positive_doc_ids: string[]
+    evidence_summary: string | null
+  } | null
+}
+
+export interface QueryLineageEvaluation {
+  run_id: string
+  experiment_name: string
+  started_at: string
+  dataset_name: string
+  metrics: Array<Record<string, unknown>>
+  diagnostics: Array<Record<string, unknown>>
+}
+
+export interface QueryLineageTrace {
+  trace_id: string
+  service: string
+  query_id: string
+  query_text: string
+  predicted_difficulty: string | null
+  suspected_failures: string[]
+}
+
+export interface QueryLineage {
+  query_id: string
+  origin: QueryLineageOrigin
+  evaluations: QueryLineageEvaluation[]
+  production_matches: {
+    match_type: string
+    note: string
+    match_difficulty: string | null
+    match_failure_labels: string[]
+    traces: QueryLineageTrace[]
+  }
+}
+
+export async function fetchQueryLineage(queryId: string): Promise<QueryLineage> {
+  const res = await fetch(`${BASE}/query/${encodeURIComponent(queryId)}/lineage`)
+  if (!res.ok) throw new Error(`Failed to fetch lineage for ${queryId}`)
+  return res.json()
+}
+
+export interface Recommendation {
+  action: string
+  rationale: string
+  evidence: string[]
+  priority: number
+}
+
+export interface RegressionFinding {
+  metric: string
+  before: number
+  after: number
+  delta: number
+  q_value: number
+  severity: string
+  n_pairs: number
+}
+
+export interface ReliabilityScore {
+  value: number
+  components: Record<string, number>
+  notes: string[]
+}
+
+export async function fetchAdvisorRecommendations(runId: string): Promise<{ run_id: string; recommendations: Recommendation[] }> {
+  const res = await fetch(`${BASE}/advisor/recommendations?run_id=${encodeURIComponent(runId)}`)
+  if (!res.ok) throw new Error('Failed to fetch recommendations')
+  return res.json()
+}
+
+export async function fetchAdvisorRegressions(baseline: string, candidate: string): Promise<{ regressions: RegressionFinding[] }> {
+  const p = new URLSearchParams({ baseline, candidate })
+  const res = await fetch(`${BASE}/advisor/regressions?${p.toString()}`)
+  if (!res.ok) throw new Error('Failed to fetch regressions')
+  return res.json()
+}
+
+export async function fetchAdvisorReliability(runId: string): Promise<ReliabilityScore & { run_id: string }> {
+  const res = await fetch(`${BASE}/advisor/reliability?run_id=${encodeURIComponent(runId)}`)
+  if (!res.ok) throw new Error('Failed to fetch reliability score')
+  return res.json()
+}

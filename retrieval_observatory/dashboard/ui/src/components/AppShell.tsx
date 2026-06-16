@@ -3,13 +3,17 @@ import ModeRail, { Mode } from './ModeRail'
 import BenchmarksWorkspace from './BenchmarksWorkspace'
 import ForgeWorkspace from './ForgeWorkspace'
 import TraceLensWorkspace from './TraceLensWorkspace'
+import AdvisorWorkspace from './AdvisorWorkspace'
+import QueryLineagePanel from './QueryLineagePanel'
 
-const VALID_MODES: Mode[] = ['benchmarks', 'forge', 'tracelens']
+const VALID_MODES: Mode[] = ['benchmarks', 'forge', 'tracelens', 'advisor']
 
-// Hash format: #/<mode>/<rest...>  e.g. #/forge/ds_abc, #/tracelens/prod-search
-function parseHash(): { mode: Mode; rest: string } {
+function parseHash(): { mode: Mode | 'query'; rest: string } {
   const raw = window.location.hash.replace(/^#\/?/, '')
   const [modePart, ...rest] = raw.split('/')
+  if (modePart === 'query') {
+    return { mode: 'query', rest: rest.join('/') }
+  }
   const mode = (VALID_MODES as string[]).includes(modePart) ? (modePart as Mode) : 'benchmarks'
   return { mode, rest: rest.join('/') }
 }
@@ -28,12 +32,22 @@ export default function AppShell() {
     window.location.hash = `#/${next}`
   }
 
+  if (mode === 'query' && rest) {
+    return (
+      <div className="flex h-screen bg-gray-50 font-sans">
+        <ModeRail mode="benchmarks" onSelect={selectMode} />
+        <QueryLineagePanel queryId={rest} />
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-screen bg-gray-50 font-sans">
-      <ModeRail mode={mode} onSelect={selectMode} />
+      <ModeRail mode={mode as Mode} onSelect={selectMode} />
       {mode === 'benchmarks' && <BenchmarksWorkspace />}
       {mode === 'forge' && <ForgeWorkspace route={rest} />}
       {mode === 'tracelens' && <TraceLensWorkspace route={rest} />}
+      {mode === 'advisor' && <AdvisorWorkspace />}
     </div>
   )
 }

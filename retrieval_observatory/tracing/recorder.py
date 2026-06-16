@@ -62,14 +62,9 @@ class _TraceCM:
         return self._ctx
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:
-        t = self._ctx.trace
-        if exc is not None:
-            t.status = "ERROR"
-            t.error_traceback = "".join(traceback.format_exception(exc_type, exc, tb))
-        if not t.final_results and t.snapshots:
-            t.final_results = t.snapshots[-1].documents
-        if self._ctx.sampled:
-            await self._recorder._flush(t)
+        status = "ERROR" if exc is not None else "OK"
+        error = exc if exc is not None else None
+        await self._recorder.finish_trace(self._ctx, status=status, error=error, exc_type=exc_type, exc=exc, tb=tb)
         return False  # never suppress the exception
 
 
@@ -90,9 +85,41 @@ class TraceRecorder:
         self._sink = sink
         self.sample_rate = max(0.0, min(1.0, sample_rate))
 
-    def trace(self, query_text: str, pipeline_id: str, query_id: str = "", metadata: Optional[dict] = None) -> _TraceCM:
+    def start_trace(
+        self,
+        query_text: str,
+        pipeline_id: str,
+        query_id: str = "",
+        metadata: Optional[dict] = None,
+    ) -> _TraceContext:
         sampled = self.sample_rate >= 1.0 or random.random() < self.sample_rate
-        ctx = _TraceContext(self, query_text, pipeline_id, query_id, sampled, metadata or {})
+        return _TraceContext(self, query_text, pipeline_id, query_id, sampled, metadata or {})
+
+    async def finish_trace(
+        self,
+        ctx: _TraceContext,
+        status: str = "OK",
+        error: Optional[BaseException] = None,
+        *,
+        exc_type=None,
+        exc=None,
+        tb=None,
+    ) -> None:
+        t = ctx.trace
+        t.status = status  # type: ignore[assignment]
+        if error is not None or exc is not None:
+            t.status = "ERROR"
+            if exc_type is not None and exc is not None and tb is not None:
+                t.error_traceback = "".join(traceback.format_exception(exc_type, exc, tb))
+            elif error is not None:
+                t.error_traceback = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+        if not t.final_results and t.snapshots:
+            t.final_results = t.snapshots[-1].documents
+        if ctx.sampled:
+            await self._flush(t)
+
+    def trace(self, query_text: str, pipeline_id: str, query_id: str = "", metadata: Optional[dict] = None) -> _TraceCM:
+        ctx = self.start_trace(query_text, pipeline_id, query_id, metadata)
         return _TraceCM(self, ctx)
 
     async def _flush(self, trace: RetrievalTrace) -> None:

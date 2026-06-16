@@ -1,9 +1,8 @@
-export type Mode = 'benchmarks' | 'forge' | 'tracelens'
+export type Mode = 'benchmarks' | 'forge' | 'tracelens' | 'advisor'
 
 interface ModeMeta {
   id: Mode
   label: string
-  // Tailwind classes for the active accent (chrome only — never used on data series)
   activeText: string
   activeBar: string
   activeBg: string
@@ -52,6 +51,20 @@ export const MODES: ModeMeta[] = [
       </svg>
     ),
   },
+  {
+    id: 'advisor',
+    label: 'Advisor',
+    activeText: 'text-violet-600',
+    activeBar: 'bg-violet-500',
+    activeBg: 'bg-violet-50',
+    icon: (active) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={STROKE(active)} strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9.5 9a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3.5" />
+        <line x1="12" y1="17" x2="12" y2="17.5" />
+      </svg>
+    ),
+  },
 ]
 
 interface Props {
@@ -87,17 +100,6 @@ export default function ModeRail({ mode, onSelect }: Props) {
           </button>
         )
       })}
-      <div className="mt-auto flex flex-col items-center gap-1 py-2.5 text-gray-300 select-none" title="Advisor — coming in Phase 4">
-        <span className="flex items-center justify-center w-9 h-9 rounded-lg">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M9.5 9a2.5 2.5 0 0 1 4.5 1.5c0 1.5-2 2-2 3.5" />
-            <line x1="12" y1="17" x2="12" y2="17.5" />
-          </svg>
-        </span>
-        <span className="text-[9px] font-medium leading-none">Advisor</span>
-        <span className="text-[7px] leading-none">soon</span>
-      </div>
     </nav>
   )
 }

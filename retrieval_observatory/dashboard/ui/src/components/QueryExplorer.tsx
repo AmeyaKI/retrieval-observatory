@@ -75,7 +75,11 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
           <tbody className="divide-y divide-gray-100">
             {filtered.map((item) => (
               <tr key={item.query_id} className="hover:bg-gray-50">
-                <td className="px-3 py-2 font-mono">{item.query_id}</td>
+                <td className="px-3 py-2 font-mono">
+                  <a href={`#/query/${encodeURIComponent(item.query_id)}`} className="text-indigo-600 hover:underline">
+                    {item.query_id}
+                  </a>
+                </td>
                 <td className="px-3 py-2 max-w-xs truncate" title={item.query_text}>
                   {item.query_text || '—'}
                 </td>

@@ -228,6 +228,7 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
                         <span className="font-medium">Relevant docs:</span> {q.positive_doc_ids.join(', ') || '—'}
                         {q.failure_category && <span className="ml-3"><span className="font-medium">Failure category:</span> {q.failure_category}</span>}
                         <span className="ml-3 font-mono text-gray-400">scenario {q.scenario_id}</span>
+                        <a href={`#/query/${encodeURIComponent(q.query_id)}`} className="ml-3 text-indigo-600 hover:underline">View lineage →</a>
                       </td>
                     </tr>
                   )}

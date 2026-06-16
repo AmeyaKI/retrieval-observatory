@@ -719,9 +719,9 @@ def create_app(
 
     @forge_router.get("/datasets/{dataset_id}/runs")
     async def get_forge_dataset_runs(dataset_id: str) -> List[Dict[str, Any]]:
-        """Return benchmark runs that were executed against this Forge dataset.
+        """Return benchmark runs executed against this Forge dataset.
 
-        A run is matched if its stored config references the dataset's output directory.
+        Prefer manifest ``forge_dataset_id``; fall back to output_dir text match for older runs.
         """
         try:
             store = registry.get_store(registry.default_db_id or "")
@@ -729,17 +729,32 @@ def create_app(
                 return []
             datasets = await store.get_forge_datasets()
             dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
-            if not dataset:
-                return []
-            output_dir = (dataset.get("output_dir") or "").rstrip("/")
-            if not output_dir:
-                return []
+            output_dir = (dataset.get("output_dir") or "").rstrip("/") if dataset else ""
             runs = await store.list_runs()
             matched = []
+            seen: set[str] = set()
             for r in runs:
+                run_id = r.get("run_id")
+                if not run_id or run_id in seen:
+                    continue
+                manifest = await store.get_run_manifest(run_id) if hasattr(store, "get_run_manifest") else None
+                if manifest and manifest.get("forge_dataset_id") == dataset_id:
+                    matched.append({
+                        "run_id": run_id,
+                        "experiment_name": r.get("experiment_name"),
+                        "started_at": r.get("started_at"),
+                        "forge_dataset_id": dataset_id,
+                    })
+                    seen.add(run_id)
+                    continue
                 cfg = r.get("config_json") or ""
                 if output_dir and output_dir in cfg:
-                    matched.append({"run_id": r.get("run_id"), "experiment_name": r.get("experiment_name"), "started_at": r.get("started_at")})
+                    matched.append({
+                        "run_id": run_id,
+                        "experiment_name": r.get("experiment_name"),
+                        "started_at": r.get("started_at"),
+                    })
+                    seen.add(run_id)
             return matched
         except Exception:
             pass
@@ -757,6 +772,67 @@ def create_app(
         return []
 
     app.include_router(forge_router)
+
+    @app.get("/query/{query_id}/lineage")
+    async def get_query_lineage(query_id: str) -> Dict[str, Any]:
+        store = registry.get_store(registry.default_db_id or "")
+        if not store or not hasattr(store, "get_query_lineage"):
+            raise HTTPException(status_code=404, detail="Lineage not available")
+        return await store.get_query_lineage(query_id)
+
+    advisor_router = APIRouter(prefix="/advisor")
+
+    @advisor_router.get("/recommendations")
+    async def advisor_recommendations(run_id: str) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.recommend import recommend
+
+        store = registry.get_store(registry.default_db_id or "")
+        recs = await recommend(run_id, store)
+        return {
+            "run_id": run_id,
+            "recommendations": [
+                {
+                    "action": r.action,
+                    "rationale": r.rationale,
+                    "evidence": r.evidence,
+                    "priority": r.priority,
+                }
+                for r in recs
+            ],
+        }
+
+    @advisor_router.get("/regressions")
+    async def advisor_regressions(baseline: str, candidate: str) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.regression import detect_regressions
+
+        store = registry.get_store(registry.default_db_id or "")
+        findings = await detect_regressions(baseline, candidate, store, engine=engine)
+        return {
+            "baseline": baseline,
+            "candidate": candidate,
+            "regressions": [
+                {
+                    "metric": f.metric,
+                    "before": f.before,
+                    "after": f.after,
+                    "delta": f.delta,
+                    "q_value": f.q_value,
+                    "severity": f.severity,
+                    "n_pairs": f.n_pairs,
+                }
+                for f in findings
+            ],
+        }
+
+    @advisor_router.get("/reliability")
+    async def advisor_reliability(run_id: str) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.recommend import compute_reliability
+
+        store = registry.get_store(registry.default_db_id or "")
+        score = await compute_reliability(run_id, store, engine=engine)
+        return {"run_id": run_id, **score.as_dict()}
+
+    app.include_router(advisor_router)
 
     # ───────────────────────── TraceLens ─────────────────────────
     tracelens_router = APIRouter(prefix="/tracelens")

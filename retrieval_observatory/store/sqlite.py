@@ -181,6 +181,14 @@ CREATE TABLE IF NOT EXISTS trace_stages (
 )
 """
 
+_CREATE_GOLDEN_SETS = """
+CREATE TABLE IF NOT EXISTS golden_sets (
+    name TEXT PRIMARY KEY,
+    queries_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
@@ -205,6 +213,7 @@ class SQLiteStore:
             await db.execute(_CREATE_TRACES)
             await db.execute(_CREATE_TRACES_IDX)
             await db.execute(_CREATE_TRACE_STAGES)
+            await db.execute(_CREATE_GOLDEN_SETS)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -853,6 +862,167 @@ class SQLiteStore:
                 await db.execute(f"DELETE FROM trace_stages WHERE trace_id IN ({qmarks})", tuple(ids))
             await db.commit()
         return len(ids)
+
+    async def get_query_lineage(self, query_id: str) -> Dict:
+        """Assemble one query's lifecycle across Forge, benchmarks, and production (categorical)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label, "
+                "q.failure_category, q.validated, q.positive_doc_ids_json, q.dataset_id, "
+                "s.scenario_type, s.evidence_summary "
+                "FROM forge_queries q "
+                "LEFT JOIN forge_scenarios s ON s.dataset_id = q.dataset_id AND s.scenario_id = q.scenario_id "
+                "WHERE q.query_id = ? LIMIT 1",
+                (query_id,),
+            ) as cursor:
+                forge_row = await cursor.fetchone()
+
+            async with db.execute(
+                "SELECT rq.run_id, rq.query_text, rq.dataset_name, r.experiment_name, r.started_at "
+                "FROM run_queries rq JOIN runs r ON r.run_id = rq.run_id WHERE rq.query_id = ? "
+                "ORDER BY r.started_at DESC",
+                (query_id,),
+            ) as cursor:
+                eval_rows = await cursor.fetchall()
+
+        origin: Dict = {"source": "dataset", "query_text": None, "dataset_name": None, "forge": None}
+        if forge_row:
+            fr = dict(forge_row)
+            try:
+                positive_doc_ids = json.loads(fr.pop("positive_doc_ids_json", "[]"))
+            except Exception:
+                positive_doc_ids = []
+            origin = {
+                "source": "forge",
+                "query_text": fr.get("text"),
+                "dataset_name": None,
+                "forge": {
+                    "dataset_id": fr.get("dataset_id"),
+                    "scenario_id": fr.get("scenario_id"),
+                    "scenario_type": fr.get("scenario_type"),
+                    "query_type": fr.get("query_type"),
+                    "difficulty_label": fr.get("difficulty_label"),
+                    "failure_category": fr.get("failure_category"),
+                    "validated": bool(fr.get("validated")),
+                    "positive_doc_ids": positive_doc_ids,
+                    "evidence_summary": fr.get("evidence_summary"),
+                },
+            }
+        elif eval_rows:
+            origin["query_text"] = eval_rows[0]["query_text"]
+            origin["dataset_name"] = eval_rows[0]["dataset_name"]
+
+        evaluations = []
+        for row in eval_rows:
+            er = dict(row)
+            run_id = er["run_id"]
+            metrics = await self.get_metrics(run_id)
+            q_metrics = [m for m in metrics if m["query_id"] == query_id]
+            diagnostics = await self.get_query_diagnostics(run_id, query_id=query_id)
+            evaluations.append(
+                {
+                    "run_id": run_id,
+                    "experiment_name": er.get("experiment_name"),
+                    "started_at": er.get("started_at"),
+                    "dataset_name": er.get("dataset_name"),
+                    "metrics": q_metrics,
+                    "diagnostics": diagnostics,
+                }
+            )
+
+        match_difficulty = None
+        match_failures: List[str] = []
+        if forge_row:
+            match_difficulty = forge_row["difficulty_label"]
+            if forge_row["failure_category"]:
+                match_failures = [forge_row["failure_category"]]
+        elif evaluations and evaluations[0].get("diagnostics"):
+            d0 = evaluations[0]["diagnostics"][0]
+            match_difficulty = d0.get("difficulty_bucket")
+            match_failures = list(d0.get("failure_labels") or [])
+
+        production_traces = await self._categorical_trace_matches(match_difficulty, match_failures)
+
+        return {
+            "query_id": query_id,
+            "origin": origin,
+            "evaluations": evaluations,
+            "production_matches": {
+                "match_type": "categorical",
+                "note": (
+                    "Production queries are novel; traces are matched by predicted difficulty and "
+                    "overlapping suspected failure labels, not by exact query_id."
+                ),
+                "match_difficulty": match_difficulty,
+                "match_failure_labels": match_failures,
+                "traces": production_traces,
+            },
+        }
+
+    async def _categorical_trace_matches(
+        self,
+        difficulty: Optional[str],
+        failure_labels: List[str],
+        limit: int = 50,
+    ) -> List[Dict]:
+        if not difficulty and not failure_labels:
+            return []
+        where = []
+        params: List = []
+        if difficulty:
+            where.append("predicted_difficulty = ?")
+            params.append(difficulty)
+        sql = (
+            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
+            "timestamp, predicted_difficulty, suspected_failures_json FROM traces"
+        )
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit * 5)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+        matched = []
+        label_set = set(failure_labels)
+        for row in rows:
+            d = dict(row)
+            try:
+                suspected = json.loads(d.pop("suspected_failures_json", "[]"))
+            except Exception:
+                suspected = []
+            if label_set and not (label_set & set(suspected)):
+                continue
+            d["suspected_failures"] = suspected
+            matched.append(d)
+            if len(matched) >= limit:
+                break
+        return matched
+
+    async def save_golden_set(self, name: str, queries_json: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO golden_sets (name, queries_json, created_at) VALUES (?, ?, ?)",
+                (name, queries_json, datetime.now(timezone.utc).isoformat()),
+            )
+            await db.commit()
+
+    async def get_golden_set(self, name: str) -> Optional[str]:
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT queries_json FROM golden_sets WHERE name = ?", (name,)) as cursor:
+                row = await cursor.fetchone()
+        return row[0] if row else None
+
+    async def list_golden_sets(self) -> List[Dict]:
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT name, created_at FROM golden_sets ORDER BY created_at DESC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(r) for r in rows]
 
     @staticmethod
     def _trace_row_to_dict(d: Dict) -> Dict:

@@ -99,6 +99,78 @@ CREATE TABLE IF NOT EXISTS run_queries (
 )
 """
 
+_CREATE_FORGE_DATASETS = """
+CREATE TABLE IF NOT EXISTS forge_datasets (
+    dataset_id TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL,
+    corpus_path TEXT NOT NULL DEFAULT '',
+    output_dir TEXT NOT NULL DEFAULT '',
+    summary_json TEXT NOT NULL
+)
+"""
+
+_CREATE_FORGE_SCENARIOS = """
+CREATE TABLE IF NOT EXISTS forge_scenarios (
+    id SERIAL PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    scenario_type TEXT NOT NULL,
+    anchor_doc_ids_json TEXT NOT NULL,
+    evidence_summary TEXT NOT NULL
+)
+"""
+
+_CREATE_FORGE_QUERIES = """
+CREATE TABLE IF NOT EXISTS forge_queries (
+    id SERIAL PRIMARY KEY,
+    dataset_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    scenario_id TEXT NOT NULL,
+    query_type TEXT NOT NULL,
+    difficulty_label TEXT NOT NULL,
+    failure_category TEXT,
+    validated INT NOT NULL DEFAULT 0,
+    positive_doc_ids_json TEXT NOT NULL DEFAULT '[]'
+)
+"""
+
+_CREATE_TRACES = """
+CREATE TABLE IF NOT EXISTS traces (
+    trace_id TEXT PRIMARY KEY,
+    service TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    query_text TEXT NOT NULL,
+    pipeline_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    total_latency_ms REAL NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    predicted_difficulty TEXT,
+    suspected_failures_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}'
+)
+"""
+
+_CREATE_TRACE_STAGES = """
+CREATE TABLE IF NOT EXISTS trace_stages (
+    trace_id TEXT NOT NULL,
+    stage_index INT NOT NULL,
+    stage_id TEXT NOT NULL,
+    latency_ms REAL NOT NULL,
+    candidate_count INT NOT NULL,
+    documents_json TEXT NOT NULL,
+    PRIMARY KEY (trace_id, stage_index)
+)
+"""
+
+_CREATE_GOLDEN_SETS = """
+CREATE TABLE IF NOT EXISTS golden_sets (
+    name TEXT PRIMARY KEY,
+    queries_json TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+)
+"""
+
 
 class PostgresStore:
     """Async Postgres backend using asyncpg connection pooling."""
@@ -136,6 +208,12 @@ class PostgresStore:
             await conn.execute(_CREATE_VALIDATION_REPORTS)
             await conn.execute(_CREATE_QUERY_DIAGNOSTICS)
             await conn.execute(_CREATE_RUN_QUERIES)
+            await conn.execute(_CREATE_FORGE_DATASETS)
+            await conn.execute(_CREATE_FORGE_SCENARIOS)
+            await conn.execute(_CREATE_FORGE_QUERIES)
+            await conn.execute(_CREATE_TRACES)
+            await conn.execute(_CREATE_TRACE_STAGES)
+            await conn.execute(_CREATE_GOLDEN_SETS)
             try:
                 await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
             except Exception:
@@ -513,3 +591,483 @@ class PostgresStore:
                 run_ids,
             )
         return [dict(row) for row in rows]
+
+    async def save_forge_dataset(
+        self,
+        dataset_id: str,
+        summary_json: str,
+        corpus_path: str,
+        output_dir: str,
+    ) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO forge_datasets (dataset_id, created_at, corpus_path, output_dir, summary_json)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT (dataset_id) DO UPDATE SET
+                       created_at = EXCLUDED.created_at,
+                       corpus_path = EXCLUDED.corpus_path,
+                       output_dir = EXCLUDED.output_dir,
+                       summary_json = EXCLUDED.summary_json""",
+                dataset_id,
+                datetime.now(timezone.utc),
+                corpus_path,
+                output_dir,
+                summary_json,
+            )
+
+    async def get_forge_datasets(self) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT dataset_id, created_at, corpus_path, output_dir, summary_json FROM forge_datasets ORDER BY created_at DESC"
+            )
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["summary"] = json.loads(d.pop("summary_json", "{}"))
+            except Exception:
+                d["summary"] = {}
+            result.append(d)
+        return result
+
+    async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
+        scenarios = json.loads(scenarios_json)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM forge_scenarios WHERE dataset_id = $1", dataset_id)
+            for s in scenarios:
+                await conn.execute(
+                    """INSERT INTO forge_scenarios
+                       (dataset_id, scenario_id, scenario_type, anchor_doc_ids_json, evidence_summary)
+                       VALUES ($1, $2, $3, $4, $5)""",
+                    dataset_id,
+                    s.get("scenario_id", ""),
+                    s.get("scenario_type", ""),
+                    json.dumps(s.get("anchor_doc_ids", [])),
+                    s.get("evidence_summary", ""),
+                )
+
+    async def get_forge_scenarios(self, dataset_id: str) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT scenario_id, scenario_type, anchor_doc_ids_json, evidence_summary
+                   FROM forge_scenarios WHERE dataset_id = $1""",
+                dataset_id,
+            )
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["anchor_doc_ids"] = json.loads(d.pop("anchor_doc_ids_json", "[]"))
+            except Exception:
+                d["anchor_doc_ids"] = []
+            result.append(d)
+        return result
+
+    async def save_forge_queries(self, dataset_id: str, queries_json: str) -> None:
+        queries = json.loads(queries_json)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute("DELETE FROM forge_queries WHERE dataset_id = $1", dataset_id)
+            for q in queries:
+                await conn.execute(
+                    """INSERT INTO forge_queries
+                       (dataset_id, query_id, text, scenario_id, query_type, difficulty_label,
+                        failure_category, validated, positive_doc_ids_json)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                    dataset_id,
+                    q.get("query_id", ""),
+                    q.get("text", ""),
+                    q.get("scenario_id", ""),
+                    q.get("query_type", ""),
+                    q.get("difficulty_label", "medium"),
+                    q.get("failure_category"),
+                    1 if q.get("validated") else 0,
+                    json.dumps(q.get("positive_doc_ids", [])),
+                )
+
+    async def get_forge_queries(
+        self,
+        dataset_id: str,
+        scenario_type: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        query_type: Optional[str] = None,
+        validated_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict]:
+        where = ["q.dataset_id = $1"]
+        params: List = [dataset_id]
+        idx = 2
+        if difficulty:
+            where.append(f"q.difficulty_label = ${idx}")
+            params.append(difficulty)
+            idx += 1
+        if query_type:
+            where.append(f"q.query_type = ${idx}")
+            params.append(query_type)
+            idx += 1
+        if validated_only:
+            where.append("q.validated = 1")
+        join = ""
+        if scenario_type:
+            join = "JOIN forge_scenarios s ON s.dataset_id = q.dataset_id AND s.scenario_id = q.scenario_id"
+            where.append(f"s.scenario_type = ${idx}")
+            params.append(scenario_type)
+            idx += 1
+        sql = (
+            "SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label, "
+            "q.failure_category, q.validated, q.positive_doc_ids_json "
+            f"FROM forge_queries q {join} WHERE " + " AND ".join(where) +
+            f" ORDER BY q.id LIMIT ${idx} OFFSET ${idx + 1}"
+        )
+        params.extend([limit, offset])
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        result = []
+        for row in rows:
+            d = dict(row)
+            d["validated"] = bool(d.get("validated"))
+            try:
+                d["positive_doc_ids"] = json.loads(d.pop("positive_doc_ids_json", "[]"))
+            except Exception:
+                d["positive_doc_ids"] = []
+            result.append(d)
+        return result
+
+    async def save_trace(self, trace) -> None:
+        await self.save_traces_batch([trace])
+
+    async def save_traces_batch(self, traces) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            for t in traces:
+                await conn.execute(
+                    """INSERT INTO traces
+                       (trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms,
+                        timestamp, predicted_difficulty, suspected_failures_json, metadata_json)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                       ON CONFLICT (trace_id) DO UPDATE SET
+                           service = EXCLUDED.service,
+                           status = EXCLUDED.status,
+                           total_latency_ms = EXCLUDED.total_latency_ms,
+                           timestamp = EXCLUDED.timestamp,
+                           predicted_difficulty = EXCLUDED.predicted_difficulty,
+                           suspected_failures_json = EXCLUDED.suspected_failures_json,
+                           metadata_json = EXCLUDED.metadata_json""",
+                    t.trace_id,
+                    t.service,
+                    t.query_id,
+                    t.query_text,
+                    t.pipeline_id,
+                    t.status,
+                    t.total_latency_ms,
+                    t.timestamp,
+                    t.predicted_difficulty,
+                    json.dumps(t.suspected_failures),
+                    json.dumps(t.metadata),
+                )
+                await conn.execute("DELETE FROM trace_stages WHERE trace_id = $1", t.trace_id)
+                for s in t.snapshots:
+                    docs = [
+                        {
+                            "id": d.id,
+                            "text": getattr(d, "text", ""),
+                            "score": d.score,
+                            "rank": d.rank,
+                            "title": getattr(d, "title", ""),
+                        }
+                        for d in s.documents
+                    ]
+                    await conn.execute(
+                        """INSERT INTO trace_stages
+                           (trace_id, stage_index, stage_id, latency_ms, candidate_count, documents_json)
+                           VALUES ($1, $2, $3, $4, $5, $6)""",
+                        t.trace_id,
+                        s.stage_index,
+                        s.stage_id,
+                        s.latency_ms,
+                        s.candidate_count or len(s.documents),
+                        json.dumps(docs),
+                    )
+
+    async def list_services(self) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT service, COUNT(*) AS trace_count, MAX(timestamp) AS last_seen
+                   FROM traces GROUP BY service ORDER BY last_seen DESC"""
+            )
+        return [dict(r) for r in rows]
+
+    async def list_traces(
+        self,
+        service: str,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        status: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        suspected_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict]:
+        where = ["service = $1"]
+        params: List = [service]
+        idx = 2
+        if since:
+            where.append(f"timestamp >= ${idx}")
+            params.append(since)
+            idx += 1
+        if until:
+            where.append(f"timestamp <= ${idx}")
+            params.append(until)
+            idx += 1
+        if status:
+            where.append(f"status = ${idx}")
+            params.append(status)
+            idx += 1
+        if difficulty:
+            where.append(f"predicted_difficulty = ${idx}")
+            params.append(difficulty)
+            idx += 1
+        if suspected_only:
+            where.append("suspected_failures_json != '[]'")
+        sql = (
+            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
+            "timestamp, predicted_difficulty, suspected_failures_json, metadata_json FROM traces WHERE "
+            + " AND ".join(where)
+            + f" ORDER BY timestamp DESC LIMIT ${idx} OFFSET ${idx + 1}"
+        )
+        params.extend([limit, offset])
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        return [self._trace_row_to_dict(dict(r)) for r in rows]
+
+    async def get_trace(self, trace_id: str) -> Optional[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms,
+                          timestamp, predicted_difficulty, suspected_failures_json, metadata_json
+                   FROM traces WHERE trace_id = $1""",
+                trace_id,
+            )
+            if not row:
+                return None
+            d = self._trace_row_to_dict(dict(row))
+            stage_rows = await conn.fetch(
+                """SELECT stage_index, stage_id, latency_ms, candidate_count, documents_json
+                   FROM trace_stages WHERE trace_id = $1 ORDER BY stage_index""",
+                trace_id,
+            )
+        stages = []
+        for sr in stage_rows:
+            sd = dict(sr)
+            try:
+                sd["documents"] = json.loads(sd.pop("documents_json", "[]"))
+            except Exception:
+                sd["documents"] = []
+            stages.append(sd)
+        d["stages"] = stages
+        return d
+
+    async def purge_traces(self, service: Optional[str] = None, older_than: Optional[str] = None) -> int:
+        where = []
+        params: List = []
+        idx = 1
+        if service:
+            where.append(f"service = ${idx}")
+            params.append(service)
+            idx += 1
+        if older_than:
+            where.append(f"timestamp < ${idx}")
+            params.append(older_than)
+            idx += 1
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(f"SELECT trace_id FROM traces{clause}", *params)
+            ids = [r["trace_id"] for r in rows]
+            await conn.execute(f"DELETE FROM traces{clause}", *params)
+            if ids:
+                await conn.execute("DELETE FROM trace_stages WHERE trace_id = ANY($1::text[])", ids)
+        return len(ids)
+
+    async def get_query_lineage(self, query_id: str) -> Dict:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            forge_row = await conn.fetchrow(
+                """SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label,
+                          q.failure_category, q.validated, q.positive_doc_ids_json, q.dataset_id,
+                          s.scenario_type, s.evidence_summary
+                   FROM forge_queries q
+                   LEFT JOIN forge_scenarios s ON s.dataset_id = q.dataset_id AND s.scenario_id = q.scenario_id
+                   WHERE q.query_id = $1 LIMIT 1""",
+                query_id,
+            )
+            eval_rows = await conn.fetch(
+                """SELECT rq.run_id, rq.query_text, rq.dataset_name, r.experiment_name, r.started_at
+                   FROM run_queries rq JOIN runs r ON r.run_id = rq.run_id WHERE rq.query_id = $1
+                   ORDER BY r.started_at DESC""",
+                query_id,
+            )
+
+        origin: Dict = {"source": "dataset", "query_text": None, "dataset_name": None, "forge": None}
+        if forge_row:
+            fr = dict(forge_row)
+            try:
+                positive_doc_ids = json.loads(fr.pop("positive_doc_ids_json", "[]"))
+            except Exception:
+                positive_doc_ids = []
+            origin = {
+                "source": "forge",
+                "query_text": fr.get("text"),
+                "dataset_name": None,
+                "forge": {
+                    "dataset_id": fr.get("dataset_id"),
+                    "scenario_id": fr.get("scenario_id"),
+                    "scenario_type": fr.get("scenario_type"),
+                    "query_type": fr.get("query_type"),
+                    "difficulty_label": fr.get("difficulty_label"),
+                    "failure_category": fr.get("failure_category"),
+                    "validated": bool(fr.get("validated")),
+                    "positive_doc_ids": positive_doc_ids,
+                    "evidence_summary": fr.get("evidence_summary"),
+                },
+            }
+        elif eval_rows:
+            origin["query_text"] = eval_rows[0]["query_text"]
+            origin["dataset_name"] = eval_rows[0]["dataset_name"]
+
+        evaluations = []
+        for row in eval_rows:
+            er = dict(row)
+            run_id = er["run_id"]
+            metrics = await self.get_metrics(run_id)
+            q_metrics = [m for m in metrics if m["query_id"] == query_id]
+            diagnostics = await self.get_query_diagnostics(run_id, query_id=query_id)
+            evaluations.append(
+                {
+                    "run_id": run_id,
+                    "experiment_name": er.get("experiment_name"),
+                    "started_at": str(er.get("started_at")),
+                    "dataset_name": er.get("dataset_name"),
+                    "metrics": q_metrics,
+                    "diagnostics": diagnostics,
+                }
+            )
+
+        match_difficulty = None
+        match_failures: List[str] = []
+        if forge_row:
+            match_difficulty = forge_row["difficulty_label"]
+            if forge_row["failure_category"]:
+                match_failures = [forge_row["failure_category"]]
+        elif evaluations and evaluations[0].get("diagnostics"):
+            d0 = evaluations[0]["diagnostics"][0]
+            match_difficulty = d0.get("difficulty_bucket")
+            match_failures = list(d0.get("failure_labels") or [])
+
+        production_traces = await self._categorical_trace_matches(match_difficulty, match_failures)
+
+        return {
+            "query_id": query_id,
+            "origin": origin,
+            "evaluations": evaluations,
+            "production_matches": {
+                "match_type": "categorical",
+                "note": (
+                    "Production queries are novel; traces are matched by predicted difficulty and "
+                    "overlapping suspected failure labels, not by exact query_id."
+                ),
+                "match_difficulty": match_difficulty,
+                "match_failure_labels": match_failures,
+                "traces": production_traces,
+            },
+        }
+
+    async def _categorical_trace_matches(
+        self,
+        difficulty: Optional[str],
+        failure_labels: List[str],
+        limit: int = 50,
+    ) -> List[Dict]:
+        if not difficulty and not failure_labels:
+            return []
+        where = []
+        params: List = []
+        idx = 1
+        if difficulty:
+            where.append(f"predicted_difficulty = ${idx}")
+            params.append(difficulty)
+            idx += 1
+        sql = (
+            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
+            "timestamp, predicted_difficulty, suspected_failures_json FROM traces"
+        )
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += f" ORDER BY timestamp DESC LIMIT ${idx}"
+        params.append(limit * 5)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        matched = []
+        label_set = set(failure_labels)
+        for row in rows:
+            d = dict(row)
+            d["timestamp"] = str(d.get("timestamp"))
+            try:
+                suspected = json.loads(d.pop("suspected_failures_json", "[]"))
+            except Exception:
+                suspected = []
+            if label_set and not (label_set & set(suspected)):
+                continue
+            d["suspected_failures"] = suspected
+            matched.append(d)
+            if len(matched) >= limit:
+                break
+        return matched
+
+    async def save_golden_set(self, name: str, queries_json: str) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO golden_sets (name, queries_json, created_at) VALUES ($1, $2, $3)
+                   ON CONFLICT (name) DO UPDATE SET queries_json = EXCLUDED.queries_json,
+                       created_at = EXCLUDED.created_at""",
+                name,
+                queries_json,
+                datetime.now(timezone.utc),
+            )
+
+    async def get_golden_set(self, name: str) -> Optional[str]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT queries_json FROM golden_sets WHERE name = $1", name)
+        return row["queries_json"] if row else None
+
+    async def list_golden_sets(self) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT name, created_at FROM golden_sets ORDER BY created_at DESC")
+        return [{"name": r["name"], "created_at": str(r["created_at"])} for r in rows]
+
+    @staticmethod
+    def _trace_row_to_dict(d: Dict) -> Dict:
+        if d.get("timestamp") is not None:
+            d["timestamp"] = str(d["timestamp"])
+        try:
+            d["suspected_failures"] = json.loads(d.pop("suspected_failures_json", "[]"))
+        except Exception:
+            d["suspected_failures"] = []
+        try:
+            d["metadata"] = json.loads(d.pop("metadata_json", "{}"))
+        except Exception:
+            d["metadata"] = {}
+        return d
