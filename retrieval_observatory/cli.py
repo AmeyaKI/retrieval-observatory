@@ -703,7 +703,7 @@ def validate(
 @app.command()
 def init(
     output: Path = typer.Option(Path("retobs_experiment.yaml"), "--output", "-o"),
-    mode: str = typer.Option("custom-jsonl", "--mode", help="beir, custom-jsonl, http-endpoint, bm25+dense, bm25+reranker"),
+    mode: str = typer.Option("custom-jsonl", "--mode", help="beir, custom-jsonl, http-endpoint, bm25+dense, bm25+reranker, reliability-demo"),
     force: bool = typer.Option(False, "--force", help="Overwrite existing files."),
     sample_dataset: bool = typer.Option(True, "--sample-dataset/--no-sample-dataset", help="Write tiny custom JSONL files."),
 ) -> None:
@@ -746,6 +746,40 @@ def _print_validation_report(report: dict) -> None:
 
 def _starter_config_yaml(mode: str) -> str:
     """Return a starter YAML config string with inline explanatory comments."""
+    if mode == "reliability-demo":
+        return """\
+# Starter config for the retobs reliability demo Forge dataset.
+# Run: retobs demo  then point these paths at .retobs/demo/forge_dataset/
+
+experiment:
+  name: my-forge-stress-eval
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: .retobs/demo/forge_dataset/queries.jsonl
+  corpus_path: .retobs/demo/forge_dataset/corpus.jsonl
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 20
+
+combinations:
+  include:
+    - [bm25]
+
+metrics:
+  recall_at_k: [5, 10, 20]
+  ndcg_at_k: [10]
+  mrr: true
+
+output:
+  store: sqlite
+  db_path: .retobs/demo/results.db
+"""
+
     if mode == "beir":
         return """\
 experiment:
@@ -1251,7 +1285,7 @@ def forge_run(
     corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
     output: Path = typer.Option(..., "--output", "-o", help="Output directory for the generated dataset."),
     scenario_types: str = typer.Option("temporal,alias", "--scenario-types", help="Comma-separated scenario types."),
-    query_types: str = typer.Option("paraphrase", "--query-types", help="Comma-separated query types: paraphrase,temporal,adversarial."),
+    query_types: str = typer.Option("paraphrase", "--query-types", help="Comma-separated: paraphrase,temporal,adversarial,comparison,constraint,long_tail."),
     n_per_type: int = typer.Option(3, "--n-per-type", help="Queries generated per scenario per query type."),
     n_queries: Optional[int] = typer.Option(None, "--n-queries", help="Total query budget (caps generation). Overrides n-per-type if smaller."),
     llm_provider: str = typer.Option("gemini", "--llm-provider", help="LLM provider: gemini (default, free), openai, anthropic."),
@@ -1505,6 +1539,7 @@ def demo(
     service: str = typer.Option("demo", "--service", help="TraceLens service name for synthetic traces."),
     n_traces: int = typer.Option(300, "--n-traces", help="Synthetic TraceLens traces to seed."),
     keep_db: bool = typer.Option(False, "--keep-db", help="Append to existing DB instead of starting fresh."),
+    full: bool = typer.Option(False, "--full", help="Also run multi-stage BM25+rereank ablation benchmark."),
 ) -> None:
     """Build a full reliability-platform demo: Forge → baseline + degraded benchmarks → TraceLens → Advisor.
 
@@ -1518,10 +1553,18 @@ def demo(
         tracelens_service=service,
         n_traces=n_traces,
         keep_db=keep_db,
+        full=full,
     ))
 
 
-async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces: int, keep_db: bool = False) -> None:
+async def _demo(
+    output_dir: str,
+    db_path: str,
+    tracelens_service: str,
+    n_traces: int,
+    keep_db: bool = False,
+    full: bool = False,
+) -> None:
     from retrieval_observatory.forge.types import SyntheticDataset, SyntheticQuery, CorpusScenario
     from retrieval_observatory.forge.datasets.exporter import export_dataset
     from retrieval_observatory.forge.scenarios.registry import detect_all
@@ -1632,6 +1675,19 @@ async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces:
     candidate_run_id = runs[0]["run_id"] if runs else "?"
     console.print(f"  [green]✓[/green] Degraded run: [bold]{candidate_run_id}[/bold]")
 
+    ablation_run_id: Optional[str] = None
+    if full:
+        console.print("\n[bold cyan]Step 6b[/bold cyan] Running multi-stage ablation benchmark (BM25 + rerank)...")
+        ablation_config = out / "benchmark_ablation.yaml"
+        ablation_config.write_text(
+            _demo_ablation_config_yaml(queries_path, corpus_path, db_path),
+            encoding="utf-8",
+        )
+        await _run(ablation_config, skip_smoke_test=True, no_cache=True, latency_budget_ms=800)
+        runs = await store.list_runs()
+        ablation_run_id = runs[0]["run_id"] if runs else None
+        console.print(f"  [green]✓[/green] Ablation run: [bold]{ablation_run_id}[/bold]")
+
     # ── Step 7: Seed TraceLens with drift + failure hotspots ──────────────────
     console.print(f"\n[bold cyan]Step 7/8[/bold cyan] Seeding {n_traces} showcase TraceLens traces (drift + hotspots)...")
     await _seed_showcase_traces(tracelens_service, n_traces, db_path)
@@ -1649,6 +1705,24 @@ async def _demo(output_dir: str, db_path: str, tracelens_service: str, n_traces:
     sample_query_id = (
         temporal[0]["query_id"] if temporal else (all_fq[0]["query_id"] if all_fq else "temporal-0-0")
     )
+
+    manifest = {
+        "baseline_run_id": baseline_run_id,
+        "candidate_run_id": candidate_run_id,
+        "sample_query_id": sample_query_id,
+        "tracelens_service": tracelens_service,
+        "forge_dataset_id": dataset.dataset_id,
+        "db_path": str(Path(db_path).resolve()),
+        "experiment_names": {
+            "baseline": "forge-stress-baseline",
+            "degraded": "forge-stress-degraded",
+        },
+    }
+    if ablation_run_id:
+        manifest["ablation_run_id"] = ablation_run_id
+        manifest["experiment_names"]["ablation"] = "forge-stress-ablation"
+    manifest_path = out / "demo_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     # ── Done ──────────────────────────────────────────────────────────────────
     console.print(f"\n{'─' * 60}")
@@ -1724,6 +1798,51 @@ metrics:
 execution:
   concurrency: 4
   timeout_seconds: 60
+  cache_results: false
+
+output:
+  store: sqlite
+  db_path: "{db_path}"
+  export: [json]
+"""
+
+
+def _demo_ablation_config_yaml(queries_path: str, corpus_path: str, db_path: str) -> str:
+    return f"""\
+experiment:
+  name: "forge-stress-ablation"
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: "{queries_path}"
+  corpus_path: "{corpus_path}"
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100
+  rerank:
+    type: adapter.hf_crossencoder
+    config:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      k: 10
+
+combinations:
+  include:
+    - [bm25, rerank]
+  ablations: true
+
+metrics:
+  recall_at_k: [5, 10, 20]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 4
+  timeout_seconds: 120
   cache_results: false
 
 output:

@@ -242,7 +242,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
         })}
       </div>
 
-      {hasContributions && (
+      {hasContributions ? (
         <div>
           <div className="text-sm font-semibold text-gray-700 mb-2">Stage Ablation Attribution</div>
           {hasIndependentPipelines && (
@@ -264,7 +264,12 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
             ))}
           </div>
         </div>
-      )}
+      ) : ranked.length >= 2 ? (
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+          Stage ablation attribution is not available for this run — pipelines are independent variants
+          (not prefix chains like bm25 → bm25__rerank). Compare quality and latency in the cards above.
+        </p>
+      ) : null}
     </div>
   )
 }

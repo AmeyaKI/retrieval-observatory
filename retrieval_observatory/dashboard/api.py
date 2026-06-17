@@ -181,6 +181,12 @@ def create_app(
     async def list_databases() -> List[Dict]:
         return await registry.list_sources()
 
+    @app.get("/demo/context")
+    async def get_demo_context() -> Dict[str, Any]:
+        from retrieval_observatory.dashboard.demo_context import find_demo_context_for_registry
+
+        return find_demo_context_for_registry(registry.db_paths)
+
     @app.post("/compare")
     async def compare_runs_endpoint(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         if "selections" in body:
@@ -212,8 +218,17 @@ def create_app(
 
     @db_router.get("/runs")
     async def list_runs(db_id: str) -> List[Dict]:
-        _store_for(db_id)
-        return await registry.list_runs(db_id)
+        store = _store_for(db_id)
+        runs = await registry.list_runs(db_id)
+        enriched = []
+        for run in runs:
+            manifest = await store.get_run_manifest(run["run_id"]) or {}
+            if manifest.get("golden_set"):
+                run = {**run, "golden_set": manifest["golden_set"]}
+            if manifest.get("forge_dataset_id"):
+                run = {**run, "forge_dataset_id": manifest["forge_dataset_id"]}
+            enriched.append(run)
+        return enriched
 
     @db_router.post("/compare")
     async def compare_runs_in_db(db_id: str, req: CompareRequest) -> Dict[str, Any]:
@@ -332,6 +347,7 @@ def create_app(
                 }
 
         from retrieval_observatory.classifier.labels import to_training_class
+        from retrieval_observatory.metrics.diagnostics import predict_retrieval_risks
 
         items = []
         all_qids = sorted(set(actual_by_id) | set(predicted_by_id) | set(text_by_id))
@@ -341,14 +357,16 @@ def create_app(
             pred_info = predicted_by_id.get(qid, {})
             predicted = pred_info.get("predicted_difficulty")
             agreement = _difficulty_agreement(actual_class, predicted)
+            qtext = text_by_id.get(qid, "")
             items.append({
                 "query_id": qid,
-                "query_text": text_by_id.get(qid, ""),
+                "query_text": qtext,
                 "actual_bucket": actual_bucket,
                 "actual_class": actual_class,
                 "predicted_difficulty": predicted,
                 "predicted_difficulty_proba": pred_info.get("predicted_difficulty_proba"),
                 "agreement": agreement,
+                "predicted_risks": predict_retrieval_risks(qtext) if qtext else [],
             })
         return {"items": items}
 
@@ -831,6 +849,14 @@ def create_app(
         store = registry.get_store(registry.default_db_id or "")
         score = await compute_reliability(run_id, store, engine=engine)
         return {"run_id": run_id, **score.as_dict()}
+
+    @advisor_router.get("/reliability/history")
+    async def advisor_reliability_history(run_id: str | None = None, limit: int = 50) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.trends import get_reliability_trends
+
+        store = registry.get_store(registry.default_db_id or "")
+        history = await get_reliability_trends(store, run_id=run_id, limit=limit)
+        return {"history": history}
 
     app.include_router(advisor_router)
 

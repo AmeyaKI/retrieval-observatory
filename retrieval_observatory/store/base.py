@@ -153,3 +153,9 @@ class BaseStore(Protocol):
 
     async def list_golden_sets(self) -> List[Dict]:
         ...
+
+    async def save_reliability_snapshot(self, run_id: str, value: float, components: Dict) -> None:
+        ...
+
+    async def get_reliability_history(self, run_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
+        ...

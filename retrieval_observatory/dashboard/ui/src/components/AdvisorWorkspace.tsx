@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import {
+  DemoContext,
   fetchAdvisorRecommendations,
   fetchAdvisorRegressions,
   fetchAdvisorReliability,
+  fetchAdvisorReliabilityHistory,
+  fetchDemoContext,
   fetchDbs,
   fetchRuns,
   Recommendation,
   RegressionFinding,
   ReliabilityScore,
   Run,
+  ReliabilityHistoryPoint,
 } from '../api'
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
@@ -29,12 +33,14 @@ export default function AdvisorWorkspace() {
   const [dbId, setDbId] = useState<string | null>(null)
   const [view, setView] = useState<AdvisorView>('recommendations')
   const [runs, setRuns] = useState<Run[]>([])
+  const [demoContext, setDemoContext] = useState<DemoContext | null>(null)
   const [selectedRun, setSelectedRun] = useState('')
   const [baseline, setBaseline] = useState('')
   const [candidate, setCandidate] = useState('')
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [regressions, setRegressions] = useState<RegressionFinding[]>([])
   const [reliability, setReliability] = useState<ReliabilityScore | null>(null)
+  const [history, setHistory] = useState<ReliabilityHistoryPoint[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -43,6 +49,11 @@ export default function AdvisorWorkspace() {
         if (dbs.length > 0) setDbId(dbs[0].db_id)
       })
       .catch((e) => setError(String(e)))
+    fetchDemoContext()
+      .then((ctx) => {
+        if (ctx.baseline_run_id) setDemoContext(ctx)
+      })
+      .catch(() => setDemoContext(null))
   }, [])
 
   useEffect(() => {
@@ -51,15 +62,33 @@ export default function AdvisorWorkspace() {
   }, [dbId])
 
   useEffect(() => {
+    if (!demoContext?.candidate_run_id || runs.length === 0) return
+    setSelectedRun(demoContext.candidate_run_id)
+    setBaseline(demoContext.baseline_run_id || '')
+    setCandidate(demoContext.candidate_run_id)
+    setView('regressions')
+  }, [demoContext, runs])
+
+  useEffect(() => {
+    if (!baseline || !candidate) return
+    setError(null)
+    fetchAdvisorRegressions(baseline, candidate)
+      .then((res) => setRegressions(res.regressions))
+      .catch((e) => setError(String(e)))
+  }, [baseline, candidate])
+
+  useEffect(() => {
     if (!selectedRun) return
     setError(null)
     Promise.all([
       fetchAdvisorRecommendations(selectedRun),
       fetchAdvisorReliability(selectedRun),
+      fetchAdvisorReliabilityHistory(selectedRun),
     ])
-      .then(([recRes, relRes]) => {
+      .then(([recRes, relRes, histRes]) => {
         setRecommendations(recRes.recommendations)
         setReliability(relRes)
+        setHistory(histRes.history)
       })
       .catch((e) => setError(String(e)))
   }, [selectedRun])
@@ -79,6 +108,11 @@ export default function AdvisorWorkspace() {
         <p className="text-xs text-gray-500 mt-0.5">
           Rule-based recommendations with cited evidence — heuristics, not guarantees.
         </p>
+        {demoContext?.baseline_run_id && (
+          <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs text-violet-900">
+            Demo DB — comparing baseline BM25 (k=20) vs degraded (k=1). Regressions load automatically.
+          </div>
+        )}
         {reliability && (
           <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs">
             <p className="font-semibold text-violet-900">
@@ -147,6 +181,18 @@ export default function AdvisorWorkspace() {
                 </div>
               )}
             </Section>
+            {history.length > 1 && (
+              <Section title="Reliability trend" subtitle="Snapshots recorded when reliability is computed">
+                <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs space-y-1">
+                  {history.slice(0, 8).map((h) => (
+                    <div key={h.recorded_at} className="flex justify-between text-gray-600">
+                      <span>{new Date(h.recorded_at).toLocaleString()}</span>
+                      <span className="font-mono font-semibold">{(h.value * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
           </>
         )}
 

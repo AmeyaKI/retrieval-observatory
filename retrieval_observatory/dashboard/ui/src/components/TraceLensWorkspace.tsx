@@ -71,6 +71,8 @@ export default function TraceLensWorkspace({ route }: Props) {
           </p>
           <p className="text-sm text-gray-400 mt-3 leading-relaxed">
             Seed sample data with{' '}
+            <code className="text-teal-700 bg-teal-50 px-1 rounded">retobs demo</code>
+            {' '}or{' '}
             <code className="text-teal-700 bg-teal-50 px-1 rounded">retobs tracelens demo --service demo</code>, or
             push live traces with the <code className="text-teal-700 bg-teal-50 px-1 rounded">TraceRecorder</code> SDK.
           </p>

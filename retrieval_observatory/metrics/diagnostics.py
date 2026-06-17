@@ -213,3 +213,29 @@ def _difficulty_bucket(scores: List[float]) -> str:
 
 def _pipeline_ids(results: Iterable[PipelineResult]) -> List[str]:
     return [result.pipeline_id for result in results]
+
+
+def predict_retrieval_risks(query_text: str) -> List[str]:
+    """Pre-execution risk signals from query text features (no classifier required).
+
+    Returns actionable hints — not measured failure predictions.
+    """
+    from retrieval_observatory.classifier.features import extract_features
+    from retrieval_observatory.tracing.enrich import predict_difficulty
+
+    risks: List[str] = []
+    f = extract_features(query_text)
+    difficulty = predict_difficulty(query_text)
+
+    if difficulty in ("hard", "extreme"):
+        risks.append("high_difficulty_query")
+    if f.get("has_temporal_anchor", 0) >= 1.0:
+        risks.append("temporal_sensitivity")
+    if f.get("has_comparison", 0) >= 1.0:
+        risks.append("comparison_query")
+    if f.get("token_count", 0) > 20:
+        risks.append("long_query_may_need_higher_k")
+    if f.get("has_negation", 0) >= 1.0:
+        risks.append("negation_may_hurt_lexical_match")
+
+    return risks

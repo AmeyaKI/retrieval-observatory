@@ -3,14 +3,16 @@ from __future__ import annotations
 from typing import Dict, List, Literal
 
 from retrieval_observatory.forge.scenarios.alias import AliasScenarioDetector
+from retrieval_observatory.forge.scenarios.entity_ambiguity import EntityAmbiguityDetector
 from retrieval_observatory.forge.scenarios.temporal import TemporalScenarioDetector
 from retrieval_observatory.forge.types import CorpusScenario
 
-ScenarioType = Literal["temporal", "alias"]
+ScenarioType = Literal["temporal", "alias", "entity_ambiguity"]
 
 _DETECTORS = {
     "temporal": TemporalScenarioDetector,
     "alias": AliasScenarioDetector,
+    "entity_ambiguity": EntityAmbiguityDetector,
 }
 
 

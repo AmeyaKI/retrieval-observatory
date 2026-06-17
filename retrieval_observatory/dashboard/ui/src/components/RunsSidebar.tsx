@@ -74,8 +74,13 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
                   className="accent-indigo-600 mt-0.5 shrink-0"
                 />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {run.experiment_name}
+                  <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5">
+                    <span className="truncate">{run.experiment_name}</span>
+                    {run.golden_set && (
+                      <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide px-1 py-0.5 rounded bg-amber-100 text-amber-800">
+                        golden
+                      </span>
+                    )}
                   </p>
                   <p className="text-xs text-gray-500 font-mono truncate">{run.run_id}</p>
                   <p className="text-xs text-gray-400">{formatDate(run.started_at)}</p>

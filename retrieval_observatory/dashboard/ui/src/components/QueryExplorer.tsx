@@ -70,6 +70,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
               <th className="text-left px-3 py-2">Predicted</th>
               <th className="text-left px-3 py-2">Proba</th>
               <th className="text-left px-3 py-2">Agreement</th>
+              <th className="text-left px-3 py-2">Predicted risks</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -96,6 +97,11 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                       {item.agreement}
                     </span>
                   ) : '—'}
+                </td>
+                <td className="px-3 py-2 text-gray-600">
+                  {(item.predicted_risks?.length ?? 0) > 0
+                    ? item.predicted_risks!.join(', ')
+                    : '—'}
                 </td>
               </tr>
             ))}

@@ -2,12 +2,40 @@
 
 [PyPI version](https://pypi.org/project/retrieval-observatory/)
 
-Most RAG evaluation tools score end-to-end answer quality and stop there. They don't tell you **which stage helped**, **what it cost in latency**, or **which queries will fail before you run retrieval**. retobs is an open-source multi-stage retrieval benchmark and local dashboard that measures per-stage contribution, failure diagnosis, latency–quality tradeoffs, and query difficulty — so you can decide whether to add that reranker (or switch to dense) with evidence, not intuition.
+Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-stage contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
+
+The fundamental unit is the **query**: Forge origin → benchmark scores → production trace matches → Advisor recommendations, all linked by query lineage.
+
+---
+
+## Quickstart — full platform demo (~2 minutes, no API keys)
+
+```bash
+pip install "retrieval-observatory[demo,dashboard,dense]"
+retobs demo --db .retobs/demo/results.db
+retobs serve --db .retobs/demo/results.db
+```
+
+Open `http://localhost:4000`. The demo builds a Forge stress dataset, runs baseline BM25 (k=20) vs degraded BM25 (k=1), seeds TraceLens traces with drift/hotspots, and runs Advisor regression checks. The dashboard tour guides you through all four modes.
+
+Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for an additional multi-stage ablation benchmark.
+
+---
+
+## Four Modes
+
+| Mode | Question | What you get |
+|------|----------|--------------|
+| **Benchmarks** | What happened? Why? | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs |
+| **Forge** | What failures haven't we found? | Temporal + alias stress queries from your corpus |
+| **TraceLens** | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth) |
+| **Advisor** | What should I do next? | Regression detection, rule-based recommendations, reliability score |
+
+**Query lineage** — `#/query/<query_id>` links Forge origin, benchmark runs, and categorical production trace matches.
 
 ---
 
 ## Benchmark Results (3 BEIR datasets, 1,271 queries)
-
 
 | Dataset                     | BM25 NDCG@10 | Dense NDCG@10 | Improvement | Pareto winner    |
 | --------------------------- | ------------ | ------------- | ----------- | ---------------- |
@@ -15,8 +43,7 @@ Most RAG evaluation tools score end-to-end answer quality and stop there. They d
 | SciFact (scientific claims) | 0.544        | **0.640**     | +17.7%      | dense_only       |
 | FiQA (financial QA)         | 0.159        | **0.369**     | **+132%**   | dense_only       |
 
-
-Dense retrieval (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA — matching or beating cross-encoder reranking at **133–228× lower latency**. Full numbers, confidence intervals, and failure analysis: [RESULTS.md](RESULTS.md)
+Dense retrieval (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA — matching or beating cross-encoder reranking at **133–228× lower latency**. Full numbers: [RESULTS.md](RESULTS.md)
 
 ---
 
@@ -35,21 +62,19 @@ Stage Contribution: bm25 → bm25__rerank
 └───────────────┴──────────┴──────────┴──────────────┴────────────────┘
 ```
 
-- **Failure diagnosis** — Candidate misses, lexical mismatches, reranker drops — labeled per query.
+- **Failure diagnosis** — candidate misses, lexical mismatches, reranker drops — labeled per query.
 - **Latency–quality tradeoff** — Pareto frontier; see whether reranking is worth it at your latency budget.
-- **Query difficulty prediction** — Predict which queries will fail before running retrieval.
+- **Query difficulty classifier** — train on diagnostic labels from past runs (`retobs classifier train`) to segment eval sets by difficulty tier.
 
 ---
 
 ## How It's Different
 
-
 | Tool            | What it measures                                                                   |
 | --------------- | ---------------------------------------------------------------------------------- |
 | BEIR            | End-to-end pipeline accuracy on fixed datasets                                     |
 | RAGAs / TruLens | Answer quality given retrieved context                                             |
-| **retobs**      | **Per-stage contribution: what did each stage add in quality, cost, and latency?** |
-
+| **retobs**      | **Per-stage contribution, failure taxonomy, stress tests, prod traces, regressions** |
 
 retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer between "I have a retrieval pipeline" and "I understand how to improve it."
 
@@ -63,11 +88,7 @@ pip install "retrieval-observatory[demo,dashboard,dense]"
 
 ---
 
-## Quickstart (~5 minutes)
-
-Run BM25 on 50 SciFact queries, then open the dashboard.
-
-**PyPI install** (bundled example config):
+## SciFact quickstart (single benchmark)
 
 ```bash
 CFG="$(python -c 'from retrieval_observatory import EXAMPLES_DIR; print(EXAMPLES_DIR / "quickstart_scifact.yaml")')"
@@ -76,17 +97,7 @@ retobs run --config "$CFG"
 retobs serve --db .retobs/quickstart_scifact.db
 ```
 
-**From a git clone**:
-
-```bash
-git clone https://github.com/AmeyaKI/retrieval-observatory.git && cd retrieval-observatory
-pip install -e ".[demo,dashboard,dense]"
-retobs validate --config examples/quickstart_scifact.yaml
-retobs run --config examples/quickstart_scifact.yaml
-retobs serve --db .retobs/quickstart_scifact.db
-```
-
-Open `http://localhost:4000`.
+From a git clone: `pip install -e ".[demo,dashboard,dense]"` then use `examples/quickstart_scifact.yaml`.
 
 ---
 
@@ -132,69 +143,77 @@ output:
   db_path: .retobs/results.db
 ```
 
-retobs expands `ablations: true` into all needed pipeline variants automatically. Want to paste this into your LLM and have it generate a config for your pipeline? See [BREAKDOWN.md — YAML Configuration](BREAKDOWN.md#yaml-pipeline-configuration) for the full format guide with every option explained.
+Paste this into your LLM to generate a config for your pipeline. Full format: [BREAKDOWN.md — YAML Configuration](BREAKDOWN.md#yaml--pipeline-configuration) and [YAML_GUIDE.md](YAML_GUIDE.md).
 
 ---
 
-## Run It
+## Advisor & CI
 
 ```bash
-# Generate a starter config
-retobs init --mode bm25+reranker --output my_experiment.yaml
+# Detect regressions (non-zero exit = significant quality drop)
+retobs advisor check --baseline RUN_A --candidate RUN_B --db .retobs/results.db
 
-# Validate before running (catches schema errors, missing files)
-retobs validate --config my_experiment.yaml
+# Rule-based recommendations for a run
+retobs advisor recommend --run RUN_ID --db .retobs/results.db
 
-# Run the benchmark (stage attribution printed automatically)
-retobs run --config my_experiment.yaml
-
-# Open the dashboard
-retobs serve --db .retobs/results.db
+# Golden set for CI gates
+retobs advisor golden create --set my-golden --queries queries.json
 ```
+
+Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml)
+
+---
+
+## TraceLens (production observability)
+
+```bash
+# Seed sample traces (or use retobs demo)
+retobs tracelens demo --service demo --db .retobs/results.db
+
+# Live FastAPI tracing (writes to demo DB by default)
+python examples/fastapi_search/app.py
+curl "http://localhost:8080/search?q=BM25+retrieval"
+```
+
+Production traces use **suspected** failure signals (label-free proxies), not measured Recall. Measured quality lives in Benchmarks + Forge.
 
 ---
 
 ## Forge — Synthetic Stress Datasets
 
-Forge generates targeted hard queries from your own corpus — exposing failure modes that standard benchmarks don't cover.
-
 ```bash
-# Scan corpus for temporal/alias failure patterns (no LLM needed)
 retobs forge scan --corpus data/corpus.jsonl
-
-# Generate a full stress-test dataset
-GOOGLE_API_KEY=your-key retobs forge run \
-  --corpus data/corpus.jsonl \
-  --output forge_output/ \
-  --n-per-type 5
+GOOGLE_API_KEY=your-key retobs forge run --corpus data/corpus.jsonl --output forge_output/
 ```
 
-Forge detects temporal confusion (two documents about the same entity at different times) and alias mismatches (docs using "AWS" vs "Amazon Web Services") and generates queries designed to probe those exact failure modes. Output is BEIR-compatible and can be dropped straight into `retobs run`.
+Forge detects temporal confusion and alias mismatches and generates queries designed to probe those failure modes.
 
 ---
 
 ## CLI Reference
 
 ```bash
-retobs init      --mode MODE --output PATH        Generate starter config
-retobs validate  --config PATH                    Validate config and dataset
-retobs run       --config PATH [--no-cache]       Run benchmark
-retobs serve     --db PATH [--port N]             Start dashboard
-retobs compare   RUN_ID_1 RUN_ID_2 --db PATH      Side-by-side run comparison
-retobs inspect   RUN_ID --query QUERY_ID          Debug per-query results
+retobs demo       [--db PATH] [--full]              Full reliability platform demo
+retobs init       --mode MODE --output PATH          Generate starter config
+retobs validate   --config PATH                       Validate config and dataset
+retobs run        --config PATH [--no-cache]          Run benchmark
+retobs serve      --db PATH [--port N]                Start dashboard
+retobs compare    RUN_A RUN_B --db PATH               Side-by-side comparison
+retobs inspect    RUN_ID --query QUERY_ID             Per-query debug
 
-retobs classifier train   --dataset DATASET_NAME  Train difficulty classifier
-retobs forge scan   --corpus PATH                 Scan for failure patterns
-retobs forge run    --corpus PATH --output DIR    Generate synthetic eval set
+retobs advisor check|recommend|golden ...           Regressions, recommendations, CI gates
+retobs forge scan|run|list ...                      Stress-test dataset generation
+retobs tracelens demo|stats|purge ...               Production trace observability
+retobs classifier train|report|predict ...          Query difficulty classifier
 ```
 
-Full reference with all flags: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
+Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 
 ---
 
 ## Going Deeper
 
-- [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets with statistical analysis
-- [BREAKDOWN.md](BREAKDOWN.md) — Complete technical reference: all adapters, YAML options, dataset formats, dashboard features
-- [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive into the 4-pipeline sweep: Pareto analysis, classifier calibration, statistical methodology
-
+- [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
+- [BREAKDOWN.md](BREAKDOWN.md) — Complete technical reference: architecture, adapters, dashboard, demo walkthrough
+- [VISION.md](VISION.md) — Product vision and roadmap
+- [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology

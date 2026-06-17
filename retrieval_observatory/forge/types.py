@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Literal, Optional
 class CorpusScenario:
     """A structural pattern in a corpus that commonly causes retrieval failures."""
     scenario_id: str
-    scenario_type: Literal["temporal", "alias"]
+    scenario_type: Literal["temporal", "alias", "entity_ambiguity"]
     anchor_doc_ids: List[str]   # documents that form the scenario
     evidence_summary: str       # human-readable description of why this is a scenario
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -21,7 +21,7 @@ class SyntheticQuery:
     query_id: str
     text: str
     scenario_id: str
-    query_type: Literal["paraphrase", "temporal", "adversarial"]
+    query_type: Literal["paraphrase", "temporal", "adversarial", "comparison", "constraint", "long_tail"]
     positive_doc_ids: List[str]             # extractive ground truth (grade 2)
     difficulty_label: Literal["easy", "medium", "hard", "extreme"] = "medium"
     failure_category: Optional[str] = None

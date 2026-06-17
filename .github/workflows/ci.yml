@@ -20,8 +20,15 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install dependencies
-        run: pip install -e ".[dev,dashboard]"
+        run: pip install -e ".[dev,dashboard,demo,dense]"
+
+      - name: Build dashboard UI
+        run: make dashboard-build
 
       - name: Run unit tests
         run: pytest tests/unit/ -v --tb=short
@@ -35,3 +42,18 @@ jobs:
           python -c "from retrieval_observatory.store.sqlite import SQLiteStore"
           python -c "from retrieval_observatory.metrics.engine import MetricsEngine"
           python -c "from retrieval_observatory.cli import app"
+
+  postgres:
+    runs-on: ubuntu-latest
+    if: ${{ vars.RETOBS_POSTGRES_DSN != '' || secrets.RETOBS_POSTGRES_DSN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev,postgres]"
+      - name: Postgres integration tests
+        env:
+          RETOBS_POSTGRES_DSN: ${{ secrets.RETOBS_POSTGRES_DSN }}
+        run: pytest tests/unit/test_store_postgres.py -v --tb=short

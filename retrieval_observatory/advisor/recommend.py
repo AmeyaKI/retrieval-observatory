@@ -127,6 +127,26 @@ async def recommend(
             )
             priority += 1
 
+    # Adaptive routing hint: hard queries failing disproportionately
+    hard_fail = sum(
+        1 for row in diagnostics_rows
+        if row.get("difficulty_bucket") in ("hard", "extreme")
+        and row.get("failure_labels")
+    )
+    hard_total = sum(1 for row in diagnostics_rows if row.get("difficulty_bucket") in ("hard", "extreme"))
+    if hard_total >= 5 and hard_fail / hard_total > 0.4:
+        recommendations.append(
+            Recommendation(
+                action="Route hard/extreme queries to a stronger pipeline (hybrid + rerank)",
+                rationale="Hard queries fail at a high rate — consider difficulty-based routing",
+                evidence=[
+                    f"hard_query_failure_rate={hard_fail / hard_total:.0%}",
+                    f"hard_queries={hard_total}",
+                ],
+                priority=priority,
+            )
+        )
+
     recommendations.sort(key=lambda r: r.priority)
     return recommendations
 
@@ -232,4 +252,7 @@ async def compute_reliability(
         "diagnostic_health": round(diagnostic_health, 3),
     }
     value = round(sum(components.values()) / len(components), 3)
-    return ReliabilityScore(value=value, components=components, notes=notes)
+    score = ReliabilityScore(value=value, components=components, notes=notes)
+    if hasattr(store, "save_reliability_snapshot"):
+        await store.save_reliability_snapshot(run_id, score.value, score.components)
+    return score

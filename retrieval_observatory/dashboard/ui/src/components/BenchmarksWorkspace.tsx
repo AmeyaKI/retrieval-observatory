@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   DbSource,
+  DemoContext,
   fetchDbs,
   fetchRuns,
   Run,
@@ -12,7 +13,7 @@ import RunsSidebar from './RunsSidebar'
 import RunDetail from './RunDetail'
 import ComparePanel from './ComparePanel'
 
-export default function BenchmarksWorkspace() {
+export default function BenchmarksWorkspace({ demoContext }: { demoContext?: DemoContext | null }) {
   const [sources, setSources] = useState<DbSource[]>([])
   const [activeDbId, setActiveDbId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Run[]>([])
@@ -41,6 +42,14 @@ export default function BenchmarksWorkspace() {
       .then(setRuns)
       .catch((e) => setError(e.message))
   }, [activeDbId])
+
+  useEffect(() => {
+    if (!demoContext?.baseline_run_id || !demoContext.candidate_run_id || !activeDbId) return
+    setSelected([
+      { dbId: activeDbId, runId: demoContext.baseline_run_id },
+      { dbId: activeDbId, runId: demoContext.candidate_run_id },
+    ])
+  }, [demoContext, activeDbId])
 
   useEffect(() => {
     if (selected.length !== 1) {
@@ -99,7 +108,7 @@ export default function BenchmarksWorkspace() {
       </aside>
 
       <main className="flex-1 overflow-auto min-w-0">
-        <div className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200 px-3 py-2 flex items-center gap-2">
+        <div className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200 px-3 py-2 flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setSidebarOpen((v) => !v)}
@@ -118,6 +127,11 @@ export default function BenchmarksWorkspace() {
             </svg>
           </button>
           <span className="text-xs text-gray-500">Toggle run list</span>
+          {demoContext?.baseline_run_id && (
+            <span className="ml-auto text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1">
+              Demo runs loaded — baseline vs degraded selected for comparison
+            </span>
+          )}
         </div>
 
         {selected.length === 0 && (

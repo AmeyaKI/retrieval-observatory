@@ -46,9 +46,10 @@ export default function ForgeWorkspace({ route }: Props) {
                 generates hard, targeted evaluation queries.
               </p>
               <p className="text-sm text-gray-400 mt-3 leading-relaxed">
-                Generate one with{' '}
+                Fastest path:{' '}
+                <code className="text-amber-700 bg-amber-50 px-1 rounded">retobs demo</code>
+                {' '}— or generate with{' '}
                 <code className="text-amber-700 bg-amber-50 px-1 rounded">retobs forge run --corpus corpus.jsonl --output ./forge_out</code>
-                {' '}— see YAML_GUIDE.md for config help.
               </p>
             </div>
           </div>

@@ -81,3 +81,24 @@ async def test_postgres_forge_trace_lineage_roundtrip():
     assert lineage["origin"]["source"] == "forge"
 
     await store.close()
+
+
+@pytest.mark.asyncio
+async def test_postgres_reliability_snapshot_roundtrip():
+    from retrieval_observatory.store.postgres import PostgresStore
+
+    store = PostgresStore(dsn=os.environ["RETOBS_POSTGRES_DSN"])
+    await store.init_db()
+
+    await store.save_reliability_snapshot(
+        "pg_run_rel",
+        0.82,
+        {"recall10": 0.75, "latency_p50": 120.0},
+    )
+    history = await store.get_reliability_history(run_id="pg_run_rel", limit=5)
+    assert history
+    assert history[0]["run_id"] == "pg_run_rel"
+    assert history[0]["value"] == pytest.approx(0.82)
+    assert history[0]["components"]["recall10"] == pytest.approx(0.75)
+
+    await store.close()

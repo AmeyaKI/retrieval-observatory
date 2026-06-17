@@ -189,6 +189,16 @@ CREATE TABLE IF NOT EXISTS golden_sets (
 )
 """
 
+_CREATE_RELIABILITY_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS reliability_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    value REAL NOT NULL,
+    components_json TEXT NOT NULL
+)
+"""
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
@@ -214,6 +224,7 @@ class SQLiteStore:
             await db.execute(_CREATE_TRACES_IDX)
             await db.execute(_CREATE_TRACE_STAGES)
             await db.execute(_CREATE_GOLDEN_SETS)
+            await db.execute(_CREATE_RELIABILITY_SNAPSHOTS)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -862,6 +873,36 @@ class SQLiteStore:
                 await db.execute(f"DELETE FROM trace_stages WHERE trace_id IN ({qmarks})", tuple(ids))
             await db.commit()
         return len(ids)
+
+    async def save_reliability_snapshot(self, run_id: str, value: float, components: Dict) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO reliability_snapshots (run_id, recorded_at, value, components_json) VALUES (?, ?, ?, ?)",
+                (run_id, datetime.now(timezone.utc).isoformat(), value, json.dumps(components)),
+            )
+            await db.commit()
+
+    async def get_reliability_history(self, run_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
+        sql = "SELECT run_id, recorded_at, value, components_json FROM reliability_snapshots"
+        params: List = []
+        if run_id:
+            sql += " WHERE run_id = ?"
+            params.append(run_id)
+        sql += " ORDER BY recorded_at DESC LIMIT ?"
+        params.append(limit)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+        out = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["components"] = json.loads(d.pop("components_json", "{}"))
+            except Exception:
+                d["components"] = {}
+            out.append(d)
+        return out
 
     async def get_query_lineage(self, query_id: str) -> Dict:
         """Assemble one query's lifecycle across Forge, benchmarks, and production (categorical)."""

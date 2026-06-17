@@ -171,6 +171,16 @@ CREATE TABLE IF NOT EXISTS golden_sets (
 )
 """
 
+_CREATE_RELIABILITY_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS reliability_snapshots (
+    id SERIAL PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    components_json TEXT NOT NULL
+)
+"""
+
 
 class PostgresStore:
     """Async Postgres backend using asyncpg connection pooling."""
@@ -214,6 +224,7 @@ class PostgresStore:
             await conn.execute(_CREATE_TRACES)
             await conn.execute(_CREATE_TRACE_STAGES)
             await conn.execute(_CREATE_GOLDEN_SETS)
+            await conn.execute(_CREATE_RELIABILITY_SNAPSHOTS)
             try:
                 await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
             except Exception:
@@ -1057,6 +1068,43 @@ class PostgresStore:
         async with pool.acquire() as conn:
             rows = await conn.fetch("SELECT name, created_at FROM golden_sets ORDER BY created_at DESC")
         return [{"name": r["name"], "created_at": str(r["created_at"])} for r in rows]
+
+    async def save_reliability_snapshot(self, run_id: str, value: float, components: Dict) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO reliability_snapshots (run_id, recorded_at, value, components_json) VALUES ($1, NOW(), $2, $3)",
+                run_id,
+                value,
+                json.dumps(components),
+            )
+
+    async def get_reliability_history(self, run_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if run_id:
+                rows = await conn.fetch(
+                    "SELECT run_id, recorded_at, value, components_json FROM reliability_snapshots "
+                    "WHERE run_id = $1 ORDER BY recorded_at DESC LIMIT $2",
+                    run_id,
+                    limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT run_id, recorded_at, value, components_json FROM reliability_snapshots "
+                    "ORDER BY recorded_at DESC LIMIT $1",
+                    limit,
+                )
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["recorded_at"] = str(d["recorded_at"])
+            try:
+                d["components"] = json.loads(d.pop("components_json", "{}"))
+            except Exception:
+                d["components"] = {}
+            out.append(d)
+        return out
 
     @staticmethod
     def _trace_row_to_dict(d: Dict) -> Dict:

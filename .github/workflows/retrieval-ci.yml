@@ -1,0 +1,28 @@
+name: retrieval-ci
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  golden-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install -e ".[demo,dashboard,dense,dev]"
+
+      - name: Run demo benchmark
+        run: |
+          retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
+          echo "CANDIDATE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['candidate_run_id'])")" >> $GITHUB_ENV
+          echo "BASELINE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])")" >> $GITHUB_ENV
+
+      - name: Advisor regression check
+        run: |
+          retobs advisor check --baseline "$BASELINE" --candidate "$CANDIDATE" --db .retobs/ci/results.db

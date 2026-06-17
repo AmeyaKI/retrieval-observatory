@@ -54,6 +54,12 @@ export default function DashboardGuide() {
             </div>
           </div>
           <div className="border-t border-indigo-100 pt-2">
+            <p className="font-semibold mb-1">Four platform modes</p>
+            <p className="text-indigo-700">
+              Demo DB? Use the platform tour (modal on load) to visit Forge → Benchmarks → TraceLens → Advisor → Query lineage.
+            </p>
+          </div>
+          <div className="border-t border-indigo-100 pt-2">
             <p className="font-semibold mb-1">Two types of runs</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="bg-white/60 rounded p-2 border border-indigo-100">

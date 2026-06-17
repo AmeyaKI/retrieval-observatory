@@ -15,6 +15,8 @@ from retrieval_observatory.forge.scenarios.registry import detect_all
 from retrieval_observatory.forge.stress.suite import StressTestSuite
 from retrieval_observatory.forge.types import SyntheticDataset
 
+_RULE_BASED_QUERY_TYPES = frozenset({"comparison", "constraint", "long_tail"})
+
 
 class ForgeEngine:
     """End-to-end orchestrator for synthetic retrieval evaluation dataset generation.
@@ -77,21 +79,36 @@ class ForgeEngine:
             SyntheticDataset ready for use with StressTestSuite and BenchmarkRunner.
         """
         if self.generator is None and query_types:
-            raise RuntimeError(
-                "ForgeEngine requires a generator for query generation. "
-                "Pass generator=ForgeGenerator.from_provider('gemini') or use scan() instead."
-            )
+            llm_types = [t for t in query_types if t not in _RULE_BASED_QUERY_TYPES]
+            if llm_types:
+                raise RuntimeError(
+                    "ForgeEngine requires a generator for LLM query types. "
+                    "Pass generator=ForgeGenerator.from_provider('gemini') or use scan() instead."
+                )
 
         # Step 1: Scenario discovery
         scenarios = self.scan()
 
         # Step 2: Query generation
-        queries = await self.generator.generate_dataset(
-            scenarios=scenarios,
-            corpus=self.corpus,
-            query_types=list(query_types),
-            n_per_type=n_per_type,
-        )
+        llm_types = [t for t in query_types if t not in _RULE_BASED_QUERY_TYPES]
+        rule_types = [t for t in query_types if t in _RULE_BASED_QUERY_TYPES]
+        queries = []
+        if llm_types and self.generator:
+            queries.extend(
+                await self.generator.generate_dataset(
+                    scenarios=scenarios,
+                    corpus=self.corpus,
+                    query_types=llm_types,
+                    n_per_type=n_per_type,
+                )
+            )
+        if rule_types:
+            from retrieval_observatory.forge.generation.rule_based import generate_rule_based_queries
+
+            for scenario in scenarios:
+                queries.extend(
+                    generate_rule_based_queries(scenario, self.corpus, rule_types, n_per_type)
+                )
 
         # Step 3: Ground truth
         qrels = build_extractive_qrels(queries)

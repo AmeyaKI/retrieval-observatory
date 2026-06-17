@@ -78,7 +78,9 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
           subtitle={lineage.production_matches.note}
         >
           <p className="text-[11px] text-gray-500 mb-2">
-            Match criteria: difficulty={lineage.production_matches.match_difficulty || '—'},{' '}
+            Production queries are novel — matches are by predicted difficulty and failure category overlap,
+            not exact query ID. Benchmark pipelines may differ from production pipeline IDs.
+            {' '}Match: difficulty={lineage.production_matches.match_difficulty || '—'},{' '}
             labels={lineage.production_matches.match_failure_labels.join(', ') || '—'}
           </p>
           {lineage.production_matches.traces.length === 0 ? (

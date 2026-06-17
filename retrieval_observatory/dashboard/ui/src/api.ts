@@ -14,6 +14,8 @@ export interface Run {
   started_at: string
   finished_at: string | null
   config_json: string
+  golden_set?: string
+  forge_dataset_id?: string
 }
 
 export interface RunSelection {
@@ -235,6 +237,7 @@ export interface QueryLabelRow {
   predicted_difficulty: string | null
   predicted_difficulty_proba: Record<string, number> | null
   agreement: 'match' | 'adjacent' | 'mismatch' | null
+  predicted_risks?: string[]
 }
 
 export async function fetchQueryLabels(dbId: string, runId: string): Promise<{ items: QueryLabelRow[] }> {
@@ -573,6 +576,23 @@ export interface ReliabilityScore {
   notes: string[]
 }
 
+export interface DemoContext {
+  baseline_run_id?: string
+  candidate_run_id?: string
+  ablation_run_id?: string
+  sample_query_id?: string
+  tracelens_service?: string
+  forge_dataset_id?: string
+  db_path?: string
+  experiment_names?: Record<string, string>
+}
+
+export async function fetchDemoContext(): Promise<DemoContext> {
+  const res = await fetch(`${BASE}/demo/context`)
+  if (!res.ok) throw new Error('Failed to fetch demo context')
+  return res.json()
+}
+
 export async function fetchAdvisorRecommendations(runId: string): Promise<{ run_id: string; recommendations: Recommendation[] }> {
   const res = await fetch(`${BASE}/advisor/recommendations?run_id=${encodeURIComponent(runId)}`)
   if (!res.ok) throw new Error('Failed to fetch recommendations')
@@ -589,5 +609,20 @@ export async function fetchAdvisorRegressions(baseline: string, candidate: strin
 export async function fetchAdvisorReliability(runId: string): Promise<ReliabilityScore & { run_id: string }> {
   const res = await fetch(`${BASE}/advisor/reliability?run_id=${encodeURIComponent(runId)}`)
   if (!res.ok) throw new Error('Failed to fetch reliability score')
+  return res.json()
+}
+
+export interface ReliabilityHistoryPoint {
+  run_id: string
+  recorded_at: string
+  value: number
+  components: Record<string, number>
+}
+
+export async function fetchAdvisorReliabilityHistory(runId?: string): Promise<{ history: ReliabilityHistoryPoint[] }> {
+  const p = new URLSearchParams()
+  if (runId) p.set('run_id', runId)
+  const res = await fetch(`${BASE}/advisor/reliability/history?${p.toString()}`)
+  if (!res.ok) throw new Error('Failed to fetch reliability history')
   return res.json()
 }
