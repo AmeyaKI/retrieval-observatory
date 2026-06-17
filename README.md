@@ -24,24 +24,28 @@ Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for
 
 ## Four Modes
 
-| Mode | Question | What you get |
-|------|----------|--------------|
-| **Benchmarks** | What happened? Why? | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs |
-| **Forge** | What failures haven't we found? | Temporal + alias stress queries from your corpus |
-| **TraceLens** | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth) |
-| **Advisor** | What should I do next? | Regression detection, rule-based recommendations, reliability score |
+
+| Mode           | Question                        | What you get                                                        |
+| -------------- | ------------------------------- | ------------------------------------------------------------------- |
+| **Benchmarks** | What happened? Why?             | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs |
+| **Forge**      | What failures haven't we found? | Temporal + alias stress queries from your corpus                    |
+| **TraceLens**  | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth) |
+| **Advisor**    | What should I do next?          | Regression detection, rule-based recommendations, reliability score |
+
 
 **Query lineage** — `#/query/<query_id>` links Forge origin, benchmark runs, and categorical production trace matches.
 
 ---
 
-## Benchmark Results (3 BEIR datasets, 1,271 queries)
+## Benchmark Results from v0.1.2(3 BEIR datasets, 1,271 queries)
+
 
 | Dataset                     | BM25 NDCG@10 | Dense NDCG@10 | Improvement | Pareto winner    |
 | --------------------------- | ------------ | ------------- | ----------- | ---------------- |
 | NFCorpus (biomedical)       | 0.264        | **0.310**     | +17.6%      | dense_only, bm25 |
 | SciFact (scientific claims) | 0.544        | **0.640**     | +17.7%      | dense_only       |
 | FiQA (financial QA)         | 0.159        | **0.369**     | **+132%**   | dense_only       |
+
 
 Dense retrieval (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA — matching or beating cross-encoder reranking at **133–228× lower latency**. Full numbers: [RESULTS.md](RESULTS.md)
 
@@ -70,11 +74,13 @@ Stage Contribution: bm25 → bm25__rerank
 
 ## How It's Different
 
-| Tool            | What it measures                                                                   |
-| --------------- | ---------------------------------------------------------------------------------- |
-| BEIR            | End-to-end pipeline accuracy on fixed datasets                                     |
-| RAGAs / TruLens | Answer quality given retrieved context                                             |
+
+| Tool            | What it measures                                                                     |
+| --------------- | ------------------------------------------------------------------------------------ |
+| BEIR            | End-to-end pipeline accuracy on fixed datasets                                       |
+| RAGAs / TruLens | Answer quality given retrieved context                                               |
 | **retobs**      | **Per-stage contribution, failure taxonomy, stress tests, prod traces, regressions** |
+
 
 retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer between "I have a retrieval pipeline" and "I understand how to improve it."
 
@@ -214,6 +220,5 @@ Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 ## Going Deeper
 
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
-- [BREAKDOWN.md](BREAKDOWN.md) — Complete technical reference: architecture, adapters, dashboard, demo walkthrough
-- [VISION.md](VISION.md) — Product vision and roadmap
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology
+
