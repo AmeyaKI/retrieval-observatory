@@ -22,7 +22,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set())
   const [showIntermediateStages, setShowIntermediateStages] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
+  const { domain: yDomain, fitToData, reset, zoomIn, zoomOut, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
@@ -164,6 +164,8 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
         isZoomed={isZoomed}
         onFit={() => fitToData(dataMin, dataMax)}
         onReset={reset}
+        onZoomIn={zoomIn}
+        onZoomOut={zoomOut}
         onExpand={() => setExpanded(true)}
       />
       <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
@@ -177,6 +179,8 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
             isZoomed={isZoomed}
             onFit={() => fitToData(dataMin, dataMax)}
             onReset={reset}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
             compact={false}
           />
           <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>

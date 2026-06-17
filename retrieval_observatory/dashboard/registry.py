@@ -85,6 +85,10 @@ class DbRegistry:
     def list_db_ids(self) -> List[str]:
         return list(self._sources.keys())
 
+    @property
+    def db_paths(self) -> List[str]:
+        return [source.path for source in self._sources.values()]
+
     async def list_runs(self, db_id: str) -> List[Dict]:
         source = self.get(db_id)
         runs = await source.store.list_runs()

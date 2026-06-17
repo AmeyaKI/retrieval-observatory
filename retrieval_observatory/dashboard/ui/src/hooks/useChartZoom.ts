@@ -6,9 +6,13 @@ export interface UseChartZoomOptions {
   clampZeroOne?: boolean
 }
 
-/** True when the user is performing a macOS-style zoom gesture (⌘+scroll or trackpad pinch). */
+/**
+ * True when the user is performing a macOS trackpad pinch-to-zoom gesture.
+ * On macOS, two-finger pinch generates wheel events with ctrlKey=true.
+ * We also accept metaKey (⌘+scroll) as an alternative.
+ */
 export function isZoomWheelEvent(e: WheelEvent): boolean {
-  return e.metaKey || e.ctrlKey
+  return e.ctrlKey || e.metaKey
 }
 
 /** Convert wheel delta to a multiplicative domain factor (>1 zooms out, <1 zooms in). */
@@ -75,10 +79,15 @@ export function useChartZoom(options: UseChartZoomOptions = {}) {
     [zoomByFactor],
   )
 
+  const zoomIn = useCallback(() => zoomByFactor(0.7), [zoomByFactor])
+  const zoomOut = useCallback(() => zoomByFactor(1.4), [zoomByFactor])
+
   return {
     domain,
     setDomain,
     zoomByFactor,
+    zoomIn,
+    zoomOut,
     fitToData,
     reset,
     handleWheel,

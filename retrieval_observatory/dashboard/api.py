@@ -181,6 +181,12 @@ def create_app(
     async def list_databases() -> List[Dict]:
         return await registry.list_sources()
 
+    @app.get("/demo/context")
+    async def get_demo_context() -> Dict[str, Any]:
+        from retrieval_observatory.dashboard.demo_context import find_demo_context_for_registry
+
+        return find_demo_context_for_registry(registry.db_paths)
+
     @app.post("/compare")
     async def compare_runs_endpoint(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         if "selections" in body:
@@ -212,8 +218,17 @@ def create_app(
 
     @db_router.get("/runs")
     async def list_runs(db_id: str) -> List[Dict]:
-        _store_for(db_id)
-        return await registry.list_runs(db_id)
+        store = _store_for(db_id)
+        runs = await registry.list_runs(db_id)
+        enriched = []
+        for run in runs:
+            manifest = await store.get_run_manifest(run["run_id"]) or {}
+            if manifest.get("golden_set"):
+                run = {**run, "golden_set": manifest["golden_set"]}
+            if manifest.get("forge_dataset_id"):
+                run = {**run, "forge_dataset_id": manifest["forge_dataset_id"]}
+            enriched.append(run)
+        return enriched
 
     @db_router.post("/compare")
     async def compare_runs_in_db(db_id: str, req: CompareRequest) -> Dict[str, Any]:
@@ -332,6 +347,7 @@ def create_app(
                 }
 
         from retrieval_observatory.classifier.labels import to_training_class
+        from retrieval_observatory.metrics.diagnostics import predict_retrieval_risks
 
         items = []
         all_qids = sorted(set(actual_by_id) | set(predicted_by_id) | set(text_by_id))
@@ -341,14 +357,16 @@ def create_app(
             pred_info = predicted_by_id.get(qid, {})
             predicted = pred_info.get("predicted_difficulty")
             agreement = _difficulty_agreement(actual_class, predicted)
+            qtext = text_by_id.get(qid, "")
             items.append({
                 "query_id": qid,
-                "query_text": text_by_id.get(qid, ""),
+                "query_text": qtext,
                 "actual_bucket": actual_bucket,
                 "actual_class": actual_class,
                 "predicted_difficulty": predicted,
                 "predicted_difficulty_proba": pred_info.get("predicted_difficulty_proba"),
                 "agreement": agreement,
+                "predicted_risks": predict_retrieval_risks(qtext) if qtext else [],
             })
         return {"items": items}
 
@@ -650,6 +668,357 @@ def create_app(
         _register_upload_unavailable()
 
     app.include_router(db_router)
+
+    # ---------------------------------------------------------------------------
+    # Forge endpoints — synthetic dataset management
+    # ---------------------------------------------------------------------------
+    forge_router = APIRouter(prefix="/forge")
+
+    @forge_router.get("/datasets")
+    async def list_forge_datasets(db_id: str = registry.default_db_id or "") -> List[Dict[str, Any]]:
+        """List all Forge-generated synthetic datasets saved in the store."""
+        try:
+            store = registry.get_store(db_id or registry.default_db_id or "")
+            if store and hasattr(store, "get_forge_datasets"):
+                return await store.get_forge_datasets()
+        except Exception:
+            pass
+        return []
+
+    @forge_router.get("/datasets/{dataset_id}")
+    async def get_forge_dataset(dataset_id: str) -> Dict[str, Any]:
+        """Return summary and scenario breakdown for a Forge dataset."""
+        try:
+            store = registry.get_store(registry.default_db_id or "")
+            if store:
+                datasets = await store.get_forge_datasets()
+                dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
+                if dataset:
+                    scenarios = await store.get_forge_scenarios(dataset_id) if hasattr(store, "get_forge_scenarios") else []
+                    summary = dataset.get("summary") or {}
+                    total = summary.get("total_queries") or summary.get("n_queries") or 0
+                    validated = summary.get("validated", 0)
+                    coverage = (validated / total) if total else 0.0
+                    return {
+                        **dataset,
+                        "scenarios": scenarios,
+                        "validation_coverage": round(coverage, 4),
+                    }
+        except Exception:
+            pass
+        raise HTTPException(status_code=404, detail=f"Forge dataset {dataset_id!r} not found")
+
+    @forge_router.get("/datasets/{dataset_id}/queries")
+    async def get_forge_dataset_queries(
+        dataset_id: str,
+        scenario_type: str = "",
+        difficulty: str = "",
+        query_type: str = "",
+        validated_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Return generated synthetic queries for a Forge dataset, with optional filters."""
+        try:
+            store = registry.get_store(registry.default_db_id or "")
+            if store and hasattr(store, "get_forge_queries"):
+                return await store.get_forge_queries(
+                    dataset_id,
+                    scenario_type=scenario_type or None,
+                    difficulty=difficulty or None,
+                    query_type=query_type or None,
+                    validated_only=validated_only,
+                    limit=limit,
+                    offset=offset,
+                )
+        except Exception:
+            pass
+        return []
+
+    @forge_router.get("/datasets/{dataset_id}/runs")
+    async def get_forge_dataset_runs(dataset_id: str) -> List[Dict[str, Any]]:
+        """Return benchmark runs executed against this Forge dataset.
+
+        Prefer manifest ``forge_dataset_id``; fall back to output_dir text match for older runs.
+        """
+        try:
+            store = registry.get_store(registry.default_db_id or "")
+            if not store:
+                return []
+            datasets = await store.get_forge_datasets()
+            dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
+            output_dir = (dataset.get("output_dir") or "").rstrip("/") if dataset else ""
+            runs = await store.list_runs()
+            matched = []
+            seen: set[str] = set()
+            for r in runs:
+                run_id = r.get("run_id")
+                if not run_id or run_id in seen:
+                    continue
+                manifest = await store.get_run_manifest(run_id) if hasattr(store, "get_run_manifest") else None
+                if manifest and manifest.get("forge_dataset_id") == dataset_id:
+                    matched.append({
+                        "run_id": run_id,
+                        "experiment_name": r.get("experiment_name"),
+                        "started_at": r.get("started_at"),
+                        "forge_dataset_id": dataset_id,
+                    })
+                    seen.add(run_id)
+                    continue
+                cfg = r.get("config_json") or ""
+                if output_dir and output_dir in cfg:
+                    matched.append({
+                        "run_id": run_id,
+                        "experiment_name": r.get("experiment_name"),
+                        "started_at": r.get("started_at"),
+                    })
+                    seen.add(run_id)
+            return matched
+        except Exception:
+            pass
+        return []
+
+    @forge_router.get("/datasets/{dataset_id}/scenarios")
+    async def get_forge_dataset_scenarios(dataset_id: str) -> List[Dict[str, Any]]:
+        """Return scenarios for a Forge dataset."""
+        try:
+            store = registry.get_store(registry.default_db_id or "")
+            if store and hasattr(store, "get_forge_scenarios"):
+                return await store.get_forge_scenarios(dataset_id)
+        except Exception:
+            pass
+        return []
+
+    app.include_router(forge_router)
+
+    @app.get("/query/{query_id}/lineage")
+    async def get_query_lineage(query_id: str) -> Dict[str, Any]:
+        store = registry.get_store(registry.default_db_id or "")
+        if not store or not hasattr(store, "get_query_lineage"):
+            raise HTTPException(status_code=404, detail="Lineage not available")
+        return await store.get_query_lineage(query_id)
+
+    advisor_router = APIRouter(prefix="/advisor")
+
+    @advisor_router.get("/recommendations")
+    async def advisor_recommendations(run_id: str) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.recommend import recommend
+
+        store = registry.get_store(registry.default_db_id or "")
+        recs = await recommend(run_id, store)
+        return {
+            "run_id": run_id,
+            "recommendations": [
+                {
+                    "action": r.action,
+                    "rationale": r.rationale,
+                    "evidence": r.evidence,
+                    "priority": r.priority,
+                }
+                for r in recs
+            ],
+        }
+
+    @advisor_router.get("/regressions")
+    async def advisor_regressions(baseline: str, candidate: str) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.regression import detect_regressions
+
+        store = registry.get_store(registry.default_db_id or "")
+        findings = await detect_regressions(baseline, candidate, store, engine=engine)
+        return {
+            "baseline": baseline,
+            "candidate": candidate,
+            "regressions": [
+                {
+                    "metric": f.metric,
+                    "before": f.before,
+                    "after": f.after,
+                    "delta": f.delta,
+                    "q_value": f.q_value,
+                    "severity": f.severity,
+                    "n_pairs": f.n_pairs,
+                }
+                for f in findings
+            ],
+        }
+
+    @advisor_router.get("/reliability")
+    async def advisor_reliability(run_id: str) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.recommend import compute_reliability
+
+        store = registry.get_store(registry.default_db_id or "")
+        score = await compute_reliability(run_id, store, engine=engine)
+        return {"run_id": run_id, **score.as_dict()}
+
+    @advisor_router.get("/reliability/history")
+    async def advisor_reliability_history(run_id: str | None = None, limit: int = 50) -> Dict[str, Any]:
+        from retrieval_observatory.advisor.trends import get_reliability_trends
+
+        store = registry.get_store(registry.default_db_id or "")
+        history = await get_reliability_trends(store, run_id=run_id, limit=limit)
+        return {"history": history}
+
+    app.include_router(advisor_router)
+
+    # ───────────────────────── TraceLens ─────────────────────────
+    tracelens_router = APIRouter(prefix="/tracelens")
+
+    def _tl_store():
+        return registry.get_store(registry.default_db_id or "")
+
+    def _parse_trace(payload: Dict[str, Any]):
+        from datetime import datetime, timezone
+        from retrieval_observatory.types import Document, StageSnapshot
+        from retrieval_observatory.tracing.types import RetrievalTrace
+
+        def to_doc(d: Dict[str, Any]) -> Document:
+            return Document(
+                id=str(d.get("id", "")),
+                text=d.get("text", ""),
+                score=float(d.get("score", 0.0)),
+                rank=int(d.get("rank", 0)),
+                title=d.get("title", ""),
+            )
+
+        snapshots = []
+        for s in payload.get("snapshots", []):
+            docs = [to_doc(d) for d in s.get("documents", [])]
+            snapshots.append(StageSnapshot(
+                stage_index=int(s.get("stage_index", len(snapshots))),
+                stage_id=str(s.get("stage_id", "")),
+                documents=docs,
+                latency_ms=float(s.get("latency_ms", 0.0)),
+                candidate_count=int(s.get("candidate_count", len(docs))),
+            ))
+        ts_raw = payload.get("timestamp")
+        try:
+            ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.now(timezone.utc)
+        except Exception:
+            ts = datetime.now(timezone.utc)
+        import uuid as _uuid
+        return RetrievalTrace(
+            trace_id=str(payload.get("trace_id") or _uuid.uuid4().hex),
+            service=str(payload.get("service", "default")),
+            query_id=str(payload.get("query_id") or _uuid.uuid4().hex),
+            query_text=str(payload.get("query_text", "")),
+            pipeline_id=str(payload.get("pipeline_id", "")),
+            snapshots=snapshots,
+            total_latency_ms=float(payload.get("total_latency_ms", sum(s.latency_ms for s in snapshots))),
+            status=payload.get("status", "OK"),
+            timestamp=ts,
+            final_results=[to_doc(d) for d in payload.get("final_results", [])],
+            metadata=payload.get("metadata", {}) or {},
+        )
+
+    @tracelens_router.post("/traces")
+    async def ingest_traces(payload: Any = Body(...)) -> Dict[str, Any]:
+        """Ingest one trace (object) or many (list). Enriches server-side, then stores."""
+        from retrieval_observatory.tracing.enrich import enrich
+
+        store = _tl_store()
+        if not store:
+            raise HTTPException(status_code=503, detail="No store available for trace ingestion")
+        items = payload if isinstance(payload, list) else [payload]
+        traces = []
+        for item in items:
+            tr = _parse_trace(item)
+            enrich(tr)
+            traces.append(tr)
+        if hasattr(store, "save_traces_batch"):
+            await store.save_traces_batch(traces)
+        else:
+            for tr in traces:
+                await store.save_trace(tr)
+        return {"ingested": len(traces)}
+
+    @tracelens_router.get("/services")
+    async def list_trace_services() -> List[Dict[str, Any]]:
+        store = _tl_store()
+        if store and hasattr(store, "list_services"):
+            return await store.list_services()
+        return []
+
+    @tracelens_router.get("/traces")
+    async def list_traces_ep(
+        service: str,
+        since: str = "",
+        until: str = "",
+        status: str = "",
+        difficulty: str = "",
+        suspected_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        store = _tl_store()
+        if store and hasattr(store, "list_traces"):
+            return await store.list_traces(
+                service, since=since or None, until=until or None, status=status or None,
+                difficulty=difficulty or None, suspected_only=suspected_only, limit=limit, offset=offset,
+            )
+        return []
+
+    @tracelens_router.get("/traces/{trace_id}")
+    async def get_trace_ep(trace_id: str) -> Dict[str, Any]:
+        store = _tl_store()
+        if store and hasattr(store, "get_trace"):
+            t = await store.get_trace(trace_id)
+            if t:
+                return t
+        raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
+
+    @tracelens_router.get("/summary")
+    async def trace_summary(service: str, since: str = "", until: str = "") -> Dict[str, Any]:
+        store = _tl_store()
+        if not (store and hasattr(store, "list_traces")):
+            return {}
+        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        from retrieval_observatory.tracing.monitor.distribution import summarize
+        return summarize(rows)
+
+    @tracelens_router.get("/distribution")
+    async def trace_distribution(service: str, since: str = "", until: str = "") -> Dict[str, Any]:
+        store = _tl_store()
+        if not (store and hasattr(store, "list_traces")):
+            return {}
+        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        from retrieval_observatory.tracing.monitor.distribution import compute_distribution
+        return compute_distribution(rows)
+
+    @tracelens_router.get("/drift")
+    async def trace_drift(service: str, baseline: str = "", recent: str = "") -> List[Dict[str, Any]]:
+        """Compare a baseline window vs a recent window. Defaults: prior 7d vs last 24h."""
+        from datetime import datetime, timedelta, timezone
+        store = _tl_store()
+        if not (store and hasattr(store, "list_traces")):
+            return []
+        now = datetime.now(timezone.utc)
+        recent_since = recent or (now - timedelta(hours=24)).isoformat()
+        baseline_until = recent_since
+        baseline_since = baseline or (now - timedelta(days=8)).isoformat()
+        recent_rows = await store.list_traces(service, since=recent_since, limit=100000)
+        baseline_rows = await store.list_traces(service, since=baseline_since, until=baseline_until, limit=100000)
+        from retrieval_observatory.tracing.monitor.drift import compute_drift
+        return compute_drift(baseline_rows, recent_rows)
+
+    @tracelens_router.get("/hotspots")
+    async def trace_hotspots(service: str, since: str = "", until: str = "") -> List[Dict[str, Any]]:
+        store = _tl_store()
+        if not (store and hasattr(store, "list_traces")):
+            return []
+        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        from retrieval_observatory.tracing.monitor.hotspots import compute_hotspots
+        return compute_hotspots(rows)
+
+    @tracelens_router.get("/clusters")
+    async def trace_clusters(service: str, since: str = "", until: str = "") -> List[Dict[str, Any]]:
+        store = _tl_store()
+        if not (store and hasattr(store, "list_traces")):
+            return []
+        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        from retrieval_observatory.tracing.monitor.cluster import compute_clusters
+        return compute_clusters(rows)
+
+    app.include_router(tracelens_router)
 
     # Backward-compatible aliases when a single database is loaded.
     if registry.is_single:

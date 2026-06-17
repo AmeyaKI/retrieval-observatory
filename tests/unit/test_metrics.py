@@ -12,10 +12,14 @@ from retrieval_observatory.metrics.ranking import (
     precision_at_k,
 )
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs
-from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
+from retrieval_observatory.metrics.diagnostics import (
+    build_query_diagnostics,
+    compute_candidate_lineage,
+    compute_churn_rate,
+)
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
-from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
+from retrieval_observatory.types import CandidateLineage, Document, PipelineResult, StageSnapshot
 
 
 def test_recall_at_k_perfect():
@@ -254,3 +258,105 @@ def test_benjamini_hochberg_two_significant():
     from retrieval_observatory.metrics.significance import benjamini_hochberg
     result = benjamini_hochberg([0.04, 0.04])
     assert all(q < 0.05 for q in result)
+
+
+# ---------------------------------------------------------------------------
+# M1: CandidateLineage and churn rate tests
+# ---------------------------------------------------------------------------
+
+def _make_doc(doc_id: str, rank: int = 1) -> Document:
+    return Document(id=doc_id, text="", score=1.0, rank=rank)
+
+
+def _make_snapshot(stage_index: int, stage_id: str, doc_ids: list) -> StageSnapshot:
+    return StageSnapshot(
+        stage_index=stage_index,
+        stage_id=stage_id,
+        documents=[_make_doc(did, i + 1) for i, did in enumerate(doc_ids)],
+        latency_ms=1.0,
+    )
+
+
+def _make_result(pipeline_id: str, snapshots: list, query_id: str = "q1") -> PipelineResult:
+    return PipelineResult(
+        query_id=query_id,
+        pipeline_id=pipeline_id,
+        snapshots=snapshots,
+        total_latency_ms=1.0,
+        status="OK",
+    )
+
+
+def test_candidate_lineage_single_stage():
+    result = _make_result("p1", [_make_snapshot(0, "bm25", ["d1", "d2", "d3"])])
+    lineages = compute_candidate_lineage(result)
+    assert len(lineages) == 1
+    assert lineages[0].stage_index == 0
+    assert set(lineages[0].entered) == {"d1", "d2", "d3"}
+    assert lineages[0].survived == []
+    assert lineages[0].dropped == []
+    assert lineages[0].churn_rate == 0.0
+
+
+def test_candidate_lineage_two_stages_no_churn():
+    snaps = [
+        _make_snapshot(0, "bm25", ["d1", "d2", "d3"]),
+        _make_snapshot(1, "rerank", ["d1", "d2", "d3"]),
+    ]
+    result = _make_result("p1", snaps)
+    lineages = compute_candidate_lineage(result)
+    assert len(lineages) == 2
+    assert lineages[1].churn_rate == 0.0
+    assert set(lineages[1].survived) == {"d1", "d2", "d3"}
+    assert lineages[1].dropped == []
+
+
+def test_candidate_lineage_two_stages_with_churn():
+    snaps = [
+        _make_snapshot(0, "bm25", ["d1", "d2", "d3", "d4"]),
+        _make_snapshot(1, "rerank", ["d1", "d5"]),  # d2,d3,d4 dropped; d5 new
+    ]
+    result = _make_result("p1", snaps)
+    lineages = compute_candidate_lineage(result)
+    stage1 = lineages[1]
+    assert set(stage1.dropped) == {"d2", "d3", "d4"}
+    assert set(stage1.survived) == {"d1"}
+    assert set(stage1.entered) == {"d5"}
+    assert stage1.churn_rate == pytest.approx(3 / 4)
+
+
+def test_compute_churn_rate_single_stage():
+    result = _make_result("p1", [_make_snapshot(0, "bm25", ["d1", "d2"])])
+    lineages = compute_candidate_lineage(result)
+    assert compute_churn_rate(lineages) == 0.0
+
+
+def test_compute_churn_rate_multi_stage():
+    snaps = [
+        _make_snapshot(0, "bm25", ["d1", "d2", "d3", "d4"]),
+        _make_snapshot(1, "rerank", ["d1", "d2"]),  # 2 dropped out of 4 → 0.5
+    ]
+    result = _make_result("p1", snaps)
+    lineages = compute_candidate_lineage(result)
+    assert compute_churn_rate(lineages) == pytest.approx(0.5)
+
+
+def test_candidate_lineage_empty_snapshots():
+    result = PipelineResult(
+        query_id="q1", pipeline_id="p1", snapshots=[], total_latency_ms=0.0, status="OK"
+    )
+    lineages = compute_candidate_lineage(result)
+    assert lineages == []
+
+
+def test_diagnostics_include_churn_rate():
+    snaps = [
+        _make_snapshot(0, "bm25", ["d1", "d2", "d3"]),
+        _make_snapshot(1, "rerank", ["d1", "d2"]),
+    ]
+    result = _make_result("p1", snaps)
+    qrels = {"q1": {"d1": 2}}
+    rows = build_query_diagnostics("run1", [result], qrels)
+    assert len(rows) == 1
+    assert "churn_rate" in rows[0]
+    assert isinstance(rows[0]["churn_rate"], float)

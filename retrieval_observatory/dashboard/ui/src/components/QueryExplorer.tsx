@@ -70,12 +70,17 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
               <th className="text-left px-3 py-2">Predicted</th>
               <th className="text-left px-3 py-2">Proba</th>
               <th className="text-left px-3 py-2">Agreement</th>
+              <th className="text-left px-3 py-2">Predicted risks</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {filtered.map((item) => (
               <tr key={item.query_id} className="hover:bg-gray-50">
-                <td className="px-3 py-2 font-mono">{item.query_id}</td>
+                <td className="px-3 py-2 font-mono">
+                  <a href={`#/query/${encodeURIComponent(item.query_id)}`} className="text-indigo-600 hover:underline">
+                    {item.query_id}
+                  </a>
+                </td>
                 <td className="px-3 py-2 max-w-xs truncate" title={item.query_text}>
                   {item.query_text || '—'}
                 </td>
@@ -92,6 +97,11 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                       {item.agreement}
                     </span>
                   ) : '—'}
+                </td>
+                <td className="px-3 py-2 text-gray-600">
+                  {(item.predicted_risks?.length ?? 0) > 0
+                    ? item.predicted_risks!.join(', ')
+                    : '—'}
                 </td>
               </tr>
             ))}

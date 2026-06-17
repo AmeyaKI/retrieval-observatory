@@ -13,6 +13,7 @@ import QueryExplorer from './QueryExplorer'
 import StageCombinationMatrix from './StageCombinationMatrix'
 import DashboardGuide from './DashboardGuide'
 import DataQualityWarnings from './DataQualityWarnings'
+import StressTestResults from './StressTestResults'
 
 interface Props {
   run: Run
@@ -20,10 +21,13 @@ interface Props {
   wide?: boolean
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <section className="mb-8">
-      <h2 className="text-base font-semibold text-gray-800 mb-3">{title}</h2>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-gray-800">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+      </div>
       {children}
     </section>
   )
@@ -130,23 +134,27 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
       <DashboardGuide />
 
       {Object.values(metrics).some((e) => e.stage_index >= 0) && (
-        <Section title="Pipeline Architecture">
+        <Section title="Pipeline Architecture" subtitle="Stage-by-stage flow of your retrieval pipeline with per-stage quality and latency">
           <StagePipelineFlow metrics={metrics} />
         </Section>
       )}
 
-      <Section title="Experiment Overview">
+      <Section title="Experiment Overview" subtitle="Headline winner, query difficulty distribution, failure label summary, and classifier calibration">
         <ExperimentOverview dbId={dbId} runId={run.run_id} />
       </Section>
 
       {/* Tradeoff explorer sliders — shown when comparing 2+ pipelines */}
       {showTradeoffExplorer && (
-        <div className="mb-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
-          <div className="text-sm font-semibold text-gray-700 mb-3">Tradeoff Explorer</div>
+        <div className="mb-4 p-4 border border-indigo-100 rounded-lg bg-indigo-50/40">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="text-sm font-semibold text-gray-700">Tradeoff Explorer</div>
+            <span className="text-xs text-gray-400">— adjust thresholds to see which pipeline wins under your constraints</span>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-gray-600 block mb-1">
-                Latency budget per query: <span className="font-mono font-semibold text-gray-900">{latencyBudgetMs}ms</span>
+              <label className="text-xs text-gray-700 block mb-1">
+                My latency budget: <span className="font-mono font-bold text-indigo-700">{latencyBudgetMs}ms</span>
+                <span className="ml-1 text-gray-400">(P50 per query)</span>
               </label>
               <input
                 type="range"
@@ -158,12 +166,13 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
                 className="w-full accent-indigo-600"
               />
               <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                <span>0ms</span><span>10,000ms</span>
+                <span>0ms (instant)</span><span>10,000ms (10s)</span>
               </div>
             </div>
             <div>
-              <label className="text-xs text-gray-600 block mb-1">
-                Minimum quality improvement: <span className="font-mono font-semibold text-gray-900">{minQualityDelta.toFixed(2)}</span>
+              <label className="text-xs text-gray-700 block mb-1">
+                Min quality gain to justify cost: <span className="font-mono font-bold text-indigo-700">{minQualityDelta.toFixed(2)}</span>
+                <span className="ml-1 text-gray-400">(NDCG@10)</span>
               </label>
               <input
                 type="range"
@@ -175,7 +184,7 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
                 className="w-full accent-indigo-600"
               />
               <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                <span>0.00</span><span>0.20</span>
+                <span>0.00 (any gain)</span><span>0.20 (large gain)</span>
               </div>
             </div>
           </div>
@@ -191,7 +200,7 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
 
       {overview && <DataQualityWarnings warnings={overview.warnings} />}
 
-      <Section title="Metrics Summary">
+      <Section title="Metrics Summary" subtitle="NDCG, Recall, MRR, MAP, and latency across all pipelines — with significance tests for stage pairs">
         <MetricsTable
           metrics={metrics}
           baselines={baselines}
@@ -201,33 +210,36 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
         />
       </Section>
 
-      <Section title="Recall@K Curves">
+      <Section title="Recall@K Curves" subtitle="How much of the relevant content is retrieved as K (candidate count) increases">
         <RecallCurve metrics={metrics} baselines={baselines} />
       </Section>
 
-      <Section title="Stage Recall Funnel">
+      <Section title="Stage Recall Funnel" subtitle="How recall and NDCG change at each pipeline stage — a drop after reranking is normal since fewer docs are kept">
         <RecallFunnel metrics={metrics} />
       </Section>
 
-      <Section title="Latency Percentiles">
+      <Section title="Latency Breakdown" subtitle="P50/P95/P99 latency per pipeline stage — P50 is median, P95 captures tail latency">
         <LatencyChart metrics={metrics} />
       </Section>
 
-      <Section title="Quality–Latency Tradeoff">
+      <Section title="Quality vs. Latency" subtitle="Scatter plot of each pipeline's NDCG vs P50 latency — Pareto-optimal pipelines are those where no other pipeline is better on both dimensions">
         <TradeoffScatter dbId={dbId} runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
-      <Section title="Stage Combination Matrix">
+      <Section title="Stage Combination Matrix" subtitle="Compact view of all pipeline configurations: quality, latency, and cost side-by-side">
         <StageCombinationMatrix dbId={dbId} runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
       </Section>
 
-      <Section title="Query Explorer">
+      <Section title="Query Explorer" subtitle="Drill into individual queries — see failure labels, missing relevant docs, and predicted vs actual difficulty">
         <QueryExplorer dbId={dbId} runId={run.run_id} />
       </Section>
 
-      <Section title="NDCG@10 by Number of Relevant Docs">
+      <Section title="Performance by Corpus Density" subtitle="NDCG@10 grouped by number of relevant documents per query — harder when more docs are relevant">
         <SegmentBreakdown dbId={dbId} runId={run.run_id} field="n_relevant" targetMetric="ndcg" />
       </Section>
+
+      {/* Renders only when the run's queries carry Forge metadata (scenario_type / difficulty_label). */}
+      <StressTestResults dbId={dbId} runId={run.run_id} />
     </div>
   )
 }

@@ -224,9 +224,17 @@ export default function SegmentBreakdown({ dbId, runId, field = 'n_relevant', ta
   return (
     <div>
       <p className="text-xs text-gray-500 mb-2">
-        <strong>X-axis:</strong> number of ground-truth relevant documents per query ({field}).
+        {field === 'n_relevant' ? (
+          <>
+            <strong>X-axis:</strong> number of ground-truth relevant documents per query ({field}).
+          </>
+        ) : (
+          <>
+            <strong>X-axis:</strong> query segment by <code>{field}</code>.
+          </>
+        )}
         <strong className="ml-2">Y-axis:</strong> mean {metricLabel}@10 for queries in that bucket (final stage per pipeline).
-        Higher Y = better ranking quality for that query difficulty slice.
+        Higher Y = better ranking quality for that slice.
       </p>
       <ChartZoomControls
         domain={yDomain}

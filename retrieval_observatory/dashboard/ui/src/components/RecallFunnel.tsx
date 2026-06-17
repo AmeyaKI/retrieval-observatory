@@ -41,7 +41,7 @@ export default function RecallFunnel({ metrics }: Props) {
 
   const activeK = recallKValues.includes(selectedK) ? selectedK : defaultK
 
-  const { domain: yDomain, fitToData, reset, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
+  const { domain: yDomain, fitToData, reset, zoomIn, zoomOut, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
     clampZeroOne: false,
   })
@@ -205,7 +205,7 @@ export default function RecallFunnel({ metrics }: Props) {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Grouped by pipeline stage: each stage row shows only pipelines that include that stage (e.g. Stage 0 = all pipelines with retrieval; Stage 1 = pipelines with a second stage). Click legend to show/hide. Hold ⌘ and pinch or scroll on a chart to zoom.
+          Grouped by pipeline stage: each stage row shows only pipelines that include that stage (e.g. Stage 0 = all pipelines with retrieval; Stage 1 = pipelines with a second stage). Click legend to show/hide. Use +/− buttons or pinch on the chart to zoom the Y-axis.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
         <ChartZoomControls
@@ -213,6 +213,8 @@ export default function RecallFunnel({ metrics }: Props) {
           isZoomed={isZoomed}
           onFit={() => fitToData(Math.min(recallDataMin, ndcgDataMin), Math.max(recallDataMax, ndcgDataMax))}
           onReset={reset}
+          onZoomIn={zoomIn}
+          onZoomOut={zoomOut}
         />
       </div>
 

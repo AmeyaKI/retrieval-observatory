@@ -84,3 +84,78 @@ class BaseStore(Protocol):
 
     async def get_labeled_query_rows(self, run_ids: List[str]) -> List[Dict]:
         ...
+
+    async def save_forge_dataset(self, dataset_id: str, summary_json: str, corpus_path: str, output_dir: str) -> None:
+        ...
+
+    async def get_forge_datasets(self) -> List[Dict]:
+        ...
+
+    async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
+        ...
+
+    async def get_forge_scenarios(self, dataset_id: str) -> List[Dict]:
+        ...
+
+    async def save_forge_queries(self, dataset_id: str, queries_json: str) -> None:
+        ...
+
+    async def get_forge_queries(
+        self,
+        dataset_id: str,
+        scenario_type: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        query_type: Optional[str] = None,
+        validated_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict]:
+        ...
+
+    # TraceLens — production retrieval observability
+
+    async def save_trace(self, trace) -> None:
+        ...
+
+    async def save_traces_batch(self, traces) -> None:
+        ...
+
+    async def list_services(self) -> List[Dict]:
+        ...
+
+    async def list_traces(
+        self,
+        service: str,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        status: Optional[str] = None,
+        difficulty: Optional[str] = None,
+        suspected_only: bool = False,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict]:
+        ...
+
+    async def get_trace(self, trace_id: str) -> Optional[Dict]:
+        ...
+
+    async def purge_traces(self, service: Optional[str] = None, older_than: Optional[str] = None) -> int:
+        ...
+
+    async def get_query_lineage(self, query_id: str) -> Dict:
+        ...
+
+    async def save_golden_set(self, name: str, queries_json: str) -> None:
+        ...
+
+    async def get_golden_set(self, name: str) -> Optional[str]:
+        ...
+
+    async def list_golden_sets(self) -> List[Dict]:
+        ...
+
+    async def save_reliability_snapshot(self, run_id: str, value: float, components: Dict) -> None:
+        ...
+
+    async def get_reliability_history(self, run_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
+        ...
