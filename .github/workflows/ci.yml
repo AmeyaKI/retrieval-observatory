@@ -45,15 +45,44 @@ jobs:
 
   postgres:
     runs-on: ubuntu-latest
-    if: ${{ vars.RETOBS_POSTGRES_DSN != '' || secrets.RETOBS_POSTGRES_DSN != '' }}
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: retobs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Configure Postgres DSN
+        env:
+          # secrets/vars are allowed in step env (not in job-level if:). Prefer
+          # external DSN when configured; otherwise use the service container.
+          OVERRIDE_SECRET: ${{ secrets.RETOBS_POSTGRES_DSN }}
+          OVERRIDE_VAR: ${{ vars.RETOBS_POSTGRES_DSN }}
+        run: |
+          if [ -n "$OVERRIDE_SECRET" ]; then
+            echo "RETOBS_POSTGRES_DSN=$OVERRIDE_SECRET" >> "$GITHUB_ENV"
+          elif [ -n "$OVERRIDE_VAR" ]; then
+            echo "RETOBS_POSTGRES_DSN=$OVERRIDE_VAR" >> "$GITHUB_ENV"
+          else
+            echo "RETOBS_POSTGRES_DSN=postgresql://postgres:postgres@localhost:5432/retobs_test" >> "$GITHUB_ENV"
+          fi
+
       - name: Install
         run: pip install -e ".[dev,postgres]"
+
       - name: Postgres integration tests
-        env:
-          RETOBS_POSTGRES_DSN: ${{ secrets.RETOBS_POSTGRES_DSN }}
         run: pytest tests/unit/test_store_postgres.py -v --tb=short
