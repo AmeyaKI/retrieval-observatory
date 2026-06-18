@@ -1695,8 +1695,10 @@ async def _demo(
     # ── Step 8: Advisor regression check ──────────────────────────────────────
     console.print("\n[bold cyan]Step 8/8[/bold cyan] Running Advisor regression check...")
     from retrieval_observatory.advisor.regression import detect_regressions
-    from retrieval_observatory.advisor.recommend import recommend
+    from retrieval_observatory.advisor.recommend import recommend, compute_reliability
 
+    await compute_reliability(baseline_run_id, store)
+    await compute_reliability(candidate_run_id, store)
     findings = await detect_regressions(baseline_run_id, candidate_run_id, store)
     recs = await recommend(candidate_run_id, store)
 
@@ -2485,8 +2487,10 @@ def _append_demo_forge_tags(trace) -> None:
     alias_markers = ("aws vs", "amazon web services", " rrf ", " rag ", " bm25 ", " ann ")
     if any(m in text for m in temporal_markers) and "temporal_confusion" not in tags:
         tags.append("temporal_confusion")
+        trace.predicted_difficulty = "hard"
     if any(m in text for m in alias_markers) and "alias_mismatch" not in tags:
         tags.append("alias_mismatch")
+        trace.predicted_difficulty = "hard"
     trace.suspected_failures = tags
 
 

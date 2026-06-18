@@ -86,3 +86,31 @@ async def test_store_sink_persists_traces_from_recorder(tmp_path):
     rows = await store.list_traces("api-svc")
     assert len(rows) == 1
     assert rows[0]["query_text"] == "store sink query"
+
+
+@pytest.fixture
+def search_app_with_tracing():
+    sink = MemorySink()
+    recorder = TraceRecorder(service="search-svc", sink=sink, sample_rate=1.0)
+    app = FastAPI()
+    instrument_fastapi(app, recorder, pipeline_id="bm25")
+
+    @app.get("/search")
+    async def search(q: str, request: Request, k: int = 3):
+        t = get_trace(request)
+        if t:
+            t.set_query_text(q)
+            t.stage("bm25", [Document("d1", "text", 0.9, 1)], 5.0)
+            t.set_results([Document("d1", "text", 0.9, 1)])
+        return {"query": q}
+
+    return app, sink
+
+
+def test_query_text_is_search_param_not_url(search_app_with_tracing):
+    app, sink = search_app_with_tracing
+    client = TestClient(app)
+    client.get("/search?q=reset+password")
+    assert len(sink.traces) == 1
+    assert sink.traces[0].query_text == "reset password"
+    assert "/search" not in sink.traces[0].query_text

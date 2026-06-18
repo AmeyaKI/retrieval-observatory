@@ -77,6 +77,7 @@ def create_app(use_memory: bool = False) -> FastAPI:
         ]
         latency_ms = (time.perf_counter() - start) * 1000
         if t:
+            t.set_query_text(q)
             t.stage("bm25", docs, latency_ms)
             t.set_results(docs)
         return {"query": q, "results": [{"id": d.id, "score": d.score, "text": d.text} for d in docs]}
@@ -92,5 +93,6 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="FastAPI search demo with TraceLens instrumentation")
     parser.add_argument("--memory", action="store_true", help="Use MemorySink instead of StoreSink")
+    parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default: 8080)")
     args = parser.parse_args()
-    uvicorn.run(create_app(use_memory=args.memory), host="0.0.0.0", port=8080)
+    uvicorn.run(create_app(use_memory=args.memory), host="0.0.0.0", port=args.port)

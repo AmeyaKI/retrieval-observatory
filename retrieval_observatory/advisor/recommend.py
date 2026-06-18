@@ -130,14 +130,14 @@ async def recommend(
     # Adaptive routing hint: hard queries failing disproportionately
     hard_fail = sum(
         1 for row in diagnostics_rows
-        if row.get("difficulty_bucket") in ("hard", "extreme")
+        if row.get("difficulty_bucket") == "hard"
         and row.get("failure_labels")
     )
-    hard_total = sum(1 for row in diagnostics_rows if row.get("difficulty_bucket") in ("hard", "extreme"))
+    hard_total = sum(1 for row in diagnostics_rows if row.get("difficulty_bucket") == "hard")
     if hard_total >= 5 and hard_fail / hard_total > 0.4:
         recommendations.append(
             Recommendation(
-                action="Route hard/extreme queries to a stronger pipeline (hybrid + rerank)",
+                action="Route hard queries to a stronger pipeline (hybrid + rerank)",
                 rationale="Hard queries fail at a high rate — consider difficulty-based routing",
                 evidence=[
                     f"hard_query_failure_rate={hard_fail / hard_total:.0%}",

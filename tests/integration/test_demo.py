@@ -55,3 +55,7 @@ async def test_demo_builds_full_reliability_platform(tmp_path: Path) -> None:
     lineage = await store.get_query_lineage(sample_query_id)
     assert lineage["origin"]["source"] == "forge"
     assert len(lineage["evaluations"]) >= 2
+    assert len(lineage["production_matches"]["traces"]) >= 1
+
+    snapshots = await store.get_reliability_history(limit=10)
+    assert len(snapshots) >= 2

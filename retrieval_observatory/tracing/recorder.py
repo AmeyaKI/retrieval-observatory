@@ -52,6 +52,11 @@ class _TraceContext:
             return
         self.trace.final_results = list(documents)
 
+    def set_query_text(self, text: str) -> None:
+        if not self._sampled:
+            return
+        self.trace.query_text = text
+
 
 class _TraceCM:
     def __init__(self, recorder: "TraceRecorder", ctx: _TraceContext):

@@ -3,8 +3,8 @@ from retrieval_observatory.forge.scenarios.entity_ambiguity import EntityAmbigui
 
 def test_entity_ambiguity_detector_finds_shared_token():
     corpus = {
-        "d1": {"title": "Apple pricing", "text": "Apple released new pricing in 2024."},
-        "d2": {"title": "Apple orchards", "text": "Apple harvest season begins in fall."},
+        "d1": {"title": "Meta", "text": "Meta, formerly known as Facebook, rebranded in 2021."},
+        "d2": {"title": "Meta Quest", "text": "Meta, also known as the metaverse company, released Quest 3."},
     }
     found = EntityAmbiguityDetector(max_scenarios=5).detect(corpus)
     assert len(found) >= 1

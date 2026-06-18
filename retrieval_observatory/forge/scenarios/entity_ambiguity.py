@@ -10,7 +10,6 @@ from retrieval_observatory.forge.types import CorpusScenario
 
 _AMBIGUITY_PATTERNS = [
     re.compile(r"\b([A-Z][a-z]+)\b.*\b(same|also known|formerly|now called)\b", re.I),
-    re.compile(r"\b(apple|amazon|oracle|delta|target)\b", re.I),
 ]
 
 
