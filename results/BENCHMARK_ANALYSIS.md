@@ -1,4 +1,4 @@
-# Retrieval Observatory — Case Study: BEIR Datasets Benchmark Analysis
+# Retrieval Observatory — Case Study: BEIR Datasets Benchmark Analysis (v0.1.2)
 
 Analysis generated from SQLite benchmark stores (not hand-entered numbers). Publication sweeps use dataset-specific databases referenced in [configs/beir_publish/](../configs/beir_publish/) and in `run_meta.json` under each `results/<dataset>/` export folder.
 

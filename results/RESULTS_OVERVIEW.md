@@ -1,26 +1,30 @@
-# Benchmark results index
+# Benchmark results index (v0.1.2)
 
 Full analysis: **[results/BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md)**
 
 ## Run registry
 
-| Dataset | SQLite (local) | Run ID | Export folder |
-| ------- | -------------- | ------ | ------------- |
-| NFCorpus sweep | `.retobs/publish_sweep_nfcorpus.db` | `37d3a79c` | [nfcorpus/](nfcorpus/) |
-| SciFact sweep | `.retobs/publish_sweep_scifact.db` | `49b423cf` | [scifact/](scifact/) |
-| FiQA sweep | `.retobs/publish_sweep_fiqa.db` | `0784ed30` | [fiqa/](fiqa/) |
+
+| Dataset                   | SQLite (local)                       | Run ID     | Export folder                        |
+| ------------------------- | ------------------------------------ | ---------- | ------------------------------------ |
+| NFCorpus sweep            | `.retobs/publish_sweep_nfcorpus.db`  | `37d3a79c` | [nfcorpus/](nfcorpus/)               |
+| SciFact sweep             | `.retobs/publish_sweep_scifact.db`   | `49b423cf` | [scifact/](scifact/)                 |
+| FiQA sweep                | `.retobs/publish_sweep_fiqa.db`      | `0784ed30` | [fiqa/](fiqa/)                       |
 | NFCorpus Cohere (partial) | `.retobs/publish_cohere_nfcorpus.db` | `a6dad22f` | [cohere_nfcorpus/](cohere_nfcorpus/) |
+
 
 SQLite databases are gitignored. JSON exports in each folder are committed for reproducibility without re-running sweeps.
 
 ## Artifacts per dataset
 
-| File | Contents |
-| ---- | -------- |
-| `metrics.json` | Aggregated per-pipeline metrics (NDCG, Recall, MRR, latency) |
-| `diagnostics.json` | Failure labels and difficulty bucket aggregates |
-| `stage_contributions.json` | Stage attribution deltas (bm25 → bm25__rerank) |
-| `run_meta.json` | Run ID, experiment name, DB path |
+
+| File                       | Contents                                                     |
+| -------------------------- | ------------------------------------------------------------ |
+| `metrics.json`             | Aggregated per-pipeline metrics (NDCG, Recall, MRR, latency) |
+| `diagnostics.json`         | Failure labels and difficulty bucket aggregates              |
+| `stage_contributions.json` | Stage attribution deltas (bm25 → bm25__rerank)               |
+| `run_meta.json`            | Run ID, experiment name, DB path                             |
+
 
 Cross-dataset aggregate: [analytics_extract.json](analytics_extract.json)
 

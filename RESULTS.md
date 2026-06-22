@@ -1,4 +1,4 @@
-# Benchmark Results — retrieval-observatory
+# Benchmark Results — retrieval-observatory (v0.1.2)
 
 Benchmarked **4 independent retrieval pipelines** across 3 BEIR datasets (1,271 total queries). All numbers are from committed JSON exports in [results/](results/). Regenerate with `python scripts/bench_analytics.py`.
 

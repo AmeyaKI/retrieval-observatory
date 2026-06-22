@@ -41,7 +41,7 @@ report.serve()       # open the dashboard on this run
 report = ro.benchmark([my_retriever, my_reranker], queries=QUERIES, corpus=CORPUS)
 ```
 
-A single callable is one stage; pass a list `[retriever, reranker, ...]` for per-stage attribution. Stages can be plain callables (`-> list[id]`, `list[(id, score)]`, or `list[Document]`), objects with `.retrieve()`/`.rerank()`, or LangChain / LlamaIndex retrievers. See [examples/sdk_quickstart.py](examples/sdk_quickstart.py).
+A single callable is one stage; pass a list `[retriever, reranker, ...]` for per-stage attribution. Stages can be plain callables (`-> list[id]`, `list[(id, score)]`, or `list[Document]`), objects with `.retrieve()`/`.rerank()`, or LangChain / LlamaIndex retrievers. Full SDK reference: [BREAKDOWN.md — Python SDK](BREAKDOWN.md#python-sdk) and [examples/sdk_quickstart.py](examples/sdk_quickstart.py).
 
 **No labels?** Synthesize a test set (queries + ground truth) from your corpus, or grade retrieved docs on the fly with an LLM judge:
 
@@ -262,6 +262,10 @@ Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 
 ## Going Deeper
 
+- [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, adapters, metrics, storage, dashboard API
+- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.2.0 → unreleased SDK features)
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology
+- [YAML_GUIDE.md](YAML_GUIDE.md) — Six copy-paste YAML templates and an LLM prompt for generating configs
+- [FUTURE_EDITS.md](FUTURE_EDITS.md) — Planned Phase 5–7 work: DAG runner, per-lane eval, sweeps
 
