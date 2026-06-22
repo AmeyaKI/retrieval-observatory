@@ -22,6 +22,49 @@ Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for
 
 ---
 
+## Quickstart — benchmark your pipeline in Python (no YAML)
+
+Wrap your existing retriever and benchmark it in a few lines. Same engine, metrics, diagnostics, and dashboard as the CLI path.
+
+```python
+import retrieval_observatory as ro
+
+@ro.retriever
+def my_pipeline(query: str) -> list[str]:        # returns ranked doc ids
+    return my_vectordb.search(query, k=20)
+
+report = ro.benchmark(my_pipeline, dataset="beir/scifact", max_queries=100)
+report.show()        # per-stage metrics + failure diagnostics
+report.serve()       # open the dashboard on this run
+
+# The value-preserving form: per-stage contribution + candidate_miss vs reranker_drop
+report = ro.benchmark([my_retriever, my_reranker], queries=QUERIES, corpus=CORPUS)
+```
+
+A single callable is one stage; pass a list `[retriever, reranker, ...]` for per-stage attribution. Stages can be plain callables (`-> list[id]`, `list[(id, score)]`, or `list[Document]`), objects with `.retrieve()`/`.rerank()`, or LangChain / LlamaIndex retrievers. See [examples/sdk_quickstart.py](examples/sdk_quickstart.py).
+
+**No labels?** Synthesize a test set (queries + ground truth) from your corpus, or grade retrieved docs on the fly with an LLM judge:
+
+```python
+testset = ro.generate_testset(corpus)                       # rule-based, no API key
+ro.benchmark(my_pipeline, dataset=testset)
+
+ro.benchmark(my_pipeline, queries=queries, corpus=corpus,   # zero ground truth
+             labels="llm-judge", judge="gemini")
+```
+
+**CI gate** — fail the build on a significant regression via the bundled pytest plugin:
+
+```python
+def test_no_regression(retobs):
+    candidate = retobs.run(my_pipeline, queries=QUERIES, corpus=CORPUS)
+    candidate.assert_no_regression("GOLDEN_RUN_ID", metric="ndcg")
+```
+
+Details: [docs/ci_gating.md](docs/ci_gating.md).
+
+---
+
 ## Four Modes
 
 
@@ -166,7 +209,7 @@ retobs advisor recommend --run RUN_ID --db .retobs/results.db
 retobs advisor golden create --set my-golden --queries queries.json
 ```
 
-Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml)
+Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml). For Python pipelines, the bundled pytest plugin turns this into a one-line assertion — see [docs/ci_gating.md](docs/ci_gating.md).
 
 ---
 

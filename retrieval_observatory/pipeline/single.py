@@ -5,6 +5,8 @@ import time
 import traceback
 from typing import Union
 
+from typing import List, Optional
+
 from retrieval_observatory.types import (
     BaseReranker,
     BaseRetriever,
@@ -12,6 +14,27 @@ from retrieval_observatory.types import (
     Query,
     StageSnapshot,
 )
+
+
+def _as_pipeline_result(result, query_id: str, pipeline_id: str) -> Optional[PipelineResult]:
+    """Coerce a multi-snapshot retriever return into a PipelineResult, else return None.
+
+    Accepts a ready PipelineResult (re-stamped with this run's ids) or a list[StageSnapshot].
+    """
+    if isinstance(result, PipelineResult):
+        result.query_id = query_id
+        result.pipeline_id = pipeline_id
+        return result
+    if isinstance(result, list) and result and all(isinstance(s, StageSnapshot) for s in result):
+        snapshots: List[StageSnapshot] = result
+        return PipelineResult(
+            query_id=query_id,
+            pipeline_id=pipeline_id,
+            snapshots=snapshots,
+            total_latency_ms=sum(s.latency_ms for s in snapshots),
+            status="OK",
+        )
+    return None
 
 
 class SingleStagePipeline:
@@ -36,6 +59,13 @@ class SingleStagePipeline:
                 result = await self.retriever.retrieve(stage_query)
             else:
                 result = await asyncio.to_thread(self.retriever.retrieve, stage_query)
+
+            # A wrapped monolithic retriever may report its own per-stage breakdown by returning a
+            # PipelineResult or a list[StageSnapshot] instead of a single RetrievalResult. Pass it
+            # through so per-stage diagnostics (candidate_miss vs reranker_drop) still fire.
+            passthrough = _as_pipeline_result(result, query.query_id, self.pipeline_id)
+            if passthrough is not None:
+                return passthrough
 
             snapshot = StageSnapshot(
                 stage_index=0,

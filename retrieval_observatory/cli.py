@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 import sys
-import uuid
 from pathlib import Path
 from typing import List, Optional
 
@@ -40,13 +39,10 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
     from retrieval_observatory.config.validator import validate_id_consistency
     from retrieval_observatory.datasets.beir import BEIRDataset
     from retrieval_observatory.datasets.custom import CustomDataset
-    from retrieval_observatory.datasets.validation import dataset_fingerprint, validate_experiment_config
-    from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
-    from retrieval_observatory.metrics.engine import MetricsEngine
+    from retrieval_observatory.datasets.validation import validate_experiment_config
     from retrieval_observatory.pipeline.factory import build_pipeline_from_config
-    from retrieval_observatory.runner.manifest import build_run_manifest, detect_forge_dataset_id
-    from retrieval_observatory.runner.benchmark import BenchmarkRunner
-    from retrieval_observatory.runner.cache import ResultCache, StageResultCache
+    from retrieval_observatory.runner.cache import StageResultCache
+    from retrieval_observatory.runner.execute import execute_benchmark
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     cfg = ExperimentConfig.from_yaml(str(config_path))
@@ -101,51 +97,8 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
         store = SQLiteStore(db_path=cfg.output.db_path)
     await store.init_db()
 
-    run_id = str(uuid.uuid4())[:8]
-    await store.save_run(
-        run_id=run_id,
-        experiment_name=cfg.experiment.name,
-        config_json=cfg.model_dump_json(),
-    )
-    if hasattr(store, "save_validation_report"):
-        await store.save_validation_report(validation_report, config_path=str(config_path), run_id=run_id)
-    if hasattr(store, "save_run_manifest"):
-        fingerprint = dataset_fingerprint(
-            cfg.dataset.name,
-            queries,
-            qrels,
-            corpus if isinstance(corpus, dict) else None,
-        )
-        forge_dataset_id = detect_forge_dataset_id(cfg)
-        await store.save_run_manifest(
-            run_id,
-            build_run_manifest(
-                cfg,
-                fingerprint,
-                latency_budget_ms=latency_budget_ms,
-                forge_dataset_id=forge_dataset_id,
-                golden_set=golden_set,
-            ),
-        )
-    if hasattr(store, "save_run_queries"):
-        await store.save_run_queries(run_id, queries, cfg.dataset.name)
-    console.print(f"[bold]Run ID:[/bold] {run_id}")
-
-    _annotate_query_difficulty(queries, cfg.dataset.name)
-
-    # Build caches
-    caches = {}
-    stage_cache = None
-    if cfg.execution.cache_results and not no_cache:
-        import yaml
-        stage_cache = StageResultCache(store=store)
-        for pipeline_cfg in cfg.pipelines:
-            caches[pipeline_cfg.id] = ResultCache(
-                store=store,
-                # sort_keys=True ensures the same config always produces the same YAML string
-                pipeline_config_yaml=yaml.dump(pipeline_cfg.model_dump(), sort_keys=True),
-            )
-
+    # Wire a shared cross-pipeline stage cache into the pipeline objects at build time.
+    stage_cache = StageResultCache(store=store) if (cfg.execution.cache_results and not no_cache) else None
     pipelines = [build_pipeline_from_config(p.model_dump(), corpus=corpus, stage_cache=stage_cache) for p in cfg.pipelines]
     console.print(f"Built {len(pipelines)} pipeline(s): {[p.pipeline_id for p in pipelines]}")
 
@@ -156,67 +109,38 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
             await validate_id_consistency(pipeline, queries, dataset.corpus)
         console.print("[green]Smoke test passed.[/green]")
 
-    # Run benchmark
-    runner = BenchmarkRunner(
-        store=store,
-        concurrency=cfg.execution.concurrency,
-        timeout_ms=cfg.execution.timeout_ms,
-        retry_attempts=cfg.execution.retry_attempts,
-        caches=caches,
-    )
-    results_by_pipeline = await runner.run(
-        pipelines=pipelines,
+    artifacts = await execute_benchmark(
+        cfg=cfg,
+        dataset=dataset,
         queries=queries,
-        run_id=run_id,
-    )
-
-    # Compute metrics
-    console.print("[bold]Computing metrics...[/bold]")
-    engine = MetricsEngine(
-        recall_at_k_values=cfg.metrics.recall_at_k,
-        precision_at_k_values=cfg.metrics.precision_at_k,
-        ndcg_at_k_values=cfg.metrics.ndcg_at_k,
-        temporal_recall_at_k_values=cfg.metrics.temporal_recall_at_k,
-        latency_percentile_values=cfg.metrics.latency_percentiles,
-        compute_mrr=cfg.metrics.mrr,
-        compute_map=cfg.metrics.map,
-    )
-    all_results = [r for rs in results_by_pipeline.values() for r in rs]
-    queries_by_id = {q.query_id: q for q in queries}
-    if cfg.labels.mode != "gold":
-        judged_qrels = await _build_llm_judged_qrels(cfg, queries, all_results, queries_by_id)
-        if cfg.labels.mode == "pooled_llm_judge":
-            qrels = _merge_qrels(qrels, judged_qrels)
-        else:
-            qrels = judged_qrels
-    await engine.compute_and_store(
-        run_id=run_id,
-        store=store,
-        results=all_results,
         qrels=qrels,
-        queries_by_id=queries_by_id,
-        corpus_documents=getattr(dataset, "corpus_documents", None),
+        corpus=corpus,
+        pipelines=pipelines,
+        store=store,
+        no_cache=no_cache,
+        latency_budget_ms=latency_budget_ms,
+        golden_set=golden_set,
+        validation_report=validation_report,
+        config_path=str(config_path),
+        log=console.print,
     )
-    diagnostics = build_query_diagnostics(run_id, all_results, qrels)
-    if hasattr(store, "save_query_diagnostics"):
-        await store.save_query_diagnostics(diagnostics)
-
-    aggregated = await engine.aggregate(run_id=run_id, store=store)
-    metrics_rows = await store.get_metrics(run_id)
-    await store.finish_run(run_id)
+    run_id = artifacts.run_id
+    aggregated = artifacts.aggregated
+    metrics_rows = artifacts.metrics_rows
+    diagnostics = artifacts.diagnostics
+    pipeline_ids = artifacts.pipeline_ids
 
     # Print error samples if any errors occurred
-    if runner.error_samples:
+    if artifacts.error_samples:
         from rich.panel import Panel
         console.print(Panel(
-            "\n".join(f"• {e}" for e in runner.error_samples),
+            "\n".join(f"• {e}" for e in artifacts.error_samples),
             title="[red]Errors (first unique messages)[/red]",
             border_style="red",
         ))
 
     # Print summary table
     _print_metrics_table(aggregated, run_id)
-    pipeline_ids = [p.pipeline_id for p in pipelines]
     _print_cost_table(cfg, pipeline_ids)
 
     # Print stage-by-stage contribution (delta between prefix/full pipelines)
@@ -993,70 +917,6 @@ def _resolve_config_paths(cfg, base_dir: Path) -> None:
         value = getattr(ds, attr, None)
         if value and not Path(value).is_absolute():
             setattr(ds, attr, str((base_dir / value).resolve()))
-
-
-async def _build_llm_judged_qrels(cfg, queries, all_results, queries_by_id):
-    from retrieval_observatory.datasets.llm_judge import (
-        AnthropicJudge,
-        GeminiJudge,
-        LLMJudgeDataset,
-        OpenAIJudge,
-    )
-
-    judge_name = (cfg.labels.judge or "gemini").lower()
-    if judge_name == "openai":
-        judge = OpenAIJudge(model=cfg.labels.model or "gpt-4o-mini")
-    elif judge_name == "anthropic":
-        judge = AnthropicJudge(model=cfg.labels.model or "claude-haiku-4-5-20251001")
-    else:
-        judge = GeminiJudge(model=cfg.labels.model or "gemini-2.0-flash")
-    dataset = LLMJudgeDataset(queries=queries, judge=judge, cache_path=cfg.labels.cache_path)
-    return await dataset.judge_results(all_results, queries_by_id=queries_by_id)
-
-
-def _merge_qrels(gold_qrels, judged_qrels):
-    merged = {
-        qid: rel.copy() if isinstance(rel, dict) else {doc_id: 1 for doc_id in rel}
-        for qid, rel in gold_qrels.items()
-    }
-    for qid, rel in judged_qrels.items():
-        target = merged.setdefault(qid, {})
-        if isinstance(rel, dict):
-            target.update(rel)
-        else:
-            for doc_id in rel:
-                target[doc_id] = max(int(target.get(doc_id, 0)), 1)
-    return merged
-
-
-def _annotate_query_difficulty(queries, dataset_name: str) -> None:
-    """Attach pre-retrieval difficulty predictions to query metadata when a model exists."""
-    import os
-    from retrieval_observatory.classifier.labels import default_model_path, normalize_dataset_name
-
-    model_path = os.environ.get("RETOBS_CLASSIFIER_MODEL") or default_model_path(dataset_name)
-    if not Path(model_path).exists():
-        return
-    try:
-        from retrieval_observatory.classifier.model import load_model
-    except ImportError:
-        console.print("[yellow]Classifier model found but [classifier] extra not installed; skipping predictions.[/yellow]")
-        return
-
-    model = load_model(model_path)
-    trained_on = model.metadata.get("dataset_name", "")
-    if normalize_dataset_name(dataset_name) != normalize_dataset_name(trained_on):
-        console.print(
-            f"[yellow]Warning: classifier trained on '{trained_on}' but run uses '{dataset_name}'. "
-            "Predictions may not be meaningful.[/yellow]"
-        )
-
-    for query in queries:
-        pred = model.predict(query.text)
-        query.metadata["predicted_difficulty"] = pred["label"]
-        query.metadata["predicted_difficulty_proba"] = pred["proba"]
-        query.metadata["predicted_difficulty_features"] = pred["features"]
-    console.print(f"[dim]Applied difficulty predictions from {model_path}[/dim]")
 
 
 def _print_classifier_report(report) -> None:
