@@ -22,7 +22,7 @@ node_modules/
 .DS_Store
 TODO
 
-# Docs (project-specific; keep GOALS.md)
+# Docs (project-specific)
 *.md
 !README.md
 !RESULTS.md
@@ -30,6 +30,7 @@ TODO
 !CLAUDE.md
 !AGENTS.md
 !results/**/*.md
+!CHANGELOG.md
 
 
 # local data / files
