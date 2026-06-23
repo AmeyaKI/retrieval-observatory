@@ -120,6 +120,14 @@ def _build_http_adapter(stage_cfg: dict):
 
 
 def _build_hf_biencoder_adapter(stage_cfg: dict, corpus: dict | None = None):
+    try:
+        import faiss  # noqa: F401
+        from sentence_transformers import SentenceTransformer  # noqa: F401
+    except ImportError as exc:
+        raise ImportError(
+            "adapter.hf_biencoder requires sentence-transformers and faiss-cpu. "
+            "Install with: pip install retrieval-observatory[dense]"
+        ) from exc
     from retrieval_observatory.adapters.hf_biencoder_adapter import HFBiEncoderAdapter
 
     if corpus is None:
@@ -140,6 +148,13 @@ def _build_hf_biencoder_adapter(stage_cfg: dict, corpus: dict | None = None):
 
 
 def _build_hf_crossencoder_adapter(stage_cfg: dict):
+    try:
+        from sentence_transformers import CrossEncoder  # noqa: F401
+    except ImportError as exc:
+        raise ImportError(
+            "adapter.hf_crossencoder requires sentence-transformers. "
+            "Install with: pip install retrieval-observatory[dense]"
+        ) from exc
     from retrieval_observatory.adapters.hf_adapter import HFCrossEncoderAdapter
 
     cfg = stage_cfg.get("config", {})

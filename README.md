@@ -8,15 +8,22 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 
 ---
 
-## Quickstart — full platform demo (~2 minutes, no API keys)
+## Quickstart — one command, under 5 minutes, no API keys
+
+```bash
+pip install "retrieval-observatory[demo,dashboard]"
+retobs quickstart
+```
+
+Open `http://localhost:4000`. Forge scans a synthetic corpus, builds stress-test queries, runs a BM25 benchmark, seeds TraceLens traces with failure labels, and opens the dashboard — all in one command.
+
+**Full platform demo** (more data, Advisor comparison, multi-stage ablation):
 
 ```bash
 pip install "retrieval-observatory[demo,dashboard,dense]"
 retobs demo --db .retobs/demo/results.db
 retobs serve --db .retobs/demo/results.db
 ```
-
-Open `http://localhost:4000`. The demo builds a Forge stress dataset, runs baseline BM25 (k=20) vs degraded BM25 (k=1), seeds TraceLens traces with drift/hotspots, and runs Advisor regression checks. The dashboard tour guides you through all four modes.
 
 Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for an additional multi-stage ablation benchmark.
 
@@ -220,11 +227,42 @@ Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml). For P
 retobs tracelens demo --service demo --db .retobs/results.db
 
 # Live FastAPI tracing (writes to demo DB by default)
-python examples/fastapi_search/app.py
+RETOBS_LATENCY_BUDGET_MS=100 python examples/fastapi_search/app.py
 curl "http://localhost:8080/search?q=BM25+retrieval"
+curl "http://localhost:8080/search?q=xyzzy-nonexistent"   # triggers empty_candidates
+curl "http://localhost:8080/search?q=hybrid+search&slow=1" # triggers latency_over_budget
 ```
 
-Production traces use **suspected** failure signals (label-free proxies), not measured Recall. Measured quality lives in Benchmarks + Forge.
+Production traces use **suspected** failure signals (label-free, rule-based proxies), not measured Recall:
+- `empty_candidates` — retriever returned zero results
+- `latency_over_budget` — total latency exceeded the configured budget
+- `high_churn` — candidate set changed ≥70% between pipeline stages
+- `low_confidence` — top document score at or below threshold
+
+These are heuristic classifiers, not learned models. Measured quality lives in Benchmarks + Forge.
+
+### LangChain & LlamaIndex — zero-touch tracing
+
+Add one line to an existing chain or query engine; retobs captures traces automatically:
+
+```python
+# LangChain (requires: pip install retrieval-observatory[langchain])
+from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
+
+cb = RetobsLangChainCallback(recorder, pipeline_id="my-chain")
+chain.invoke(query, config={"callbacks": [cb]})  # one line, zero manual stage wrapping
+
+# LlamaIndex (requires: pip install retrieval-observatory[llamaindex])
+from llama_index.core.callbacks import CallbackManager
+from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
+
+cb = RetobsLlamaIndexCallback(recorder, pipeline_id="my-index")
+Settings.callback_manager = CallbackManager([cb])
+```
+
+Both integrate via real `BaseCallbackHandler` subclasses — `RetobsLangChainCallback` inherits `langchain_core.callbacks.base.BaseCallbackHandler`, `RetobsLlamaIndexCallback` inherits `llama_index.core.callbacks.base_handler.BaseCallbackHandler`. Multi-retriever chains produce one stage per retriever without double-counting.
+
+Runnable examples: [examples/langchain_search/app.py](examples/langchain_search/app.py), [examples/llamaindex_search/app.py](examples/llamaindex_search/app.py).
 
 ---
 

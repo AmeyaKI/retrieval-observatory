@@ -127,5 +127,28 @@ class TraceRecorder:
         ctx = self.start_trace(query_text, pipeline_id, query_id, metadata)
         return _TraceCM(self, ctx)
 
+    def finish_trace_sync(
+        self,
+        ctx: _TraceContext,
+        status: str = "OK",
+        error: Optional[BaseException] = None,
+    ) -> None:
+        """Synchronous wrapper for finish_trace — for use in sync callback handlers.
+
+        If an asyncio event loop is already running (e.g. inside an async server),
+        the flush is scheduled as a fire-and-forget task; call
+        ``await asyncio.sleep(0)`` after all chain.invoke() calls to ensure tasks
+        complete before the loop exits.  If no loop is running (e.g. a sync script),
+        asyncio.run() is used.
+        """
+        import asyncio
+
+        coro = self.finish_trace(ctx, status=status, error=error)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            asyncio.run(coro)
+
     async def _flush(self, trace: RetrievalTrace) -> None:
         await self._sink.emit(trace)

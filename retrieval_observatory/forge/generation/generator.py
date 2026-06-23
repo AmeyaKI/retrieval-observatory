@@ -99,10 +99,31 @@ class AnthropicGenerator:
 
 def _make_generator(provider: str, api_key: Optional[str], model: Optional[str]):
     if provider == "gemini":
+        try:
+            import google.generativeai  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "GeminiGenerator requires google-generativeai. "
+                "Install with: pip install retrieval-observatory[llm-judge]"
+            ) from exc
         return GeminiGenerator(api_key=api_key, model=model or "gemini-2.0-flash")
     if provider == "openai":
+        try:
+            import openai  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "OpenAIGenerator requires openai. "
+                "Install with: pip install retrieval-observatory[llm-judge]"
+            ) from exc
         return OpenAIGenerator(api_key=api_key, model=model or "gpt-4o-mini")
     if provider == "anthropic":
+        try:
+            import anthropic  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "AnthropicGenerator requires anthropic. "
+                "Install with: pip install retrieval-observatory[llm-judge]"
+            ) from exc
         return AnthropicGenerator(api_key=api_key, model=model or "claude-haiku-4-5-20251001")
     raise ValueError(f"Unknown provider {provider!r}. Choose from: gemini, openai, anthropic")
 

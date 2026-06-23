@@ -45,7 +45,12 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
     from retrieval_observatory.runner.execute import execute_benchmark
     from retrieval_observatory.store.sqlite import SQLiteStore
 
-    cfg = ExperimentConfig.from_yaml(str(config_path))
+    try:
+        cfg = ExperimentConfig.from_yaml(str(config_path))
+    except Exception as e:
+        console.print(f"[red]Cannot parse config {config_path}: {e}[/red]")
+        console.print("[dim]Run [bold]retobs validate --config <path>[/bold] for a detailed config check.[/dim]")
+        raise typer.Exit(1)
     _resolve_config_paths(cfg, config_path.parent)
     console.print(f"[bold green]Experiment:[/bold green] {cfg.experiment.name}")
     validation_report = validate_experiment_config(cfg, str(config_path))
@@ -609,7 +614,11 @@ def validate(
     from retrieval_observatory.datasets.validation import validate_experiment_config
     from retrieval_observatory.store.sqlite import SQLiteStore
 
-    cfg = ExperimentConfig.from_yaml(str(config))
+    try:
+        cfg = ExperimentConfig.from_yaml(str(config))
+    except Exception as e:
+        console.print(f"[red]Cannot parse config {config}: {e}[/red]")
+        raise typer.Exit(1)
     _resolve_config_paths(cfg, config.parent)
     report = validate_experiment_config(cfg, str(config))
     _print_validation_report(report)
@@ -1232,7 +1241,7 @@ async def _forge_run(
             model=llm_model,
             budget=llm_budget,
         )
-    except ValueError as e:
+    except (ValueError, ImportError) as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
 
@@ -2703,6 +2712,64 @@ async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> Non
     await store.init_db()
     await save_golden_set(store, set_name, data)
     console.print(f"[green]Registered golden set '{set_name}' ({len(data)} queries).[/green]")
+
+
+@app.command()
+def quickstart(
+    output_dir: Path = typer.Option(Path(".retobs/quickstart"), "--output-dir", "-o", help="Directory for all quickstart outputs."),
+    db: str = typer.Option(".retobs/quickstart/results.db", "--db", help="SQLite DB to write results into."),
+    host: str = typer.Option("0.0.0.0", "--host"),
+    port: int = typer.Option(4000, "--port"),
+) -> None:
+    """Cold-start: corpus → Forge scan → BM25 benchmark → TraceLens traces → dashboard.
+
+    No API keys or external services required.  Takes under 5 minutes from a
+    fresh install.  After completion, open the URL printed below to explore
+    benchmark results and per-query failure labels in the TraceLens tab.
+
+    Minimum install: pip install retrieval-observatory[demo,dashboard]
+    """
+    asyncio.run(_quickstart(output_dir=str(output_dir), db_path=db, host=host, port=port))
+
+
+async def _quickstart(output_dir: str, db_path: str, host: str, port: int) -> None:
+    import time
+
+    try:
+        import uvicorn
+        from retrieval_observatory.dashboard.api import create_app
+        from retrieval_observatory.dashboard.registry import DbRegistry
+    except ImportError:
+        console.print("[red]Dashboard requires fastapi+uvicorn. Run: pip install retrieval-observatory[dashboard][/red]")
+        raise typer.Exit(1)
+
+    console.print("[bold green]retobs quickstart[/bold green] — building demo in [dim]~30 seconds[/dim] …\n")
+    t0 = time.monotonic()
+
+    # Delegate to the demo builder (fast mode: small n_traces, no full ablation)
+    await _demo(
+        output_dir=output_dir,
+        db_path=db_path,
+        tracelens_service="quickstart",
+        n_traces=50,
+        keep_db=False,
+        full=False,
+    )
+
+    elapsed = time.monotonic() - t0
+    display_host = "localhost" if host in ("0.0.0.0", "::") else host
+    console.print(f"\n[bold green]✓ Ready in {elapsed:.0f}s[/bold green]")
+    console.print(f"  Benchmarks  → http://{display_host}:{port}")
+    console.print(f"  TraceLens   → http://{display_host}:{port}/tracelens")
+    console.print(f"  Advisor     → http://{display_host}:{port}/advisor")
+    console.print(f"\n  [dim]What you're seeing: Forge found retrieval failure scenarios in a synthetic")
+    console.print(f"  RAG corpus, built stress-test queries, ran a BM25 benchmark against them,")
+    console.print(f"  and seeded TraceLens with 50 production-shaped traces with failure labels.")
+    console.print(f"  Open the TraceLens tab and look at 'suspected_failures' per query.[/dim]\n")
+
+    registry = DbRegistry([db_path])
+    dashboard_app = create_app(registry=registry)
+    uvicorn.run(dashboard_app, host=host, port=port)
 
 
 if __name__ == "__main__":

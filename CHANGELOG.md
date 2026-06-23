@@ -8,6 +8,44 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 Changes since the v0.2.0 tag, not yet published to PyPI.
 
+### Week 1 — Adoption friction + framework integration
+
+#### LangChain native callback integration
+
+- `retrieval_observatory/tracing/integrations/langchain.py` — added `RetobsLangChainCallback`, a real `langchain_core.callbacks.base.BaseCallbackHandler` subclass. Hooks `on_chain_start/end/error` and `on_retriever_start/end` to emit `StageSnapshot`s automatically. Each root chain invocation produces one `RetrievalTrace`; multiple retrievers within one chain produce multiple stages without double-counting. Old `RetobsTraceHandler` kept for back-compat.
+- `retrieval_observatory/tracing/recorder.py` — added `finish_trace_sync()`, a sync→async bridge (uses `loop.create_task` when a loop is running, `asyncio.run()` otherwise) shared by both framework callbacks.
+- `examples/langchain_search/app.py` — new runnable example: FAISS vectorstore + `FakeEmbeddings`, no API keys, traces written to SQLite via one callback line.
+- `tests/integration/test_langchain_callback.py` — 5 integration tests: 5 queries → 5 traces, correct stage counts, latency > 0, no double-counting, pipeline_id propagated. Uses `pytest.importorskip`.
+
+#### LlamaIndex native callback integration
+
+- `retrieval_observatory/tracing/integrations/llamaindex.py` — added `RetobsLlamaIndexCallback`, a real `llama_index.core.callbacks.base_handler.BaseCallbackHandler` subclass. Hooks `on_event_start/end` for `CBEventType.RETRIEVE` and `CBEventType.RERANKING` (verified against installed `llama-index-core` version). Flushes on `end_trace`. Old `RetobsLlamaIndexHandler` kept for back-compat.
+- `examples/llamaindex_search/app.py` — new runnable example: `VectorStoreIndex` + `MockEmbedding`, no API keys.
+- `tests/integration/test_llamaindex_callback.py` — 4 integration tests: trace count, retrieve stage present, pipeline_id, nodes become Documents. Uses `pytest.importorskip`.
+
+#### Five-minute quickstart command
+
+- `retrieval_observatory/cli.py` — added `retobs quickstart` command. Delegates to `_demo` (n_traces=50, no ablation) then launches the dashboard. Data generation completes in ~1.6s; total time to open dashboard under 5 minutes on a cold install with no API keys.
+- `README.md` — updated top quickstart section: `retobs quickstart` is now the primary one-command path; `retobs demo` remains for the full platform demo.
+
+#### FastAPI live-tracing demo hardened (task 1.4)
+
+- `examples/fastapi_search/app.py` — added `?slow=1` query param (200ms sleep to trigger `latency_over_budget`), `RETOBS_LATENCY_BUDGET_MS` env var (default 50ms), score-filtering so zero-match queries produce `empty_candidates`, expanded corpus from 3 to 5 docs.
+- `docs/verification/fastapi_live_trace_run.md` — literal transcript of the full 10-request verification run: commands, responses, and the resulting trace table showing 3× `empty_candidates`, 2× `latency_over_budget`, 5× no failures.
+
+#### Error messages and failure modes (task 1.5)
+
+- `retrieval_observatory/cli.py` — bad YAML in `retobs run` and `retobs validate` now prints a friendly one-line message + hint instead of a raw Python traceback.
+- `retrieval_observatory/pipeline/factory.py` — `_build_hf_biencoder_adapter` and `_build_hf_crossencoder_adapter` now check for `sentence-transformers`/`faiss-cpu` at pipeline build time (fail fast) rather than at first `retrieve()` call. Message: `"Install with: pip install retrieval-observatory[dense]"`.
+- `retrieval_observatory/forge/generation/generator.py` — `_make_generator()` now checks for provider package at `ForgeGenerator.from_provider()` call time. Message: `"Install with: pip install retrieval-observatory[llm-judge]"`.
+- `retrieval_observatory/cli.py` — `_forge_run` now catches `ImportError` (not just `ValueError`) from `ForgeGenerator.from_provider()`.
+- `docs/verification/error_messages_audit.md` — audit table of every triggered error class with before/after messages.
+
+#### Docs (honesty pass)
+
+- `README.md` — added "LangChain & LlamaIndex — zero-touch tracing" section under TraceLens; updated `suspected_failures` description to explicitly label all four signals as rule-based/heuristic.
+- `BREAKDOWN.md` — integration table updated: `RetobsLangChainCallback` and `RetobsLlamaIndexCallback` listed as real `BaseCallbackHandler` subclasses (not "manual stage wrapping"); `predicted_difficulty` and `suspected_failures` both labeled **heuristic rule-based**.
+
 ### Python SDK (code-first benchmarking — no YAML required)
 
 - `retrieval_observatory/sdk/api.py` — new public `ro.benchmark()` function; `@ro.retriever` / `@ro.reranker` decorators; `ro.generate_testset()` for Forge-backed zero-label test set generation
