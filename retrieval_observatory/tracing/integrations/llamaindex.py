@@ -42,15 +42,13 @@ class RetobsLlamaIndexHandler:
         self._ctx = None
 
 
-def _get_li_base() -> type:
-    try:
-        from llama_index.core.callbacks.base_handler import BaseCallbackHandler
-        return BaseCallbackHandler
-    except ImportError as exc:
-        raise ImportError(
-            "RetobsLlamaIndexCallback requires llama-index-core. "
-            "Install with: pip install retrieval-observatory[llamaindex]"
-        ) from exc
+try:
+    from llama_index.core.callbacks.base_handler import BaseCallbackHandler
+
+    _LI_AVAILABLE = True
+except ImportError:
+    BaseCallbackHandler = object  # type: ignore[misc,assignment]
+    _LI_AVAILABLE = False
 
 
 def _li_nodes_to_retobs(nodes: List[Any]) -> List[Document]:
@@ -66,7 +64,7 @@ def _li_nodes_to_retobs(nodes: List[Any]) -> List[Document]:
     return docs
 
 
-class RetobsLlamaIndexCallback(_get_li_base()):  # type: ignore[misc]
+class RetobsLlamaIndexCallback(BaseCallbackHandler):  # type: ignore[misc]
     """Real LlamaIndex BaseCallbackHandler subclass for zero-touch trace emission.
 
     Usage::
@@ -83,6 +81,11 @@ class RetobsLlamaIndexCallback(_get_li_base()):  # type: ignore[misc]
     """
 
     def __init__(self, recorder: TraceRecorder, pipeline_id: str = "default"):
+        if not _LI_AVAILABLE:
+            raise ImportError(
+                "RetobsLlamaIndexCallback requires llama-index-core. "
+                "Install with: pip install retrieval-observatory[llamaindex]"
+            )
         super().__init__(event_starts_to_ignore=[], event_ends_to_ignore=[])
         self._recorder = recorder
         self._pipeline_id = pipeline_id

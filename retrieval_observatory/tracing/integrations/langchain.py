@@ -59,18 +59,16 @@ def _lc_docs_to_retobs(documents: Sequence[Any]) -> List[Document]:
     return result
 
 
-def _get_lc_base() -> type:
-    try:
-        from langchain_core.callbacks.base import BaseCallbackHandler
-        return BaseCallbackHandler
-    except ImportError as exc:
-        raise ImportError(
-            "RetobsLangChainCallback requires langchain-core. "
-            "Install with: pip install retrieval-observatory[langchain]"
-        ) from exc
+try:
+    from langchain_core.callbacks.base import BaseCallbackHandler
+
+    _LC_AVAILABLE = True
+except ImportError:
+    BaseCallbackHandler = object  # type: ignore[misc,assignment]
+    _LC_AVAILABLE = False
 
 
-class RetobsLangChainCallback(_get_lc_base()):  # type: ignore[misc]
+class RetobsLangChainCallback(BaseCallbackHandler):  # type: ignore[misc]
     """Real LangChain BaseCallbackHandler subclass for zero-touch trace emission.
 
     Usage::
@@ -87,6 +85,11 @@ class RetobsLangChainCallback(_get_lc_base()):  # type: ignore[misc]
     """
 
     def __init__(self, recorder: TraceRecorder, pipeline_id: str = "default"):
+        if not _LC_AVAILABLE:
+            raise ImportError(
+                "RetobsLangChainCallback requires langchain-core. "
+                "Install with: pip install retrieval-observatory[langchain]"
+            )
         super().__init__()
         self._recorder = recorder
         self._pipeline_id = pipeline_id
