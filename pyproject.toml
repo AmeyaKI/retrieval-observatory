@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "retobs"
-version = "0.3.1"
+version = "0.3.2"
 description = "Local-first retrieval reliability platform: benchmarks, Forge stress tests, TraceLens observability, and Advisor regressions"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -30,6 +30,7 @@ dependencies = [
 ]
 
 [project.urls]
+PyPI = "https://pypi.org/project/retobs/"
 Homepage = "https://github.com/AmeyaKI/retrieval-observatory"
 Documentation = "https://github.com/AmeyaKI/retrieval-observatory#readme"
 Repository = "https://github.com/AmeyaKI/retrieval-observatory"
@@ -66,7 +67,7 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["retrieval_observatory*"]
+include = ["retrieval_observatory*", "retobs*"]
 
 [tool.setuptools.package-data]
 retrieval_observatory = [

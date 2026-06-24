@@ -10,11 +10,25 @@ Changes on `main` not yet published to PyPI.
 
 ---
 
-## [0.3.1] — 2026-06-24 [PyPI]
+## [0.3.2] — 2026-06-24
+
+### Added
+
+- Public Python import path: `import retobs as ro` (shim package re-exporting the SDK).
+- `retobs.tracing.integrations.*` shim modules for LangChain, LlamaIndex, and FastAPI tracing.
 
 ### Changed
 
-- PyPI distribution renamed from `retrieval-observatory` to `retobs`. Install with `pip install retobs`. Python import (`import retrieval_observatory`) unchanged.
+- README, examples, and CI import checks use `retobs` as the documented package name.
+- PyPI project URL and shields.io badge point at `https://pypi.org/project/retobs/`.
+
+---
+
+## [0.3.1] — 2026-06-24
+
+### Changed
+
+- PyPI distribution renamed from `retrieval-observatory` to `retobs` in `pyproject.toml`. Install with `pip install retobs`. (Publish to the `retobs` PyPI project requires trusted-publisher config; see [docs/PYPI_PUBLISH.md](docs/PYPI_PUBLISH.md).)
 
 ---
 

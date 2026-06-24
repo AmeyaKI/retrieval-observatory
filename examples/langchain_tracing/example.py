@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import asyncio
 
-from retrieval_observatory.tracing import TraceRecorder, MemorySink
-from retrieval_observatory.tracing.integrations.langchain import RetobsTraceHandler
+from retobs.tracing import TraceRecorder, MemorySink
+from retobs.tracing.integrations.langchain import RetobsTraceHandler
 
 
 async def main() -> None:

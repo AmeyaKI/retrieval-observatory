@@ -3,8 +3,8 @@
 Run:  python examples/demo_phases.py
 Then: retobs serve --db .retobs/demo_phases.db   # explore in the dashboard (Phase 0)
 """
-import retrieval_observatory as ro
-from retrieval_observatory.types import Document, StageSnapshot
+import retobs as ro
+from retobs import Document, StageSnapshot
 
 DB = ".retobs/demo_phases.db"
 

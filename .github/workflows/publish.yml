@@ -65,6 +65,10 @@ jobs:
           name: dist
           path: dist/
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Verify wheel name matches TestPyPI trusted publisher
         run: |
           WHEEL=$(ls dist/retobs-*.whl)
@@ -75,10 +79,6 @@ jobs:
             exit 1
           fi
           echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retobs' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/PYPI_PUBLISH.md"
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -103,8 +103,8 @@ jobs:
             --index-url https://pypi.org/simple/ \
             --only-binary=:all: \
             "${WHEEL}[dashboard]"
-          /tmp/smoke/bin/python -c "from retrieval_observatory import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
-          UI_INDEX=$(/tmp/smoke/bin/python -c "from retrieval_observatory import PACKAGE_DIR; print(PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
+          /tmp/smoke/bin/python -c "from retobs import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
+          UI_INDEX=$(/tmp/smoke/bin/python -c "from retobs import PACKAGE_DIR; print(PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
           test -f "$UI_INDEX"
           /tmp/smoke/bin/retobs --help
 
@@ -120,6 +120,10 @@ jobs:
         with:
           name: dist
           path: dist/
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Verify wheel name matches PyPI trusted publisher
         run: |

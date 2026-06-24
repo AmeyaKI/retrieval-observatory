@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Dict, List, Optional, Tuple
 
-from retrieval_observatory.types import Document, Query, RetrievalResult
+from retobs.types import Document, Query, RetrievalResult
 
 
 class KeywordOverlapRetriever:

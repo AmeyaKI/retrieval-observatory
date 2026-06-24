@@ -24,11 +24,11 @@ import time
 from fastapi import FastAPI, Request
 from rank_bm25 import BM25Okapi
 
-from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.tracing import MemorySink, TraceRecorder
-from retrieval_observatory.tracing.integrations.fastapi import get_trace, instrument_fastapi
-from retrieval_observatory.tracing.sink import StoreSink
-from retrieval_observatory.types import Document
+from retobs.store.sqlite import SQLiteStore
+from retobs.tracing import MemorySink, TraceRecorder
+from retobs.tracing.integrations.fastapi import get_trace, instrument_fastapi
+from retobs.tracing.sink import StoreSink
+from retobs.types import Document
 
 CORPUS = [
     {"id": "d1", "text": "Retrieval observatory benchmarks hybrid RAG pipelines."},

@@ -2,7 +2,7 @@
 
 Run:  python examples/sdk_quickstart.py
 """
-import retrieval_observatory as ro
+import retobs as ro
 
 # A tiny corpus + labeled queries. In practice these come from your own data /
 # vector DB; see `ro.generate_testset(corpus)` to synthesize labels with zero ground truth.

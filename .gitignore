@@ -30,6 +30,8 @@ TODO
 !CLAUDE.md
 !results/**/*.md
 !CHANGELOG.md
+!docs/PYPI_PUBLISH.md
+!docs/ci_gating.md
 
 
 # local data / files

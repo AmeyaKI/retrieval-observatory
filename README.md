@@ -1,6 +1,6 @@
 # retobs
 
-[PyPI version](https://pypi.org/project/retobs/)
+[![PyPI version](https://img.shields.io/pypi/v/retobs)](https://pypi.org/project/retobs/)
 
 Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-stage contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
 
@@ -34,7 +34,7 @@ Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for
 Wrap your existing retriever and benchmark it in a few lines. Same engine, metrics, diagnostics, and dashboard as the CLI path.
 
 ```python
-import retrieval_observatory as ro
+import retobs as ro
 
 @ro.retriever
 def my_pipeline(query: str) -> list[str]:        # returns ranked doc ids
@@ -142,12 +142,16 @@ retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer
 pip install "retobs[demo,dashboard,dense]"
 ```
 
+```python
+import retobs as ro
+```
+
 ---
 
 ## SciFact quickstart (single benchmark)
 
 ```bash
-CFG="$(python -c 'from retrieval_observatory import EXAMPLES_DIR; print(EXAMPLES_DIR / "quickstart_scifact.yaml")')"
+CFG="$(python -c 'from retobs import EXAMPLES_DIR; print(EXAMPLES_DIR / "quickstart_scifact.yaml")')"
 retobs validate --config "$CFG"
 retobs run --config "$CFG"
 retobs serve --db .retobs/quickstart_scifact.db
@@ -247,14 +251,14 @@ Add one line to an existing chain or query engine; retobs captures traces automa
 
 ```python
 # LangChain (requires: pip install retobs[langchain])
-from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
+from retobs.tracing.integrations.langchain import RetobsLangChainCallback
 
 cb = RetobsLangChainCallback(recorder, pipeline_id="my-chain")
 chain.invoke(query, config={"callbacks": [cb]})  # one line, zero manual stage wrapping
 
 # LlamaIndex (requires: pip install retobs[llamaindex])
 from llama_index.core.callbacks import CallbackManager
-from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
+from retobs.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
 
 cb = RetobsLlamaIndexCallback(recorder, pipeline_id="my-index")
 Settings.callback_manager = CallbackManager([cb])
@@ -301,7 +305,7 @@ Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 ## Going Deeper
 
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, adapters, metrics, storage, dashboard API
-- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.3.0)
+- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.3.2)
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology
 - [YAML_GUIDE.md](YAML_GUIDE.md) — Six copy-paste YAML templates and an LLM prompt for generating configs

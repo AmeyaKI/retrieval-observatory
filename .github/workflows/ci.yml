@@ -38,9 +38,8 @@ jobs:
 
       - name: Check imports
         run: |
-          python -c "from retrieval_observatory.types import Query, Document, BaseRetriever"
-          python -c "from retrieval_observatory.store.sqlite import SQLiteStore"
-          python -c "from retrieval_observatory.metrics.engine import MetricsEngine"
+          python -c "import retobs as ro; from retobs import Query, Document, benchmark"
+          python -c "from retobs.tracing.integrations.langchain import RetobsLangChainCallback"
           python -c "from retrieval_observatory.cli import app"
 
   postgres:

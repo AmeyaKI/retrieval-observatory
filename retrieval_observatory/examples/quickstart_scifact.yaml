@@ -1,5 +1,5 @@
 # 5-minute quickstart — BM25 on SciFact (50 queries)
-# PyPI: retobs run --config "$(python -c 'from retrieval_observatory import EXAMPLES_DIR; print(EXAMPLES_DIR / \"quickstart_scifact.yaml\")')"
+# PyPI: retobs run --config "$(python -c 'from retobs import EXAMPLES_DIR; print(EXAMPLES_DIR / \"quickstart_scifact.yaml\")')"
 # Then: retobs serve --db .retobs/quickstart_scifact.db
 
 experiment:
