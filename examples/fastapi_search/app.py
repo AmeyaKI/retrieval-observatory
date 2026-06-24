@@ -3,7 +3,7 @@
 
 Run::
 
-    pip install retrieval-observatory[dashboard,demo]
+    pip install retobs[dashboard,demo]
     python examples/fastapi_search/app.py
 
 Traces are written to the demo DB by default so ``retobs serve --db .retobs/demo/results.db``

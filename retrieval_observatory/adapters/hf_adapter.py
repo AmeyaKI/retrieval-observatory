@@ -24,7 +24,7 @@ class HFCrossEncoderAdapter:
             except ImportError as e:
                 raise ImportError(
                     "HuggingFace adapter requires sentence-transformers. "
-                    "Install with: pip install retrieval-observatory[hf]"
+                    "Install with: pip install retobs[hf]"
                 ) from e
             with warnings.catch_warnings():
                 warnings.filterwarnings(

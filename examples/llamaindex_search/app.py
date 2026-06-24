@@ -3,7 +3,7 @@
 Demonstrates RetobsLlamaIndexCallback: one callback line, no manual stage wrapping.
 
 Requirements:
-    pip install retrieval-observatory[llamaindex,dashboard]
+    pip install retobs[llamaindex,dashboard]
 
 Usage:
     python examples/llamaindex_search/app.py

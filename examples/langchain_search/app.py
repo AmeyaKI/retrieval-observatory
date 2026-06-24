@@ -3,7 +3,7 @@
 Demonstrates RetobsLangChainCallback: one callback line, no manual stage wrapping.
 
 Requirements:
-    pip install retrieval-observatory[langchain,dashboard]
+    pip install retobs[langchain,dashboard]
     pip install langchain-community faiss-cpu
 
 Usage:

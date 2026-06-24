@@ -49,7 +49,7 @@ class GeminiJudge:
             except ImportError as e:
                 raise ImportError(
                     "GeminiJudge requires google-generativeai. "
-                    "Install with: pip install retrieval-observatory[llm-judge]"
+                    "Install with: pip install retobs[llm-judge]"
                 ) from e
             genai.configure(api_key=self._api_key)
             self._client = genai.GenerativeModel(self.model)
@@ -75,7 +75,7 @@ class OpenAIJudge:
         except ImportError as e:
             raise ImportError(
                 "OpenAIJudge requires openai. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from e
         client = AsyncOpenAI(api_key=self._api_key)
         response = await client.chat.completions.create(
@@ -101,7 +101,7 @@ class AnthropicJudge:
         except ImportError as e:
             raise ImportError(
                 "AnthropicJudge requires anthropic. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from e
         client = anthropic.AsyncAnthropic(api_key=self._api_key)
         response = await client.messages.create(

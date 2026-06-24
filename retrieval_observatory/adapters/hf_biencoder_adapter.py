@@ -20,7 +20,7 @@ class HFBiEncoderAdapter:
     The FAISS index is persisted to disk (keyed by corpus+model hash) so
     subsequent runs skip re-encoding. Suitable for corpora up to ~500k docs.
 
-    Requires: pip install retrieval-observatory[dense]
+    Requires: pip install retobs[dense]
     """
 
     def __init__(
@@ -56,7 +56,7 @@ class HFBiEncoderAdapter:
         except ImportError as e:
             raise ImportError(
                 "HFBiEncoderAdapter requires sentence-transformers and faiss-cpu. "
-                "Install with: pip install retrieval-observatory[dense]"
+                "Install with: pip install retobs[dense]"
             ) from e
 
         cache_key = self._corpus_cache_key()

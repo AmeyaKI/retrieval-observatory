@@ -1,6 +1,6 @@
 """Integration tests for RetobsLangChainCallback.
 
-Requires: pip install retrieval-observatory[langchain]
+Requires: pip install retobs[langchain]
           pip install langchain-community faiss-cpu
 """
 import asyncio

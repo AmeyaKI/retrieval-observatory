@@ -1,6 +1,6 @@
 """pytest plugin for retrieval regression gating.
 
-Enabled automatically once `retrieval-observatory` is installed (entry point `pytest11`).
+Enabled automatically once `retobs` is installed (entry point `pytest11`).
 Use the `retobs` fixture in a test to benchmark a pipeline and fail on a significant drop:
 
     def test_retrieval_quality(retobs):

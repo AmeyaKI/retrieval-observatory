@@ -126,7 +126,7 @@ def _build_hf_biencoder_adapter(stage_cfg: dict, corpus: dict | None = None):
     except ImportError as exc:
         raise ImportError(
             "adapter.hf_biencoder requires sentence-transformers and faiss-cpu. "
-            "Install with: pip install retrieval-observatory[dense]"
+            "Install with: pip install retobs[dense]"
         ) from exc
     from retrieval_observatory.adapters.hf_biencoder_adapter import HFBiEncoderAdapter
 
@@ -153,7 +153,7 @@ def _build_hf_crossencoder_adapter(stage_cfg: dict):
     except ImportError as exc:
         raise ImportError(
             "adapter.hf_crossencoder requires sentence-transformers. "
-            "Install with: pip install retrieval-observatory[dense]"
+            "Install with: pip install retobs[dense]"
         ) from exc
     from retrieval_observatory.adapters.hf_adapter import HFCrossEncoderAdapter
 

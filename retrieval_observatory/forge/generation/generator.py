@@ -37,7 +37,7 @@ class GeminiGenerator:
             except ImportError as e:
                 raise ImportError(
                     "GeminiGenerator requires google-generativeai. "
-                    "Install with: pip install retrieval-observatory[llm-judge]"
+                    "Install with: pip install retobs[llm-judge]"
                 ) from e
             genai.configure(api_key=self._api_key)
             self._client = genai.GenerativeModel(self.model)
@@ -62,7 +62,7 @@ class OpenAIGenerator:
         except ImportError as e:
             raise ImportError(
                 "OpenAIGenerator requires openai. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from e
         client = AsyncOpenAI(api_key=self._api_key)
         response = await client.chat.completions.create(
@@ -86,7 +86,7 @@ class AnthropicGenerator:
         except ImportError as e:
             raise ImportError(
                 "AnthropicGenerator requires anthropic. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from e
         client = anthropic.AsyncAnthropic(api_key=self._api_key)
         response = await client.messages.create(
@@ -104,7 +104,7 @@ def _make_generator(provider: str, api_key: Optional[str], model: Optional[str])
         except ImportError as exc:
             raise ImportError(
                 "GeminiGenerator requires google-generativeai. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from exc
         return GeminiGenerator(api_key=api_key, model=model or "gemini-2.0-flash")
     if provider == "openai":
@@ -113,7 +113,7 @@ def _make_generator(provider: str, api_key: Optional[str], model: Optional[str])
         except ImportError as exc:
             raise ImportError(
                 "OpenAIGenerator requires openai. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from exc
         return OpenAIGenerator(api_key=api_key, model=model or "gpt-4o-mini")
     if provider == "anthropic":
@@ -122,7 +122,7 @@ def _make_generator(provider: str, api_key: Optional[str], model: Optional[str])
         except ImportError as exc:
             raise ImportError(
                 "AnthropicGenerator requires anthropic. "
-                "Install with: pip install retrieval-observatory[llm-judge]"
+                "Install with: pip install retobs[llm-judge]"
             ) from exc
         return AnthropicGenerator(api_key=api_key, model=model or "claude-haiku-4-5-20251001")
     raise ValueError(f"Unknown provider {provider!r}. Choose from: gemini, openai, anthropic")

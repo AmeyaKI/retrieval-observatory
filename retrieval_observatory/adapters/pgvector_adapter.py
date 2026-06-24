@@ -32,7 +32,7 @@ class PgvectorAdapter:
             import asyncpg
         except ImportError as e:
             raise ImportError(
-                "pgvector adapter requires asyncpg. Install with: pip install retrieval-observatory[pgvector]"
+                "pgvector adapter requires asyncpg. Install with: pip install retobs[pgvector]"
             ) from e
 
         if self._embed is None:

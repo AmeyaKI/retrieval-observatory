@@ -9,7 +9,7 @@ from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class LangChainAdapter:
-    """Wraps any LangChain BaseRetriever into the retrieval-observatory interface."""
+    """Wraps any LangChain BaseRetriever into the retobs interface."""
 
     def __init__(self, retriever, retriever_id: str):
         self.retriever_id = retriever_id

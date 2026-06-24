@@ -2,7 +2,7 @@
 BEIR nfcorpus BM25 baseline demo.
 
 Usage:
-    pip install retrieval-observatory[demo]
+    pip install retobs[demo]
     python examples/beir_demo.py
 
 This runs BM25 retrieval over the entire nfcorpus test split (323 queries,

@@ -47,7 +47,7 @@ def build_run_manifest(
     """Capture enough environment detail to make a run auditable."""
     config_json = config.model_dump_json() if hasattr(config, "model_dump_json") else json.dumps(config)
     packages = {}
-    for name in ("retrieval-observatory", "numpy", "pydantic", "httpx", "rank-bm25", "sentence-transformers", "faiss-cpu"):
+    for name in ("retobs", "numpy", "pydantic", "httpx", "rank-bm25", "sentence-transformers", "faiss-cpu"):
         try:
             packages[name] = metadata.version(name)
         except metadata.PackageNotFoundError:

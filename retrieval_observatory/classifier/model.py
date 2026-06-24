@@ -29,7 +29,7 @@ def _require_sklearn():
     except ImportError as e:
         raise ImportError(
             "Classifier requires scikit-learn and joblib. "
-            "Install with: pip install retrieval-observatory[classifier]"
+            "Install with: pip install retobs[classifier]"
         ) from e
 
 

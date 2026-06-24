@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "retrieval-observatory"
-version = "0.3.0"
+name = "retobs"
+version = "0.3.1"
 description = "Local-first retrieval reliability platform: benchmarks, Forge stress tests, TraceLens observability, and Advisor regressions"
 readme = "README.md"
 requires-python = ">=3.10"

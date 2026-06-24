@@ -1,12 +1,20 @@
 # Changelog
 
-All notable changes to retrieval-observatory are documented here. Versions marked **[PyPI]** are published. Unreleased changes on `main` are at the top.
+All notable changes to retobs are documented here. Versions marked **[PyPI]** are published. Unreleased changes on `main` are at the top.
 
 ---
 
 ## [Unreleased]
 
 Changes on `main` not yet published to PyPI.
+
+---
+
+## [0.3.1] — 2026-06-24 [PyPI]
+
+### Changed
+
+- PyPI distribution renamed from `retrieval-observatory` to `retobs`. Install with `pip install retobs`. Python import (`import retrieval_observatory`) unchanged.
 
 ---
 
@@ -42,8 +50,8 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 #### Error messages and failure modes (task 1.5)
 
 - `retrieval_observatory/cli.py` — bad YAML in `retobs run` and `retobs validate` now prints a friendly one-line message + hint instead of a raw Python traceback.
-- `retrieval_observatory/pipeline/factory.py` — `_build_hf_biencoder_adapter` and `_build_hf_crossencoder_adapter` now check for `sentence-transformers`/`faiss-cpu` at pipeline build time (fail fast) rather than at first `retrieve()` call. Message: `"Install with: pip install retrieval-observatory[dense]"`.
-- `retrieval_observatory/forge/generation/generator.py` — `_make_generator()` now checks for provider package at `ForgeGenerator.from_provider()` call time. Message: `"Install with: pip install retrieval-observatory[llm-judge]"`.
+- `retrieval_observatory/pipeline/factory.py` — `_build_hf_biencoder_adapter` and `_build_hf_crossencoder_adapter` now check for `sentence-transformers`/`faiss-cpu` at pipeline build time (fail fast) rather than at first `retrieve()` call. Message: `"Install with: pip install retobs[dense]"`.
+- `retrieval_observatory/forge/generation/generator.py` — `_make_generator()` now checks for provider package at `ForgeGenerator.from_provider()` call time. Message: `"Install with: pip install retobs[llm-judge]"`.
 - `retrieval_observatory/cli.py` — `_forge_run` now catches `ImportError` (not just `ValueError`) from `ForgeGenerator.from_provider()`.
 - `docs/verification/error_messages_audit.md` — audit table of every triggered error class with before/after messages.
 

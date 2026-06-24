@@ -84,7 +84,7 @@ class RetobsLlamaIndexCallback(BaseCallbackHandler):  # type: ignore[misc]
         if not _LI_AVAILABLE:
             raise ImportError(
                 "RetobsLlamaIndexCallback requires llama-index-core. "
-                "Install with: pip install retrieval-observatory[llamaindex]"
+                "Install with: pip install retobs[llamaindex]"
             )
         super().__init__(event_starts_to_ignore=[], event_ends_to_ignore=[])
         self._recorder = recorder

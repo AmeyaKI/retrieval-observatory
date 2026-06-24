@@ -76,14 +76,14 @@ jobs:
 
       - name: Verify package appears on TestPyPI
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
-          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
-          echo "Expecting retrieval-observatory ${VERSION} on TestPyPI"
-          curl -sf "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
+          WHEEL=$(ls dist/retobs-*.whl)
+          VERSION=$(basename "$WHEEL" | sed -n 's/retobs-\([^-]*\)-.*/\1/p')
+          echo "Expecting retobs ${VERSION} on TestPyPI"
+          curl -sf "https://test.pypi.org/pypi/retobs/${VERSION}/json" > /dev/null
 
       - name: Smoke install built wheel
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          WHEEL=$(ls dist/retobs-*.whl)
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
           # Do NOT pip install extras from TestPyPI — it hosts typosquats (e.g. fastapi==1.0)
@@ -116,6 +116,6 @@ jobs:
 
       - name: Verify package on PyPI
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
-          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
-          curl -sf "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
+          WHEEL=$(ls dist/retobs-*.whl)
+          VERSION=$(basename "$WHEEL" | sed -n 's/retobs-\([^-]*\)-.*/\1/p')
+          curl -sf "https://pypi.org/pypi/retobs/${VERSION}/json" > /dev/null

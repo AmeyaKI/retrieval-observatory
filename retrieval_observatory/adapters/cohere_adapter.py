@@ -25,7 +25,7 @@ class CohereRerankAdapter:
             import cohere
         except ImportError as e:
             raise ImportError(
-                "Cohere support requires 'cohere'. Install with: pip install retrieval-observatory[cohere]"
+                "Cohere support requires 'cohere'. Install with: pip install retobs[cohere]"
             ) from e
 
         client = cohere.AsyncClient(api_key=self._api_key)

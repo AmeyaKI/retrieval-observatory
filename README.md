@@ -1,6 +1,6 @@
-# retrieval-observatory (retobs)
+# retobs
 
-[PyPI version](https://pypi.org/project/retrieval-observatory/)
+[PyPI version](https://pypi.org/project/retobs/)
 
 Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-stage contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
 
@@ -11,7 +11,7 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 ## Quickstart — one command, under 5 minutes, no API keys
 
 ```bash
-pip install "retrieval-observatory[demo,dashboard]"
+pip install "retobs[demo,dashboard]"
 retobs quickstart
 ```
 
@@ -20,7 +20,7 @@ Open `http://localhost:4000`. Forge scans a synthetic corpus, builds stress-test
 **Full platform demo** (more data, Advisor comparison, multi-stage ablation):
 
 ```bash
-pip install "retrieval-observatory[demo,dashboard,dense]"
+pip install "retobs[demo,dashboard,dense]"
 retobs demo --db .retobs/demo/results.db
 retobs serve --db .retobs/demo/results.db
 ```
@@ -139,7 +139,7 @@ retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer
 ## Install
 
 ```bash
-pip install "retrieval-observatory[demo,dashboard,dense]"
+pip install "retobs[demo,dashboard,dense]"
 ```
 
 ---
@@ -246,13 +246,13 @@ These are heuristic classifiers, not learned models. Measured quality lives in B
 Add one line to an existing chain or query engine; retobs captures traces automatically:
 
 ```python
-# LangChain (requires: pip install retrieval-observatory[langchain])
+# LangChain (requires: pip install retobs[langchain])
 from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
 
 cb = RetobsLangChainCallback(recorder, pipeline_id="my-chain")
 chain.invoke(query, config={"callbacks": [cb]})  # one line, zero manual stage wrapping
 
-# LlamaIndex (requires: pip install retrieval-observatory[llamaindex])
+# LlamaIndex (requires: pip install retobs[llamaindex])
 from llama_index.core.callbacks import CallbackManager
 from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
 
