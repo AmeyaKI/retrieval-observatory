@@ -4,9 +4,15 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ---
 
-## [Unreleased] — main branch (post v0.2.0)
+## [Unreleased]
 
-Changes since the v0.2.0 tag, not yet published to PyPI.
+Changes on `main` not yet published to PyPI.
+
+---
+
+## [0.3.0] — 2026-06-23 [PyPI]
+
+Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `retobs quickstart`, and pytest CI gating.
 
 ### Week 1 — Adoption friction + framework integration
 
