@@ -65,6 +65,17 @@ jobs:
           name: dist
           path: dist/
 
+      - name: Verify wheel name matches TestPyPI trusted publisher
+        run: |
+          WHEEL=$(ls dist/retobs-*.whl)
+          PKG=$(python -c "import zipfile, email; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_string(z.read(m).decode())['Name'])")
+          echo "Publishing package: $PKG"
+          if [ "$PKG" != "retobs" ]; then
+            echo "Expected package name 'retobs' but wheel metadata says '$PKG'"
+            exit 1
+          fi
+          echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retobs' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/PYPI_PUBLISH.md"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -109,6 +120,17 @@ jobs:
         with:
           name: dist
           path: dist/
+
+      - name: Verify wheel name matches PyPI trusted publisher
+        run: |
+          WHEEL=$(ls dist/retobs-*.whl)
+          PKG=$(python -c "import zipfile, email; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_string(z.read(m).decode())['Name'])")
+          echo "Publishing package: $PKG"
+          if [ "$PKG" != "retobs" ]; then
+            echo "Expected package name 'retobs' but wheel metadata says '$PKG'"
+            exit 1
+          fi
+          echo "::notice title=Trusted publisher config::PyPI publisher project name must be 'retobs' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment pypi). See docs/PYPI_PUBLISH.md"
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
