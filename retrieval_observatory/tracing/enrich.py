@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from retrieval_observatory.classifier.features import extract_features
 from retrieval_observatory.metrics.diagnostics import (
@@ -11,7 +11,9 @@ from retrieval_observatory.tracing.types import RetrievalTrace
 
 # Proxy-failure thresholds. These are label-free signals — production has no qrels, so
 # we never claim "measured" failure, only "suspected".
-_LOW_CONFIDENCE_SCORE = 0.0   # top candidate score floor (overridable per service)
+# Disabled by default: scores are pipeline-specific (cosine, dot-product, or absent/0.0),
+# so a fixed floor would mislabel every trace. Set a per-service float to enable.
+_LOW_CONFIDENCE_SCORE: Optional[float] = None  # top candidate score floor
 _HIGH_CHURN_RATE = 0.7        # fraction of candidates dropped between stages
 _DEFAULT_LATENCY_BUDGET_MS = 2000.0
 
@@ -45,7 +47,7 @@ def predict_difficulty(query_text: str) -> str:
 def detect_suspected_failures(
     trace: RetrievalTrace,
     latency_budget_ms: float = _DEFAULT_LATENCY_BUDGET_MS,
-    low_confidence_score: float = _LOW_CONFIDENCE_SCORE,
+    low_confidence_score: Optional[float] = _LOW_CONFIDENCE_SCORE,
 ) -> List[str]:
     """Compute label-free proxy failure signals for a trace.
 
@@ -58,8 +60,9 @@ def detect_suspected_failures(
     if len(final) == 0:
         labels.append("empty_candidates")
 
-    # 2. low retrieval confidence (top score at/below floor)
-    if final:
+    # 2. low retrieval confidence (top score at/below floor) — only when a floor is set,
+    #    since a 0.0 default would flag every pipeline that returns unscored results.
+    if final and low_confidence_score is not None:
         top_score = max((d.score for d in final), default=0.0)
         if top_score <= low_confidence_score:
             labels.append("low_confidence")
@@ -81,7 +84,7 @@ def detect_suspected_failures(
 def enrich(
     trace: RetrievalTrace,
     latency_budget_ms: float = _DEFAULT_LATENCY_BUDGET_MS,
-    low_confidence_score: float = _LOW_CONFIDENCE_SCORE,
+    low_confidence_score: Optional[float] = _LOW_CONFIDENCE_SCORE,
 ) -> RetrievalTrace:
     """Populate predicted_difficulty + suspected_failures in place and return the trace."""
     if trace.predicted_difficulty is None:

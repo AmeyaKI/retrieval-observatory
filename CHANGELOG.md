@@ -8,6 +8,23 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 Changes on `main` not yet published to PyPI.
 
+### Fixed
+
+- **[accuracy] Hybrid (fan-in) pipelines were mis-simulated.** The SDK modeled every pipeline as strictly linear (stage 0 = the sole candidate generator), so a hybrid expressed as `[retriever, fusion_reranker]` recorded only one arm's candidates in stage 0. A query whose relevant doc was found by the second arm and returned in the final results — a success — was incorrectly labeled `candidate_miss`. `metrics.diagnostics` now derives `candidate_miss` from the union of all stage snapshots and emits the informational `late_stage_recovery` label instead of inverting a successful query into a failure.
+- **Production tracing 500'd out of the box.** `SQLiteStore` did not create its schema until `init_db()` was called manually, so the first traced request failed with `no such table: traces`. The store now creates its schema lazily on first write (`_ensure_schema` in `save_traces_batch`).
+- `enrich`'s `low_confidence` default floor was `0.0`, which flagged every trace whose documents had unscored/zero scores. The default is now `None` (disabled unless a per-service floor is set).
+
+### Added
+
+- `ro.fuse([retriever_a, retriever_b, ...])` — express a hybrid as an accurate fan-in candidate-generation stage 0 (wraps the existing `RRFFusionAdapter`). A nested list in the pipeline (`ro.benchmark([[bm25, dense], rerank])`) is a convenience alias for the same thing; a flat list still means a sequence of stages. A fused stage is only valid at stage 0.
+- `retobs.init(service=..., db=...)` — one-line production tracing setup that wires the store, sink, and recorder together (schema auto-created on first write).
+- `t.stage("bm25", corpus=...)` as a context manager — auto-times the block and accepts bare document ids: `with t.stage("bm25") as s: s.results = ids`. The immediate form `t.stage(id, docs, latency_ms)` still works.
+- FastAPI `instrument_fastapi` gained `exclude_paths` (defaults skip `/docs`, `/openapi.json`, `/redoc`, `/health`, `/favicon.ico`) and a `query_extractor` hook (default reads the `q` query parameter instead of recording the URL path).
+
+### Changed
+
+- CLI `--db` options now also accept `--db-path` as an alias, matching the `db_path` constructor argument.
+
 ---
 
 ## [0.3.4] — 2026-06-24 [PyPI]

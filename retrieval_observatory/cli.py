@@ -169,7 +169,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
 def compare(
     run_id_1: str = typer.Argument(..., help="First run ID"),
     run_id_2: str = typer.Argument(..., help="Second run ID"),
-    db_path: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path"),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path"),
 ) -> None:
     """Compare two benchmark runs with significance testing."""
     asyncio.run(_compare(run_id_1, run_id_2, db_path))
@@ -257,7 +257,7 @@ def _collect_dashboard_db_paths(cli_dbs: Optional[List[str]]) -> List[str]:
 def serve(
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(4000, "--port"),
-    db: Optional[List[str]] = typer.Option(None, "--db", help="SQLite DB path(s); repeat or comma-separate."),
+    db: Optional[List[str]] = typer.Option(None, "--db", "--db-path", help="SQLite DB path(s); repeat or comma-separate."),
 ) -> None:
     """Start the FastAPI dashboard server."""
     try:
@@ -509,7 +509,7 @@ def inspect(
     run_id: str = typer.Argument(..., help="Run ID to inspect"),
     query_id: str = typer.Option(..., "--query", "-q", help="Query ID to inspect"),
     pipeline_id: Optional[str] = typer.Option(None, "--pipeline", "-p", help="Pipeline ID (defaults to all)"),
-    db_path: str = typer.Option(".retobs/results.db", "--db"),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
 ) -> None:
     """Inspect retrieved documents for a specific query and pipeline."""
     asyncio.run(_inspect(run_id, query_id, pipeline_id, db_path))
@@ -606,7 +606,7 @@ async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_pa
 @app.command()
 def validate(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
-    db_path: str = typer.Option(".retobs/results.db", "--db", help="Optional SQLite DB for saving the report."),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Optional SQLite DB for saving the report."),
 ) -> None:
     """Validate a benchmark config before running it."""
     from retrieval_observatory.config.schema import ExperimentConfig
@@ -962,7 +962,7 @@ def _print_classifier_report(report) -> None:
 @classifier_app.command("train")
 def classifier_train(
     dataset: str = typer.Option(..., "--dataset", help="Dataset name (e.g. beir/nfcorpus). Required."),
-    db_path: str = typer.Option(".retobs/results.db", "--db"),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
     out: Optional[Path] = typer.Option(None, "--out", help="Model output path."),
     min_samples: int = typer.Option(30, "--min-samples"),
     min_per_class: int = typer.Option(5, "--min-per-class", help="Minimum samples per present class."),
@@ -1048,7 +1048,7 @@ def classifier_predict(
 @classifier_app.command("report")
 def classifier_report(
     dataset: str = typer.Option(..., "--dataset", help="Dataset name used for training labels."),
-    db_path: str = typer.Option(".retobs/results.db", "--db"),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
     model: Optional[Path] = typer.Option(None, "--model", help="Path to saved model for importances."),
 ) -> None:
     """Print cross-validation metrics and feature importances."""
@@ -1163,7 +1163,7 @@ def forge_run(
     validation_budget: int = typer.Option(300, "--validation-budget", help="Max LLM calls for the validation pass."),
     fmt: str = typer.Option("beir", "--format", help="Output format: beir (default) or custom."),
     max_per_type: int = typer.Option(30, "--max-scenarios", help="Max scenarios to detect per scenario type."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to register the dataset in (so it appears in the dashboard)."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to register the dataset in (so it appears in the dashboard)."),
 ) -> None:
     """Generate a corpus-specific stress-test evaluation dataset using Forge.
 
@@ -1347,7 +1347,7 @@ async def _forge_run(
 
 @forge_app.command("list")
 def forge_list(
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB to read from."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite DB to read from."),
 ) -> None:
     """List Forge datasets registered in the store."""
     asyncio.run(_forge_list(db))
@@ -1403,7 +1403,7 @@ async def _forge_list(db_path: str) -> None:
 @app.command()
 def demo(
     output_dir: Path = typer.Option(Path(".retobs/demo"), "--output-dir", "-o", help="Directory for all demo outputs."),
-    db: str = typer.Option(".retobs/demo/results.db", "--db", help="SQLite DB to write all data into."),
+    db: str = typer.Option(".retobs/demo/results.db", "--db", "--db-path", help="SQLite DB to write all data into."),
     service: str = typer.Option("demo", "--service", help="TraceLens service name for synthetic traces."),
     n_traces: int = typer.Option(300, "--n-traces", help="Synthetic TraceLens traces to seed."),
     keep_db: bool = typer.Option(False, "--keep-db", help="Append to existing DB instead of starting fresh."),
@@ -2493,7 +2493,7 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
 def tracelens_demo(
     service: str = typer.Option("demo", "--service", help="Service name to attach the synthetic traces to."),
     n: int = typer.Option(200, "--n", help="Number of synthetic traces to seed."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to write traces into."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to write traces into."),
 ) -> None:
     """Seed synthetic production traces so the TraceLens dashboard has data to explore."""
     asyncio.run(_tracelens_demo(service, n, db))
@@ -2507,7 +2507,7 @@ async def _tracelens_demo(service: str, n: int, db_path: str) -> None:
 @tracelens_app.command("stats")
 def tracelens_stats(
     service: str = typer.Option(..., "--service", help="Service name to summarize."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to read from."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to read from."),
 ) -> None:
     """Print a summary of stored traces for a service (count, error rate, latency, suspected failures)."""
     asyncio.run(_tracelens_stats(service, db))
@@ -2551,7 +2551,7 @@ async def _tracelens_stats(service: str, db_path: str) -> None:
 def tracelens_purge(
     service: str = typer.Option(..., "--service", help="Service whose traces to purge."),
     older_than_days: Optional[int] = typer.Option(None, "--older-than-days", help="Only purge traces older than N days."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="Store DB to purge from."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to purge from."),
 ) -> None:
     """Delete stored traces for a service (optionally only those older than N days)."""
     asyncio.run(_tracelens_purge(service, older_than_days, db))
@@ -2581,7 +2581,7 @@ def _open_store(db_path: str):
 def advisor_check(
     baseline: str = typer.Option(..., "--baseline", help="Baseline run ID."),
     candidate: str = typer.Option(..., "--candidate", help="Candidate run ID."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
 ) -> None:
     """Compare two runs and exit non-zero if significant regressions are found."""
     asyncio.run(_advisor_check(baseline, candidate, db))
@@ -2621,7 +2621,7 @@ async def _advisor_check(baseline: str, candidate: str, db_path: str) -> None:
 @advisor_app.command("recommend")
 def advisor_recommend_cmd(
     run_id: str = typer.Option(..., "--run", help="Run ID to analyze."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
 ) -> None:
     """Print ranked, evidence-cited recommendations for a run."""
     asyncio.run(_advisor_recommend(run_id, db))
@@ -2651,7 +2651,7 @@ advisor_app.add_typer(golden_app, name="golden")
 def golden_run(
     set_name: str = typer.Option(..., "--set", help="Golden set name."),
     config: Path = typer.Option(..., "--config", "-c", help="Experiment YAML config."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
 ) -> None:
     """Run a golden benchmark tagged with the given set name."""
     asyncio.run(_golden_run(set_name, config, db))
@@ -2669,7 +2669,7 @@ async def _golden_run(set_name: str, config_path: Path, db_path: str) -> None:
 
 @golden_app.command("list")
 def golden_list(
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
 ) -> None:
     """List registered golden sets."""
     asyncio.run(_golden_list(db))
@@ -2694,7 +2694,7 @@ async def _golden_list(db_path: str) -> None:
 def golden_create(
     set_name: str = typer.Option(..., "--set", help="Golden set name."),
     queries_file: Path = typer.Option(..., "--queries", help="JSON file: list of {query_id, text, relevant_doc_ids}."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite database path."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
 ) -> None:
     """Register a golden set from a JSON queries file."""
     asyncio.run(_golden_create(set_name, queries_file, db))
@@ -2716,7 +2716,7 @@ async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> Non
 @app.command()
 def quickstart(
     output_dir: Path = typer.Option(Path(".retobs/quickstart"), "--output-dir", "-o", help="Directory for all quickstart outputs."),
-    db: str = typer.Option(".retobs/quickstart/results.db", "--db", help="SQLite DB to write results into."),
+    db: str = typer.Option(".retobs/quickstart/results.db", "--db", "--db-path", help="SQLite DB to write results into."),
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(4000, "--port"),
 ) -> None:

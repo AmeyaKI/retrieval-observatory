@@ -203,6 +203,17 @@ CREATE TABLE IF NOT EXISTS reliability_snapshots (
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
         self.db_path = db_path
+        self._schema_ready = False
+
+    async def _ensure_schema(self) -> None:
+        """Create the schema on first use so callers never hit 'no such table'.
+
+        All table DDL uses ``CREATE TABLE IF NOT EXISTS``, so this is idempotent and
+        cheap. The flag avoids re-running migrations on every write.
+        """
+        if self._schema_ready:
+            return
+        await self.init_db()
 
     async def init_db(self) -> None:
         import os
@@ -243,6 +254,7 @@ class SQLiteStore:
             except Exception:
                 pass
             await db.commit()
+        self._schema_ready = True
 
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
         async with aiosqlite.connect(self.db_path) as db:
@@ -748,6 +760,7 @@ class SQLiteStore:
         await self.save_traces_batch([trace])
 
     async def save_traces_batch(self, traces) -> None:
+        await self._ensure_schema()
         async with aiosqlite.connect(self.db_path) as db:
             for t in traces:
                 await db.execute(

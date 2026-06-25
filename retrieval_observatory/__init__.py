@@ -9,16 +9,27 @@ from retrieval_observatory.sdk import (  # noqa: E402
     FunctionRetriever,
     as_retriever,
     benchmark,
+    fuse,
     generate_testset,
     reranker,
     retriever,
 )
 from retrieval_observatory.types import Document, Query, StageSnapshot  # noqa: E402
 
+
+def init(*args, **kwargs):
+    """One-line production tracing setup. See ``retrieval_observatory.tracing.init``."""
+    from retrieval_observatory.tracing import init as _init
+
+    return _init(*args, **kwargs)
+
+
 __all__ = [
     "EXAMPLES_DIR",
     "PACKAGE_DIR",
     "benchmark",
+    "fuse",
+    "init",
     "generate_testset",
     "retriever",
     "reranker",

@@ -1,13 +1,74 @@
 from __future__ import annotations
 
 import random
+import time
 import traceback
 import uuid
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from retrieval_observatory.types import Document, StageSnapshot
 from retrieval_observatory.tracing.types import RetrievalTrace
+
+
+def _coerce_documents(items: Sequence[Any], corpus: Optional[Dict[str, str]] = None) -> List[Document]:
+    """Normalize bare ids / (id, score) / dicts / Documents into ranked Documents.
+
+    Lets callers pass the raw output of their retriever (usually a list of doc ids)
+    straight into a stage without hand-building Document objects.
+    """
+    corpus = corpus or {}
+    docs: List[Document] = []
+    n = len(items)
+    for rank, item in enumerate(items, start=1):
+        if isinstance(item, Document):
+            item.rank = rank
+            docs.append(item)
+        elif isinstance(item, dict):
+            doc_id = str(item.get("id") or item.get("doc_id"))
+            docs.append(Document(id=doc_id, text=item.get("text", corpus.get(doc_id, "")),
+                                 score=float(item.get("score", n - rank + 1)), rank=rank))
+        elif isinstance(item, (tuple, list)):
+            doc_id = str(item[0])
+            docs.append(Document(id=doc_id, text=corpus.get(doc_id, ""), score=float(item[1]), rank=rank))
+        else:
+            doc_id = str(item)
+            docs.append(Document(id=doc_id, text=corpus.get(doc_id, ""), score=float(n - rank + 1), rank=rank))
+    return docs
+
+
+class _StageTimer:
+    """Context manager that times a stage and records it on exit.
+
+    Usage::
+
+        with t.stage("bm25") as s:
+            docs = run_bm25(q)
+            s.results = docs          # bare ids are fine
+    """
+
+    def __init__(self, ctx: "_TraceContext", stage_id: str, corpus: Optional[Dict[str, str]], final: bool):
+        self._ctx = ctx
+        self._stage_id = stage_id
+        self._corpus = corpus
+        self._final = final
+        self._start = 0.0
+        self.results: Sequence[Any] = []
+
+    def set_results(self, results: Sequence[Any]) -> None:
+        self.results = results
+
+    def __enter__(self) -> "_StageTimer":
+        self._start = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        latency_ms = (time.perf_counter() - self._start) * 1000
+        docs = _coerce_documents(list(self.results), self._corpus)
+        self._ctx.record_stage(self._stage_id, docs, latency_ms)
+        if self._final and docs:
+            self._ctx.set_results(docs)
+        return False  # never suppress exceptions
 
 
 class _TraceContext:
@@ -32,7 +93,29 @@ class _TraceContext:
     def sampled(self) -> bool:
         return self._sampled
 
-    def stage(self, stage_id: str, documents: List[Document], latency_ms: float) -> None:
+    def stage(
+        self,
+        stage_id: str,
+        documents: Optional[List[Document]] = None,
+        latency_ms: Optional[float] = None,
+        *,
+        corpus: Optional[Dict[str, str]] = None,
+        final: bool = False,
+    ):
+        """Record a stage, or open a timing context manager.
+
+        Two forms:
+
+        - Immediate: ``t.stage("bm25", docs, latency_ms)`` records right away.
+        - Context manager (auto-timed): ``with t.stage("bm25") as s: s.results = ids``
+          times the block and accepts bare doc ids (text resolved from ``corpus``).
+        """
+        if documents is None:
+            return _StageTimer(self, stage_id, corpus, final)
+        self.record_stage(stage_id, documents, latency_ms or 0.0)
+        return None
+
+    def record_stage(self, stage_id: str, documents: List[Document], latency_ms: float) -> None:
         if not self._sampled:
             return
         idx = len(self.trace.snapshots)

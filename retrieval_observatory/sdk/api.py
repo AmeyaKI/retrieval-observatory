@@ -13,6 +13,67 @@ PipelineInput = Union[Any, Sequence[Any]]
 _BEIR_PREFIX = "beir/"
 
 
+class _FusedStage:
+    """Marker for a fan-in (parallel-retriever) candidate-generation stage.
+
+    Produced by :func:`fuse`. Wraps several retrievers that run concurrently and are
+    combined (default: Reciprocal Rank Fusion) into a single stage-0 snapshot whose
+    documents are the *union* of all arms. This is what makes hybrid pipelines accurate:
+    diagnostics like ``candidate_miss`` see every arm's candidates, not just one.
+    """
+
+    def __init__(
+        self,
+        retrievers: Sequence[Any],
+        *,
+        method: str = "rrf",
+        rrf_k: int = 60,
+        fetch_k: int = 100,
+        top_k: int = 100,
+        retriever_id: str = "fused",
+    ):
+        arms = list(retrievers)
+        if len(arms) < 2:
+            raise ValueError("fuse() needs at least two retrievers to combine.")
+        if method != "rrf":
+            raise ValueError(f"Unknown fusion method '{method}'. Only 'rrf' is supported.")
+        self.retrievers = arms
+        self.method = method
+        self.rrf_k = rrf_k
+        self.fetch_k = fetch_k
+        self.top_k = top_k
+        self.retriever_id = retriever_id
+
+
+def fuse(
+    retrievers: Sequence[Any],
+    *,
+    method: str = "rrf",
+    rrf_k: int = 60,
+    fetch_k: int = 100,
+    top_k: int = 100,
+    retriever_id: str = "fused",
+) -> _FusedStage:
+    """Combine several retrievers into one parallel (fan-in) candidate-generation stage.
+
+    Use as stage 0 of a hybrid pipeline::
+
+        ro.benchmark([ro.fuse([bm25, dense]), rerank], queries=Q, corpus=C)
+
+    A nested list/tuple in the pipeline is accepted as a convenience alias for the same
+    thing (``ro.benchmark([[bm25, dense], rerank])``) — the outer list is the sequence of
+    stages, an inner list is the set of parallel arms for that stage.
+    """
+    return _FusedStage(
+        retrievers,
+        method=method,
+        rrf_k=rrf_k,
+        fetch_k=fetch_k,
+        top_k=top_k,
+        retriever_id=retriever_id,
+    )
+
+
 def retriever(fn: Optional[Callable] = None, *, retriever_id: Optional[str] = None):
     """Decorator marking a callable as a retriever (optionally naming it)."""
     def wrap(f: Callable) -> Callable:
@@ -253,11 +314,47 @@ def _resolve_dataset(dataset, queries, corpus, qrels, k, max_queries):
     return InMemoryDataset(queries=queries, corpus=corpus, qrels=qrels, k=k), "custom"
 
 
+def _build_fused_stage(spec: "_FusedStage", corpus_map: Optional[Dict[str, str]]):
+    """Build an RRFFusionAdapter (stage 0) from a fan-in spec."""
+    from retrieval_observatory.adapters.rrf_adapter import RRFFusionAdapter
+
+    arms = [
+        as_retriever(
+            arm,
+            corpus=corpus_map,
+            retriever_id=getattr(arm, "_retobs_retriever_id", None),
+            role="retriever",
+        )
+        for arm in spec.retrievers
+    ]
+    return RRFFusionAdapter(
+        retrievers=arms,
+        retriever_id=spec.retriever_id,
+        rrf_k=spec.rrf_k,
+        fetch_k=spec.fetch_k,
+        top_k=spec.top_k,
+    )
+
+
 def _build_stages(pipeline: PipelineInput, corpus_map: Optional[Dict[str, str]]):
     items = list(pipeline) if isinstance(pipeline, (list, tuple)) else [pipeline]
     stages = []
     stage_ids: List[str] = []
     for i, item in enumerate(items):
+        # Fan-in stage: an explicit ro.fuse(...) marker, or a nested list/tuple of arms.
+        is_nested = isinstance(item, (list, tuple))
+        if isinstance(item, _FusedStage) or is_nested:
+            if i != 0:
+                raise ValueError(
+                    "A fused / parallel stage (ro.fuse([...]) or a nested list) is only valid "
+                    "as stage 0 (candidate generation), not as a reranker stage."
+                )
+            spec = item if isinstance(item, _FusedStage) else _FusedStage(list(item))
+            stage = _build_fused_stage(spec, corpus_map)
+            stage_id = stage.retriever_id
+            stages.append(stage)
+            stage_ids.append(stage_id)
+            continue
         role = "retriever" if i == 0 else "reranker"
         if getattr(item, "_retobs_role", None) == "reranker":
             role = "reranker"
