@@ -88,7 +88,7 @@ class RetobsLangChainCallback(BaseCallbackHandler):  # type: ignore[misc]
         if not _LC_AVAILABLE:
             raise ImportError(
                 "RetobsLangChainCallback requires langchain-core. "
-                "Install with: pip install retobs[langchain]"
+                "Install with: pip install retrieval-observatory[langchain]"
             )
         super().__init__()
         self._recorder = recorder

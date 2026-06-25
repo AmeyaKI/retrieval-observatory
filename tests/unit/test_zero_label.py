@@ -1,6 +1,6 @@
 import pytest
 
-import retobs as ro
+import retrieval_observatory as ro
 from retrieval_observatory.runner import execute as execute_mod
 
 

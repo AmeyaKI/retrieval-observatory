@@ -13,7 +13,7 @@ from retrieval_observatory.sdk import (  # noqa: E402
     reranker,
     retriever,
 )
-from retrieval_observatory.types import Document, Query  # noqa: E402
+from retrieval_observatory.types import Document, Query, StageSnapshot  # noqa: E402
 
 __all__ = [
     "EXAMPLES_DIR",
@@ -28,4 +28,5 @@ __all__ = [
     "BenchmarkReport",
     "Document",
     "Query",
+    "StageSnapshot",
 ]

@@ -198,7 +198,7 @@ class PostgresStore:
             except ImportError as e:
                 raise ImportError(
                     "Postgres support requires asyncpg. "
-                    "Install with: pip install retobs[postgres]"
+                    "Install with: pip install retrieval-observatory[postgres]"
                 ) from e
             self._pool = await asyncpg.create_pool(
                 dsn=self.dsn,

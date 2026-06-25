@@ -38,7 +38,7 @@ class BM25Adapter:
         except ImportError as e:
             raise ImportError(
                 "BM25Adapter requires rank-bm25. "
-                "Install with: pip install retobs[demo]"
+                "Install with: pip install retrieval-observatory[demo]"
             ) from e
 
         if self._tokenizer == "nltk":

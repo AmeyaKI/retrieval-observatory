@@ -48,7 +48,7 @@ class BEIRDataset:
         except ImportError as e:
             raise ImportError(
                 "BEIR support requires the 'beir' package. "
-                "Install with: pip install retobs[beir]"
+                "Install with: pip install retrieval-observatory[beir]"
             ) from e
 
         import os

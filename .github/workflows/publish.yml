@@ -71,14 +71,14 @@ jobs:
 
       - name: Verify wheel name matches TestPyPI trusted publisher
         run: |
-          WHEEL=$(ls dist/retobs-*.whl)
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
           PKG=$(python -c "import zipfile, email; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_string(z.read(m).decode())['Name'])")
           echo "Publishing package: $PKG"
-          if [ "$PKG" != "retobs" ]; then
-            echo "Expected package name 'retobs' but wheel metadata says '$PKG'"
+          if [ "$PKG" != "retrieval-observatory" ]; then
+            echo "Expected package name 'retrieval-observatory' but wheel metadata says '$PKG'"
             exit 1
           fi
-          echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retobs' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/PYPI_PUBLISH.md"
+          echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/PYPI_PUBLISH.md"
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -87,14 +87,14 @@ jobs:
 
       - name: Verify package appears on TestPyPI
         run: |
-          WHEEL=$(ls dist/retobs-*.whl)
-          VERSION=$(basename "$WHEEL" | sed -n 's/retobs-\([^-]*\)-.*/\1/p')
-          echo "Expecting retobs ${VERSION} on TestPyPI"
-          curl -sf "https://test.pypi.org/pypi/retobs/${VERSION}/json" > /dev/null
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
+          echo "Expecting retrieval-observatory ${VERSION} on TestPyPI"
+          curl -sf "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
 
       - name: Smoke install built wheel
         run: |
-          WHEEL=$(ls dist/retobs-*.whl)
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
           # Do NOT pip install extras from TestPyPI — it hosts typosquats (e.g. fastapi==1.0)
@@ -103,8 +103,8 @@ jobs:
             --index-url https://pypi.org/simple/ \
             --only-binary=:all: \
             "${WHEEL}[dashboard]"
-          /tmp/smoke/bin/python -c "from retobs import EXAMPLES_DIR; assert (EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
-          UI_INDEX=$(/tmp/smoke/bin/python -c "from retobs import PACKAGE_DIR; print(PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
+          /tmp/smoke/bin/python -c "import retrieval_observatory as ro; assert (ro.EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
+          UI_INDEX=$(/tmp/smoke/bin/python -c "import retrieval_observatory as ro; print(ro.PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
           test -f "$UI_INDEX"
           /tmp/smoke/bin/retobs --help
 
@@ -127,14 +127,14 @@ jobs:
 
       - name: Verify wheel name matches PyPI trusted publisher
         run: |
-          WHEEL=$(ls dist/retobs-*.whl)
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
           PKG=$(python -c "import zipfile, email; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_string(z.read(m).decode())['Name'])")
           echo "Publishing package: $PKG"
-          if [ "$PKG" != "retobs" ]; then
-            echo "Expected package name 'retobs' but wheel metadata says '$PKG'"
+          if [ "$PKG" != "retrieval-observatory" ]; then
+            echo "Expected package name 'retrieval-observatory' but wheel metadata says '$PKG'"
             exit 1
           fi
-          echo "::notice title=Trusted publisher config::PyPI publisher project name must be 'retobs' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment pypi). See docs/PYPI_PUBLISH.md"
+          echo "::notice title=Trusted publisher config::PyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment pypi). See docs/PYPI_PUBLISH.md"
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -142,6 +142,6 @@ jobs:
 
       - name: Verify package on PyPI
         run: |
-          WHEEL=$(ls dist/retobs-*.whl)
-          VERSION=$(basename "$WHEEL" | sed -n 's/retobs-\([^-]*\)-.*/\1/p')
-          curl -sf "https://pypi.org/pypi/retobs/${VERSION}/json" > /dev/null
+          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
+          curl -sf "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null

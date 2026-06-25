@@ -2,14 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from retobs import EXAMPLES_DIR, PACKAGE_DIR
+from retrieval_observatory import EXAMPLES_DIR, PACKAGE_DIR
 
 
-def test_public_retobs_import():
-    import retobs
+def test_public_import():
+    import retrieval_observatory
 
-    assert retobs.benchmark is not None
-    assert (retobs.EXAMPLES_DIR / "quickstart_scifact.yaml").is_file()
+    assert retrieval_observatory.benchmark is not None
+    assert (retrieval_observatory.EXAMPLES_DIR / "quickstart_scifact.yaml").is_file()
 
 
 def test_bundled_examples_exist():

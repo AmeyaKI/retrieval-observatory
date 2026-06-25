@@ -3,7 +3,7 @@
 Demonstrates RetobsLlamaIndexCallback: one callback line, no manual stage wrapping.
 
 Requirements:
-    pip install retobs[llamaindex,dashboard]
+    pip install retrieval-observatory[llamaindex,dashboard]
 
 Usage:
     python examples/llamaindex_search/app.py
@@ -18,10 +18,10 @@ from llama_index.core import Document, Settings, VectorStoreIndex
 from llama_index.core.callbacks import CallbackManager
 from llama_index.core.embeddings.mock_embed_model import MockEmbedding
 
-from retobs.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
-from retobs.tracing.recorder import TraceRecorder
-from retobs.tracing.sink import StoreSink
-from retobs.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
+from retrieval_observatory.tracing.recorder import TraceRecorder
+from retrieval_observatory.tracing.sink import StoreSink
+from retrieval_observatory.store.sqlite import SQLiteStore
 
 # Small local corpus — no API keys needed
 CORPUS_TEXTS = [

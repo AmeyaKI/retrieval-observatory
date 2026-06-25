@@ -3,7 +3,7 @@
 Demonstrates RetobsLangChainCallback: one callback line, no manual stage wrapping.
 
 Requirements:
-    pip install retobs[langchain,dashboard]
+    pip install retrieval-observatory[langchain,dashboard]
     pip install langchain-community faiss-cpu
 
 Usage:
@@ -19,10 +19,10 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import FakeEmbeddings
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 
-from retobs.tracing.integrations.langchain import RetobsLangChainCallback
-from retobs.tracing.recorder import TraceRecorder
-from retobs.tracing.sink import StoreSink
-from retobs.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
+from retrieval_observatory.tracing.recorder import TraceRecorder
+from retrieval_observatory.tracing.sink import StoreSink
+from retrieval_observatory.store.sqlite import SQLiteStore
 
 # Small local corpus — no API keys needed
 CORPUS = [

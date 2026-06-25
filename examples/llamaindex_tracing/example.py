@@ -9,8 +9,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
-from retobs.tracing import TraceRecorder, MemorySink
-from retobs.tracing.integrations.llamaindex import RetobsLlamaIndexHandler
+from retrieval_observatory.tracing import TraceRecorder, MemorySink
+from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexHandler
 
 
 @dataclass

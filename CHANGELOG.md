@@ -1,12 +1,23 @@
 # Changelog
 
-All notable changes to retobs are documented here. Versions marked **[PyPI]** are published. Unreleased changes on `main` are at the top.
+All notable changes to retrieval-observatory are documented here. Versions marked **[PyPI]** are published. Unreleased changes on `main` are at the top.
 
 ---
 
 ## [Unreleased]
 
 Changes on `main` not yet published to PyPI.
+
+---
+
+## [0.3.3] — 2026-06-24 [PyPI]
+
+### Changed
+
+- Reverted PyPI distribution name from `retobs` back to **`retrieval-observatory`**. Install with `pip install retrieval-observatory`.
+- Removed `retobs/` shim package. Public import is now `import retrieval_observatory as ro`.
+- CLI command remains `retobs` (unchanged).
+- Updated publish workflow, CI import checks, examples, and error messages to use `retrieval-observatory` extras syntax.
 
 ---
 

@@ -5,7 +5,7 @@
 #   dense       — baseline dense retrieval
 #   rrf_hybrid  — BM25 + dense fused via RRF (score = Σ 1/(60 + rank_i))
 #
-# RRF requires: pip install retobs[demo,dense]
+# RRF requires: pip install retrieval-observatory[demo,dense]
 
 experiment:
   name: rrf-hybrid-nfcorpus

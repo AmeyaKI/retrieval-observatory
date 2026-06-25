@@ -1,6 +1,6 @@
 """Integration tests for RetobsLlamaIndexCallback.
 
-Requires: pip install retobs[llamaindex]
+Requires: pip install retrieval-observatory[llamaindex]
 """
 import asyncio
 import pytest

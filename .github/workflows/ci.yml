@@ -38,8 +38,8 @@ jobs:
 
       - name: Check imports
         run: |
-          python -c "import retobs as ro; from retobs import Query, Document, benchmark"
-          python -c "from retobs.tracing.integrations.langchain import RetobsLangChainCallback"
+          python -c "import retrieval_observatory as ro; from retrieval_observatory import Query, Document, benchmark"
+          python -c "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback"
           python -c "from retrieval_observatory.cli import app"
 
   postgres:

@@ -1,4 +1,4 @@
-import retobs as ro
+import retrieval_observatory as ro
 from retrieval_observatory.types import Document, StageSnapshot
 
 CORPUS = {"d1": "alpha", "d2": "beta", "d3": "gamma", "d4": "delta"}

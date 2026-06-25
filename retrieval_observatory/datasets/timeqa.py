@@ -19,7 +19,7 @@ class TimeQADataset:
         except ImportError as e:
             raise ImportError(
                 "TimeQA support requires the 'datasets' package. "
-                "Install with: pip install retobs[beir]"
+                "Install with: pip install retrieval-observatory[beir]"
             ) from e
 
         ds = load_dataset("cmunlp/timeqa", split=self.split)

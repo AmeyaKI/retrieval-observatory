@@ -604,14 +604,14 @@ def create_app(
         async def validate_upload_unavailable() -> Dict[str, Any]:
             raise HTTPException(
                 status_code=501,
-                detail="Install retobs[dashboard] with python-multipart to use upload validation.",
+                detail="Install retrieval-observatory[dashboard] with python-multipart to use upload validation.",
             )
 
         @app.post("/experiments/prepare")
         async def prepare_upload_unavailable() -> Dict[str, Any]:
             raise HTTPException(
                 status_code=501,
-                detail="Install retobs[dashboard] with python-multipart to use experiment uploads.",
+                detail="Install retrieval-observatory[dashboard] with python-multipart to use experiment uploads.",
             )
 
     if enable_uploads:

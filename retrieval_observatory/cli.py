@@ -2727,7 +2727,7 @@ def quickstart(
     fresh install.  After completion, open the URL printed below to explore
     benchmark results and per-query failure labels in the TraceLens tab.
 
-    Minimum install: pip install retobs[demo,dashboard]
+    Minimum install: pip install retrieval-observatory[demo,dashboard]
     """
     asyncio.run(_quickstart(output_dir=str(output_dir), db_path=db, host=host, port=port))
 
@@ -2740,7 +2740,7 @@ async def _quickstart(output_dir: str, db_path: str, host: str, port: int) -> No
         from retrieval_observatory.dashboard.api import create_app
         from retrieval_observatory.dashboard.registry import DbRegistry
     except ImportError:
-        console.print("[red]Dashboard requires fastapi+uvicorn. Run: pip install retobs[dashboard][/red]")
+        console.print("[red]Dashboard requires fastapi+uvicorn. Run: pip install retrieval-observatory[dashboard][/red]")
         raise typer.Exit(1)
 
     console.print("[bold green]retobs quickstart[/bold green] — building demo in [dim]~30 seconds[/dim] …\n")

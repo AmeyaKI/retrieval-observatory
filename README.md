@@ -1,6 +1,6 @@
 # retobs
 
-[![PyPI version](https://img.shields.io/pypi/v/retobs)](https://pypi.org/project/retobs/)
+[![PyPI version](https://img.shields.io/pypi/v/retrieval-observatory)](https://pypi.org/project/retrieval-observatory/)
 
 Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-stage contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
 
@@ -11,7 +11,7 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 ## Quickstart — one command, under 5 minutes, no API keys
 
 ```bash
-pip install "retobs[demo,dashboard]"
+pip install "retrieval-observatory[demo,dashboard]"
 retobs quickstart
 ```
 
@@ -20,7 +20,7 @@ Open `http://localhost:4000`. Forge scans a synthetic corpus, builds stress-test
 **Full platform demo** (more data, Advisor comparison, multi-stage ablation):
 
 ```bash
-pip install "retobs[demo,dashboard,dense]"
+pip install "retrieval-observatory[demo,dashboard,dense]"
 retobs demo --db .retobs/demo/results.db
 retobs serve --db .retobs/demo/results.db
 ```
@@ -34,7 +34,7 @@ Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for
 Wrap your existing retriever and benchmark it in a few lines. Same engine, metrics, diagnostics, and dashboard as the CLI path.
 
 ```python
-import retobs as ro
+import retrieval_observatory as ro
 
 @ro.retriever
 def my_pipeline(query: str) -> list[str]:        # returns ranked doc ids
@@ -139,11 +139,11 @@ retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer
 ## Install
 
 ```bash
-pip install "retobs[demo,dashboard,dense]"
+pip install "retrieval-observatory[demo,dashboard,dense]"
 ```
 
 ```python
-import retobs as ro
+import retrieval_observatory as ro
 ```
 
 ---
@@ -151,7 +151,7 @@ import retobs as ro
 ## SciFact quickstart (single benchmark)
 
 ```bash
-CFG="$(python -c 'from retobs import EXAMPLES_DIR; print(EXAMPLES_DIR / "quickstart_scifact.yaml")')"
+CFG="$(python -c 'from retrieval_observatory import EXAMPLES_DIR; print(EXAMPLES_DIR / "quickstart_scifact.yaml")')"
 retobs validate --config "$CFG"
 retobs run --config "$CFG"
 retobs serve --db .retobs/quickstart_scifact.db
@@ -250,15 +250,15 @@ These are heuristic classifiers, not learned models. Measured quality lives in B
 Add one line to an existing chain or query engine; retobs captures traces automatically:
 
 ```python
-# LangChain (requires: pip install retobs[langchain])
-from retobs.tracing.integrations.langchain import RetobsLangChainCallback
+# LangChain (requires: pip install retrieval-observatory[langchain])
+from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
 
 cb = RetobsLangChainCallback(recorder, pipeline_id="my-chain")
 chain.invoke(query, config={"callbacks": [cb]})  # one line, zero manual stage wrapping
 
-# LlamaIndex (requires: pip install retobs[llamaindex])
+# LlamaIndex (requires: pip install retrieval-observatory[llamaindex])
 from llama_index.core.callbacks import CallbackManager
-from retobs.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
+from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
 
 cb = RetobsLlamaIndexCallback(recorder, pipeline_id="my-index")
 Settings.callback_manager = CallbackManager([cb])

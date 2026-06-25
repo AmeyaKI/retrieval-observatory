@@ -1,15 +1,15 @@
 import pytest
 
-import retobs as ro
+import retrieval_observatory as ro
 from retrieval_observatory.sdk.wrappers import FunctionReranker, FunctionRetriever
 from retrieval_observatory.types import Document, Query
 
 
-def test_public_import_retobs():
-    import retobs
+def test_public_import():
+    import retrieval_observatory
 
-    assert retobs.benchmark is ro.benchmark
-    from retobs.tracing.integrations.langchain import RetobsLangChainCallback  # noqa: F401
+    assert retrieval_observatory.benchmark is ro.benchmark
+    from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback  # noqa: F401
 
 CORPUS = {"d1": "cats and kittens", "d2": "space rockets", "d3": "feline pets", "d4": "stock market"}
 QUERIES = [
