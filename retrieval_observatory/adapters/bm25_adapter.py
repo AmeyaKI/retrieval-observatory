@@ -79,6 +79,7 @@ class BM25Adapter:
     def retrieve(self, query: Query) -> RetrievalResult:
         if self._bm25 is None:
             self._build_index()
+        assert self._bm25 is not None and self._doc_ids is not None  # set by _build_index
 
         start = time.perf_counter()
         scores = self._bm25.get_scores(self._tokenize(query.text))

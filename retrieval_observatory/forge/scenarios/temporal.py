@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections import defaultdict
 from typing import Dict, List, Set, Tuple
 
 from retrieval_observatory.forge.types import CorpusScenario

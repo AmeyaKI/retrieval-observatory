@@ -110,7 +110,6 @@ def build_query_diagnostics(
 
         # Ranking failure: relevant doc present in final candidates but ranked below K
         if relevant and final_ids & relevant:
-            k = result.snapshots[-1].documents[0].rank if result.snapshots[-1].documents else 0
             max_k = len(result.snapshots[-1].documents)
             top_k_ids = {d.id for d in result.snapshots[-1].documents if d.rank <= max_k}
             if not top_k_ids & relevant:

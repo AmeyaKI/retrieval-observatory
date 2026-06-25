@@ -58,7 +58,6 @@ def compute_distribution(traces: List[Dict[str, Any]]) -> Dict[str, Any]:
     status = Counter()
     length = Counter()
     failure_labels = Counter()
-    candidate_counts: List[int] = []
     latencies = [float(t.get("total_latency_ms", 0.0)) for t in traces]
 
     for t in traces:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "retrieval-observatory"
-version = "0.3.3"
+version = "0.3.4"
 description = "Local-first retrieval reliability platform: benchmarks, Forge stress tests, TraceLens observability, and Advisor regressions"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -54,7 +54,7 @@ forge = ["google-generativeai>=0.8", "anthropic>=0.28", "openai>=1.0"]
 # TraceLens: difficulty enrichment reuses the classifier; HTTPSink reuses httpx; stats use numpy.
 # No new heavy deps. httpx is only needed for the remote-push sink.
 tracelens = ["scikit-learn>=1.4", "joblib>=1.3", "httpx>=0.27"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "coverage", "respx>=0.21", "scikit-learn>=1.4", "joblib>=1.3"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "coverage", "respx>=0.21", "scikit-learn>=1.4", "joblib>=1.3", "ruff>=0.6", "types-PyYAML"]
 
 [project.scripts]
 retobs = "retrieval_observatory.cli:app"
@@ -83,6 +83,18 @@ addopts = "-p no:rerunfailures"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+# F = pyflakes (unused imports/vars, f-string issues); E/W = pycodestyle essentials.
+# E501 (line length) is intentionally not enforced to avoid churn on existing code.
+select = ["E", "F", "W"]
+# E402 (import-not-at-top): files use deferred/conditional imports by design.
+# E702 (semicolon): terse one-liners in tests. E501/E203: line-length churn.
+ignore = ["E501", "E203", "E402", "E702"]
 
 [tool.coverage.run]
 source = ["retrieval_observatory"]

@@ -1,16 +1,10 @@
-import tempfile
-from pathlib import Path
 
-import pytest
 import yaml
 
 from retrieval_observatory.config.schema import (
-    DatasetConfig,
     ExecutionConfig,
     ExperimentConfig,
     MetricsConfig,
-    OutputConfig,
-    PipelineConfig,
     StageConfig,
 )
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -1342,7 +1341,7 @@ async def _forge_run(
     console.print(f"\n[green]Dataset saved to:[/green] {output_dir}")
     console.print(f"[dim]LLM calls used: {generator.calls_used} / {generator.budget}[/dim]")
     console.print(
-        f"\n[dim]Tip: Use this dataset with retobs run by pointing your config to the exported corpus.jsonl and queries.jsonl.[/dim]"
+        "\n[dim]Tip: Use this dataset with retobs run by pointing your config to the exported corpus.jsonl and queries.jsonl.[/dim]"
     )
 
 
@@ -1434,7 +1433,7 @@ async def _demo(
     keep_db: bool = False,
     full: bool = False,
 ) -> None:
-    from retrieval_observatory.forge.types import SyntheticDataset, SyntheticQuery, CorpusScenario
+    from retrieval_observatory.forge.types import SyntheticDataset
     from retrieval_observatory.forge.datasets.exporter import export_dataset
     from retrieval_observatory.forge.scenarios.registry import detect_all
     from retrieval_observatory.store.sqlite import SQLiteStore
@@ -1598,7 +1597,7 @@ async def _demo(
     # ── Done ──────────────────────────────────────────────────────────────────
     console.print(f"\n{'─' * 60}")
     console.print(f"[bold green]Demo ready![/bold green] Database: [bold]{db_path}[/bold]")
-    console.print(f"\n[bold]Run IDs[/bold]")
+    console.print("\n[bold]Run IDs[/bold]")
     console.print(f"  Baseline (healthy):  {baseline_run_id}")
     console.print(f"  Degraded (regressed): {candidate_run_id}")
     console.print(f"  Sample query (lineage): {sample_query_id}")
@@ -1617,16 +1616,16 @@ async def _demo(
         for i, rec in enumerate(recs[:3], 1):
             console.print(f"  {i}. {rec.action}")
 
-    console.print(f"\n[bold]Start the dashboard:[/bold]")
+    console.print("\n[bold]Start the dashboard:[/bold]")
     console.print(f"  retobs serve --db {db_path}")
-    console.print(f"  → http://localhost:4000")
-    console.print(f"\n[bold]Explore all four modes:[/bold]")
-    console.print(f"  [bold cyan]Benchmarks[/bold cyan]  Compare baseline vs degraded — stage attribution, failure labels, query explorer")
-    console.print(f"  [bold yellow]Forge[/bold yellow]       #/forge/demo — temporal + alias stress queries, View lineage →")
+    console.print("  → http://localhost:4000")
+    console.print("\n[bold]Explore all four modes:[/bold]")
+    console.print("  [bold cyan]Benchmarks[/bold cyan]  Compare baseline vs degraded — stage attribution, failure labels, query explorer")
+    console.print("  [bold yellow]Forge[/bold yellow]       #/forge/demo — temporal + alias stress queries, View lineage →")
     console.print(f"  [bold green]TraceLens[/bold green]   #/tracelens/{tracelens_service} — drift (recent vs baseline window), hotspots")
-    console.print(f"  [bold magenta]Advisor[/bold magenta]     #/advisor — recommendations + regression center (runs above)")
+    console.print("  [bold magenta]Advisor[/bold magenta]     #/advisor — recommendations + regression center (runs above)")
     console.print(f"  [dim]Query lineage:[/dim]  #/query/{sample_query_id}")
-    console.print(f"\n[bold]CLI:[/bold]")
+    console.print("\n[bold]CLI:[/bold]")
     console.print(f"  retobs advisor check --baseline {baseline_run_id} --candidate {candidate_run_id} --db {db_path}")
     console.print(f"  retobs advisor recommend --run {candidate_run_id} --db {db_path}")
     console.print(f"{'─' * 60}\n")
@@ -2762,10 +2761,10 @@ async def _quickstart(output_dir: str, db_path: str, host: str, port: int) -> No
     console.print(f"  Benchmarks  → http://{display_host}:{port}")
     console.print(f"  TraceLens   → http://{display_host}:{port}/tracelens")
     console.print(f"  Advisor     → http://{display_host}:{port}/advisor")
-    console.print(f"\n  [dim]What you're seeing: Forge found retrieval failure scenarios in a synthetic")
-    console.print(f"  RAG corpus, built stress-test queries, ran a BM25 benchmark against them,")
-    console.print(f"  and seeded TraceLens with 50 production-shaped traces with failure labels.")
-    console.print(f"  Open the TraceLens tab and look at 'suspected_failures' per query.[/dim]\n")
+    console.print("\n  [dim]What you're seeing: Forge found retrieval failure scenarios in a synthetic")
+    console.print("  RAG corpus, built stress-test queries, ran a BM25 benchmark against them,")
+    console.print("  and seeded TraceLens with 50 production-shaped traces with failure labels.")
+    console.print("  Open the TraceLens tab and look at 'suspected_failures' per query.[/dim]\n")
 
     registry = DbRegistry([db_path])
     dashboard_app = create_app(registry=registry)

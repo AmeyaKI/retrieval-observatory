@@ -1,4 +1,3 @@
-from datetime import datetime
 
 from retrieval_observatory.types import (
     BaseReranker,

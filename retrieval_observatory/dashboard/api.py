@@ -147,7 +147,6 @@ def create_app(
     try:
         from fastapi import APIRouter, Body, FastAPI, File, HTTPException, UploadFile
         from fastapi.middleware.cors import CORSMiddleware
-        from pydantic import BaseModel
     except ImportError as e:
         raise ImportError("Dashboard requires fastapi. Install with: pip install fastapi") from e
 
@@ -1070,7 +1069,6 @@ def create_app(
 
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):
-        from fastapi.staticfiles import StaticFiles
         from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
         class _CachedStaticFiles(StarletteStaticFiles):

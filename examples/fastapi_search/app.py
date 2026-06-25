@@ -52,7 +52,7 @@ def _build_recorder(use_memory: bool) -> TraceRecorder:
     latency_budget = float(os.environ.get("RETOBS_LATENCY_BUDGET_MS", DEFAULT_LATENCY_BUDGET_MS))
     store = SQLiteStore(db_path=db_path)
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         asyncio.run(store.init_db())
     else:

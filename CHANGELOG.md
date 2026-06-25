@@ -10,6 +10,22 @@ Changes on `main` not yet published to PyPI.
 
 ---
 
+## [0.3.4] — 2026-06-24 [PyPI]
+
+### Fixed
+
+- Latent `None`-dereference in `BM25Adapter.retrieve` when the index is built lazily.
+- `forge.labels.ground_truth`: widened the exception guard to `BaseException` so partial-failure gathers no longer raise during grading.
+- Variable-shadowing bugs in `metrics.engine` and `datasets.custom` qrels loader.
+- `QueryDifficultyModel.predict` label/driver selection no longer relies on a possibly-`None` dict key.
+
+### Changed
+
+- Removed dead module `datasets/timeqa.py` and unused imports/variables across the codebase.
+- Added a `[tool.ruff]` lint configuration; added `ruff` and `types-PyYAML` to the `dev` extra.
+
+---
+
 ## [0.3.3] — 2026-06-24 [PyPI]
 
 ### Changed

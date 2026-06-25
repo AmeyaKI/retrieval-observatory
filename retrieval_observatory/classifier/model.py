@@ -59,9 +59,9 @@ class QueryDifficultyModel:
         proba = self.estimator.predict_proba(X)[0]
         classes = list(self.estimator.classes_)
         proba_dict = {cls: float(p) for cls, p in zip(classes, proba)}
-        label = max(proba_dict, key=proba_dict.get)
+        label = max(proba_dict, key=lambda c: proba_dict[c])
 
-        drivers = []
+        drivers: List[Dict[str, Any]] = []
         for name in FEATURE_NAMES:
             imp = self.feature_importances.get(name, 0.0)
             val = features.get(name, 0.0)

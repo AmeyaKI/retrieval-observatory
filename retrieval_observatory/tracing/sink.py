@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any, List, Protocol, runtime_checkable
 
 from retrieval_observatory.tracing.types import RetrievalTrace

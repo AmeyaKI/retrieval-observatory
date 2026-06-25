@@ -155,10 +155,10 @@ def _load_qrels(path: str) -> Dict[str, Dict[str, int]]:
                 continue
             parts = line.split()
             if len(parts) >= 4:
-                query_id, _, doc_id, grade = parts[:4]
+                query_id, _, doc_id, grade_str = parts[:4]
             elif len(parts) >= 3:
-                query_id, doc_id, grade = parts[:3]
+                query_id, doc_id, grade_str = parts[:3]
             else:
                 continue
-            qrels.setdefault(query_id, {})[doc_id] = int(float(grade))
+            qrels.setdefault(query_id, {})[doc_id] = int(float(grade_str))
     return qrels

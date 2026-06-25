@@ -5,10 +5,8 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 
-from retrieval_observatory.metrics.latency import latency_percentiles
 from retrieval_observatory.metrics.ranking import (
     dedupe_preserve_rank,
-    map_score,
     mrr,
     ndcg_at_k,
     ndcg_at_k_graded,
@@ -258,8 +256,8 @@ class MetricsEngine:
         # Group scores
         groups: Dict[tuple, List[float]] = defaultdict(list)
         for row in raw_metrics:
-            key = (row["pipeline_id"], row["stage_index"], row["metric_name"], row["k"])
-            groups[key].append(row["value"])
+            group_key = (row["pipeline_id"], row["stage_index"], row["metric_name"], row["k"])
+            groups[group_key].append(row["value"])
 
         aggregated: Dict[str, Any] = {}
         for (pipeline_id, stage_index, metric_name, k), scores in groups.items():

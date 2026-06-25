@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pytest
 
@@ -19,7 +19,7 @@ from retrieval_observatory.metrics.diagnostics import (
 )
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
-from retrieval_observatory.types import CandidateLineage, Document, PipelineResult, StageSnapshot
+from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 
 def test_recall_at_k_perfect():

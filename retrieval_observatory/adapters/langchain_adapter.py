@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
-from typing import List
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
 

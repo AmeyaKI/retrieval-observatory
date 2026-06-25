@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Dict, Optional, Set, Union
+from typing import Dict, Union
 
 from retrieval_observatory.pipeline.multi import MultiStagePipeline
 from retrieval_observatory.pipeline.single import SingleStagePipeline
-from retrieval_observatory.types import Query
 
 Pipeline = Union[SingleStagePipeline, MultiStagePipeline]
 

@@ -29,8 +29,6 @@ async def load_labeled_queries(store: Any, dataset_name: str) -> List[LabeledQue
     run_ids = [r["run_id"] for r in runs]
     labeled_rows = await store.get_labeled_query_rows(run_ids)
 
-    # query_id -> list of (run_id, bucket)
-    by_key: Dict[str, List[tuple]] = {}
     text_by_run_query: Dict[tuple, str] = {}
 
     for run_id in run_ids:

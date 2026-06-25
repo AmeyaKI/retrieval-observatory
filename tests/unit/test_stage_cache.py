@@ -6,7 +6,7 @@ import pytest
 
 from retrieval_observatory.runner.cache import StageResultCache, _make_stage_cache_key
 from retrieval_observatory.pipeline.multi import MultiStagePipeline
-from retrieval_observatory.types import Document, Query, RetrievalResult, StageSnapshot
+from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class MockRetriever:
@@ -31,7 +31,6 @@ class MockReranker:
 
 
 def test_stage_cache_key_is_stable():
-    stage_cfg = {"type": "adapter.bm25", "config": {"k": 100, "tokenizer": "whitespace"}}
     key1 = _make_stage_cache_key("stage_yaml", "q1")
     key2 = _make_stage_cache_key("stage_yaml", "q1")
     assert key1 == key2

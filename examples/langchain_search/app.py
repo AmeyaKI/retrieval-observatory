@@ -17,7 +17,7 @@ import os
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import FakeEmbeddings
-from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.runnables import RunnableLambda
 
 from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
 from retrieval_observatory.tracing.recorder import TraceRecorder

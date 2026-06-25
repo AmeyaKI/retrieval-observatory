@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 

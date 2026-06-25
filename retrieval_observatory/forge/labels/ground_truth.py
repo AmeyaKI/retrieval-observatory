@@ -96,7 +96,7 @@ async def validate_qrels_with_llm(
             calls_made += len(tasks)
 
             for doc_id, grade in zip(batch, grades):
-                if isinstance(grade, Exception):
+                if isinstance(grade, BaseException):
                     continue
                 if grade > 0:
                     qrels.setdefault(query.query_id, {})[doc_id] = int(grade)

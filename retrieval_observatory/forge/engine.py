@@ -12,7 +12,6 @@ from retrieval_observatory.forge.labels.ground_truth import (
     validate_qrels_with_llm,
 )
 from retrieval_observatory.forge.scenarios.registry import detect_all
-from retrieval_observatory.forge.stress.suite import StressTestSuite
 from retrieval_observatory.forge.types import SyntheticDataset
 
 _RULE_BASED_QUERY_TYPES = frozenset({"comparison", "constraint", "long_tail"})

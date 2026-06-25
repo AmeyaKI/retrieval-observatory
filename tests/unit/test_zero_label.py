@@ -1,4 +1,3 @@
-import pytest
 
 import retrieval_observatory as ro
 from retrieval_observatory.runner import execute as execute_mod

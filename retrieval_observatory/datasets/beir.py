@@ -52,7 +52,6 @@ class BEIRDataset:
             ) from e
 
         import os
-        import tempfile
 
         url = f"https://public.ukp.informatik.tu-darmstadt.de/thakur/BEIR/datasets/{self.dataset_name}.zip"
         cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "retrieval_observatory", "beir")
@@ -60,7 +59,7 @@ class BEIRDataset:
 
         if not os.path.exists(data_path):
             os.makedirs(cache_dir, exist_ok=True)
-            zip_path = util.download_and_unzip(url, cache_dir)
+            util.download_and_unzip(url, cache_dir)
 
         loader = GenericDataLoader(data_folder=data_path)
         corpus_raw, queries_raw, qrels_raw = loader.load(split=self.split)
