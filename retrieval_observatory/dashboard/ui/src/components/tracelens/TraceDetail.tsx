@@ -93,6 +93,7 @@ export default function TraceDetail({ traceId, onClose }: { traceId: string; onC
                 <div key={s.stage_index}>
                   <p className="text-xs font-semibold text-gray-600 mb-1">
                     {s.stage_id} <span className="text-gray-400 font-normal">· {s.latency_ms.toFixed(0)} ms · {s.candidate_count} candidates</span>
+                    {s.documents.length > 10 && <span className="text-amber-700 font-normal"> · showing 10 of {s.documents.length}</span>}
                   </p>
                   <div className="border border-gray-200 rounded overflow-hidden">
                     <table className="w-full text-[11px]">

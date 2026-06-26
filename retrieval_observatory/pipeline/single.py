@@ -11,6 +11,7 @@ from retrieval_observatory.types import (
     BaseRetriever,
     PipelineResult,
     Query,
+    RetrievalResult,
     StageSnapshot,
 )
 
@@ -34,6 +35,22 @@ def _as_pipeline_result(result, query_id: str, pipeline_id: str) -> Optional[Pip
             status="OK",
         )
     return None
+
+
+def _arms_from_result(result: RetrievalResult, stage_index: int) -> List[StageSnapshot]:
+    arms: List[StageSnapshot] = []
+    for arm in result.arm_results or []:
+        arms.append(
+            StageSnapshot(
+                stage_index=stage_index,
+                stage_id=arm.retriever_id,
+                documents=arm.documents,
+                latency_ms=arm.latency_ms,
+                profiling=arm.profiling,
+                candidate_count=len(arm.documents),
+            )
+        )
+    return arms
 
 
 class SingleStagePipeline:
@@ -73,6 +90,7 @@ class SingleStagePipeline:
                 latency_ms=result.latency_ms,
                 profiling=result.profiling,
                 candidate_count=len(result.documents),
+                arms=_arms_from_result(result, stage_index=0),
             )
             return PipelineResult(
                 query_id=query.query_id,

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchTraceSummary, TraceSummary } from '../../api'
+import { METRIC_GLOSSARY } from '../../utils/metricGlossary'
 
 function Kpi({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: 'bad' | 'warn' | 'ok' }) {
   const valueColor = tone === 'bad' ? 'text-rose-600' : tone === 'warn' ? 'text-amber-600' : 'text-gray-900'
@@ -35,20 +36,20 @@ export default function TraceLensOverview({ service, since }: { service: string;
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <Kpi label="Traces" value={summary.trace_count.toLocaleString()} hint="Total traces in this window." />
         <Kpi
-          label="Error rate"
+          label="Error rate (>5% warn)"
           value={`${(summary.error_rate * 100).toFixed(1)}%`}
-          hint="Fraction of traces whose pipeline raised an error."
+          hint={`Fraction of traces whose pipeline raised an error. ${METRIC_GLOSSARY.tracelens_error_rate_threshold}`}
           tone={summary.error_rate > 0.05 ? 'bad' : 'ok'}
         />
         <Kpi
-          label="Suspected-failure rate"
+          label="Suspected-failure rate (>10% warn)"
           value={`${(summary.suspected_failure_rate * 100).toFixed(1)}%`}
-          hint="Fraction of traces carrying at least one label-free proxy failure signal. Not measured Recall."
+          hint={`Fraction of traces carrying at least one label-free proxy failure signal. Not measured Recall. ${METRIC_GLOSSARY.tracelens_suspected_rate_threshold}`}
           tone={summary.suspected_failure_rate > 0.1 ? 'warn' : 'ok'}
         />
         <Kpi label="OK rate" value={`${(summary.ok_rate * 100).toFixed(1)}%`} hint="Fraction of traces that completed without error." />
         <Kpi label="Latency p50" value={`${summary.latency_p50.toFixed(0)} ms`} hint="Median total latency." />
-        <Kpi label="Latency p95" value={`${summary.latency_p95.toFixed(0)} ms`} hint="95th-percentile total latency (tail)." tone={summary.latency_p95 > 2000 ? 'warn' : 'ok'} />
+        <Kpi label="Latency p95 (>2000ms warn)" value={`${summary.latency_p95.toFixed(0)} ms`} hint={`95th-percentile total latency (tail). ${METRIC_GLOSSARY.tracelens_latency_p95_threshold}`} tone={summary.latency_p95 > 2000 ? 'warn' : 'ok'} />
       </div>
     </div>
   )

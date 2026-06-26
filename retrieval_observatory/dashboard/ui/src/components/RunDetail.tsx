@@ -14,6 +14,7 @@ import StageCombinationMatrix from './StageCombinationMatrix'
 import DashboardGuide from './DashboardGuide'
 import DataQualityWarnings from './DataQualityWarnings'
 import StressTestResults from './StressTestResults'
+import { MetricTooltip } from './MetricTooltip'
 
 interface Props {
   run: Run
@@ -49,7 +50,8 @@ function inferLatencyBudget(metrics: MetricsMap): number {
     .map((e) => e.mean)
   if (latencies.length === 0) return 2000
   const sorted = [...latencies].sort((a, b) => a - b)
-  return Math.round(sorted[Math.floor(sorted.length * 0.75)] * 2)
+  const inferred = Math.round(sorted[Math.floor(sorted.length * 0.75)] * 2)
+  return Math.min(30000, Math.max(100, inferred))
 }
 
 export default function RunDetail({ run, dbId, wide = false }: Props) {
@@ -135,7 +137,7 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
 
       {Object.values(metrics).some((e) => e.stage_index >= 0) && (
         <Section title="Pipeline Architecture" subtitle="Stage-by-stage flow of your retrieval pipeline with per-stage quality and latency">
-          <StagePipelineFlow metrics={metrics} />
+          <StagePipelineFlow metrics={metrics} topology={overview?.pipeline_topology} />
         </Section>
       )}
 
@@ -154,19 +156,20 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
             <div>
               <label className="text-xs text-gray-700 block mb-1">
                 My latency budget: <span className="font-mono font-bold text-indigo-700">{latencyBudgetMs}ms</span>
-                <span className="ml-1 text-gray-400">(P50 per query)</span>
+                <span className="ml-1 text-gray-400">(P50 per query, auto = P75×2)</span>
+                <MetricTooltip text="Default latency budget is inferred as P75×2 from observed end-to-end P50 latencies. You can override it." />
               </label>
               <input
                 type="range"
-                min={0}
-                max={10000}
+                min={100}
+                max={30000}
                 step={50}
                 value={latencyBudgetMs}
                 onChange={(e) => setLatencyBudgetMs(Number(e.target.value))}
                 className="w-full accent-indigo-600"
               />
               <div className="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                <span>0ms (instant)</span><span>10,000ms (10s)</span>
+                <span>100ms</span><span>30,000ms (30s)</span>
               </div>
             </div>
             <div>

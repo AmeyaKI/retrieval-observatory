@@ -194,6 +194,9 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
   const defaultColor = { border: 'border-gray-200', bg: 'bg-gray-50', badge: 'text-gray-500 bg-gray-100 border-gray-200', label: 'text-gray-400' }
 
   const hasContributions = stageContributions && stageContributions.length > 0
+  const crossPrefix = (stageContributions ?? []).filter((c) => c.comparison_tier === 'cross_pipeline_prefix')
+  const withinPipeline = (stageContributions ?? []).filter((c) => c.comparison_tier === 'within_pipeline_stage')
+  const armAblations = (stageContributions ?? []).filter((c) => c.comparison_tier === 'within_stage_arm')
   const pipelineIds = ranked.map((s) => s.pipelineId)
   const independentIds = getIndependentPipelineIds(pipelineIds)
   const hasIndependentPipelines = independentIds.length > 0 && pipelineIds.length > independentIds.length + (hasContributions ? 1 : 0)
@@ -245,24 +248,64 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
       {hasContributions ? (
         <div>
           <div className="text-sm font-semibold text-gray-700 mb-2">Stage Ablation Attribution</div>
-          {hasIndependentPipelines && (
+          {hasIndependentPipelines && crossPrefix.length > 0 && (
             <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-3">
-              Only prefix pairs (e.g. bm25 → bm25__rerank) appear here.
+              Cross-pipeline prefix pairs are shown separately from within-pipeline stage and arm-level deltas.
               {independentIds.length > 0 && (
                 <> Independent pipelines ({independentIds.join(', ')}) are compared in Pipeline Verdict above.</>
               )}
             </p>
           )}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {stageContributions!.map((c) => (
-              <StageContributionCard
-                key={`${c.from_pipeline}→${c.to_pipeline}`}
-                contribution={c}
-                latencyBudgetMs={latencyBudgetMs}
-                minQualityDelta={minQualityDelta}
-              />
-            ))}
-          </div>
+          {crossPrefix.length > 0 && (
+            <>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Cross-pipeline prefix</div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
+                {crossPrefix.map((c) => (
+                  <StageContributionCard
+                    key={`${c.from_pipeline}→${c.to_pipeline}`}
+                    contribution={c}
+                    latencyBudgetMs={latencyBudgetMs}
+                    minQualityDelta={minQualityDelta}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {withinPipeline.length > 0 && (
+            <>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Within-pipeline stages</div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
+                {withinPipeline.map((c) => (
+                  <StageContributionCard
+                    key={`${c.from_pipeline}→${c.to_pipeline}`}
+                    contribution={c}
+                    latencyBudgetMs={latencyBudgetMs}
+                    minQualityDelta={minQualityDelta}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {armAblations.length > 0 && (
+            <>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Within-stage arm ablation (arm vs fused)</div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {armAblations.map((c) => (
+                  <StageContributionCard
+                    key={`${c.from_pipeline}→${c.to_pipeline}`}
+                    contribution={c}
+                    latencyBudgetMs={latencyBudgetMs}
+                    minQualityDelta={minQualityDelta}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+          {crossPrefix.length === 0 && withinPipeline.length === 0 && armAblations.length === 0 && (
+            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+              No ablation deltas were available for this run.
+            </p>
+          )}
         </div>
       ) : ranked.length >= 2 ? (
         <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">

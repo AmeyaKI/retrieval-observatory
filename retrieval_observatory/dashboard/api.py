@@ -238,9 +238,11 @@ def create_app(
         return await _build_comparison(selections, registry, engine)
 
     @db_router.get("/runs/{run_id}/metrics")
-    async def get_run_metrics(db_id: str, run_id: str) -> Dict[str, Any]:
+    async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:
         store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
+        if not include_branches:
+            agg = {k: v for k, v in agg.items() if not v.get("branch_id")}
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
         return agg
@@ -256,6 +258,8 @@ def create_app(
         # Group by (segment_value, pipeline_id, stage_index, metric_name, k)
         groups: Dict[tuple, list] = defaultdict(list)
         for row in raw_metrics:
+            if row.get("branch_id"):
+                continue
             meta = row.get("query_metadata") or {}
             seg_val = meta.get(field)
             if seg_val is None:
@@ -488,6 +492,7 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
         metrics = await engine.aggregate(run_id, store)
         metrics_rows = await store.get_metrics(run_id)
+        results = await store.get_results(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
@@ -498,6 +503,7 @@ def create_app(
             "manifest": manifest,
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
             "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
+            "pipeline_topology": _pipeline_topology(metrics, results),
         }
 
     @db_router.get("/runs/{run_id}/queries/{query_id}")
@@ -1113,6 +1119,8 @@ def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
     """Pick best final-stage NDCG@10 across pipelines (tie-break Recall@10)."""
     final_stage_by_pipeline: Dict[str, int] = {}
     for value in metrics.values():
+        if value.get("branch_id"):
+            continue
         pid = value.get("pipeline_id")
         sidx = value.get("stage_index", -1)
         if pid and sidx >= 0:
@@ -1122,6 +1130,7 @@ def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
         {"metric": key, **value}
         for key, value in metrics.items()
         if value.get("stage_index", -1) >= 0
+        and not value.get("branch_id")
         and value.get("pipeline_id") in final_stage_by_pipeline
         and value.get("stage_index") == final_stage_by_pipeline[value.get("pipeline_id")]
         and value.get("metric_name") in {"ndcg", "recall"}
@@ -1152,6 +1161,8 @@ def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
 
 
 def _is_quality_metric_row(value: Dict[str, Any]) -> bool:
+    if value.get("branch_id"):
+        return False
     name = value.get("metric_name") or ""
     if name.startswith("latency") or name.startswith("profile_"):
         return False
@@ -1169,7 +1180,7 @@ def _headline_metric_label(metric_name: str, k: int) -> str | None:
 
 def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifest: Dict | None) -> List[str]:
     warnings = []
-    if any(value.get("metric_name") == "failure_rate" and value.get("mean", 0.0) > 0 for value in metrics.values()):
+    if any(value.get("metric_name") == "failure_rate" and value.get("mean", 0.0) > 0 and not value.get("branch_id") for value in metrics.values()):
         warnings.append("At least one pipeline had failed or timed-out queries.")
     if any("id_or_qrel_issue" in row.get("failure_labels", []) for row in diagnostics):
         warnings.append("Some queries look like possible document ID or qrel mismatches.")
@@ -1225,41 +1236,142 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
     return warnings
 
 
-def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:
-    """Return raw stage deltas for each adjacent pipeline pair — no pre-computed verdict."""
-    pipeline_ids = list({v.get("pipeline_id") for v in metrics.values() if v.get("pipeline_id")})
-    pairs = pipeline_pairs(pipeline_ids)
-    if not pairs:
-        return []
+def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str, Any]:
+    metric_index: Dict[tuple, Dict[str, Any]] = {}
+    for entry in metrics.values():
+        metric_index[
+            (
+                entry.get("pipeline_id"),
+                entry.get("stage_index"),
+                entry.get("metric_name"),
+                entry.get("k"),
+                entry.get("branch_id"),
+            )
+        ] = entry
 
-    # Parse keys into {pid: {sidx: [(mname, k, full_key)]}}
-    keys_by_pipeline: Dict = {}
-    for key, v in metrics.items():
+    candidate_counts: Dict[tuple, List[int]] = defaultdict(list)
+    for result in results:
+        if result.status != "OK":
+            continue
+        for snap in result.snapshots:
+            candidate_counts[(result.pipeline_id, snap.stage_index, None)].append(
+                snap.candidate_count or len(snap.documents)
+            )
+            for arm in snap.arms:
+                candidate_counts[(result.pipeline_id, snap.stage_index, arm.stage_id)].append(
+                    arm.candidate_count or len(arm.documents)
+                )
+
+    stage_templates: Dict[str, Dict[int, Any]] = defaultdict(dict)
+    for result in results:
+        if result.status != "OK":
+            continue
+        for snap in result.snapshots:
+            if snap.stage_index in stage_templates[result.pipeline_id]:
+                continue
+            stage_templates[result.pipeline_id][snap.stage_index] = {
+                "stage_id": snap.stage_id,
+                "arms": [arm.stage_id for arm in snap.arms],
+            }
+
+    topology: Dict[str, Any] = {}
+    for pipeline_id, by_stage in stage_templates.items():
+        stages: List[Dict[str, Any]] = []
+        for stage_index in sorted(by_stage):
+            template = by_stage[stage_index]
+            stage_branch_key = (pipeline_id, stage_index, None)
+            recall_entries = [
+                e for (pid, sidx, mname, _k, branch), e in metric_index.items()
+                if pid == pipeline_id and sidx == stage_index and branch is None and mname == "recall"
+            ]
+            best_recall_entry = max(recall_entries, key=lambda e: e.get("k", 0), default=None)
+            stage = {
+                "stage_index": stage_index,
+                "stage_id": template["stage_id"],
+                "kind": "fused" if template["arms"] else ("single" if stage_index == 0 else "rerank"),
+                "candidate_count": float(np.mean(candidate_counts.get(stage_branch_key, [0]))),
+                "metrics": {
+                    "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, None)) or {}).get("mean"),
+                    "recall": {
+                        "k": best_recall_entry.get("k") if best_recall_entry else None,
+                        "mean": best_recall_entry.get("mean") if best_recall_entry else None,
+                    },
+                    "latency_p50": (metric_index.get((pipeline_id, stage_index, "latency_p50", 0, None)) or {}).get("mean"),
+                },
+                "arms": [],
+            }
+            for arm_id in template["arms"]:
+                arm_recall_entries = [
+                    e for (pid, sidx, mname, _k, branch), e in metric_index.items()
+                    if pid == pipeline_id and sidx == stage_index and branch == arm_id and mname == "recall"
+                ]
+                arm_best_recall = max(arm_recall_entries, key=lambda e: e.get("k", 0), default=None)
+                arm_branch_key = (pipeline_id, stage_index, arm_id)
+                stage["arms"].append(
+                    {
+                        "arm_id": arm_id,
+                        "candidate_count": float(np.mean(candidate_counts.get(arm_branch_key, [0]))),
+                        "metrics": {
+                            "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, arm_id)) or {}).get("mean"),
+                            "recall": {
+                                "k": arm_best_recall.get("k") if arm_best_recall else None,
+                                "mean": arm_best_recall.get("mean") if arm_best_recall else None,
+                            },
+                            "latency_p50": (
+                                metric_index.get((pipeline_id, stage_index, "latency_p50", 0, arm_id)) or {}
+                            ).get("mean"),
+                        },
+                    }
+                )
+            stages.append(stage)
+        topology[pipeline_id] = stages
+    return topology
+
+
+def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:
+    """Return cross-pipeline, within-pipeline, and fused-arm ablation deltas."""
+    pipeline_ids = sorted({v.get("pipeline_id") for v in metrics.values() if v.get("pipeline_id")})
+    prefix_pairs = pipeline_pairs(pipeline_ids)
+
+    keys_by_pipeline: Dict[str, Dict[int, List[tuple]]] = {}
+    keys_by_pipeline_branch: Dict[str, Dict[int, Dict[str, List[tuple]]]] = {}
+    for key in metrics:
         try:
-            pid, sidx, mname, k = parse_metric_key(key)
+            pid, sidx, mname, k, branch_id = parse_metric_key(key)
         except Exception:
+            continue
+        if branch_id:
+            keys_by_pipeline_branch.setdefault(pid, {}).setdefault(sidx, {}).setdefault(branch_id, []).append((mname, k, key))
             continue
         keys_by_pipeline.setdefault(pid, {}).setdefault(sidx, []).append((mname, k, key))
 
     quality_metrics = {"recall", "ndcg", "mrr", "map"}
-    contributions = []
+    contributions: List[Dict[str, Any]] = []
 
-    for before_id, after_id in pairs:
-        before_stages = keys_by_pipeline.get(before_id, {})
-        after_stages = keys_by_pipeline.get(after_id, {})
-        if not before_stages or not after_stages:
-            continue
+    def _build_delta(
+        before_id: str,
+        before_stage: int,
+        before_branch: str | None,
+        after_id: str,
+        after_stage: int,
+        after_branch: str | None,
+    ) -> tuple[Dict[str, Any], float | None, float | None]:
+        before_keys = (
+            keys_by_pipeline_branch.get(before_id, {}).get(before_stage, {}).get(before_branch, [])
+            if before_branch
+            else keys_by_pipeline.get(before_id, {}).get(before_stage, [])
+        )
+        after_keys = (
+            keys_by_pipeline_branch.get(after_id, {}).get(after_stage, {}).get(after_branch, [])
+            if after_branch
+            else keys_by_pipeline.get(after_id, {}).get(after_stage, [])
+        )
 
-        before_last = max(s for s in before_stages if s >= 0)
-        after_last = max(s for s in after_stages if s >= 0)
-
-        before_quality = {(mname, k): fk for mname, k, fk in before_stages.get(before_last, []) if mname in quality_metrics}
-        after_quality = {(mname, k): fk for mname, k, fk in after_stages.get(after_last, []) if mname in quality_metrics}
-
-        deltas: Dict = {}
+        before_quality = {(mname, k): fk for mname, k, fk in before_keys if mname in quality_metrics}
+        after_quality = {(mname, k): fk for mname, k, fk in after_keys if mname in quality_metrics}
+        deltas: Dict[str, Any] = {}
         raw_p_values: List[float] = []
         delta_p_map: List[tuple] = []
-
         for mk in sorted(set(before_quality) & set(after_quality)):
             mname, k = mk
             b_mean = metrics[before_quality[mk]]["mean"]
@@ -1267,12 +1379,24 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
             absolute = a_mean - b_mean
             pct = (absolute / b_mean * 100) if b_mean != 0 else 0.0
 
-            b_scores = {r["query_id"]: r["value"] for r in metrics_rows
-                        if r["pipeline_id"] == before_id and r["stage_index"] == before_last
-                        and r["metric_name"] == mname and r["k"] == k}
-            a_scores = {r["query_id"]: r["value"] for r in metrics_rows
-                        if r["pipeline_id"] == after_id and r["stage_index"] == after_last
-                        and r["metric_name"] == mname and r["k"] == k}
+            b_scores = {
+                r["query_id"]: r["value"]
+                for r in metrics_rows
+                if r["pipeline_id"] == before_id
+                and r["stage_index"] == before_stage
+                and r.get("branch_id") == before_branch
+                and r["metric_name"] == mname
+                and r["k"] == k
+            }
+            a_scores = {
+                r["query_id"]: r["value"]
+                for r in metrics_rows
+                if r["pipeline_id"] == after_id
+                and r["stage_index"] == after_stage
+                and r.get("branch_id") == after_branch
+                and r["metric_name"] == mname
+                and r["k"] == k
+            }
             shared = sorted(set(b_scores) & set(a_scores))
             p = None
             if shared:
@@ -1297,27 +1421,86 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 "significant": (q_value is not None and q_value < 0.05),
             }
 
-        # Latency P50
-        def _lat(stages):
-            sidx = -1 if -1 in stages else max((s for s in stages if s >= 0), default=None)
-            if sidx is None:
-                return None
-            for mname, k, fk in stages.get(sidx, []):
-                if mname == "latency_p50" and fk in metrics:
+        def _lat(
+            metric_pipeline_id: str,
+            metric_stage: int,
+            stage_keys: List[tuple],
+            branch: str | None,
+        ) -> float | None:
+            for mname, k, fk in stage_keys:
+                if mname == "latency_p50" and k == 0:
                     return metrics[fk]["mean"]
+            rows = [
+                r["value"]
+                for r in metrics_rows
+                if r["pipeline_id"] == metric_pipeline_id
+                and r["stage_index"] == metric_stage
+                and r.get("branch_id") == branch
+                and r["metric_name"] == "latency_ms"
+            ]
+            if rows:
+                return float(np.percentile(np.array(rows), 50))
             return None
 
-        lat_before = _lat(before_stages)
-        lat_after = _lat(after_stages)
+        lat_before = _lat(before_id, before_stage, before_keys, before_branch)
+        lat_after = _lat(after_id, after_stage, after_keys, after_branch)
+        return deltas, lat_before, lat_after
 
-        contributions.append({
-            "from_pipeline": before_id,
-            "to_pipeline": after_id,
-            "deltas": deltas,
-            "latency_p50_before_ms": lat_before,
-            "latency_p50_after_ms": lat_after,
-            "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
-        })
+    for before_id, after_id in prefix_pairs:
+        before_stages = keys_by_pipeline.get(before_id, {})
+        after_stages = keys_by_pipeline.get(after_id, {})
+        if not before_stages or not after_stages:
+            continue
+        before_last = max(s for s in before_stages if s >= 0)
+        after_last = max(s for s in after_stages if s >= 0)
+        deltas, lat_before, lat_after = _build_delta(before_id, before_last, None, after_id, after_last, None)
+        contributions.append(
+            {
+                "comparison_tier": "cross_pipeline_prefix",
+                "from_pipeline": before_id,
+                "to_pipeline": after_id,
+                "deltas": deltas,
+                "latency_p50_before_ms": lat_before,
+                "latency_p50_after_ms": lat_after,
+                "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+            }
+        )
+
+    for pid, stages in keys_by_pipeline.items():
+        ordered = sorted(s for s in stages if s >= 0)
+        for before_stage, after_stage in zip(ordered, ordered[1:]):
+            deltas, lat_before, lat_after = _build_delta(pid, before_stage, None, pid, after_stage, None)
+            contributions.append(
+                {
+                    "comparison_tier": "within_pipeline_stage",
+                    "from_pipeline": f"{pid}:stage{before_stage}",
+                    "to_pipeline": f"{pid}:stage{after_stage}",
+                    "pipeline_id": pid,
+                    "deltas": deltas,
+                    "latency_p50_before_ms": lat_before,
+                    "latency_p50_after_ms": lat_after,
+                    "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+                }
+            )
+
+    for pid, stages in keys_by_pipeline_branch.items():
+        for stage_index, branches in stages.items():
+            for branch_id in sorted(branches):
+                deltas, lat_before, lat_after = _build_delta(pid, stage_index, branch_id, pid, stage_index, None)
+                contributions.append(
+                    {
+                        "comparison_tier": "within_stage_arm",
+                        "from_pipeline": f"{pid}:stage{stage_index}:{branch_id}",
+                        "to_pipeline": f"{pid}:stage{stage_index}:fused",
+                        "pipeline_id": pid,
+                        "stage_index": stage_index,
+                        "branch_id": branch_id,
+                        "deltas": deltas,
+                        "latency_p50_before_ms": lat_before,
+                        "latency_p50_after_ms": lat_after,
+                        "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+                    }
+                )
 
     return contributions
 
@@ -1332,6 +1515,8 @@ def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, flo
     """Return per-pipeline final-stage metrics needed for Pareto analysis."""
     by_pipeline: Dict[str, Dict[int, Dict[tuple, float]]] = defaultdict(lambda: defaultdict(dict))
     for value in agg.values():
+        if value.get("branch_id"):
+            continue
         stage_index = value.get("stage_index", -1)
         if stage_index < 0:
             continue

@@ -37,8 +37,9 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
         (item.actual_class || '').toLowerCase().includes(needle) ||
         (item.predicted_difficulty || '').toLowerCase().includes(needle)
       )
-    }).slice(0, 100)
+    })
   }, [items, filter, mismatchOnly])
+  const visible = filtered.slice(0, 100)
 
   return (
     <div className="border border-gray-200 rounded bg-white">
@@ -58,7 +59,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
           <input type="checkbox" checked={mismatchOnly} onChange={(e) => setMismatchOnly(e.target.checked)} className="rounded border-gray-300" />
           Mismatches only
         </label>
-        <span className="text-xs text-gray-400">{filtered.length}/{items.length}</span>
+        <span className="text-xs text-gray-400">{Math.min(visible.length, 100)}/{filtered.length}</span>
       </div>
       <div className="overflow-x-auto max-h-80">
         <table className="min-w-full text-xs">
@@ -74,7 +75,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {filtered.map((item) => (
+            {visible.map((item) => (
               <tr key={item.query_id} className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono">
                   <a href={`#/query/${encodeURIComponent(item.query_id)}`} className="text-indigo-600 hover:underline">
@@ -108,6 +109,11 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
           </tbody>
         </table>
       </div>
+      {filtered.length > 100 && (
+        <div className="px-3 py-2 border-t border-gray-100 text-xs text-amber-700 bg-amber-50">
+          Showing 100 of {filtered.length} queries — refine filters to narrow the list.
+        </div>
+      )}
     </div>
   )
 }

@@ -137,7 +137,7 @@ export default function BenchmarksWorkspace({ demoContext }: { demoContext?: Dem
         {selected.length === 0 && (
           <div className="flex items-center justify-center h-[calc(100%-3rem)]">
             <div className="text-center max-w-sm">
-              <div className="text-4xl mb-4 select-none">📊</div>
+              <div className="text-4xl mb-4 select-none" role="img" aria-label="Benchmarks module icon" title="Benchmarks module icon">📊</div>
               <p className="text-lg font-semibold text-gray-700">Select a run to explore</p>
               <p className="text-sm text-gray-500 mt-2 leading-relaxed">
                 Click any run in the sidebar to view its metrics, charts, and query-level diagnostics.

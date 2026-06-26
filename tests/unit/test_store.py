@@ -80,6 +80,40 @@ async def test_cache_miss(store):
 
 
 @pytest.mark.asyncio
+async def test_save_and_get_result_with_fusion_arms(store):
+    fused_docs = [Document(id="f1", text="f", score=1.0, rank=1)]
+    arm_a_docs = [Document(id="a1", text="a", score=0.9, rank=1)]
+    arm_b_docs = [Document(id="b1", text="b", score=0.8, rank=1)]
+    snap = StageSnapshot(
+        stage_index=0,
+        stage_id="fused",
+        documents=fused_docs,
+        latency_ms=10.0,
+        arms=[
+            StageSnapshot(stage_index=0, stage_id="bm25_stage", documents=arm_a_docs, latency_ms=5.0),
+            StageSnapshot(stage_index=0, stage_id="dense_stage", documents=arm_b_docs, latency_ms=6.0),
+        ],
+    )
+    result = PipelineResult(
+        query_id="q_arm",
+        pipeline_id="fused__rerank_stage",
+        snapshots=[snap],
+        total_latency_ms=12.0,
+        status="OK",
+    )
+
+    await store.save_run("run_arm", "arm-experiment", "{}")
+    await store.save_result("run_arm", result)
+
+    retrieved = await store.get_results("run_arm")
+    assert len(retrieved) == 1
+    restored = retrieved[0].snapshots[0]
+    assert restored.stage_id == "fused"
+    assert len(restored.arms) == 2
+    assert {a.stage_id for a in restored.arms} == {"bm25_stage", "dense_stage"}
+
+
+@pytest.mark.asyncio
 async def test_list_runs(store):
     await store.save_run("run1", "exp1", "{}")
     await store.save_run("run2", "exp2", "{}")

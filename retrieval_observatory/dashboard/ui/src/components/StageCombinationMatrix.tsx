@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { fetchStageMatrix, MetricEntry } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { fmtQuality, fmtLatencyMs, fmtCost } from '../utils/format'
+import { MetricTooltip } from './MetricTooltip'
+import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 
 type Cell = MetricEntry & { metric: string; estimated_cost_per_1k: number }
 
@@ -26,6 +28,7 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
   const rows = cells
     .filter((cell) => ['recall', 'ndcg', 'latency_p50', 'latency_p95'].includes(cell.metric_name))
     .slice(0, 80)
+  const totalFiltered = cells.filter((cell) => ['recall', 'ndcg', 'latency_p50', 'latency_p95'].includes(cell.metric_name)).length
 
   if (!rows.length) return null
 
@@ -74,6 +77,12 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
         </tbody>
       </table>
       </div>
+      {totalFiltered > 80 && (
+        <p className="mt-2 text-xs text-amber-700">
+          Showing 80 of {totalFiltered} rows.
+          <MetricTooltip text={METRIC_GLOSSARY.truncation_notice} />
+        </p>
+      )}
     </div>
   )
 }

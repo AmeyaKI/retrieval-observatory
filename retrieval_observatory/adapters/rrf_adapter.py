@@ -90,4 +90,5 @@ class RRFFusionAdapter:
                 "network_ms": total_sub_latency,
                 "retries": 0.0,
             },
+            arm_results=sub_results,
         )

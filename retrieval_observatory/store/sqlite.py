@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS raw_results (
     retrieved_scores_json TEXT NOT NULL,
     profiling_json TEXT,
     candidate_count INTEGER DEFAULT 0,
+    branch_id TEXT,
     error_traceback TEXT
 )
 """
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS metric_scores (
     metric_name TEXT NOT NULL,
     k INTEGER NOT NULL,
     value REAL NOT NULL,
+    branch_id TEXT,
     query_metadata_json TEXT DEFAULT NULL
 )
 """
@@ -62,6 +64,12 @@ _MIGRATE_RAW_RESULTS_PROFILING = (
 )
 _MIGRATE_RAW_RESULTS_CANDIDATE_COUNT = (
     "ALTER TABLE raw_results ADD COLUMN candidate_count INTEGER DEFAULT 0"
+)
+_MIGRATE_RAW_RESULTS_BRANCH_ID = (
+    "ALTER TABLE raw_results ADD COLUMN branch_id TEXT"
+)
+_MIGRATE_METRIC_SCORES_BRANCH_ID = (
+    "ALTER TABLE metric_scores ADD COLUMN branch_id TEXT"
 )
 
 _CREATE_RUN_MANIFESTS = """
@@ -253,6 +261,14 @@ class SQLiteStore:
                 await db.execute(_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT)
             except Exception:
                 pass
+            try:
+                await db.execute(_MIGRATE_RAW_RESULTS_BRANCH_ID)
+            except Exception:
+                pass
+            try:
+                await db.execute(_MIGRATE_METRIC_SCORES_BRANCH_ID)
+            except Exception:
+                pass
             await db.commit()
         self._schema_ready = True
 
@@ -278,8 +294,8 @@ class SQLiteStore:
                 """INSERT INTO raw_results
                    (run_id, pipeline_id, query_id, stage_index, stage_id, status,
                     latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                    candidate_count, error_traceback)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    candidate_count, branch_id, error_traceback)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run_id,
                     result.pipeline_id,
@@ -292,6 +308,7 @@ class SQLiteStore:
                     "[]",
                     "{}",
                     0,
+                    None,
                     result.error_traceback,
                 ),
             )
@@ -302,8 +319,8 @@ class SQLiteStore:
                     """INSERT INTO raw_results
                        (run_id, pipeline_id, query_id, stage_index, stage_id, status,
                         latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                        candidate_count, error_traceback)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        candidate_count, branch_id, error_traceback)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         run_id,
                         result.pipeline_id,
@@ -316,9 +333,35 @@ class SQLiteStore:
                         scores,
                         json.dumps(snap.profiling),
                         snap.candidate_count or len(snap.documents),
+                        None,
                         result.error_traceback,
                     ),
                 )
+                for arm in snap.arms:
+                    arm_doc_ids = json.dumps([d.id for d in arm.documents])
+                    arm_scores = json.dumps([d.score for d in arm.documents])
+                    await db.execute(
+                        """INSERT INTO raw_results
+                           (run_id, pipeline_id, query_id, stage_index, stage_id, status,
+                            latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
+                            candidate_count, branch_id, error_traceback)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            run_id,
+                            result.pipeline_id,
+                            result.query_id,
+                            snap.stage_index,
+                            arm.stage_id,
+                            result.status,
+                            arm.latency_ms,
+                            arm_doc_ids,
+                            arm_scores,
+                            json.dumps(arm.profiling),
+                            arm.candidate_count or len(arm.documents),
+                            arm.stage_id,
+                            result.error_traceback,
+                        ),
+                    )
             await db.commit()
 
     async def save_metric(
@@ -330,6 +373,7 @@ class SQLiteStore:
         metric_name: str,
         k: int,
         value: float,
+        branch_id: Optional[str] = None,
         query_metadata: Optional[Dict] = None,
     ) -> None:
         metadata_json = json.dumps(query_metadata) if query_metadata else None
@@ -343,6 +387,7 @@ class SQLiteStore:
                     "metric_name": metric_name,
                     "k": k,
                     "value": value,
+                    "branch_id": branch_id,
                     "query_metadata_json": metadata_json,
                 }
             ]
@@ -354,8 +399,8 @@ class SQLiteStore:
         async with aiosqlite.connect(self.db_path) as db:
             await db.executemany(
                 """INSERT INTO metric_scores
-                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, query_metadata_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, branch_id, query_metadata_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         row["run_id"],
@@ -365,6 +410,7 @@ class SQLiteStore:
                         row["metric_name"],
                         row["k"],
                         row["value"],
+                        row.get("branch_id"),
                         json.dumps(row["query_metadata_json"]) if row.get("query_metadata_json") else None,
                     )
                     for row in rows
@@ -376,7 +422,7 @@ class SQLiteStore:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM raw_results WHERE run_id = ? ORDER BY pipeline_id, query_id, stage_index",
+                "SELECT * FROM raw_results WHERE run_id = ? ORDER BY pipeline_id, query_id, stage_index, COALESCE(branch_id, '')",
                 (run_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
@@ -390,6 +436,7 @@ class SQLiteStore:
         results = []
         for (pipeline_id, query_id), stage_rows in grouped.items():
             snapshots = []
+            snap_by_stage: Dict[int, StageSnapshot] = {}
             status = "OK"
             error_traceback = None
             total_latency = 0.0
@@ -406,16 +453,22 @@ class SQLiteStore:
                     Document(id=did, text="", score=s, rank=i + 1)
                     for i, (did, s) in enumerate(zip(doc_ids, scores))
                 ]
-                snapshots.append(
-                    StageSnapshot(
-                        stage_index=row["stage_index"],
-                        stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
-                        documents=docs,
-                        latency_ms=row["latency_ms"],
-                        profiling=json.loads(row["profiling_json"] or "{}"),
-                        candidate_count=row["candidate_count"] or len(docs),
-                    )
+                branch_id = row["branch_id"] if "branch_id" in row.keys() else None
+                snapshot = StageSnapshot(
+                    stage_index=row["stage_index"],
+                    stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
+                    documents=docs,
+                    latency_ms=row["latency_ms"],
+                    profiling=json.loads(row["profiling_json"] or "{}"),
+                    candidate_count=row["candidate_count"] or len(docs),
                 )
+                if branch_id:
+                    parent = snap_by_stage.get(row["stage_index"])
+                    if parent is not None:
+                        parent.arms.append(snapshot)
+                    continue
+                snapshots.append(snapshot)
+                snap_by_stage[row["stage_index"]] = snapshot
                 total_latency += row["latency_ms"]
                 status = row["status"]
                 error_traceback = row["error_traceback"]

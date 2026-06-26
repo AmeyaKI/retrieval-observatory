@@ -36,6 +36,7 @@ class RetrievalResult:
     stage: int = 0
     raw_scores: Optional[List[float]] = None
     profiling: Dict[str, float] = field(default_factory=dict)
+    arm_results: Optional[List["RetrievalResult"]] = None
 
 
 @dataclass
@@ -46,6 +47,7 @@ class StageSnapshot:
     latency_ms: float
     profiling: Dict[str, float] = field(default_factory=dict)
     candidate_count: int = 0
+    arms: List["StageSnapshot"] = field(default_factory=list)
 
 
 @dataclass

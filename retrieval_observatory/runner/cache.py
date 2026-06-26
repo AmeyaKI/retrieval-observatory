@@ -19,51 +19,58 @@ def _make_stage_cache_key(stage_config_yaml: str, query_id: str) -> str:
 
 
 def _snap_to_json(snap: StageSnapshot) -> str:
-    return json.dumps({
-        "stage_index": snap.stage_index,
-        "stage_id": snap.stage_id,
-        "latency_ms": snap.latency_ms,
-        "profiling": snap.profiling,
-        "candidate_count": snap.candidate_count,
-        "documents": [
-            {
-                "id": d.id,
-                "text": d.text,
-                "score": d.score,
-                "rank": d.rank,
-                "title": d.title,
-                "timestamp": d.timestamp.isoformat() if d.timestamp else None,
-                "metadata": d.metadata,
-            }
-            for d in snap.documents
-        ],
-    })
+    def _snap_dict(item: StageSnapshot) -> dict:
+        return {
+            "stage_index": item.stage_index,
+            "stage_id": item.stage_id,
+            "latency_ms": item.latency_ms,
+            "profiling": item.profiling,
+            "candidate_count": item.candidate_count,
+            "documents": [
+                {
+                    "id": d.id,
+                    "text": d.text,
+                    "score": d.score,
+                    "rank": d.rank,
+                    "title": d.title,
+                    "timestamp": d.timestamp.isoformat() if d.timestamp else None,
+                    "metadata": d.metadata,
+                }
+                for d in item.documents
+            ],
+            "arms": [_snap_dict(arm) for arm in item.arms],
+        }
+
+    return json.dumps(_snap_dict(snap))
 
 
 def _snap_from_json(data: str) -> StageSnapshot:
     from datetime import datetime
 
-    obj = json.loads(data)
-    docs = [
-        Document(
-            id=d["id"],
-            text=d["text"],
-            score=d["score"],
-            rank=d["rank"],
-            title=d.get("title", ""),
-            timestamp=datetime.fromisoformat(d["timestamp"]) if d["timestamp"] else None,
-            metadata=d.get("metadata", {}),
+    def _snap_obj(obj: dict) -> StageSnapshot:
+        docs = [
+            Document(
+                id=d["id"],
+                text=d["text"],
+                score=d["score"],
+                rank=d["rank"],
+                title=d.get("title", ""),
+                timestamp=datetime.fromisoformat(d["timestamp"]) if d["timestamp"] else None,
+                metadata=d.get("metadata", {}),
+            )
+            for d in obj["documents"]
+        ]
+        return StageSnapshot(
+            stage_index=obj["stage_index"],
+            stage_id=obj["stage_id"],
+            documents=docs,
+            latency_ms=obj["latency_ms"],
+            profiling=obj.get("profiling", {}),
+            candidate_count=obj.get("candidate_count", len(docs)),
+            arms=[_snap_obj(arm) for arm in obj.get("arms", [])],
         )
-        for d in obj["documents"]
-    ]
-    return StageSnapshot(
-        stage_index=obj["stage_index"],
-        stage_id=obj["stage_id"],
-        documents=docs,
-        latency_ms=obj["latency_ms"],
-        profiling=obj.get("profiling", {}),
-        candidate_count=obj.get("candidate_count", len(docs)),
-    )
+
+    return _snap_obj(json.loads(data))
 
 
 def _result_to_json(result: PipelineResult) -> str:
@@ -86,6 +93,7 @@ def _result_to_json(result: PipelineResult) -> str:
                 }
                 for d in s.documents
             ],
+            "arms": [snap_to_dict(arm) for arm in s.arms],
         }
 
     return json.dumps({
@@ -103,7 +111,8 @@ def _result_from_json(data: str) -> PipelineResult:
 
     obj = json.loads(data)
     snapshots = []
-    for s in obj["snapshots"]:
+
+    def _to_snap(s: dict) -> StageSnapshot:
         docs = [
             Document(
                 id=d["id"],
@@ -116,16 +125,18 @@ def _result_from_json(data: str) -> PipelineResult:
             )
             for d in s["documents"]
         ]
-        snapshots.append(
-            StageSnapshot(
-                stage_index=s["stage_index"],
-                stage_id=s["stage_id"],
-                documents=docs,
-                latency_ms=s["latency_ms"],
-                profiling=s.get("profiling", {}),
-                candidate_count=s.get("candidate_count", len(docs)),
-            )
+        return StageSnapshot(
+            stage_index=s["stage_index"],
+            stage_id=s["stage_id"],
+            documents=docs,
+            latency_ms=s["latency_ms"],
+            profiling=s.get("profiling", {}),
+            candidate_count=s.get("candidate_count", len(docs)),
+            arms=[_to_snap(arm) for arm in s.get("arms", [])],
         )
+
+    for s in obj["snapshots"]:
+        snapshots.append(_to_snap(s))
     return PipelineResult(
         query_id=obj["query_id"],
         pipeline_id=obj["pipeline_id"],

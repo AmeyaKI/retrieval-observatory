@@ -395,7 +395,9 @@ def _print_stage_contribution(
     keys_by_pipeline: dict = {}
     for key in aggregated:
         try:
-            pid, sidx, mname, k = parse_metric_key(key)
+            pid, sidx, mname, k, branch_id = parse_metric_key(key)
+            if branch_id:
+                continue
         except Exception:
             continue
         keys_by_pipeline.setdefault(pid, {}).setdefault(sidx, []).append((mname, k, key))

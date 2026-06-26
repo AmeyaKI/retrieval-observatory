@@ -14,12 +14,16 @@ _LATENCY_REGRESSION_PCT = 0.20
 
 
 def _is_quality_metric(metric_key: str) -> bool:
-    _, _, metric_name, _ = parse_metric_key(metric_key)
+    _, _, metric_name, _, branch_id = parse_metric_key(metric_key)
+    if branch_id:
+        return False
     return any(metric_name.startswith(p) for p in _QUALITY_PREFIXES)
 
 
 def _is_latency_p95(metric_key: str) -> bool:
-    _, _, metric_name, _ = parse_metric_key(metric_key)
+    _, _, metric_name, _, branch_id = parse_metric_key(metric_key)
+    if branch_id:
+        return False
     return metric_name == _LATENCY_P95_SUFFIX
 
 

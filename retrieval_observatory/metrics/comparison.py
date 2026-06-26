@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
-MetricKey = Tuple[str, int, str, int]
+MetricKey = Tuple[str, int, str, int, Optional[str]]
 
 
 def pipeline_pairs(pipeline_ids: List[str]) -> List[Tuple[str, str]]:
@@ -34,21 +34,34 @@ def paired_scores_by_query(metrics_a: List[Dict], metrics_b: List[Dict], metric_
 
     metric_key format matches aggregate keys: pipeline|stageN|metric@k.
     """
-    pipeline_id, stage_index, metric_name, k = parse_metric_key(metric_key)
-    a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k)
-    b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k)
+    pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(metric_key)
+    a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
     query_ids = sorted(set(a) & set(b))
     return [a[qid] for qid in query_ids], [b[qid] for qid in query_ids], len(query_ids)
 
 
 def parse_metric_key(key: str) -> MetricKey:
-    pipeline_id, stage_part, metric_part = key.split("|", 2)
+    parts = key.split("|")
+    if len(parts) < 3:
+        raise ValueError(f"Invalid metric key: {key}")
+    pipeline_id, stage_part, metric_part = parts[:3]
     stage_index = int(stage_part.removeprefix("stage"))
     metric_name, k_text = metric_part.rsplit("@", 1)
-    return pipeline_id, stage_index, metric_name, int(k_text)
+    branch_id = None
+    if len(parts) >= 4 and parts[3].startswith("branch="):
+        branch_id = parts[3].split("=", 1)[1]
+    return pipeline_id, stage_index, metric_name, int(k_text), branch_id
 
 
-def _scores_for(metrics: List[Dict], pipeline_id: str, stage_index: int, metric_name: str, k: int) -> Dict[str, float]:
+def _scores_for(
+    metrics: List[Dict],
+    pipeline_id: str,
+    stage_index: int,
+    metric_name: str,
+    k: int,
+    branch_id: Optional[str] = None,
+) -> Dict[str, float]:
     return {
         row["query_id"]: row["value"]
         for row in metrics
@@ -56,4 +69,5 @@ def _scores_for(metrics: List[Dict], pipeline_id: str, stage_index: int, metric_
         and row["stage_index"] == stage_index
         and row["metric_name"] == metric_name
         and row["k"] == k
+        and row.get("branch_id") == branch_id
     }

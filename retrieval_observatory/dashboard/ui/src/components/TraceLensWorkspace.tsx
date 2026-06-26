@@ -24,7 +24,7 @@ const VIEWS: { id: View; label: string; desc: string }[] = [
 
 const WINDOWS: { label: string; hours: number | null }[] = [
   { label: 'Last 24h', hours: 24 },
-  { label: 'Last 7d', hours: 24 * 7 },
+  { label: 'Last 7d (default)', hours: 24 * 7 },
   { label: 'Last 30d', hours: 24 * 30 },
   { label: 'All time', hours: null },
 ]
@@ -63,7 +63,7 @@ export default function TraceLensWorkspace({ route }: Props) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md px-6">
-          <div className="text-4xl mb-4 select-none">📡</div>
+          <div className="text-4xl mb-4 select-none" role="img" aria-label="TraceLens module icon" title="TraceLens module icon">📡</div>
           <p className="text-lg font-semibold text-gray-700">No traces yet</p>
           <p className="text-sm text-gray-500 mt-2 leading-relaxed">
             TraceLens captures production retrieval requests as structured traces so you can inspect any
@@ -131,7 +131,7 @@ export default function TraceLensWorkspace({ route }: Props) {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-base font-semibold text-gray-800">{VIEWS.find((v) => v.id === view)?.label}</h2>
-              <p className="text-xs text-gray-400">Service: <span className="font-mono">{activeService}</span></p>
+              <p className="text-xs text-gray-400">Service: <span className="font-mono">{activeService}</span> · Window: <span className="font-medium">{WINDOWS[windowIdx].label}</span></p>
             </div>
             <div className="flex gap-1">
               {WINDOWS.map((w, i) => (

@@ -20,10 +20,15 @@ Changes on `main` not yet published to PyPI.
 - `retobs.init(service=..., db=...)` — one-line production tracing setup that wires the store, sink, and recorder together (schema auto-created on first write).
 - `t.stage("bm25", corpus=...)` as a context manager — auto-times the block and accepts bare document ids: `with t.stage("bm25") as s: s.results = ids`. The immediate form `t.stage(id, docs, latency_ms)` still works.
 - FastAPI `instrument_fastapi` gained `exclude_paths` (defaults skip `/docs`, `/openapi.json`, `/redoc`, `/health`, `/favicon.ico`) and a `query_extractor` hook (default reads the `q` query parameter instead of recording the URL path).
+- `types.StageSnapshot.arms` and `types.RetrievalResult.arm_results` — fused-stage arm snapshots are now first-class and persisted for dashboard topology rendering.
 
 ### Changed
 
 - CLI `--db` options now also accept `--db-path` as an alias, matching the `db_path` constructor argument.
+- `store.sqlite`/`store.postgres` — `raw_results` and `metric_scores` now persist `branch_id` rows for fused-stage arm branches with backward-compatible schema migrations.
+- `metrics.engine` — branch-aware metric emission/aggregation now keeps fused-stage arm metrics separate via `branch_id`.
+- `dashboard.api` — `/runs/{run_id}/overview` now returns `pipeline_topology` and stage contributions now include cross-pipeline, within-pipeline, and fused-arm ablation tiers.
+- `dashboard/ui` — pipeline flow now renders fused fan-out/fan-in arm nodes, verdicts are tiered by comparison type, and module audit UX now surfaces truncation/default/threshold behaviors explicitly.
 
 ---
 

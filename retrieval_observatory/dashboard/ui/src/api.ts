@@ -34,6 +34,7 @@ function runBase(dbId: string, runId: string): string {
 export interface MetricEntry {
   pipeline_id: string
   stage_index: number
+  branch_id?: string | null
   metric_name: string
   k: number
   mean: number
@@ -136,13 +137,40 @@ export interface StageDelta {
 }
 
 export interface StageContribution {
+  comparison_tier?: 'cross_pipeline_prefix' | 'within_pipeline_stage' | 'within_stage_arm'
   from_pipeline: string
   to_pipeline: string
+  pipeline_id?: string
+  stage_index?: number
+  branch_id?: string
   deltas: Record<string, StageDelta>
   latency_p50_before_ms: number | null
   latency_p50_after_ms: number | null
   latency_delta_ms: number | null
 }
+
+export interface TopologyStageMetrics {
+  'ndcg@10': number | null
+  recall: { k: number | null; mean: number | null }
+  latency_p50: number | null
+}
+
+export interface TopologyArm {
+  arm_id: string
+  candidate_count: number
+  metrics: TopologyStageMetrics
+}
+
+export interface TopologyStage {
+  stage_index: number
+  stage_id: string
+  kind: 'single' | 'fused' | 'rerank'
+  candidate_count: number
+  metrics: TopologyStageMetrics
+  arms: TopologyArm[]
+}
+
+export type PipelineTopology = Record<string, TopologyStage[]>
 
 export interface PipelineDiagnostics {
   n: number
@@ -161,6 +189,7 @@ export interface RunOverview {
   manifest: Record<string, unknown> | null
   warnings: string[]
   stage_contributions: StageContribution[]
+  pipeline_topology?: PipelineTopology
 }
 
 export async function fetchRunOverview(dbId: string, runId: string): Promise<RunOverview> {

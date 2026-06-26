@@ -28,6 +28,7 @@ class BaseStore(Protocol):
         metric_name: str,
         k: int,
         value: float,
+        branch_id: Optional[str] = None,
         query_metadata: Optional[Dict] = None,
     ) -> None:
         ...

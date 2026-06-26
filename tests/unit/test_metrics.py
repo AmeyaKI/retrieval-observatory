@@ -12,6 +12,7 @@ from retrieval_observatory.metrics.ranking import (
     precision_at_k,
 )
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs
+from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.diagnostics import (
     build_query_diagnostics,
     compute_candidate_lineage,
@@ -19,6 +20,7 @@ from retrieval_observatory.metrics.diagnostics import (
 )
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci, paired_bootstrap_test
+from retrieval_observatory.store.sqlite import SQLiteStore
 from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 
@@ -360,3 +362,19 @@ def test_diagnostics_include_churn_rate():
     assert len(rows) == 1
     assert "churn_rate" in rows[0]
     assert isinstance(rows[0]["churn_rate"], float)
+
+
+@pytest.mark.asyncio
+async def test_aggregate_keeps_branch_metrics_separate(tmp_path):
+    store = SQLiteStore(db_path=str(tmp_path / "branch_metrics.db"))
+    await store.init_db()
+    await store.save_run("run_branch", "branch-exp", "{}")
+    await store.save_metric("run_branch", "p1", "q1", 0, "ndcg", 10, 0.4)
+    await store.save_metric("run_branch", "p1", "q1", 0, "ndcg", 10, 0.2, branch_id="bm25_stage")
+
+    engine = MetricsEngine()
+    agg = await engine.aggregate("run_branch", store)
+    assert "p1|stage0|ndcg@10" in agg
+    assert "p1|stage0|ndcg@10|branch=bm25_stage" in agg
+    assert agg["p1|stage0|ndcg@10"]["branch_id"] is None
+    assert agg["p1|stage0|ndcg@10|branch=bm25_stage"]["branch_id"] == "bm25_stage"

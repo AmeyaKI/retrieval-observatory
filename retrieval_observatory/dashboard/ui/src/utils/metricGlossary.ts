@@ -33,6 +33,13 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   unstable: 'Query has high cross-pipeline variance (unstable difficulty bucket).',
   actual_difficulty: 'Post-hoc difficulty from mean recall across all pipelines after the benchmark. Five diagnostic buckets map to easy/medium/hard for classifier agreement.',
   predicted_difficulty: 'Pre-retrieval prediction from query text features (trained on prior benchmark diagnostics). Can differ from post-hoc actual when the model is undertrained.',
+  truncation_notice: 'This table is intentionally truncated for readability. Use filters or narrower scopes to inspect all rows.',
+  tracelens_high_churn_threshold: 'High churn is flagged when stage-to-stage candidate churn is at least 70%.',
+  tracelens_error_rate_threshold: 'Error-rate warning threshold is >5% in the selected window.',
+  tracelens_suspected_rate_threshold: 'Suspected-failure-rate warning threshold is >10% in the selected window.',
+  tracelens_latency_p95_threshold: 'Latency P95 warning threshold is >2000ms.',
+  tracelens_drift_thresholds: 'Drift severity uses PSI thresholds: moderate >=0.10, significant >=0.25; latency drift is checked with a KS test.',
+  reliability_components: 'Reliability components: quality (final-stage retrieval quality), stability (confidence and variance), robustness (failure/timeout pressure), and speed (latency pressure).',
 }
 
 /** Look up a glossary entry by a metric name fragment (case-insensitive). Returns undefined if not found. */

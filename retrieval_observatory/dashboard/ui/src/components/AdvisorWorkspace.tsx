@@ -14,6 +14,8 @@ import {
   Run,
   ReliabilityHistoryPoint,
 } from '../api'
+import { MetricTooltip } from './MetricTooltip'
+import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -41,6 +43,7 @@ export default function AdvisorWorkspace() {
   const [regressions, setRegressions] = useState<RegressionFinding[]>([])
   const [reliability, setReliability] = useState<ReliabilityScore | null>(null)
   const [history, setHistory] = useState<ReliabilityHistoryPoint[]>([])
+  const [showAllHistory, setShowAllHistory] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -110,13 +113,17 @@ export default function AdvisorWorkspace() {
         </p>
         {demoContext?.baseline_run_id && (
           <div className="mt-2 rounded-lg border border-violet-200 bg-violet-50/80 px-3 py-2 text-xs text-violet-900">
-            Demo DB — comparing baseline BM25 (k=20) vs degraded (k=1). Regressions load automatically.
+            Demo DB — baseline {demoContext.experiment_names?.baseline ?? demoContext.baseline_run_id} vs candidate {demoContext.experiment_names?.candidate ?? demoContext.candidate_run_id}. Regressions load automatically.
           </div>
         )}
         {reliability && (
           <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs">
             <p className="font-semibold text-violet-900">
               Reliability score: {(reliability.value * 100).toFixed(0)}%
+            </p>
+            <p className="text-[11px] text-gray-600 mt-1">
+              quality, stability, robustness, and speed components.
+              <MetricTooltip text={METRIC_GLOSSARY.reliability_components} />
             </p>
             <div className="flex flex-wrap gap-3 mt-1 text-gray-700">
               {Object.entries(reliability.components).map(([k, v]) => (
@@ -184,12 +191,21 @@ export default function AdvisorWorkspace() {
             {history.length > 1 && (
               <Section title="Reliability trend" subtitle="Snapshots recorded when reliability is computed">
                 <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs space-y-1">
-                  {history.slice(0, 8).map((h) => (
+                  {(showAllHistory ? history : history.slice(0, 8)).map((h) => (
                     <div key={h.recorded_at} className="flex justify-between text-gray-600">
                       <span>{new Date(h.recorded_at).toLocaleString()}</span>
                       <span className="font-mono font-semibold">{(h.value * 100).toFixed(0)}%</span>
                     </div>
                   ))}
+                  {history.length > 8 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllHistory((v) => !v)}
+                      className="mt-2 text-xs text-violet-700 hover:text-violet-900"
+                    >
+                      {showAllHistory ? 'Show fewer' : `Show all ${history.length} snapshots`}
+                    </button>
+                  )}
                 </div>
               </Section>
             )}

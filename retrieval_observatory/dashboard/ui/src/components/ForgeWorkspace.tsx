@@ -39,7 +39,7 @@ export default function ForgeWorkspace({ route }: Props) {
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-md px-6">
-              <div className="text-4xl mb-4 select-none">🜂</div>
+              <div className="text-4xl mb-4 select-none" role="img" aria-label="Forge module icon" title="Forge module icon">🜂</div>
               <p className="text-lg font-semibold text-gray-700">No Forge datasets yet</p>
               <p className="text-sm text-gray-500 mt-2 leading-relaxed">
                 Forge scans your corpus for failure patterns (temporal confusion, alias mismatches) and

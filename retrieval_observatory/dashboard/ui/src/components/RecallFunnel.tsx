@@ -223,7 +223,10 @@ export default function RecallFunnel({ metrics }: Props) {
         <div className="flex-1 min-w-0 space-y-6">
           {recallKValues.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-600 mb-1">Recall@{activeK} per Stage</p>
+              <p className="text-xs font-semibold text-gray-600 mb-1">
+                Recall@{activeK} per Stage
+                {!recallKValues.includes(10) && <span className="ml-1 text-gray-400 font-normal">(K=10 unavailable; using K={activeK})</span>}
+              </p>
               {hasMultipleStages && (
                 <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
                   <span className="font-semibold">Note:</span> Recall often drops after Stage 0 because later stages score fewer documents (e.g. top-50 → top-10). Check NDCG@10 below — it should rise if reranking helps.

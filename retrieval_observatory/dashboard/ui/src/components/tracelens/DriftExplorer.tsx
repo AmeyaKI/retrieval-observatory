@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchTraceDrift, DriftFinding } from '../../api'
+import { METRIC_GLOSSARY } from '../../utils/metricGlossary'
 
 const SEVERITY_STYLE: Record<string, string> = {
   significant: 'border-rose-200 bg-rose-50 text-rose-700',
@@ -63,9 +64,8 @@ export default function DriftExplorer({ service }: { service: string }) {
   return (
     <div>
       <p className="text-xs text-gray-500 mb-3">
-        Baseline window (prior 8d → 24h ago) vs recent window (last 24h). PSI flags categorical shifts
-        (moderate ≥ 0.1, significant ≥ 0.25); a two-sample KS test flags latency shifts. Each finding shows
-        both distributions so the flag is explainable.
+        Fixed windows: baseline = prior 8d→24h ago, recent = last 24h. PSI flags categorical shifts and KS flags latency shifts.
+        {' '}{METRIC_GLOSSARY.tracelens_drift_thresholds}
       </p>
       {drifted.length === 0 && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-xs text-green-700 mb-3">

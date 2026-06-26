@@ -10,8 +10,25 @@ from retrieval_observatory.types import (
     Document,
     PipelineResult,
     Query,
+    RetrievalResult,
     StageSnapshot,
 )
+
+
+def _arms_from_result(result: RetrievalResult, stage_index: int) -> List[StageSnapshot]:
+    arms: List[StageSnapshot] = []
+    for arm in result.arm_results or []:
+        arms.append(
+            StageSnapshot(
+                stage_index=stage_index,
+                stage_id=arm.retriever_id,
+                documents=arm.documents,
+                latency_ms=arm.latency_ms,
+                profiling=arm.profiling,
+                candidate_count=len(arm.documents),
+            )
+        )
+    return arms
 
 
 class MultiStagePipeline:
@@ -87,6 +104,7 @@ class MultiStagePipeline:
                     latency_ms=result.latency_ms,
                     profiling=result.profiling,
                     candidate_count=len(result.documents),
+                    arms=_arms_from_result(result, stage_index=i),
                 )
                 snapshots.append(snapshot)
 

@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS raw_results (
     retrieved_scores_json TEXT,
     profiling_json TEXT,
     candidate_count INT DEFAULT 0,
+    branch_id TEXT,
     error_traceback TEXT
 )
 """
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS raw_results (
 _MIGRATE_RAW_RESULTS_STAGE_ID = "ALTER TABLE raw_results ADD COLUMN stage_id TEXT"
 _MIGRATE_RAW_RESULTS_PROFILING = "ALTER TABLE raw_results ADD COLUMN profiling_json TEXT"
 _MIGRATE_RAW_RESULTS_CANDIDATE_COUNT = "ALTER TABLE raw_results ADD COLUMN candidate_count INT DEFAULT 0"
+_MIGRATE_RAW_RESULTS_BRANCH_ID = "ALTER TABLE raw_results ADD COLUMN branch_id TEXT"
 
 _CREATE_METRIC_SCORES = """
 CREATE TABLE IF NOT EXISTS metric_scores (
@@ -48,9 +50,11 @@ CREATE TABLE IF NOT EXISTS metric_scores (
     metric_name TEXT,
     k INT,
     value REAL,
+    branch_id TEXT,
     query_metadata_json TEXT DEFAULT NULL
 )
 """
+_MIGRATE_METRIC_SCORES_BRANCH_ID = "ALTER TABLE metric_scores ADD COLUMN branch_id TEXT"
 
 _CREATE_CACHE = """
 CREATE TABLE IF NOT EXISTS result_cache (
@@ -237,6 +241,14 @@ class PostgresStore:
                 await conn.execute(_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT)
             except Exception:
                 pass
+            try:
+                await conn.execute(_MIGRATE_RAW_RESULTS_BRANCH_ID)
+            except Exception:
+                pass
+            try:
+                await conn.execute(_MIGRATE_METRIC_SCORES_BRANCH_ID)
+            except Exception:
+                pass
 
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
         pool = await self._get_pool()
@@ -277,11 +289,12 @@ class PostgresStore:
                 "[]",
                 "{}",
                 0,
+                None,
                 result.error_traceback,
             )
         ]
-        rows.extend(
-            [
+        for snap in result.snapshots:
+            rows.append(
                 (
                     run_id,
                     result.pipeline_id,
@@ -294,18 +307,35 @@ class PostgresStore:
                     json.dumps([d.score for d in snap.documents]),
                     json.dumps(snap.profiling),
                     snap.candidate_count or len(snap.documents),
+                    None,
                     result.error_traceback,
                 )
-                for snap in result.snapshots
-            ]
-        )
+            )
+            for arm in snap.arms:
+                rows.append(
+                    (
+                        run_id,
+                        result.pipeline_id,
+                        result.query_id,
+                        snap.stage_index,
+                        arm.stage_id,
+                        result.status,
+                        arm.latency_ms,
+                        json.dumps([d.id for d in arm.documents]),
+                        json.dumps([d.score for d in arm.documents]),
+                        json.dumps(arm.profiling),
+                        arm.candidate_count or len(arm.documents),
+                        arm.stage_id,
+                        result.error_traceback,
+                    )
+                )
         async with pool.acquire() as conn:
             await conn.executemany(
                 """INSERT INTO raw_results
                    (run_id, pipeline_id, query_id, stage_index, stage_id, status,
                     latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                    candidate_count, error_traceback)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)""",
+                    candidate_count, branch_id, error_traceback)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)""",
                 rows,
             )
 
@@ -318,6 +348,7 @@ class PostgresStore:
         metric_name: str,
         k: int,
         value: float,
+        branch_id: Optional[str] = None,
         query_metadata: Optional[Dict] = None,
     ) -> None:
         metadata_json = json.dumps(query_metadata) if query_metadata else None
@@ -331,6 +362,7 @@ class PostgresStore:
                     "metric_name": metric_name,
                     "k": k,
                     "value": value,
+                    "branch_id": branch_id,
                     "query_metadata_json": metadata_json,
                 }
             ]
@@ -343,8 +375,8 @@ class PostgresStore:
         async with pool.acquire() as conn:
             await conn.executemany(
                 """INSERT INTO metric_scores
-                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, query_metadata_json)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)""",
+                   (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, branch_id, query_metadata_json)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
                 [
                     (
                         row["run_id"],
@@ -354,6 +386,7 @@ class PostgresStore:
                         row["metric_name"],
                         row["k"],
                         row["value"],
+                        row.get("branch_id"),
                         json.dumps(row["query_metadata_json"]) if row.get("query_metadata_json") else None,
                     )
                     for row in rows
@@ -364,7 +397,7 @@ class PostgresStore:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM raw_results WHERE run_id = $1 ORDER BY pipeline_id, query_id, stage_index",
+                "SELECT * FROM raw_results WHERE run_id = $1 ORDER BY pipeline_id, query_id, stage_index, COALESCE(branch_id, '')",
                 run_id,
             )
 
@@ -376,6 +409,7 @@ class PostgresStore:
         results = []
         for (pipeline_id, query_id), stage_rows in grouped.items():
             snapshots = []
+            snap_by_stage: Dict[int, StageSnapshot] = {}
             status = "OK"
             error_traceback = None
             total_latency = 0.0
@@ -392,16 +426,22 @@ class PostgresStore:
                     Document(id=did, text="", score=s, rank=i + 1)
                     for i, (did, s) in enumerate(zip(doc_ids, scores))
                 ]
-                snapshots.append(
-                    StageSnapshot(
-                        stage_index=row["stage_index"],
-                        stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
-                        documents=docs,
-                        latency_ms=row["latency_ms"],
-                        profiling=json.loads(row["profiling_json"] or "{}"),
-                        candidate_count=row["candidate_count"] or len(docs),
-                    )
+                branch_id = row.get("branch_id")
+                snapshot = StageSnapshot(
+                    stage_index=row["stage_index"],
+                    stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
+                    documents=docs,
+                    latency_ms=row["latency_ms"],
+                    profiling=json.loads(row["profiling_json"] or "{}"),
+                    candidate_count=row["candidate_count"] or len(docs),
                 )
+                if branch_id:
+                    parent = snap_by_stage.get(row["stage_index"])
+                    if parent is not None:
+                        parent.arms.append(snapshot)
+                    continue
+                snapshots.append(snapshot)
+                snap_by_stage[row["stage_index"]] = snapshot
                 total_latency += row["latency_ms"]
                 status = row["status"]
                 error_traceback = row["error_traceback"]

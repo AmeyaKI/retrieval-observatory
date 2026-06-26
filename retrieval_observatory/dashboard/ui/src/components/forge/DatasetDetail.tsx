@@ -56,9 +56,8 @@ function LabelTrustBanner({ coverage }: { coverage: number }) {
           ? ` An LLM validation pass expanded/confirmed labels for ${pct}% of queries.`
           : ' No LLM validation pass was run, so labels are extractive-only (no expansion to other relevant docs).'}
       </p>
-      <p className="text-gray-500 mt-1">
-        Treat stress scores as a <strong>lower bound</strong>: a pipeline may retrieve a genuinely relevant doc that
-        extractive labels miss, which counts as a miss here.
+      <p className="text-amber-900 mt-2 font-medium bg-amber-100/60 border border-amber-200 rounded px-2 py-1">
+        Important: stress scores are a <strong>lower bound</strong>. A truly relevant document missing from extractive labels is still counted as a miss.
       </p>
     </div>
   )
@@ -167,6 +166,7 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{type}</span>
               <span className="text-xs text-gray-400">{list.length}</span>
+              {list.length > 12 && <span className="text-[10px] text-amber-700">showing 12 of {list.length}</span>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {list.slice(0, 12).map((sc) => (

@@ -217,6 +217,10 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
 
   return (
     <div className="overflow-x-auto">
+      <p className="text-xs text-gray-500 mb-2">
+        Stability badges use explicit thresholds (underpowered n&lt;30, wide CI relative width &ge;35%, sparse CI width &ge;0.05 with low mean, stable relative width &lt;15%, high zeros &gt;40%).
+        <MetricTooltip text={`${METRIC_GLOSSARY.underpowered}\n\n${METRIC_GLOSSARY.wide_ci}\n\n${METRIC_GLOSSARY.wide_ci_abs}\n\n${METRIC_GLOSSARY.stable}\n\n${METRIC_GLOSSARY.high_zero_pct}`} />
+      </p>
       <table className="min-w-full text-sm">
         <thead>
           <tr className="bg-gray-100 text-left">
