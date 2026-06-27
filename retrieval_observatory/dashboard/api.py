@@ -1355,7 +1355,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
         after_id: str,
         after_stage: int,
         after_branch: str | None,
-    ) -> tuple[Dict[str, Any], float | None, float | None]:
+    ) -> tuple[Dict[str, Any], float | None, float | None, bool]:
         before_keys = (
             keys_by_pipeline_branch.get(before_id, {}).get(before_stage, {}).get(before_branch, [])
             if before_branch
@@ -1372,6 +1372,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
         deltas: Dict[str, Any] = {}
         raw_p_values: List[float] = []
         delta_p_map: List[tuple] = []
+        has_indeterminate = False
         for mk in sorted(set(before_quality) & set(after_quality)):
             mname, k = mk
             b_mean = metrics[before_quality[mk]]["mean"]
@@ -1399,17 +1400,30 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
             }
             shared = sorted(set(b_scores) & set(a_scores))
             p = None
+            indeterminate = False
+            indeterminate_reason = None
+            # For arm-vs-fused comparisons, a fused branch can be "present" but contain
+            # only zeros (e.g., failed retrieval on that query set). Treat this as
+            # insufficient data instead of implying no arm benefit.
+            if before_branch is not None and after_branch is None:
+                arm_has_signal = any(v > 0 for v in b_scores.values())
+                fused_has_signal = any(v > 0 for v in a_scores.values())
+                if arm_has_signal and not fused_has_signal:
+                    indeterminate = True
+                    indeterminate_reason = "fused_stage_no_quality_signal"
+                    has_indeterminate = True
             if shared:
                 p = paired_bootstrap_test([b_scores[q] for q in shared], [a_scores[q] for q in shared])
-                raw_p_values.append(p)
-            delta_p_map.append((mname, k, b_mean, a_mean, absolute, pct, p))
+                if not indeterminate:
+                    raw_p_values.append(p)
+            delta_p_map.append((mname, k, b_mean, a_mean, absolute, pct, p, indeterminate, indeterminate_reason))
 
         q_values = benjamini_hochberg(raw_p_values)
         q_idx = 0
-        for mname, k, b_mean, a_mean, absolute, pct, p in delta_p_map:
+        for mname, k, b_mean, a_mean, absolute, pct, p, indeterminate, indeterminate_reason in delta_p_map:
             label = f"{mname}@{k}" if k > 0 else mname
             q_value = None
-            if p is not None:
+            if p is not None and not indeterminate:
                 q_value = q_values[q_idx]
                 q_idx += 1
             deltas[label] = {
@@ -1418,7 +1432,9 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 "absolute": absolute,
                 "pct": pct,
                 "q_value": q_value,
-                "significant": (q_value is not None and q_value < 0.05),
+                "significant": (q_value is not None and q_value < 0.05 and not indeterminate),
+                "indeterminate": indeterminate,
+                "indeterminate_reason": indeterminate_reason,
             }
 
         def _lat(
@@ -1444,7 +1460,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
 
         lat_before = _lat(before_id, before_stage, before_keys, before_branch)
         lat_after = _lat(after_id, after_stage, after_keys, after_branch)
-        return deltas, lat_before, lat_after
+        return deltas, lat_before, lat_after, has_indeterminate
 
     for before_id, after_id in prefix_pairs:
         before_stages = keys_by_pipeline.get(before_id, {})
@@ -1453,7 +1469,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
             continue
         before_last = max(s for s in before_stages if s >= 0)
         after_last = max(s for s in after_stages if s >= 0)
-        deltas, lat_before, lat_after = _build_delta(before_id, before_last, None, after_id, after_last, None)
+        deltas, lat_before, lat_after, has_indeterminate = _build_delta(before_id, before_last, None, after_id, after_last, None)
         contributions.append(
             {
                 "comparison_tier": "cross_pipeline_prefix",
@@ -1463,13 +1479,14 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 "latency_p50_before_ms": lat_before,
                 "latency_p50_after_ms": lat_after,
                 "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+                "indeterminate": has_indeterminate,
             }
         )
 
     for pid, stages in keys_by_pipeline.items():
         ordered = sorted(s for s in stages if s >= 0)
         for before_stage, after_stage in zip(ordered, ordered[1:]):
-            deltas, lat_before, lat_after = _build_delta(pid, before_stage, None, pid, after_stage, None)
+            deltas, lat_before, lat_after, has_indeterminate = _build_delta(pid, before_stage, None, pid, after_stage, None)
             contributions.append(
                 {
                     "comparison_tier": "within_pipeline_stage",
@@ -1480,13 +1497,14 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                     "latency_p50_before_ms": lat_before,
                     "latency_p50_after_ms": lat_after,
                     "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+                    "indeterminate": has_indeterminate,
                 }
             )
 
     for pid, stages in keys_by_pipeline_branch.items():
         for stage_index, branches in stages.items():
             for branch_id in sorted(branches):
-                deltas, lat_before, lat_after = _build_delta(pid, stage_index, branch_id, pid, stage_index, None)
+                deltas, lat_before, lat_after, has_indeterminate = _build_delta(pid, stage_index, branch_id, pid, stage_index, None)
                 contributions.append(
                     {
                         "comparison_tier": "within_stage_arm",
@@ -1499,6 +1517,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                         "latency_p50_before_ms": lat_before,
                         "latency_p50_after_ms": lat_after,
                         "latency_delta_ms": (lat_after - lat_before) if lat_before is not None and lat_after is not None else None,
+                        "indeterminate": has_indeterminate,
                     }
                 )
 

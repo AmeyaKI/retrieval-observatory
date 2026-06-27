@@ -85,7 +85,10 @@ export default function TraceLensWorkspace({ route }: Props) {
     <div className="flex flex-1 min-w-0">
       <aside className="shrink-0 w-60 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
         <div className="px-4 py-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900">TraceLens</h1>
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-lg font-bold text-gray-900">TraceLens</h1>
+            <a href="#/benchmarks" className="text-[11px] text-teal-700 underline decoration-teal-300">Glossary</a>
+          </div>
           <p className="text-xs text-gray-500 mt-0.5">Production observability</p>
         </div>
         <div className="px-3 py-3 border-b border-gray-100">
@@ -122,9 +125,17 @@ export default function TraceLensWorkspace({ route }: Props) {
 
       <main className="flex-1 overflow-auto min-w-0">
         {/* Honesty banner — production has no ground truth */}
-        <div className="bg-teal-50/70 border-b border-teal-100 px-6 py-2 text-[11px] text-teal-800">
-          Production has no ground truth — failures shown here are <strong>suspected</strong> (label-free proxy
-          signals), not measured Recall. Measured quality lives in Benchmarks + Forge.
+        <div className="bg-teal-50 border-b border-teal-200 px-6 py-3 text-xs text-teal-900">
+          <p className="font-semibold">
+            Production has no ground truth: failures shown here are <strong>suspected (not measured)</strong>.
+          </p>
+          <p className="mt-1">
+            Proxy signals: <span className="font-mono">empty_candidates</span>, <span className="font-mono">latency_over_budget</span>, <span className="font-mono">high_churn</span>, <span className="font-mono">low_confidence</span>.
+            Measured quality lives in Benchmarks and Forge.
+          </p>
+          <p className="mt-1">
+            To reproduce hotspots with labels, generate a stress dataset in <a href="#/forge" className="underline decoration-teal-400 hover:text-teal-700">Forge</a>.
+          </p>
         </div>
 
         <div className="px-6 py-4">

@@ -107,7 +107,10 @@ export default function AdvisorWorkspace() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <header className="shrink-0 border-b border-gray-200 bg-white px-6 py-4">
-        <h1 className="text-lg font-semibold text-violet-800">Advisor</h1>
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="text-lg font-semibold text-violet-800">Advisor</h1>
+          <a href="#/benchmarks" className="text-[11px] text-violet-700 underline decoration-violet-300">Glossary</a>
+        </div>
         <p className="text-xs text-gray-500 mt-0.5">
           Rule-based recommendations with cited evidence — heuristics, not guarantees.
         </p>
@@ -122,14 +125,23 @@ export default function AdvisorWorkspace() {
               Reliability score: {(reliability.value * 100).toFixed(0)}%
             </p>
             <p className="text-[11px] text-gray-600 mt-1">
-              quality, stability, robustness, and speed components.
+              Composite of four weighted components (25% each): recall_at_10, low_failure_rate, latency_headroom, diagnostic_health.
               <MetricTooltip text={METRIC_GLOSSARY.reliability_components} />
+            </p>
+            <p className="text-[11px] text-gray-600 mt-1">
+              Reference scale: &ge;85% strong, 70–84% watchlist, &lt;70% poor.
             </p>
             <div className="flex flex-wrap gap-3 mt-1 text-gray-700">
               {Object.entries(reliability.components).map(([k, v]) => (
                 <span key={k}>{k.replace(/_/g, ' ')}: {(v * 100).toFixed(0)}%</span>
               ))}
             </div>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-[11px] text-violet-800 font-medium">Show component formulas</summary>
+              <p className="mt-1 text-[11px] text-gray-700">
+                recall_at_10 = mean Recall@10 across pipelines; low_failure_rate = 1 - failure_label_rate; latency_headroom = budget headroom from latency_p95; diagnostic_health = 1 - unstable_rate.
+              </p>
+            </details>
           </div>
         )}
       </header>
@@ -176,7 +188,12 @@ export default function AdvisorWorkspace() {
                 <div className="space-y-3">
                   {recommendations.map((rec, i) => (
                     <div key={i} className="rounded-lg border border-gray-200 bg-white p-4">
-                      <p className="text-sm font-medium text-gray-900">{rec.action}</p>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium text-gray-900">{rec.action}</p>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded border border-violet-200 bg-violet-50 text-violet-700 font-semibold">
+                          Priority {rec.priority}
+                        </span>
+                      </div>
                       <p className="text-xs text-gray-600 mt-1">{rec.rationale}</p>
                       <ul className="mt-2 text-[11px] text-gray-500 list-disc pl-4">
                         {rec.evidence.map((ev, j) => (
@@ -244,7 +261,10 @@ export default function AdvisorWorkspace() {
                     <th className="text-left px-3 py-2">Metric</th>
                     <th className="text-right px-3 py-2">Before</th>
                     <th className="text-right px-3 py-2">After</th>
-                    <th className="text-right px-3 py-2">q-value</th>
+                    <th className="text-right px-3 py-2">
+                      q-value
+                      <MetricTooltip text="BH-adjusted q-value (FDR-controlled p-value). Treat q < 0.05 as statistically significant after multiple-comparison correction." />
+                    </th>
                     <th className="text-left px-3 py-2">Severity</th>
                   </tr>
                 </thead>

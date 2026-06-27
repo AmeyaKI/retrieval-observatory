@@ -60,6 +60,8 @@ ro.benchmark(my_pipeline, queries=queries, corpus=corpus,   # zero ground truth
              labels="llm-judge", judge="gemini")
 ```
 
+`ro.generate_testset(...)` is free/rule-based and fast but lower coverage; `labels="llm-judge"` costs API tokens and is slower, but can recover relevant docs that extractive labels miss.
+
 **CI gate** — fail the build on a significant regression via the bundled pytest plugin:
 
 ```python
@@ -69,6 +71,57 @@ def test_no_regression(retobs):
 ```
 
 Details: [docs/ci_gating.md](docs/ci_gating.md).
+
+---
+
+## Real-data integration notes
+
+### Dataset formats (custom JSONL + qrels)
+
+```json
+{"id":"doc_1","title":"Optional title","text":"Document text","timestamp":"2025-01-01T00:00:00Z"}
+{"query_id":"q_1","text":"query text","relevant_doc_ids":["doc_1"]}
+{"query_id":"q_2","text":"graded query","relevant_doc_ids":{"doc_9":2,"doc_3":1}}
+```
+
+- `corpus.jsonl`: one JSON object per document (`id`, `text`; `title`/`timestamp` optional).
+- `queries.jsonl`: one JSON object per query (`query_id`, `text`, `relevant_doc_ids`).
+- `relevant_doc_ids` supports binary list (`["doc"]`) or graded dict (`{"doc": 2}`).
+- Optional `qrels_path` supports JSONL (`query_id`, `doc_id`, `grade|score`) and TREC text lines.
+- Internal qrels are normalized to `{query_id: {doc_id: grade_int}}`; binary relevance maps to grade `1`.
+
+### Custom retriever integration options
+
+- **SDK callable path:** pass a Python callable (or `[retriever, reranker]`) to `ro.benchmark(...)`.
+- **Adapter protocol path:** provide objects implementing `.retrieve(query)` / `.rerank(query, docs)`.
+- **Any REST retriever:** use `adapter.http`; response field names are configurable via `id_field`, `text_field`, `score_field`.
+
+### Production tracing recipe
+
+```python
+import retrieval_observatory as ro
+from retrieval_observatory.tracing.integrations.fastapi import instrument_fastapi, get_trace
+
+recorder = ro.init(service="search-api", db=".retobs/prod.db")
+instrument_fastapi(app, recorder)
+
+@app.get("/search")
+async def search(q: str, request: Request):
+    t = get_trace(request)
+    if t is None:  # route excluded / sampling skipped
+        return baseline_search(q)
+    with t.stage("bm25") as s:
+        s.results = bm25_ids(q)
+    with t.stage("rerank") as s:
+        s.results = rerank_ids(q, s.results)
+    return s.results
+```
+
+`get_trace()` can return `None` when tracing is excluded for the route (or sampled out); your handler should continue normally.
+
+### Current storage limitation
+
+Dashboard serve paths are SQLite-first today. Postgres benchmark storage exists, but Forge/TraceLens dashboard serving is not fully wired yet.
 
 ---
 

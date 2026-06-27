@@ -65,6 +65,7 @@ export default function DriftExplorer({ service }: { service: string }) {
     <div>
       <p className="text-xs text-gray-500 mb-3">
         Fixed windows: baseline = prior 8d→24h ago, recent = last 24h. PSI flags categorical shifts and KS flags latency shifts.
+        {' '}Visible thresholds: PSI ≥0.10 = moderate, PSI ≥0.25 = significant; latency drift uses a KS test.
         {' '}{METRIC_GLOSSARY.tracelens_drift_thresholds}
       </p>
       {drifted.length === 0 && (

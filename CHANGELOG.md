@@ -6,29 +6,61 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
-Changes on `main` not yet published to PyPI.
+Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Fixed
 
-- **[accuracy] Hybrid (fan-in) pipelines were mis-simulated.** The SDK modeled every pipeline as strictly linear (stage 0 = the sole candidate generator), so a hybrid expressed as `[retriever, fusion_reranker]` recorded only one arm's candidates in stage 0. A query whose relevant doc was found by the second arm and returned in the final results — a success — was incorrectly labeled `candidate_miss`. `metrics.diagnostics` now derives `candidate_miss` from the union of all stage snapshots and emits the informational `late_stage_recovery` label instead of inverting a successful query into a failure.
-- **Production tracing 500'd out of the box.** `SQLiteStore` did not create its schema until `init_db()` was called manually, so the first traced request failed with `no such table: traces`. The store now creates its schema lazily on first write (`_ensure_schema` in `save_traces_batch`).
-- `enrich`'s `low_confidence` default floor was `0.0`, which flagged every trace whose documents had unscored/zero scores. The default is now `None` (disabled unless a per-service floor is set).
+- `metrics/diagnostics.py` — hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`; `candidate_miss` now requires zero relevant docs across all stage snapshots and emits `late_stage_recovery` when a later/fused stage surfaces the gold doc.
+- `store/sqlite.py` — lazy schema creation on first trace write (`_ensure_schema` in `save_traces_batch`) so production tracing no longer 500s with `no such table: traces`.
+- `tracing/enrich.py` — `low_confidence` default floor changed from `0.0` to `None` (disabled unless explicitly configured).
+- `dashboard/api.py` — arm-vs-fused stage contribution deltas mark fused-zero comparisons as indeterminate instead of reporting misleading zero-gain verdicts.
+- `dashboard/ui/src/components/StagePipelineFlow.tsx` — fallback topology reconstruction restores hybrid arms from `branch_id` metrics when `pipeline_topology` is unavailable.
 
 ### Added
 
-- `ro.fuse([retriever_a, retriever_b, ...])` — express a hybrid as an accurate fan-in candidate-generation stage 0 (wraps the existing `RRFFusionAdapter`). A nested list in the pipeline (`ro.benchmark([[bm25, dense], rerank])`) is a convenience alias for the same thing; a flat list still means a sequence of stages. A fused stage is only valid at stage 0.
-- `retobs.init(service=..., db=...)` — one-line production tracing setup that wires the store, sink, and recorder together (schema auto-created on first write).
-- `t.stage("bm25", corpus=...)` as a context manager — auto-times the block and accepts bare document ids: `with t.stage("bm25") as s: s.results = ids`. The immediate form `t.stage(id, docs, latency_ms)` still works.
-- FastAPI `instrument_fastapi` gained `exclude_paths` (defaults skip `/docs`, `/openapi.json`, `/redoc`, `/health`, `/favicon.ico`) and a `query_extractor` hook (default reads the `q` query parameter instead of recording the URL path).
-- `types.StageSnapshot.arms` and `types.RetrievalResult.arm_results` — fused-stage arm snapshots are now first-class and persisted for dashboard topology rendering.
+- `sdk/api.py` — `ro.fuse([retriever_a, retriever_b, ...])` for accurate fan-in stage 0 (RRF); nested pipeline lists (`[[bm25, dense], rerank]`) are a convenience alias.
+- `tracing/__init__.py` — `ro.init(service=..., db=...)` one-line production tracing setup (store + sink + recorder, schema auto-created on first write).
+- `tracing/recorder.py` — `t.stage(...)` context manager with auto-timing and bare doc-id `s.results` assignment; immediate `t.stage(id, docs, latency_ms)` form retained.
+- `tracing/integrations/fastapi.py` — `exclude_paths` (skip docs/health by default) and `query_extractor` hook (default reads `q` query param).
+- `types.py` — `StageSnapshot.arms` and `RetrievalResult.arm_results` for fused-stage arm snapshots persisted to store and dashboard topology.
+- `tests/unit/test_hybrid_fanin.py` — hybrid fan-in SDK/pipeline integration coverage.
+- `tests/unit/test_tracing_improvements.py` — tracing onboarding (`ro.init`, lazy schema, FastAPI route filtering) coverage.
+- `tests/unit/test_store.py` — fusion-arm store round-trip coverage.
+- `tests/unit/test_stage_cache.py` — fused-stage arm cache snapshot round-trip for `_snap_to_json`/`_snap_from_json`.
+- `tests/unit/test_dashboard_warnings.py` — indeterminate arm-vs-fused stage-contribution API coverage.
+- `tests/unit/test_metrics.py` — branch-metric aggregation keeps fused and main rows separate.
 
 ### Changed
 
-- CLI `--db` options now also accept `--db-path` as an alias, matching the `db_path` constructor argument.
-- `store.sqlite`/`store.postgres` — `raw_results` and `metric_scores` now persist `branch_id` rows for fused-stage arm branches with backward-compatible schema migrations.
-- `metrics.engine` — branch-aware metric emission/aggregation now keeps fused-stage arm metrics separate via `branch_id`.
-- `dashboard.api` — `/runs/{run_id}/overview` now returns `pipeline_topology` and stage contributions now include cross-pipeline, within-pipeline, and fused-arm ablation tiers.
-- `dashboard/ui` — pipeline flow now renders fused fan-out/fan-in arm nodes, verdicts are tiered by comparison type, and module audit UX now surfaces truncation/default/threshold behaviors explicitly.
+- `__init__.py`/`sdk/__init__.py` — export `fuse` and top-level `init`.
+- `cli.py` — `--db` options accept `--db-path` alias.
+- `store/sqlite.py`/`store/postgres.py` — `raw_results` and `metric_scores` persist `branch_id` rows for fused arms with backward-compatible migrations.
+- `metrics/engine.py` — branch-aware metric emission/aggregation keeps fused arm metrics separate via `branch_id`.
+- `metrics/comparison.py` — `parse_metric_key` and paired score lookup are branch-aware (`branch=` suffix).
+- `advisor/regression.py` — regression detection skips arm `branch_id` metric rows.
+- `pipeline/multi.py`/`pipeline/single.py` — fused runs attach per-arm `StageSnapshot` children on the fused stage.
+- `runner/cache.py` — stage/result cache JSON serializers round-trip nested `StageSnapshot.arms`.
+- `dashboard/api.py` — `/runs/{run_id}/overview` returns `pipeline_topology`; stage contributions include cross-pipeline, within-pipeline, and fused-arm ablation tiers.
+- `dashboard/ui/src/components/StagePipelineFlow.tsx` — hybrid graph renders parallel arms → RRF fusion with glossary-backed arm/RRF/fused labels.
+- `dashboard/ui/src/components/VerdictCard.tsx` — tiered ablation cards, verdict legend with active thresholds, plain-language section headers, and neutral indeterminate state.
+- `dashboard/ui/src/components/ExperimentOverview.tsx`/`QueryExplorer.tsx` — diagnostic buckets (post-hoc) vs predicted difficulty (pre-retrieval) labeled distinctly; visible 3-class fold mapping and separate diagnostic-bucket column.
+- `dashboard/ui/src/components/MetricsTable.tsx` — stability-badge caption and tooltip titles include triggering threshold values.
+- `dashboard/ui/src/components/RecallFunnel.tsx` — fallback K label when Recall@10 is unavailable.
+- `dashboard/ui/src/components/StageCombinationMatrix.tsx` — truncation notice when matrix rows exceed display cap.
+- `dashboard/ui/src/components/tracelens/TraceLensOverview.tsx` — KPI labels inline active threshold cutoffs (>5% / >10% / >2000ms).
+- `dashboard/ui/src/components/tracelens/SuspectedFailureChip.tsx` — threshold-aware tooltips for suspected-failure proxy signals.
+- `dashboard/ui/src/components/tracelens/DriftExplorer.tsx` — visible PSI/KS drift threshold caption.
+- `dashboard/ui/src/components/tracelens/Hotspots.tsx` — hotspot rate defined as share-of-difficulty traffic.
+- `dashboard/ui/src/components/tracelens/Clusters.tsx` — heuristic difficulty×length clustering basis stated explicitly.
+- `dashboard/ui/src/components/TraceLensWorkspace.tsx` — prominent suspected-vs-measured callout listing four proxy signals; Forge breadcrumb for hotspot reproduction.
+- `dashboard/ui/src/components/ForgeWorkspace.tsx` — persistent purpose statement under header.
+- `dashboard/ui/src/components/forge/DatasetDetail.tsx` — label-trust caveat decoupled from amber validation styling.
+- `dashboard/ui/src/components/AdvisorWorkspace.tsx` — reliability decomposition with formulas/reference scale; recommendation priority badges; BH-adjusted q-value column tooltip.
+- `dashboard/ui/src/components/RunDetail.tsx` — benchmark run links to originating Forge dataset when `forge_dataset_id` is present.
+- `dashboard/ui/src/components/DashboardGuide.tsx` — glossary/how-to-read section and color-convention note; workspace headers link to glossary.
+- `dashboard/ui/src/utils/metricGlossary.ts` — entries for `rrf`, `arm`, `fused_stage`, `q_value`, `psi`, `ks_test`, `difficulty_diagnostic`, `difficulty_predicted`, and reliability-component weighting.
+- `types.py` — docstring on `RetrievalResult.arm_results` contract for fusing adapters.
+- `README.md` — custom JSONL/qrel formats, no-ground-truth labeling tradeoffs, production tracing recipe (`get_trace()` can be `None`), integration paths, and SQLite-first dashboard limitation.
 
 ---
 

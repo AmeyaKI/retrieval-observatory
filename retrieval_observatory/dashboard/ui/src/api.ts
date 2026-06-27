@@ -134,6 +134,8 @@ export interface StageDelta {
   pct: number
   q_value: number | null
   significant: boolean
+  indeterminate?: boolean
+  indeterminate_reason?: string | null
 }
 
 export interface StageContribution {
@@ -147,6 +149,7 @@ export interface StageContribution {
   latency_p50_before_ms: number | null
   latency_p50_after_ms: number | null
   latency_delta_ms: number | null
+  indeterminate?: boolean
 }
 
 export interface TopologyStageMetrics {

@@ -1,4 +1,8 @@
-from retrieval_observatory.dashboard.api import _overview_warnings, _pipeline_topology
+from retrieval_observatory.dashboard.api import (
+    _compute_stage_contributions,
+    _overview_warnings,
+    _pipeline_topology,
+)
 from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 
@@ -114,3 +118,37 @@ def test_pipeline_topology_reports_fused_arms():
     assert "fused__rerank" in topo
     assert topo["fused__rerank"][0]["kind"] == "fused"
     assert topo["fused__rerank"][0]["arms"][0]["arm_id"] == "bm25_stage"
+
+
+def test_stage_contributions_mark_arm_vs_fused_indeterminate_when_fused_zero_signal():
+    metrics = {
+        "hybrid|stage0|recall@10|branch=bm25_arm": {
+            "pipeline_id": "hybrid",
+            "stage_index": 0,
+            "metric_name": "recall",
+            "k": 10,
+            "mean": 0.5,
+            "branch_id": "bm25_arm",
+        },
+        "hybrid|stage0|recall@10": {
+            "pipeline_id": "hybrid",
+            "stage_index": 0,
+            "metric_name": "recall",
+            "k": 10,
+            "mean": 0.0,
+            "branch_id": None,
+        },
+    }
+    metrics_rows = [
+        {"query_id": "q1", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": "bm25_arm", "metric_name": "recall", "k": 10, "value": 1.0},
+        {"query_id": "q2", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": "bm25_arm", "metric_name": "recall", "k": 10, "value": 0.0},
+        {"query_id": "q1", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.0},
+        {"query_id": "q2", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.0},
+    ]
+    contributions = _compute_stage_contributions(metrics, metrics_rows)
+    arm = next(c for c in contributions if c["comparison_tier"] == "within_stage_arm")
+    recall_delta = arm["deltas"]["recall@10"]
+    assert arm["indeterminate"] is True
+    assert recall_delta["indeterminate"] is True
+    assert recall_delta["indeterminate_reason"] == "fused_stage_no_quality_signal"
+    assert recall_delta["significant"] is False

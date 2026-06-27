@@ -56,6 +56,13 @@ function StageContributionCard({
     const qualityEntry = entries.find(([k]) => k.startsWith('recall') || k.startsWith('ndcg'))
     if (!qualityEntry) return null
     const [metricLabel, delta] = qualityEntry
+    if (delta.indeterminate) {
+      return {
+        color: 'slate',
+        icon: '◌',
+        text: `Insufficient data: fused-stage ${metricLabel} had no quality signal for this query set, so arm-vs-fused delta is indeterminate.`,
+      }
+    }
     const qualityMet = delta.absolute >= minQualityDelta && delta.significant
     const latencyOk =
       contribution.latency_delta_ms == null || contribution.latency_delta_ms <= latencyBudgetMs
@@ -93,6 +100,7 @@ function StageContributionCard({
     emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     amber: 'border-amber-200 bg-amber-50 text-amber-800',
     gray: 'border-gray-200 bg-gray-50 text-gray-600',
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
   }
 
   return (
@@ -115,6 +123,11 @@ function StageContributionCard({
               <span className={`font-mono text-xs font-semibold ${d.absolute > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {d.absolute >= 0 ? '+' : ''}{fmtQuality(d.absolute)}
               </span>
+              {d.indeterminate && (
+                <span className="text-[10px] px-1 rounded text-slate-700 bg-slate-100">
+                  insufficient data
+                </span>
+              )}
               {d.q_value != null && (
                 <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-emerald-700 bg-emerald-50' : 'text-gray-400 bg-gray-100'}`}>
                   q={d.q_value.toFixed(3)}{d.significant ? ' ✓' : ''}
@@ -248,9 +261,19 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
       {hasContributions ? (
         <div>
           <div className="text-sm font-semibold text-gray-700 mb-2">Stage Ablation Attribution</div>
+          <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-3">
+            Decision rule: a stage <strong>pays for itself</strong> when the quality gain is statistically significant and at least {minQualityDelta.toFixed(2)}, while staying within the latency budget ({fmtLatencyMs(latencyBudgetMs)}ms P50).
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3 text-xs">
+            <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">✓ Significant gain and within latency budget.</div>
+            <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">⚠ Gain exists but is not significant.</div>
+            <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">⚠ Significant gain but over latency budget.</div>
+            <div className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700">○ Significant/insignificant gain below quality threshold.</div>
+            <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700 sm:col-span-2">◌ Neutral: insufficient fused-stage signal for arm-vs-fused comparison.</div>
+          </div>
           {hasIndependentPipelines && crossPrefix.length > 0 && (
             <p className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-3 py-2 mb-3">
-              Cross-pipeline prefix pairs are shown separately from within-pipeline stage and arm-level deltas.
+              Cross-pipeline prefix comparisons are shown separately from in-pipeline stage adds and hybrid arm contributions.
               {independentIds.length > 0 && (
                 <> Independent pipelines ({independentIds.join(', ')}) are compared in Pipeline Verdict above.</>
               )}
@@ -258,7 +281,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
           )}
           {crossPrefix.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Cross-pipeline prefix</div>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Does each added stage earn its cost? (prefix pipelines)</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
                 {crossPrefix.map((c) => (
                   <StageContributionCard
@@ -273,7 +296,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
           )}
           {withinPipeline.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Within-pipeline stages</div>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Does each added stage earn its cost? (within one pipeline)</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
                 {withinPipeline.map((c) => (
                   <StageContributionCard
@@ -288,7 +311,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
           )}
           {armAblations.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Within-stage arm ablation (arm vs fused)</div>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Which retriever arm is carrying the hybrid?</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {armAblations.map((c) => (
                   <StageContributionCard

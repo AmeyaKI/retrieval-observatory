@@ -60,6 +60,15 @@ export default function DashboardGuide() {
             </p>
           </div>
           <div className="border-t border-indigo-100 pt-2">
+            <p className="font-semibold mb-1">Glossary / How to read labels</p>
+            <p className="text-indigo-700">
+              Diagnostic buckets are post-hoc benchmark outcomes; predicted difficulty is pre-retrieval from query text. Hybrid stages run parallel arms and fuse with RRF. q-values are BH-adjusted p-values (significant when q&lt;0.05).
+            </p>
+            <p className="text-indigo-700 mt-1">
+              Color convention: emerald = good/win, amber = caution, rose = regression/failure, slate/gray = neutral or insufficient data.
+            </p>
+          </div>
+          <div className="border-t border-indigo-100 pt-2">
             <p className="font-semibold mb-1">Two types of runs</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="bg-white/60 rounded p-2 border border-indigo-100">

@@ -17,8 +17,8 @@ export default function Clusters({ service, since }: { service: string; since?: 
   return (
     <div>
       <p className="text-xs text-gray-500 mb-3">
-        Heuristic traffic segmentation by difficulty × query length. (Embedding-based semantic clustering is
-        a planned enhancement.)
+        Current clustering method: heuristic buckets by predicted difficulty × query length. Use these as
+        operational segments; embedding-based semantic clustering is not in this view yet.
       </p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {clusters.map((c) => (

@@ -44,9 +44,12 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
   return (
     <div className="border border-gray-200 rounded bg-white">
       <p className="text-xs text-gray-500 px-3 pt-3 pb-1">
-        <strong>Actual</strong> = post-hoc difficulty from mean recall (5 diagnostic buckets → 3-class for agreement).
-        <strong className="ml-2">Predicted</strong> = pre-retrieval classifier on query text.
-        <MetricTooltip text={`${METRIC_GLOSSARY.actual_difficulty}\n\n${METRIC_GLOSSARY.predicted_difficulty}`} />
+        <strong>Diagnostic buckets (post-hoc from observed recall/variance)</strong>: easy, medium, hard, discriminative, unstable, unknown.
+        <strong className="ml-2">Predicted difficulty (pre-retrieval from query text)</strong>: easy, medium, hard, extreme.
+        <MetricTooltip text={`${METRIC_GLOSSARY.difficulty_diagnostic}\n\n${METRIC_GLOSSARY.difficulty_predicted}`} />
+      </p>
+      <p className="text-[11px] text-gray-500 px-3 pb-2">
+        Agreement uses a 3-class fold: easy → easy, medium/discriminative/unstable → medium, hard/extreme → hard.
       </p>
       <div className="p-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
         <input
@@ -67,6 +70,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
             <tr>
               <th className="text-left px-3 py-2">Query</th>
               <th className="text-left px-3 py-2">Text</th>
+              <th className="text-left px-3 py-2">Diagnostic bucket</th>
               <th className="text-left px-3 py-2">Actual (3-class)</th>
               <th className="text-left px-3 py-2">Predicted</th>
               <th className="text-left px-3 py-2">Proba</th>
@@ -85,9 +89,8 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                 <td className="px-3 py-2 max-w-xs truncate" title={item.query_text}>
                   {item.query_text || '—'}
                 </td>
-                <td className="px-3 py-2" title={`Diagnostic bucket: ${item.actual_bucket}`}>
-                  {item.actual_class || item.actual_bucket}
-                </td>
+                <td className="px-3 py-2 capitalize">{item.actual_bucket}</td>
+                <td className="px-3 py-2">{item.actual_class || item.actual_bucket}</td>
                 <td className="px-3 py-2">{item.predicted_difficulty || '—'}</td>
                 <td className="px-3 py-2 font-mono text-[10px] text-gray-600">
                   {formatProba(item.predicted_difficulty_proba)}

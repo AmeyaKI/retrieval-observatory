@@ -45,26 +45,26 @@ function latencySummaryHint(): JSX.Element {
 function CIBadge({ entry }: { entry: MetricEntry }) {
   if (isLatencyPercentile(entry.metric_name)) return null
   if (entry.n < 30) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium cursor-help" title={METRIC_GLOSSARY.underpowered}>underpowered</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium cursor-help" title={`n=${entry.n} (<30). ${METRIC_GLOSSARY.underpowered}`}>underpowered</span>
   }
   const ciWidth = entry.ci_high - entry.ci_low
   const meanAbs = Math.abs(entry.mean)
   const relWidth = ciWidth / Math.max(meanAbs, 0.001)
   if (relWidth >= 0.35) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help" title={METRIC_GLOSSARY.wide_ci}>wide CI</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help" title={`Relative CI width ${(relWidth * 100).toFixed(0)}% (threshold 35%). ${METRIC_GLOSSARY.wide_ci}`}>wide CI</span>
   }
   if (ciWidth >= 0.05 && meanAbs < 0.2) {
     return (
       <span
         className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help"
-        title={METRIC_GLOSSARY.wide_ci_abs}
+        title={`CI width ${ciWidth.toFixed(3)} (threshold 0.05) and |mean| ${meanAbs.toFixed(3)} (<0.2). ${METRIC_GLOSSARY.wide_ci_abs}`}
       >
         sparse CI
       </span>
     )
   }
   if (relWidth < 0.15) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium cursor-help" title={METRIC_GLOSSARY.stable}>stable</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium cursor-help" title={`Relative CI width ${(relWidth * 100).toFixed(0)}% (<15%). ${METRIC_GLOSSARY.stable}`}>stable</span>
   }
   return null
 }
@@ -77,7 +77,7 @@ function ZeroRateBadge({ zeroPct }: { zeroPct: number }) {
       className={`ml-1.5 text-[9px] px-1 py-0.5 rounded font-medium cursor-help ${
         high ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
       }`}
-      title={METRIC_GLOSSARY.high_zero_pct}
+      title={`Zero-score rate ${zeroPct.toFixed(1)}% (warn >20%, high >40%). ${METRIC_GLOSSARY.high_zero_pct}`}
     >
       {high ? 'high zeros' : 'zeros warning'}
     </span>

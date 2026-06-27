@@ -48,7 +48,7 @@ function LabelTrustBanner({ coverage }: { coverage: number }) {
   const pct = Math.round(coverage * 100)
   const validated = pct > 0
   return (
-    <div className={`rounded-lg border p-3 text-xs ${validated ? 'border-emerald-200 bg-emerald-50' : 'border-amber-200 bg-amber-50'}`}>
+    <div className={`rounded-lg border p-3 text-xs ${validated ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
       <p className="font-semibold text-gray-800 mb-0.5">Ground-truth provenance</p>
       <p className="text-gray-700 leading-relaxed">
         Relevance labels are <strong>extractive</strong> — each query's source document is graded relevant (grade&nbsp;2).
@@ -56,7 +56,7 @@ function LabelTrustBanner({ coverage }: { coverage: number }) {
           ? ` An LLM validation pass expanded/confirmed labels for ${pct}% of queries.`
           : ' No LLM validation pass was run, so labels are extractive-only (no expansion to other relevant docs).'}
       </p>
-      <p className="text-amber-900 mt-2 font-medium bg-amber-100/60 border border-amber-200 rounded px-2 py-1">
+      <p className="text-blue-900 mt-2 font-medium bg-blue-50 border border-blue-200 rounded px-2 py-1">
         Important: stress scores are a <strong>lower bound</strong>. A truly relevant document missing from extractive labels is still counted as a miss.
       </p>
     </div>

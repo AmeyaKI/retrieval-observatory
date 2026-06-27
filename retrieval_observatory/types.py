@@ -30,6 +30,13 @@ class Document:
 
 @dataclass
 class RetrievalResult:
+    """Single-stage retrieval output.
+
+    ``arm_results`` is optional and used by fusing retrievers (for example RRF):
+    each entry represents one arm's ranked candidates. Downstream pipeline/store
+    code converts each arm result into a scoreable arm-level ``StageSnapshot`` so
+    per-arm metrics are preserved in Benchmarks and the dashboard.
+    """
     documents: List[Document]
     latency_ms: float
     retriever_id: str

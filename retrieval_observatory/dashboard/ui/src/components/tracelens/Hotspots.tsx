@@ -20,7 +20,8 @@ export default function Hotspots({ service, since }: { service: string; since?: 
     <div>
       <p className="text-xs text-gray-500 mb-3">
         Traffic segments accumulating <strong>suspected</strong> (label-free) failure signals, grouped by
-        difficulty × signal × pipeline. Rate is the share of that difficulty's traffic. These point at where
+        difficulty × signal × pipeline. Rate = segment count / total traces in that difficulty bucket
+        for the selected window (share-of-difficulty traffic, not within-segment failure rate). These point at where
         to look, not a measured Recall.
       </p>
       <div className="space-y-2">
@@ -33,7 +34,7 @@ export default function Hotspots({ service, since }: { service: string; since?: 
             </div>
             <div className="text-right">
               <p className="text-sm font-bold text-gray-900 tabular-nums">{h.count}</p>
-              <p className="text-[10px] text-gray-400">{(h.rate * 100).toFixed(1)}% of {h.difficulty} traffic</p>
+              <p className="text-[10px] text-gray-400">{(h.rate * 100).toFixed(1)}% share of {h.difficulty} traffic</p>
             </div>
           </div>
         ))}

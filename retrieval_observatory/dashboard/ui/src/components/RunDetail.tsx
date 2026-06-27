@@ -130,6 +130,14 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
         <div>
           <h1 className="text-xl font-bold text-gray-900">{run.experiment_name}</h1>
           <p className="text-sm text-gray-500 font-mono mt-0.5">{run.run_id}</p>
+          {run.forge_dataset_id && (
+            <p className="text-xs text-amber-800 mt-1">
+              Originating Forge dataset:{' '}
+              <a href={`#/forge/${encodeURIComponent(run.forge_dataset_id)}`} className="underline decoration-amber-400 hover:text-amber-700">
+                {run.forge_dataset_id}
+              </a>
+            </p>
+          )}
         </div>
       </div>
 

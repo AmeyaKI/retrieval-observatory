@@ -21,17 +21,17 @@ function stageName(raw: string): string {
 }
 
 function fallbackTopology(metrics: MetricsMap): PipelineTopology {
-  const byStage = new Map<string, { pipelineId: string; stage: TopologyStage }>()
-  for (const entry of Object.values(metrics)) {
-    if (entry.stage_index < 0 || entry.branch_id) continue
-    const key = `${entry.pipeline_id}|${entry.stage_index}`
+  type StageDraft = TopologyStage & { _arms: Map<string, TopologyStage['arms'][number]> }
+  const byStage = new Map<string, { pipelineId: string; stage: StageDraft }>()
+  const ensureStage = (pipelineId: string, stageIndex: number): StageDraft => {
+    const key = `${pipelineId}|${stageIndex}`
     if (!byStage.has(key)) {
       byStage.set(key, {
-        pipelineId: entry.pipeline_id,
+        pipelineId,
         stage: {
-          stage_index: entry.stage_index,
-          stage_id: `stage_${entry.stage_index}`,
-          kind: entry.stage_index === 0 ? 'single' : 'rerank',
+          stage_index: stageIndex,
+          stage_id: `stage_${stageIndex}`,
+          kind: stageIndex === 0 ? 'single' : 'rerank',
           candidate_count: 0,
           metrics: {
             'ndcg@10': null,
@@ -39,10 +39,39 @@ function fallbackTopology(metrics: MetricsMap): PipelineTopology {
             latency_p50: null,
           },
           arms: [],
+          _arms: new Map<string, TopologyStage['arms'][number]>(),
         },
       })
     }
-    const current = byStage.get(key)!.stage
+    return byStage.get(key)!.stage
+  }
+
+  for (const entry of Object.values(metrics)) {
+    if (entry.stage_index < 0) continue
+    const current = ensureStage(entry.pipeline_id, entry.stage_index)
+    if (entry.branch_id) {
+      current.kind = 'fused'
+      if (!current._arms.has(entry.branch_id)) {
+        current._arms.set(entry.branch_id, {
+          arm_id: entry.branch_id,
+          candidate_count: 0,
+          metrics: {
+            'ndcg@10': null,
+            recall: { k: null, mean: null },
+            latency_p50: null,
+          },
+        })
+      }
+      const arm = current._arms.get(entry.branch_id)!
+      if (entry.metric_name === 'ndcg' && entry.k === 10) arm.metrics['ndcg@10'] = entry.mean
+      if (entry.metric_name === 'recall') {
+        if (arm.metrics.recall.k == null || entry.k > arm.metrics.recall.k) {
+          arm.metrics.recall = { k: entry.k, mean: entry.mean }
+        }
+      }
+      if (entry.metric_name === 'latency_p50') arm.metrics.latency_p50 = entry.mean
+      continue
+    }
     if (entry.metric_name === 'ndcg' && entry.k === 10) current.metrics['ndcg@10'] = entry.mean
     if (entry.metric_name === 'recall') {
       if (current.metrics.recall.k == null || entry.k > current.metrics.recall.k) {
@@ -53,8 +82,16 @@ function fallbackTopology(metrics: MetricsMap): PipelineTopology {
   }
   const topology: PipelineTopology = {}
   for (const { pipelineId, stage } of byStage.values()) {
+    const finalized: TopologyStage = {
+      stage_index: stage.stage_index,
+      stage_id: stage.stage_id,
+      kind: stage.kind,
+      candidate_count: stage.candidate_count,
+      metrics: stage.metrics,
+      arms: [...stage._arms.values()].sort((a, b) => a.arm_id.localeCompare(b.arm_id)),
+    }
     if (!topology[pipelineId]) topology[pipelineId] = []
-    topology[pipelineId].push(stage)
+    topology[pipelineId].push(finalized)
   }
   for (const pid of Object.keys(topology)) {
     topology[pid].sort((a, b) => a.stage_index - b.stage_index)
@@ -114,8 +151,8 @@ export default function StagePipelineFlow({ metrics, topology }: Props) {
   return (
     <div className="space-y-6">
       <p className="text-xs text-gray-500">
-        Each pipeline&apos;s stages are evaluated against ground-truth qrels. Hybrid retrieval stages expose arm-level metrics and a fused join.
-        <MetricTooltip text={METRIC_GLOSSARY.stage} />
+        Each pipeline&apos;s stages are evaluated against ground-truth qrels. Hybrid retrieval runs parallel arms and then fuses ranked lists with RRF; arm metrics score each arm&apos;s own candidates, so the fused stage can outperform any single arm.
+        <MetricTooltip text={`${METRIC_GLOSSARY.stage}\n\n${METRIC_GLOSSARY.arm}\n\n${METRIC_GLOSSARY.rrf}\n\n${METRIC_GLOSSARY.fused_stage}`} />
       </p>
       {pipelines.map(({ pipelineId, stages }) => (
         <div key={pipelineId}>
@@ -143,7 +180,7 @@ export default function StagePipelineFlow({ metrics, topology }: Props) {
 
                   {fused && (
                     <div className="mx-3">
-                      <div className="text-[11px] text-gray-400 mb-1">↘ fan-out ↙</div>
+                      <div className="text-[11px] text-sky-700 mb-1 font-medium">Parallel arms → RRF fusion</div>
                       <div className="space-y-2">
                         {stage.arms.map((arm) => (
                           <div key={arm.arm_id} className="border border-sky-200 bg-sky-50 rounded-lg p-2 min-w-[180px]">

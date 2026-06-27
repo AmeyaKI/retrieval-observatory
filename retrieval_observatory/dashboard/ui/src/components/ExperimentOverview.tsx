@@ -43,8 +43,8 @@ export default function ExperimentOverview({ dbId, runId }: { dbId: string; runI
       </div>
       <div className="border border-gray-200 rounded p-3 bg-white">
         <div className="text-xs uppercase tracking-wide text-gray-500">
-          Query Difficulty (all pipelines)
-          <MetricTooltip text="Benchmarks show six diagnostic buckets (easy/medium/hard/discriminative/unstable/unknown). Forge and TraceLens use a simpler production-focused view (typically easy/medium/hard plus unknown)." />
+          Diagnostic Buckets (post-hoc, from observed recall/variance)
+          <MetricTooltip text={METRIC_GLOSSARY.difficulty_diagnostic} />
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {buckets.length ? BUCKET_ORDER.filter((b) => overview.diagnostics.difficulty_buckets[b]).map((name) => (

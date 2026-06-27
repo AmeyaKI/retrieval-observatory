@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from retrieval_observatory.runner.cache import StageResultCache, _make_stage_cache_key
+from retrieval_observatory.runner.cache import StageResultCache, _make_stage_cache_key, _snap_from_json, _snap_to_json
 from retrieval_observatory.pipeline.multi import MultiStagePipeline
-from retrieval_observatory.types import Document, Query, RetrievalResult
+from retrieval_observatory.types import Document, Query, RetrievalResult, StageSnapshot
 
 
 class MockRetriever:
@@ -120,3 +120,30 @@ async def test_multistage_uses_stage_cache():
     assert result2.status == "OK"
     assert len(retriever_calls) == 1  # still 1 — retriever was NOT called again
     assert len(result2.snapshots) == 2
+
+
+def test_cache_roundtrip_with_arms():
+    snap = StageSnapshot(
+        stage_index=0,
+        stage_id="hybrid_fused",
+        documents=[Document(id="f1", text="fused", score=1.0, rank=1)],
+        latency_ms=9.0,
+        candidate_count=1,
+        arms=[
+            StageSnapshot(
+                stage_index=0,
+                stage_id="bm25_arm",
+                documents=[Document(id="a1", text="arm", score=0.7, rank=1)],
+                latency_ms=4.0,
+                candidate_count=1,
+            )
+        ],
+    )
+
+    encoded = _snap_to_json(snap)
+    decoded = _snap_from_json(encoded)
+
+    assert decoded.stage_id == "hybrid_fused"
+    assert len(decoded.arms) == 1
+    assert decoded.arms[0].stage_id == "bm25_arm"
+    assert decoded.arms[0].documents[0].id == "a1"

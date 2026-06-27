@@ -24,8 +24,14 @@ export default function ForgeWorkspace({ route }: Props) {
     <div className="flex flex-1 min-w-0">
       <aside className="shrink-0 w-72 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
         <div className="px-4 py-4 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-gray-900">Forge</h1>
+          <div className="flex items-center justify-between gap-2">
+            <h1 className="text-lg font-bold text-gray-900">Forge</h1>
+            <a href="#/benchmarks" className="text-[11px] text-amber-700 underline decoration-amber-300">Glossary</a>
+          </div>
           <p className="text-xs text-gray-500 mt-0.5">Corpus-specific stress datasets</p>
+          <p className="text-[11px] text-amber-800 mt-2">
+            Synthetic, corpus-specific stress tests — hard queries Forge mines from your own corpus.
+          </p>
         </div>
         {error && (
           <div className="m-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">{error}</div>
