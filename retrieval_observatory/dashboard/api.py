@@ -1180,12 +1180,21 @@ def _headline_metric_label(metric_name: str, k: int) -> str | None:
 
 def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifest: Dict | None) -> List[str]:
     warnings = []
+    if manifest:
+        for w in manifest.get("run_warnings", []):
+            warnings.append(w)
     if any(value.get("metric_name") == "failure_rate" and value.get("mean", 0.0) > 0 and not value.get("branch_id") for value in metrics.values()):
         warnings.append("At least one pipeline had failed or timed-out queries.")
     if any("id_or_qrel_issue" in row.get("failure_labels", []) for row in diagnostics):
         warnings.append("Some queries look like possible document ID or qrel mismatches.")
     if manifest and manifest.get("dataset", {}).get("missing_qrel_doc_ids", 0):
         warnings.append("Some qrel document IDs were missing from the loaded corpus.")
+    if manifest and manifest.get("unjudged_query_count", 0):
+        n = manifest["unjudged_query_count"]
+        warnings.append(
+            f"{n} quer{'y' if n == 1 else 'ies'} had no relevance judgments and were excluded "
+            "from quality metric means. Metrics reflect only judged queries."
+        )
     if manifest and manifest.get("cache_results"):
         warnings.append(
             "Result caching was enabled for this run (manifest: cache_results=true). "
@@ -1435,6 +1444,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 "significant": (q_value is not None and q_value < 0.05 and not indeterminate),
                 "indeterminate": indeterminate,
                 "indeterminate_reason": indeterminate_reason,
+                "n_pairs": len(shared) if shared else 0,
             }
 
         def _lat(

@@ -57,6 +57,21 @@ async def execute_benchmark(
 
     _log = log or (lambda *a, **k: None)
 
+    # Detect filter-ignorance early so the warning appears before any queries run.
+    filter_warnings: list[str] = []
+    queries_with_filters = [q for q in queries if q.filters]
+    if queries_with_filters:
+        for pipeline in pipelines:
+            retriever = getattr(pipeline, "retriever", None) or getattr(pipeline, "_retriever", None)
+            if retriever is not None and not getattr(retriever, "supports_filters", True):
+                filter_warnings.append(
+                    f"Pipeline '{pipeline.pipeline_id}': {len(queries_with_filters)} "
+                    f"quer{'y' if len(queries_with_filters) == 1 else 'ies'} have filters but "
+                    f"adapter '{retriever.retriever_id}' does not support Query.filters — "
+                    "results are unfiltered and metrics will be inflated."
+                )
+                _log(f"[yellow]Warning:[/yellow] {filter_warnings[-1]}")
+
     run_id = run_id or str(uuid.uuid4())[:8]
     await store.save_run(
         run_id=run_id,
@@ -73,16 +88,16 @@ async def execute_benchmark(
             corpus if isinstance(corpus, dict) else None,
         )
         forge_dataset_id = detect_forge_dataset_id(cfg)
-        await store.save_run_manifest(
-            run_id,
-            build_run_manifest(
-                cfg,
-                fingerprint,
-                latency_budget_ms=latency_budget_ms,
-                forge_dataset_id=forge_dataset_id,
-                golden_set=golden_set,
-            ),
+        manifest = build_run_manifest(
+            cfg,
+            fingerprint,
+            latency_budget_ms=latency_budget_ms,
+            forge_dataset_id=forge_dataset_id,
+            golden_set=golden_set,
         )
+        if filter_warnings:
+            manifest["run_warnings"] = filter_warnings
+        await store.save_run_manifest(run_id, manifest)
     if hasattr(store, "save_run_queries"):
         await store.save_run_queries(run_id, queries, cfg.dataset.name)
     _log(f"[bold]Run ID:[/bold] {run_id}")
@@ -141,6 +156,29 @@ async def execute_benchmark(
         queries_by_id=queries_by_id,
         corpus_documents=getattr(dataset, "corpus_documents", None),
     )
+
+    # Warn about unjudged queries: queries with no or empty qrel entries are excluded from
+    # quality metric means (they contribute no metric_score row), so the dashboard n count
+    # may be lower than the total query count.
+    unjudged = [q.query_id for q in queries if not qrels.get(q.query_id)]
+    if unjudged:
+        n_unjudged = len(unjudged)
+        msg = (
+            f"{n_unjudged} quer{'y' if n_unjudged == 1 else 'ies'} have no relevance judgments "
+            f"and are excluded from quality metric means. "
+            f"Metrics reflect {len(queries) - n_unjudged} of {len(queries)} queries."
+        )
+        _log(f"[yellow]Warning:[/yellow] {msg}")
+        if hasattr(store, "save_run_manifest"):
+            # Append to existing run_warnings in the manifest (may already have filter_warnings)
+            existing = await store.get_run_manifest(run_id) or {}
+            existing_warnings = existing.get("run_warnings", [])
+            if msg not in existing_warnings:
+                existing_warnings.append(msg)
+                existing["run_warnings"] = existing_warnings
+                existing["unjudged_query_count"] = n_unjudged
+                await store.save_run_manifest(run_id, existing)
+
     diagnostics = build_query_diagnostics(run_id, all_results, qrels)
     if hasattr(store, "save_query_diagnostics"):
         await store.save_query_diagnostics(diagnostics)

@@ -47,7 +47,7 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   psi: 'PSI (Population Stability Index) — magnitude of distribution shift between baseline and recent windows. Typical cutoffs: >=0.10 moderate, >=0.25 significant.',
   ks_test: 'KS test (Kolmogorov-Smirnov) — statistical test for whether two continuous distributions differ (used for latency drift).',
   tracelens_drift_thresholds: 'Drift severity uses PSI thresholds: moderate >=0.10, significant >=0.25; latency drift is checked with a KS test.',
-  reliability_components: 'Reliability components and weighting: recall_at_10, low_failure_rate, latency_headroom, diagnostic_health; each contributes 25% to the final score.',
+  reliability_components: 'Reliability score — an unweighted heuristic composite (not a calibrated metric): recall_at_10 (25%), low_failure_rate (25%), latency_headroom (25%), diagnostic_health (25%). Missing data uses fallback defaults (e.g. 0.5 for latency when no budget is set). Treat as a directional indicator, not an objective measurement.',
 }
 
 /** Look up a glossary entry by a metric name fragment (case-insensitive). Returns undefined if not found. */

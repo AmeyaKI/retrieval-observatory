@@ -29,7 +29,10 @@ def compute_candidate_lineage(result: PipelineResult) -> List[CandidateLineage]:
             survived = sorted(curr_ids & prev_ids)
             dropped = sorted(prev_ids - curr_ids)
             entered = sorted(curr_ids - prev_ids)
-            churn_rate = len(dropped) / max(len(prev_ids), 1)
+            is_expansion = len(curr_ids) > len(prev_ids)
+            # churn_rate is only meaningful for narrowing stages; set to 0.0 for expansion stages
+            # to avoid implying that added candidates are "churn"
+            churn_rate = 0.0 if is_expansion else len(dropped) / max(len(prev_ids), 1)
             lineages.append(CandidateLineage(
                 stage_index=snap.stage_index,
                 stage_id=snap.stage_id,
@@ -37,6 +40,7 @@ def compute_candidate_lineage(result: PipelineResult) -> List[CandidateLineage]:
                 survived=survived,
                 dropped=dropped,
                 churn_rate=churn_rate,
+                is_expansion=is_expansion,
             ))
         prev_ids = curr_ids
 
@@ -44,9 +48,12 @@ def compute_candidate_lineage(result: PipelineResult) -> List[CandidateLineage]:
 
 
 def compute_churn_rate(lineages: List[CandidateLineage]) -> float:
-    """Average churn rate across all non-first stages (0.0 if single-stage pipeline)."""
-    non_first = [lin.churn_rate for lin in lineages if lin.stage_index > 0]
-    return mean(non_first) if non_first else 0.0
+    """Average churn rate across non-first, non-expansion stages (0.0 if single-stage pipeline).
+
+    Expansion stages are excluded: churn rate is undefined when a stage grows the candidate set.
+    """
+    narrowing = [lin.churn_rate for lin in lineages if lin.stage_index > 0 and not lin.is_expansion]
+    return mean(narrowing) if narrowing else 0.0
 
 
 def build_query_diagnostics(
@@ -155,6 +162,7 @@ def build_query_diagnostics(
         # Compute candidate lineage for churn metrics
         lineages = compute_candidate_lineage(result) if result.status == "OK" else []
         churn = compute_churn_rate(lineages)
+        has_expansion = any(lin.is_expansion for lin in lineages)
 
         rows.append(
             {
@@ -166,6 +174,7 @@ def build_query_diagnostics(
                 "missing_relevant_ids": missing,
                 "stage_hits": stage_hits,
                 "churn_rate": round(churn, 4),
+                "has_expansion_stage": has_expansion,
             }
         )
     return rows

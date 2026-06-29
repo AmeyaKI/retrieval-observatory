@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 from typing import Dict, List, Optional
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
@@ -16,7 +17,12 @@ class BM25Adapter:
       "whitespace" (default) — simple text.lower().split(); fastest, weakest recall.
       "nltk"                 — Porter stemming + English stopword removal; ~5% better
                                Recall@10 on BEIR vs whitespace; requires nltk package.
+
+    Note: Query.filters are not supported and will be silently ignored. Use HTTPAdapter
+    to forward filters to a backend that can enforce them.
     """
+
+    supports_filters: bool = False
 
     def __init__(
         self,
@@ -77,6 +83,14 @@ class BM25Adapter:
         return text.lower().split()
 
     def retrieve(self, query: Query) -> RetrievalResult:
+        if query.filters:
+            warnings.warn(
+                f"BM25Adapter ({self.retriever_id!r}) does not support Query.filters; "
+                "filters are ignored and results are unfiltered. Use HTTPAdapter to forward "
+                "filters to a backend that enforces them.",
+                UserWarning,
+                stacklevel=2,
+            )
         if self._bm25 is None:
             self._build_index()
         assert self._bm25 is not None and self._doc_ids is not None  # set by _build_index

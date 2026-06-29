@@ -34,6 +34,8 @@ class HTTPAdapter:
             score_field: relevance # default: "score"
     """
 
+    supports_filters: bool = True
+
     def __init__(
         self,
         url: str,

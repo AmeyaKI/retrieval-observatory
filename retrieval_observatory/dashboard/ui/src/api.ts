@@ -38,9 +38,9 @@ export interface MetricEntry {
   metric_name: string
   k: number
   mean: number
-  std: number
-  ci_low: number
-  ci_high: number
+  std: number | null
+  ci_low: number | null
+  ci_high: number | null
   n: number
   zero_count: number
   zero_pct: number
@@ -136,6 +136,7 @@ export interface StageDelta {
   significant: boolean
   indeterminate?: boolean
   indeterminate_reason?: string | null
+  n_pairs?: number | null
 }
 
 export interface StageContribution {

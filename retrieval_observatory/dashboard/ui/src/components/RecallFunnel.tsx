@@ -152,9 +152,10 @@ export default function RecallFunnel({ metrics }: Props) {
           {payload.map((p: any) => {
             const pipelineId = String(p.dataKey)
             const stageName = stageComponentLabel(pipelineId, stageIndex)
+            const stageLabel = stageIndex === 0 ? 'all retrieved' : 'stage input'
             return (
               <p key={p.dataKey} style={{ color: p.color }}>
-                {`Recall@${activeK} ${stageName}: ${fmtQuality(p.value)}`}
+                {`Recall@${activeK} (${stageLabel}) ${stageName}: ${fmtQuality(p.value)}`}
               </p>
             )
           })}
@@ -205,7 +206,7 @@ export default function RecallFunnel({ metrics }: Props) {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-2">
         <p className="text-xs text-gray-500">
-          Grouped by pipeline stage: each stage row shows only pipelines that include that stage (e.g. Stage 0 = all pipelines with retrieval; Stage 1 = pipelines with a second stage). Click legend to show/hide. Use +/− buttons or pinch on the chart to zoom the Y-axis.
+          Grouped by pipeline stage: each stage row shows only pipelines that include that stage. <strong>Stage 0</strong> recall is scored over all retrieved candidates. <strong>Stage 1+</strong> recall is scored over the subset passed in from the prior stage — a later stage can only find relevant docs that were already in its input, so apparent recall drops are expected and do not mean regression. Check NDCG@10 to measure re-ranking quality.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
         <ChartZoomControls
@@ -224,12 +225,12 @@ export default function RecallFunnel({ metrics }: Props) {
           {recallKValues.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-600 mb-1">
-                Recall@{activeK} per Stage
+                Recall@{activeK} on Stage Input
                 {!recallKValues.includes(10) && <span className="ml-1 text-gray-400 font-normal">(K=10 unavailable; using K={activeK})</span>}
               </p>
               {hasMultipleStages && (
-                <div className="mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-                  <span className="font-semibold">Note:</span> Recall often drops after Stage 0 because later stages score fewer documents (e.g. top-50 → top-10). Check NDCG@10 below — it should rise if reranking helps.
+                <div className="mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+                  <span className="font-semibold">Reading this chart:</span> Stage 0 recall is scored over all retrieved documents. Stage 1+ recall is bounded by the candidates passed in from the prior stage — a reranker cannot recall documents it never received. Lower recall at Stage 1+ is expected, not a failure.
                 </div>
               )}
               <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>

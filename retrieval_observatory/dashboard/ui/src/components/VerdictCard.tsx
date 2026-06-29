@@ -67,11 +67,13 @@ function StageContributionCard({
     const latencyOk =
       contribution.latency_delta_ms == null || contribution.latency_delta_ms <= latencyBudgetMs
 
+    const lowPower = delta.n_pairs != null && delta.n_pairs < 20
     if (!delta.significant) {
+      const nNote = lowPower ? ` Low statistical power: only ${delta.n_pairs} shared queries.` : ''
       return {
         color: 'amber',
         icon: '⚠',
-        text: `Quality gain not statistically significant${delta.q_value != null ? ` (q=${delta.q_value.toFixed(3)})` : ''}.`,
+        text: `Quality gain not statistically significant${delta.q_value != null ? ` (q=${delta.q_value.toFixed(3)})` : ''}.${nNote}`,
       }
     }
     if (qualityMet && latencyOk) {
@@ -131,6 +133,11 @@ function StageContributionCard({
               {d.q_value != null && (
                 <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-emerald-700 bg-emerald-50' : 'text-gray-400 bg-gray-100'}`}>
                   q={d.q_value.toFixed(3)}{d.significant ? ' ✓' : ''}
+                </span>
+              )}
+              {d.n_pairs != null && d.n_pairs < 20 && (
+                <span className="text-[10px] px-1 rounded text-orange-700 bg-orange-50" title="Low statistical power: fewer than 20 shared queries">
+                  n={d.n_pairs}
                 </span>
               )}
             </div>

@@ -94,8 +94,8 @@ export interface RecallSeriesPoint {
   stageIndex: number
   k: number
   mean: number
-  ci_low: number
-  ci_high: number
+  ci_low: number | null
+  ci_high: number | null
 }
 
 /** Build recall@K series for charts; final-stage only unless showIntermediateStages. */

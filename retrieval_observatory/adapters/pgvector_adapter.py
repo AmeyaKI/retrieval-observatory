@@ -6,7 +6,12 @@ from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class PgvectorAdapter:
-    """Queries a pgvector table directly via asyncpg."""
+    """Queries a pgvector table directly via asyncpg.
+
+    Note: Query.filters are not supported and will be silently ignored.
+    """
+
+    supports_filters: bool = False
 
     def __init__(
         self,
@@ -27,6 +32,14 @@ class PgvectorAdapter:
         self._embed = embedding_fn  # callable: str → List[float]
 
     async def retrieve(self, query: Query) -> RetrievalResult:
+        if query.filters:
+            import warnings
+            warnings.warn(
+                f"PgvectorAdapter ({self.retriever_id!r}) does not support Query.filters; "
+                "filters are ignored and results are unfiltered.",
+                UserWarning,
+                stacklevel=2,
+            )
         try:
             import asyncpg
         except ImportError as e:

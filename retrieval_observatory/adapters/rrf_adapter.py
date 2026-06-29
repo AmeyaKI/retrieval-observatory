@@ -26,6 +26,10 @@ class RRFFusionAdapter:
     fetch_k: how many candidates each sub-retriever fetches before fusion.
     """
 
+    @property
+    def supports_filters(self) -> bool:
+        return all(getattr(r, "supports_filters", False) for r in self._retrievers)
+
     def __init__(
         self,
         retrievers: List,

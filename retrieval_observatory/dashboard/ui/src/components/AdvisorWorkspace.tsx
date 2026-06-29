@@ -121,13 +121,25 @@ export default function AdvisorWorkspace() {
         )}
         {reliability && (
           <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs">
-            <p className="font-semibold text-violet-900">
-              Reliability score: {(reliability.value * 100).toFixed(0)}%
-            </p>
-            <p className="text-[11px] text-gray-600 mt-1">
-              Composite of four weighted components (25% each): recall_at_10, low_failure_rate, latency_headroom, diagnostic_health.
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-violet-900">
+                Reliability score: {(reliability.value * 100).toFixed(0)}%
+              </p>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200">heuristic</span>
               <MetricTooltip text={METRIC_GLOSSARY.reliability_components} />
+            </div>
+            <p className="text-[11px] text-gray-600 mt-1">
+              Unweighted average of four components (25% each). Not a calibrated metric — use as a directional indicator.
             </p>
+            {reliability.notes && reliability.notes.length > 0 && (
+              <div className="mt-1 space-y-0.5">
+                {reliability.notes.map((note, i) => (
+                  <p key={i} className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                    ⚠ {note}
+                  </p>
+                ))}
+              </div>
+            )}
             <p className="text-[11px] text-gray-600 mt-1">
               Reference scale: &ge;85% strong, 70–84% watchlist, &lt;70% poor.
             </p>
@@ -139,7 +151,7 @@ export default function AdvisorWorkspace() {
             <details className="mt-2">
               <summary className="cursor-pointer text-[11px] text-violet-800 font-medium">Show component formulas</summary>
               <p className="mt-1 text-[11px] text-gray-700">
-                recall_at_10 = mean Recall@10 across pipelines; low_failure_rate = 1 - failure_label_rate; latency_headroom = budget headroom from latency_p95; diagnostic_health = 1 - unstable_rate.
+                recall_at_10 = mean Recall@10 across pipelines; low_failure_rate = 1 − failure_label_rate; latency_headroom = budget headroom from latency_p95 (fallback 0.5 if no budget set); diagnostic_health = 1 − unstable_rate.
               </p>
             </details>
           </div>

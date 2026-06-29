@@ -3,18 +3,31 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
+import warnings
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class LlamaIndexAdapter:
-    """Wraps any LlamaIndex BaseRetriever into the retobs interface."""
+    """Wraps any LlamaIndex BaseRetriever into the retobs interface.
+
+    Note: Query.filters are not forwarded to the underlying LlamaIndex retriever.
+    """
+
+    supports_filters: bool = False
 
     def __init__(self, retriever, retriever_id: str):
         self.retriever_id = retriever_id
         self._retriever = retriever
 
     async def retrieve(self, query: Query) -> RetrievalResult:
+        if query.filters:
+            warnings.warn(
+                f"LlamaIndexAdapter ({self.retriever_id!r}) does not forward Query.filters "
+                "to the underlying retriever; filters are ignored.",
+                UserWarning,
+                stacklevel=2,
+            )
         start = time.perf_counter()
         if asyncio.iscoroutinefunction(self._retriever.aretrieve):
             nodes = await self._retriever.aretrieve(query.text)

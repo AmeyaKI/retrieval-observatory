@@ -1,6 +1,9 @@
-What this is
-An open-source Python library + dashboard ("retobs") for scientifically accurate, highly informative benchmarking hybrid RAG retrieval pipelines. Framework-agnostic, multi-stage-aware, production-informed.
+# Goals
 
-Target audience: ML engineers building multi-stage RAG systems who need principled evaluation tooling that existing solutions don't provide. 
+**retobs** is a local-first retrieval reliability platform for multi-stage RAG pipelines.
 
-PyPI-published library with real benchmark results.
+**Mission:** Per-stage attribution, failure diagnosis, corpus stress tests (Forge), production traces (TraceLens), regression recommendations (Advisor) — unified by query lineage.
+
+**Not** an answer evaluator or leaderboard. Diagnostic layer between "I have a retrieval pipeline" and "I know how to improve it."
+
+**For** ML engineers who need framework-agnostic, production-informed retrieval evaluation beyond end-to-end scores.

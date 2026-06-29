@@ -37,7 +37,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
 
   const { seriesMap, seriesPipelineId, seriesKeys } = useMemo(() => {
     const points = buildRecallSeries(metrics, { showIntermediateStages })
-    const map: Record<string, Record<number, { mean: number; ci_low: number; ci_high: number }>> = {}
+    const map: Record<string, Record<number, { mean: number; ci_low: number | null; ci_high: number | null }>> = {}
     const pipelineBySeries: Record<string, string> = {}
 
     for (const pt of points) {
@@ -70,7 +70,9 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
       const v = seriesMap[sk][k]
       if (v) {
         row[sk] = v.mean
-        row[`${sk}_err`] = (v.ci_high - v.ci_low) / 2
+        if (v.ci_high != null && v.ci_low != null) {
+          row[`${sk}_err`] = (v.ci_high - v.ci_low) / 2
+        }
       }
     }
     return row

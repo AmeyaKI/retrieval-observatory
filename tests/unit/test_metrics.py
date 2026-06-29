@@ -378,3 +378,153 @@ async def test_aggregate_keeps_branch_metrics_separate(tmp_path):
     assert "p1|stage0|ndcg@10|branch=bm25_stage" in agg
     assert agg["p1|stage0|ndcg@10"]["branch_id"] is None
     assert agg["p1|stage0|ndcg@10|branch=bm25_stage"]["branch_id"] == "bm25_stage"
+
+
+# ---------------------------------------------------------------------------
+# Accuracy & honesty fixes (added with fix pass)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_latency_percentile_rows_have_none_ci(tmp_path):
+    """Fix 1: latency rows must carry None for ci_low/ci_high/std, not fake zero-width values."""
+    from retrieval_observatory.metrics.engine import MetricsEngine
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=str(tmp_path / "lat_ci.db"))
+    await store.init_db()
+    await store.save_run("r1", "exp", "{}")
+    # Write several latency values so the percentile aggregation fires
+    for ms in [10.0, 20.0, 30.0]:
+        await store.save_metric("r1", "p1", "q1", 0, "latency_ms", 0, ms)
+
+    engine = MetricsEngine(latency_percentile_values=[50, 95])
+    agg = await engine.aggregate("r1", store)
+
+    latency_keys = [k for k in agg if "latency_p" in k]
+    assert latency_keys, "Expected at least one latency_p* aggregation row"
+    for k in latency_keys:
+        row = agg[k]
+        assert row["ci_low"] is None, f"{k}: ci_low should be None, got {row['ci_low']}"
+        assert row["ci_high"] is None, f"{k}: ci_high should be None, got {row['ci_high']}"
+        assert row["std"] is None, f"{k}: std should be None, got {row['std']}"
+
+
+def test_ndcg_at_k_unchanged_after_dead_code_removal():
+    """Fix 8: NDCG computation is correct after removing the dead ideal-DCG lines."""
+    import math
+
+    # Perfect ranking
+    assert abs(ndcg_at_k(["d1", "d2"], {"d1", "d2"}, k=2) - 1.0) < 1e-9
+    # Second-best ranking: relevant doc at rank 2, not rank 1
+    dcg = 1.0 / math.log2(2 + 1)
+    ideal = 1.0 / math.log2(1 + 1) + 1.0 / math.log2(2 + 1)
+    expected = dcg / ideal
+    assert abs(ndcg_at_k(["d3", "d1"], {"d1", "d2"}, k=2) - expected) < 1e-9
+
+
+def test_expansion_stage_is_detected():
+    """Fix 6: stages that grow the candidate set are labelled as expansion, churn_rate = 0."""
+    snaps = [
+        _make_snapshot(0, "retriever", ["d1", "d2"]),
+        _make_snapshot(1, "expander", ["d1", "d2", "d3", "d4"]),  # candidate count grew
+    ]
+    result = _make_result("p1", snaps)
+    lineages = compute_candidate_lineage(result)
+
+    assert lineages[1].is_expansion is True
+    assert lineages[1].churn_rate == 0.0
+    assert set(lineages[1].entered) == {"d3", "d4"}
+
+
+def test_expansion_stage_excluded_from_churn_rate():
+    """Fix 6: compute_churn_rate ignores expansion stages."""
+    snaps = [
+        _make_snapshot(0, "retriever", ["d1", "d2", "d3", "d4"]),
+        _make_snapshot(1, "expander", ["d1", "d2", "d3", "d4", "d5", "d6"]),
+        _make_snapshot(2, "reranker", ["d1", "d2"]),  # 4/6 dropped → churn = 4/6
+    ]
+    result = _make_result("p1", snaps)
+    lineages = compute_candidate_lineage(result)
+
+    assert lineages[1].is_expansion is True
+    assert lineages[2].is_expansion is False
+    # Only the reranker stage (non-expansion) should contribute to churn rate
+    assert compute_churn_rate(lineages) == pytest.approx(4 / 6)
+
+
+def test_supports_filters_flag_on_adapters():
+    """Fix 2: adapters declare supports_filters; only HTTPAdapter returns True."""
+    from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
+    from retrieval_observatory.adapters.hf_biencoder_adapter import HFBiEncoderAdapter
+    from retrieval_observatory.adapters.http_adapter import HTTPAdapter
+    from retrieval_observatory.adapters.langchain_adapter import LangChainAdapter
+    from retrieval_observatory.adapters.llamaindex_adapter import LlamaIndexAdapter
+
+    assert BM25Adapter.supports_filters is False
+    assert HFBiEncoderAdapter.supports_filters is False
+    assert LangChainAdapter.supports_filters is False
+    assert LlamaIndexAdapter.supports_filters is False
+    assert HTTPAdapter.supports_filters is True
+
+
+def test_bm25_adapter_warns_on_filters(tmp_path):
+    """Fix 2: BM25Adapter emits a UserWarning when retrieve() is called with filters set."""
+    import warnings as _warnings
+    from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
+    from retrieval_observatory.types import Query
+
+    adapter = BM25Adapter(
+        corpus={"d1": "hello world", "d2": "foo bar"},
+        retriever_id="bm25_test",
+    )
+    q = Query(text="hello", k=1, query_id="q1", filters={"category": "news"})
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        adapter.retrieve(q)
+
+    assert any("filters" in str(w.message).lower() and issubclass(w.category, UserWarning) for w in caught)
+
+
+def test_stage_contributions_include_n_pairs():
+    """Fix 3: each delta in stage contributions includes n_pairs."""
+    from retrieval_observatory.dashboard.api import _compute_stage_contributions
+
+    metrics = {
+        "bm25|stage0|recall@10": {
+            "pipeline_id": "bm25",
+            "stage_index": 0,
+            "metric_name": "recall",
+            "k": 10,
+            "mean": 0.3,
+            "branch_id": None,
+        },
+        "bm25__rerank|stage0|recall@10": {
+            "pipeline_id": "bm25__rerank",
+            "stage_index": 0,
+            "metric_name": "recall",
+            "k": 10,
+            "mean": 0.2,
+            "branch_id": None,
+        },
+        "bm25__rerank|stage1|recall@10": {
+            "pipeline_id": "bm25__rerank",
+            "stage_index": 1,
+            "metric_name": "recall",
+            "k": 10,
+            "mean": 0.4,
+            "branch_id": None,
+        },
+    }
+    metrics_rows = [
+        {"query_id": "q1", "pipeline_id": "bm25__rerank", "stage_index": 0, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.2},
+        {"query_id": "q2", "pipeline_id": "bm25__rerank", "stage_index": 0, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.2},
+        {"query_id": "q1", "pipeline_id": "bm25__rerank", "stage_index": 1, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.4},
+        {"query_id": "q2", "pipeline_id": "bm25__rerank", "stage_index": 1, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.4},
+    ]
+    contributions = _compute_stage_contributions(metrics, metrics_rows)
+    within = [c for c in contributions if c["comparison_tier"] == "within_pipeline_stage"]
+    assert within, "Expected within_pipeline_stage contribution"
+    for delta in within[0]["deltas"].values():
+        assert "n_pairs" in delta, "n_pairs should be present in every delta"
+        assert isinstance(delta["n_pairs"], int)

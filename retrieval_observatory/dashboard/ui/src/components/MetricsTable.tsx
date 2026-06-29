@@ -27,6 +27,7 @@ function isLatencyPercentile(metricName: string): boolean {
 
 function ciLabel(entry: MetricEntry, isLatencyPercentileRow: boolean): string {
   if (isLatencyPercentileRow) return '—'
+  if (entry.ci_low == null || entry.ci_high == null) return '—'
   const isLatency = entry.metric_name.startsWith('latency')
   return `[${fmtCell(entry.ci_low, isLatency)}, ${fmtCell(entry.ci_high, isLatency)}]`
 }
@@ -47,6 +48,7 @@ function CIBadge({ entry }: { entry: MetricEntry }) {
   if (entry.n < 30) {
     return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 text-gray-500 font-medium cursor-help" title={`n=${entry.n} (<30). ${METRIC_GLOSSARY.underpowered}`}>underpowered</span>
   }
+  if (entry.ci_low == null || entry.ci_high == null) return null
   const ciWidth = entry.ci_high - entry.ci_low
   const meanAbs = Math.abs(entry.mean)
   const relWidth = ciWidth / Math.max(meanAbs, 0.001)
@@ -430,7 +432,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                               )}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                              {isLatencyPct ? (
+                              {isLatencyPct || entry.std == null ? (
                                 <span className="text-gray-400" title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
                               ) : (
                                 fmtCell(entry.std, isLatency)

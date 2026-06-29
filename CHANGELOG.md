@@ -8,6 +8,10 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 Changes on `main` not yet published to PyPI (since v0.3.4).
 
+### Changed
+
+- `.context/GOALS.md`, `AGENTS.md` — aligned concise mission summary for the retrieval reliability platform.
+
 ### Fixed
 
 - `metrics/diagnostics.py` — hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`; `candidate_miss` now requires zero relevant docs across all stage snapshots and emits `late_stage_recovery` when a later/fused stage surfaces the gold doc.

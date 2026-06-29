@@ -20,8 +20,12 @@ class HFBiEncoderAdapter:
     The FAISS index is persisted to disk (keyed by corpus+model hash) so
     subsequent runs skip re-encoding. Suitable for corpora up to ~500k docs.
 
+    Note: Query.filters are not supported and will be silently ignored.
+
     Requires: pip install retrieval-observatory[dense]
     """
+
+    supports_filters: bool = False
 
     def __init__(
         self,
@@ -137,4 +141,11 @@ class HFBiEncoderAdapter:
         )
 
     async def retrieve(self, query: Query) -> RetrievalResult:
+        if query.filters:
+            warnings.warn(
+                f"HFBiEncoderAdapter ({self.retriever_id!r}) does not support Query.filters; "
+                "filters are ignored and results are unfiltered.",
+                UserWarning,
+                stacklevel=2,
+            )
         return await asyncio.to_thread(self._retrieve_sync, query)

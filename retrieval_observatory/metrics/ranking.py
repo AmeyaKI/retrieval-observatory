@@ -45,10 +45,6 @@ def ndcg_at_k(retrieved_ids: List[str], relevant_ids: Set[str], k: int) -> float
         )
 
     actual_dcg = dcg(retrieved_ids)
-    # Ideal: put all relevant docs at the top
-    ideal_ids = list(relevant_ids)[:k]
-    ideal_dcg = dcg(ideal_ids + [""] * k)  # pad — irrelevant docs contribute 0
-    # Recompute ideal correctly
     n_ideal = min(k, len(relevant_ids))
     ideal_dcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, n_ideal + 1))
 

@@ -76,6 +76,7 @@ class CandidateLineage:
     survived: List[str]   # doc IDs carried forward from the previous stage
     dropped: List[str]    # doc IDs present in previous stage but absent here
     churn_rate: float     # fraction of previous candidates that were dropped
+    is_expansion: bool = False  # True when this stage increased the candidate set
 
 
 @runtime_checkable

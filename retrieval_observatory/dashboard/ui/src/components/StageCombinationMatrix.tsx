@@ -66,7 +66,9 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
                   {fmtCell(cell.mean, isLatency)}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
-                  [{fmtCell(cell.ci_low, isLatency)}, {fmtCell(cell.ci_high, isLatency)}]
+                  {cell.ci_low != null && cell.ci_high != null
+                    ? `[${fmtCell(cell.ci_low, isLatency)}, ${fmtCell(cell.ci_high, isLatency)}]`
+                    : '—'}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {cell.estimated_cost_per_1k ? fmtCost(cell.estimated_cost_per_1k) : '—'}

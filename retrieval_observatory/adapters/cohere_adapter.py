@@ -7,7 +7,12 @@ from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class CohereRerankAdapter:
-    """Reranks a candidate list using the Cohere Rerank API."""
+    """Reranks a candidate list using the Cohere Rerank API.
+
+    Note: Query.filters are not forwarded to Cohere Rerank; filters are ignored.
+    """
+
+    supports_filters: bool = False
 
     def __init__(
         self,
