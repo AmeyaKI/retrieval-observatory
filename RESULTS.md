@@ -61,6 +61,8 @@ Dense retrieval (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA — i
 
 ---
 
+
+
 ## Stage Attribution: Does Reranking Pay Off?
 
 The bm25 → bm25__rerank pipeline pair shows what cross-encoder reranking adds on top of BM25 candidates.
@@ -76,6 +78,8 @@ The bm25 → bm25__rerank pipeline pair shows what cross-encoder reranking adds 
 Cross-encoder reranking recovers real quality on top of BM25, but across all three datasets `dense_only` achieves the same or better NDCG at a fraction of the latency cost.
 
 ---
+
+
 
 ## Query Difficulty Distribution
 
@@ -95,6 +99,8 @@ NFCorpus is overwhelmingly hard (specialized biomedical vocabulary). SciFact is 
 
 ---
 
+
+
 ## Failure Label Breakdown
 
 Labels are assigned per query by retobs's diagnostic layer.
@@ -110,6 +116,8 @@ Labels are assigned per query by retobs's diagnostic layer.
 FiQA's 288 candidate misses (44% of queries) explain BM25's poor performance — the financial corpus requires semantic understanding that bag-of-words retrieval cannot provide.
 
 ---
+
+
 
 ## Artifacts and Reproducibility
 
