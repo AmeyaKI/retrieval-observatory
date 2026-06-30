@@ -14,6 +14,7 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Fixed
 
+- `cli.py` — `_print_metrics_table` renders `—` when latency rows omit bootstrap CI/std (`None`).
 - `metrics/diagnostics.py` — hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`; `candidate_miss` now requires zero relevant docs across all stage snapshots and emits `late_stage_recovery` when a later/fused stage surfaces the gold doc.
 - `store/sqlite.py` — lazy schema creation on first trace write (`_ensure_schema` in `save_traces_batch`) so production tracing no longer 500s with `no such table: traces`.
 - `tracing/enrich.py` — `low_confidence` default floor changed from `0.0` to `None` (disabled unless explicitly configured).

@@ -366,11 +366,17 @@ def _print_metrics_table(aggregated: dict, run_id: str) -> None:
     table.add_column("N", justify="right")
 
     for key, vals in sorted(aggregated.items()):
-        ci = f"[{vals['ci_low']:.4f}, {vals['ci_high']:.4f}]"
+        ci_low, ci_high = vals.get("ci_low"), vals.get("ci_high")
+        if ci_low is None or ci_high is None:
+            ci = "—"
+        else:
+            ci = f"[{ci_low:.4f}, {ci_high:.4f}]"
+        std = vals.get("std")
+        std_str = "—" if std is None else f"{std:.4f}"
         table.add_row(
             key,
             f"{vals['mean']:.4f}",
-            f"{vals['std']:.4f}",
+            std_str,
             ci,
             str(vals["n"]),
         )
