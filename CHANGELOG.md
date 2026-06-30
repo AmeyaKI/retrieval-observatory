@@ -10,7 +10,7 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Changed
 
-- `.context/GOALS.md`, `AGENTS.md` — aligned concise mission summary for the retrieval reliability platform.
+- `.gitignore` — stop tracking `docs/PYPI_PUBLISH.md` (local-only PyPI publish notes).
 
 ### Fixed
 
