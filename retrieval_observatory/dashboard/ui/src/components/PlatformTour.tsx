@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import type { DemoContext } from '../api'
 
-const STORAGE_KEY = 'retobs_platform_tour_dismissed'
+export const PLATFORM_TOUR_STORAGE_KEY = 'retobs_platform_tour_dismissed'
 
 interface Props {
   context: DemoContext
+  open: boolean
+  onClose: () => void
 }
 
 const STEPS = [
@@ -35,8 +37,7 @@ const STEPS = [
   },
 ]
 
-export default function PlatformTour({ context }: Props) {
-  const [open, setOpen] = useState(() => localStorage.getItem(STORAGE_KEY) !== '1')
+export default function PlatformTour({ context, open, onClose }: Props) {
   const [step, setStep] = useState(0)
 
   if (!open || !context.baseline_run_id) return null
@@ -45,8 +46,8 @@ export default function PlatformTour({ context }: Props) {
   const href = current.href(context)
 
   const dismiss = () => {
-    localStorage.setItem(STORAGE_KEY, '1')
-    setOpen(false)
+    localStorage.setItem(PLATFORM_TOUR_STORAGE_KEY, '1')
+    onClose()
   }
 
   return (
@@ -62,6 +63,9 @@ export default function PlatformTour({ context }: Props) {
           <p className="text-[11px] text-gray-400 mt-3">
             Demo DB: baseline <span className="font-mono">{context.baseline_run_id}</span> vs degraded{' '}
             <span className="font-mono">{context.candidate_run_id}</span>
+          </p>
+          <p className="text-[11px] text-gray-400 mt-2">
+            Reopen anytime from the left rail (Platform tour) or the demo bar at the top.
           </p>
         </div>
         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-2">

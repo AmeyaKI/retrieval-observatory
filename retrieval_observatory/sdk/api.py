@@ -232,12 +232,16 @@ def generate_testset(
     api_key: Optional[str] = None,
     model: Optional[str] = None,
     k: int = 10,
+    validate: bool = True,
 ):
     """Synthesize a benchmark test set (queries + ground truth) from your corpus via Forge.
 
     Returns an in-memory dataset object usable directly as `benchmark(..., dataset=<here>)`.
     The default `query_types` are rule-based and need no API key; pass `provider=` (and an
     api key / env var) to enable LLM query types like paraphrase/temporal/adversarial.
+
+    When ``validate=True`` (default), Forge expands extractive qrels with an LLM judge when
+    a provider or ``GOOGLE_API_KEY`` / ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` is available.
     """
     return _run_sync(
         _generate_testset_async(
@@ -249,11 +253,68 @@ def generate_testset(
             api_key=api_key,
             model=model,
             k=k,
+            validate=validate,
         )
     )
 
 
-async def _generate_testset_async(*, corpus, n_per_type, query_types, scenario_types, provider, api_key, model, k):
+def _forge_judge(provider: Optional[str], api_key: Optional[str], model: Optional[str]):
+    """Return an LLMJudge when credentials are available, else None."""
+    from retrieval_observatory.datasets.llm_judge import AnthropicJudge, GeminiJudge, OpenAIJudge
+
+    def _ready(judge) -> bool:
+        return bool(getattr(judge, "_api_key", None))
+
+    chosen = (provider or "").lower()
+
+    def _try_gemini():
+        return GeminiJudge(api_key=api_key, model=model or "gemini-2.0-flash")
+
+    def _try_openai():
+        return OpenAIJudge(api_key=api_key, model=model or "gpt-4o-mini")
+
+    def _try_anthropic():
+        return AnthropicJudge(api_key=api_key, model=model or "claude-haiku-4-5-20251001")
+
+    if chosen in ("gemini", "google"):
+        try:
+            judge = _try_gemini()
+            return judge if _ready(judge) else None
+        except (ValueError, ImportError):
+            return None
+    if chosen == "openai":
+        judge = _try_openai()
+        return judge if _ready(judge) else None
+    if chosen in ("anthropic", "claude"):
+        judge = _try_anthropic()
+        return judge if _ready(judge) else None
+    if chosen:
+        raise ValueError(f"Unknown LLM provider '{provider}'. Use gemini, openai, or anthropic.")
+
+    for factory in (_try_gemini, _try_openai, _try_anthropic):
+        try:
+            judge = factory()
+            if _ready(judge):
+                return judge
+        except (ValueError, ImportError):
+            continue
+    return None
+
+
+async def _generate_testset_async(
+    *,
+    corpus,
+    n_per_type,
+    query_types,
+    scenario_types,
+    provider,
+    api_key,
+    model,
+    k,
+    validate,
+):
+    import warnings
+
     from retrieval_observatory.datasets.inmemory import InMemoryDataset
     from retrieval_observatory.forge.engine import ForgeEngine
     from retrieval_observatory.forge.stress.suite import StressTestSuite
@@ -265,8 +326,26 @@ async def _generate_testset_async(*, corpus, n_per_type, query_types, scenario_t
 
         generator = ForgeGenerator.from_provider(provider, api_key=api_key, model=model)
 
+    judge = None
+    if validate:
+        judge = _forge_judge(provider, api_key, model)
+        if judge is None:
+            warnings.warn(
+                "generate_testset(validate=True) but no LLM judge is available; "
+                "pass provider= or set GOOGLE_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY. "
+                "Using extractive qrels only.",
+                UserWarning,
+                stacklevel=2,
+            )
+            validate = False
+
     engine = ForgeEngine(forge_corpus, generator=generator, scenario_types=list(scenario_types))
-    dataset = await engine.run(query_types=list(query_types), n_per_type=n_per_type)
+    dataset = await engine.run(
+        query_types=list(query_types),
+        n_per_type=n_per_type,
+        validate=validate,
+        judge=judge,
+    )
     bench_queries, qrels = StressTestSuite(dataset).to_benchmark_inputs()
     flat_corpus = {doc_id: doc.get("text", "") for doc_id, doc in forge_corpus.items()}
     return InMemoryDataset(queries=bench_queries, corpus=flat_corpus, qrels=qrels, k=k)

@@ -14,6 +14,7 @@ import {
   Run,
   ReliabilityHistoryPoint,
 } from '../api'
+import WorkspaceGlossaryLink from './WorkspaceGlossaryLink'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 
@@ -109,7 +110,7 @@ export default function AdvisorWorkspace() {
       <header className="shrink-0 border-b border-gray-200 bg-white px-6 py-4">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-lg font-semibold text-violet-800">Advisor</h1>
-          <a href="#/benchmarks" className="text-[11px] text-violet-700 underline decoration-violet-300">Glossary</a>
+          <WorkspaceGlossaryLink className="text-[11px] text-violet-700 underline decoration-violet-300" />
         </div>
         <p className="text-xs text-gray-500 mt-0.5">
           Rule-based recommendations with cited evidence — heuristics, not guarantees.

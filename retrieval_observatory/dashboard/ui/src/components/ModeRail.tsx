@@ -1,4 +1,5 @@
 export type Mode = 'benchmarks' | 'forge' | 'tracelens' | 'advisor'
+export type ShellMode = Mode | 'glossary' | 'query'
 
 interface ModeMeta {
   id: Mode
@@ -68,18 +69,54 @@ export const MODES: ModeMeta[] = [
 ]
 
 interface Props {
-  mode: Mode
+  mode: ShellMode
   onSelect: (mode: Mode) => void
+  lineageQueryId?: string | null
+  onOpenTour?: () => void
+  showTourLink?: boolean
 }
 
-export default function ModeRail({ mode, onSelect }: Props) {
+function UtilityLink({
+  href,
+  label,
+  active,
+  onClick,
+}: {
+  href?: string
+  label: string
+  active?: boolean
+  onClick?: () => void
+}) {
+  const className = `w-full text-left px-2 py-1.5 rounded text-[10px] font-medium transition-colors ${
+    active ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+  }`
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={className}>
+        {label}
+      </button>
+    )
+  }
+  return (
+    <a href={href} className={`block ${className}`}>
+      {label}
+    </a>
+  )
+}
+
+export default function ModeRail({ mode, onSelect, lineageQueryId, onOpenTour, showTourLink }: Props) {
+  const mainMode: Mode = mode === 'glossary' || mode === 'query' ? 'benchmarks' : mode
+  const glossaryActive = mode === 'glossary'
+  const lineageActive = mode === 'query'
+  const lineageHref = lineageQueryId ? `#/query/${encodeURIComponent(lineageQueryId)}` : null
+
   return (
     <nav className="shrink-0 w-20 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-1">
       <div className="mb-3 w-9 h-9 rounded-lg bg-gray-900 text-white flex items-center justify-center text-[11px] font-bold tracking-tight select-none" title="Retrieval Observatory">
         RO
       </div>
       {MODES.map((m) => {
-        const active = m.id === mode
+        const active = m.id === mainMode && !glossaryActive && !lineageActive
         return (
           <button
             key={m.id}
@@ -100,6 +137,14 @@ export default function ModeRail({ mode, onSelect }: Props) {
           </button>
         )
       })}
+
+      <div className="mt-auto w-full px-1.5 pt-2 border-t border-gray-100 space-y-0.5">
+        <UtilityLink href="#/glossary" label="Glossary" active={glossaryActive} />
+        {showTourLink && onOpenTour ? (
+          <UtilityLink label="Platform tour" onClick={onOpenTour} />
+        ) : null}
+        {lineageHref ? <UtilityLink href={lineageHref} label="Query lineage" active={lineageActive} /> : null}
+      </div>
     </nav>
   )
 }

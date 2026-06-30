@@ -41,6 +41,22 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
           {origin.query_text && (
             <p className="text-sm text-gray-600 mt-1">{origin.query_text}</p>
           )}
+          <div className="mt-3 flex flex-wrap gap-3 text-xs">
+            <a href="#/benchmarks" className="text-indigo-700 underline decoration-indigo-300">
+              ← Benchmarks
+            </a>
+            {origin.forge?.dataset_id && (
+              <a
+                href={`#/forge/${encodeURIComponent(origin.forge.dataset_id)}`}
+                className="text-amber-800 underline decoration-amber-300"
+              >
+                Forge origin
+              </a>
+            )}
+            <a href="#/glossary" className="text-gray-600 underline decoration-gray-300">
+              Glossary
+            </a>
+          </div>
         </header>
 
         <Section title="Origin" subtitle={origin.source === 'forge' ? 'Forge-generated stress query' : 'Dataset-native query'}>

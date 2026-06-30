@@ -11,9 +11,8 @@ from retrieval_observatory.tracing.types import RetrievalTrace
 
 # Proxy-failure thresholds. These are label-free signals — production has no qrels, so
 # we never claim "measured" failure, only "suspected".
-# Disabled by default: scores are pipeline-specific (cosine, dot-product, or absent/0.0),
-# so a fixed floor would mislabel every trace. Set a per-service float to enable.
-_LOW_CONFIDENCE_SCORE: Optional[float] = None  # top candidate score floor
+# Pipelines that return unscored docs (all scores 0.0) are treated as unscored, not low-confidence.
+_LOW_CONFIDENCE_SCORE: float = 0.05  # top candidate score floor when scores are present
 _HIGH_CHURN_RATE = 0.7        # fraction of candidates dropped between stages
 _DEFAULT_LATENCY_BUDGET_MS = 2000.0
 
@@ -60,12 +59,14 @@ def detect_suspected_failures(
     if len(final) == 0:
         labels.append("empty_candidates")
 
-    # 2. low retrieval confidence (top score at/below floor) — only when a floor is set,
-    #    since a 0.0 default would flag every pipeline that returns unscored results.
+    # 2. low retrieval confidence (top score at/below floor) when scores are present.
     if final and low_confidence_score is not None:
-        top_score = max((d.score for d in final), default=0.0)
-        if top_score <= low_confidence_score:
-            labels.append("low_confidence")
+        scores = [d.score for d in final]
+        all_unscored = all(s == 0.0 for s in scores)
+        if not all_unscored:
+            top_score = max(scores, default=0.0)
+            if top_score <= low_confidence_score:
+                labels.append("low_confidence")
 
     # 3. high inter-stage churn / late-stage drop (reuse offline lineage machinery)
     if len(trace.snapshots) >= 2:

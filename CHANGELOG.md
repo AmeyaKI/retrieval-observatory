@@ -24,6 +24,15 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Fixed
 
+- `tracing/attribution.py` — `operator_marginal_contribution` supports `recall`, `ndcg`, `precision`, `mrr`, and `map`; bootstrap `ci_low`/`ci_high` on paired deltas when `n_pairs >= n_power_threshold`.
+- `tracing/enrich.py` — default `low_confidence_score=0.05` so the suspected-failure signal is active; skips `low_confidence` when all stage scores are zero (unscored pipelines).
+- `tracing/monitor/cluster.py` — TF-IDF + agglomerative semantic clustering when sklearn is available; heuristic fallback unchanged.
+- `adapters/hf_adapter.py` — `supports_filters=True`; `rerank()` honors `Query.filters['doc_ids']`.
+- `adapters/pgvector_adapter.py` — `supports_filters=True`; vector search applies `doc_ids` SQL filter instead of silently ignoring filters.
+- `sdk/api.py` — `generate_testset(validate=True)` by default; resolves an LLM judge from provider/env keys and warns when validation is requested but no judge is available.
+- `dashboard/ui` — Glossary links route to `#/glossary`; platform tour and query lineage remain reachable after dismissing the tour.
+- `cli.py` — `retobs quickstart` no longer crashes on Rich `MarkupError` from `[dim]`/`[/dim]` split across multiple `console.print` calls.
+- `cli.py` — `retobs quickstart` starts uvicorn with `await Server.serve()` so it does not nest `asyncio.run()` inside the quickstart event loop.
 - `cli.py` — `_print_metrics_table` renders `—` when latency rows omit bootstrap CI/std (`None`).
 - `metrics/diagnostics.py` — hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`; `candidate_miss` now requires zero relevant docs across all stage snapshots and emits `late_stage_recovery` when a later/fused stage surfaces the gold doc.
 - `store/sqlite.py` — lazy schema creation on first trace write (`_ensure_schema` in `save_traces_batch`) so production tracing no longer 500s with `no such table: traces`.
@@ -49,7 +58,8 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 - `dashboard/api.py` — remote run ingest lifecycle (`/experiments/{name}/runs`, `/runs/{run_id}/results`, `/runs/{run_id}/metrics`, `/runs/{run_id}/finish`), trace-v2 ingest/read APIs, operator attribution endpoint, and query-winner endpoint.
 - `sdk/observe.py`, `sdk/otel_exporter.py`, and `sdk/remote.py` — production trace instrumentation helpers, OTEL export bridge, and remote results client.
 - `adapters/qdrant_adapter.py` and `pipeline/factory.py` — native Qdrant adapter support via `adapter.qdrant`.
-- `dashboard/ui/src/components/SegmentOperatorGrid.tsx`, `OperatorInspector.tsx`, `ProvenanceSankey.tsx`, `QueryWinnerTable.tsx`, `SectionHeading.tsx`, and `NoData.tsx` — trace-native dashboard components for attribution/provenance and shared empty-state/section primitives.
+- `dashboard/ui/src/components/GlossaryWorkspace.tsx`, `DemoQuickLinks.tsx`, and `WorkspaceGlossaryLink.tsx` — dedicated `#/glossary` page, persistent demo quick links, and fixed module glossary links.
+- `dashboard/ui/src/components/AppShell.tsx`, `ModeRail.tsx`, and `PlatformTour.tsx` — query lineage and platform tour are always reachable from the left rail and demo bar after dismissing the tour.
 - `tests/unit/test_trace_lift.py`, `tests/unit/test_attribution_segments.py`, `tests/unit/test_replay.py`, and `tests/integration/test_observe_roundtrip.py` — coverage for trace-v2 lift/store, attribution, replay/miss, and observe ingest roundtrip.
 - `Dockerfile` and `docker-compose.yml` — containerized single-tenant `retobs serve` deployment scaffolding.
 

@@ -11,6 +11,8 @@ from retrieval_observatory.types import Document, Query, RetrievalResult
 class HFCrossEncoderAdapter:
     """Reranks candidates using a local HuggingFace cross-encoder model."""
 
+    supports_filters: bool = True
+
     def __init__(self, model_name: str, retriever_id: str = "hf_crossencoder", batch_size: int = 32):
         self.retriever_id = retriever_id
         self.model_name = model_name
@@ -47,6 +49,19 @@ class HFCrossEncoderAdapter:
         return scores
 
     async def rerank(self, query: Query, documents: List[Document]) -> RetrievalResult:
+        if query.filters:
+            allowed = query.filters.get("doc_ids")
+            unsupported = set(query.filters) - {"doc_ids"}
+            if unsupported:
+                warnings.warn(
+                    f"HFCrossEncoderAdapter supports only Query.filters['doc_ids']; unsupported keys: {sorted(unsupported)}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if allowed is not None:
+                allowed_set = set(allowed)
+                documents = [doc for doc in documents if doc.id in allowed_set]
+
         start = time.perf_counter()
         scores = await asyncio.to_thread(self._score_sync, query.text, documents)
         latency_ms = (time.perf_counter() - start) * 1000

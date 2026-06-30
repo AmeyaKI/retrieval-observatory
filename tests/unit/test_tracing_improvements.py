@@ -37,9 +37,9 @@ def test_zero_scores_not_low_confidence_by_default():
     assert "low_confidence" not in labels
 
 
-def test_low_confidence_fires_when_floor_set():
+def test_low_confidence_fires_when_scored_below_floor():
     labels = detect_suspected_failures(
-        _trace([Document("d1", "txt", 0.0, 1)]), low_confidence_score=0.1
+        _trace([Document("d1", "txt", 0.03, 1)]), low_confidence_score=0.05
     )
     assert "low_confidence" in labels
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import WorkspaceGlossaryLink from './WorkspaceGlossaryLink'
 import { fetchTraceServices, TraceService } from '../api'
 import TraceLensOverview from './tracelens/TraceLensOverview'
 import LiveTraces from './tracelens/LiveTraces'
@@ -87,7 +88,7 @@ export default function TraceLensWorkspace({ route }: Props) {
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-bold text-gray-900">TraceLens</h1>
-            <a href="#/benchmarks" className="text-[11px] text-teal-700 underline decoration-teal-300">Glossary</a>
+            <WorkspaceGlossaryLink className="text-[11px] text-teal-700 underline decoration-teal-300" />
           </div>
           <p className="text-xs text-gray-500 mt-0.5">Production observability</p>
         </div>

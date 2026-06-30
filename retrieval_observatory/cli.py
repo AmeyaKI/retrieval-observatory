@@ -2769,14 +2769,20 @@ async def _quickstart(output_dir: str, db_path: str, host: str, port: int) -> No
     console.print(f"  Benchmarks  → http://{display_host}:{port}")
     console.print(f"  TraceLens   → http://{display_host}:{port}/tracelens")
     console.print(f"  Advisor     → http://{display_host}:{port}/advisor")
-    console.print("\n  [dim]What you're seeing: Forge found retrieval failure scenarios in a synthetic")
-    console.print("  RAG corpus, built stress-test queries, ran a BM25 benchmark against them,")
-    console.print("  and seeded TraceLens with 50 production-shaped traces with failure labels.")
-    console.print("  Open the TraceLens tab and look at 'suspected_failures' per query.[/dim]\n")
+    console.print(
+        "\n  [dim]What you're seeing: Forge found retrieval failure scenarios in a synthetic\n"
+        "  RAG corpus, built stress-test queries, ran a BM25 benchmark against them,\n"
+        "  and seeded TraceLens with 50 production-shaped traces with failure labels.\n"
+        "  Open the TraceLens tab and look at 'suspected_failures' per query.[/dim]\n"
+    )
 
     registry = DbRegistry([db_path])
     dashboard_app = create_app(registry=registry)
-    uvicorn.run(dashboard_app, host=host, port=port)
+    # uvicorn.run() calls asyncio.run() internally; we are already inside
+    # asyncio.run(_quickstart(...)), so start the server on the active loop.
+    config = uvicorn.Config(dashboard_app, host=host, port=port)
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 if __name__ == "__main__":

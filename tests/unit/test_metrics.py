@@ -453,15 +453,19 @@ def test_expansion_stage_excluded_from_churn_rate():
 
 
 def test_supports_filters_flag_on_adapters():
-    """In-process BM25/HF and HTTP adapters declare filter support."""
+    """In-process BM25/HF, HTTP, pgvector, and HF cross-encoder declare filter support."""
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
+    from retrieval_observatory.adapters.hf_adapter import HFCrossEncoderAdapter
     from retrieval_observatory.adapters.hf_biencoder_adapter import HFBiEncoderAdapter
     from retrieval_observatory.adapters.http_adapter import HTTPAdapter
     from retrieval_observatory.adapters.langchain_adapter import LangChainAdapter
     from retrieval_observatory.adapters.llamaindex_adapter import LlamaIndexAdapter
+    from retrieval_observatory.adapters.pgvector_adapter import PgvectorAdapter
 
     assert BM25Adapter.supports_filters is True
     assert HFBiEncoderAdapter.supports_filters is True
+    assert HFCrossEncoderAdapter.supports_filters is True
+    assert PgvectorAdapter.supports_filters is True
     assert LangChainAdapter.supports_filters is False
     assert LlamaIndexAdapter.supports_filters is False
     assert HTTPAdapter.supports_filters is True

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import WorkspaceGlossaryLink from './WorkspaceGlossaryLink'
 import { fetchForgeDatasets, ForgeDataset } from '../api'
 import DatasetList from './forge/DatasetList'
 import DatasetDetail from './forge/DatasetDetail'
@@ -26,7 +27,7 @@ export default function ForgeWorkspace({ route }: Props) {
         <div className="px-4 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between gap-2">
             <h1 className="text-lg font-bold text-gray-900">Forge</h1>
-            <a href="#/benchmarks" className="text-[11px] text-amber-700 underline decoration-amber-300">Glossary</a>
+            <WorkspaceGlossaryLink className="text-[11px] text-amber-700 underline decoration-amber-300" />
           </div>
           <p className="text-xs text-gray-500 mt-0.5">Corpus-specific stress datasets</p>
           <p className="text-[11px] text-amber-800 mt-2">

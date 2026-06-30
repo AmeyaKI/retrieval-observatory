@@ -56,13 +56,19 @@ export default function DashboardGuide() {
           <div className="border-t border-indigo-100 pt-2">
             <p className="font-semibold mb-1">Four platform modes</p>
             <p className="text-indigo-700">
-              Demo DB? Use the platform tour (modal on load) to visit Forge → Benchmarks → TraceLens → Advisor → Query lineage.
+              Demo DB? Use the persistent bar at the top or the left rail to reopen the platform tour, jump to query lineage, or open the{' '}
+              <a href="#/glossary" className="underline decoration-indigo-400 font-medium">glossary</a>.
             </p>
           </div>
           <div className="border-t border-indigo-100 pt-2">
             <p className="font-semibold mb-1">Glossary / How to read labels</p>
             <p className="text-indigo-700">
-              Diagnostic buckets are post-hoc benchmark outcomes; predicted difficulty is pre-retrieval from query text. Hybrid stages run parallel arms and fuse with RRF. q-values are BH-adjusted p-values (significant when q&lt;0.05).
+              Full definitions live on the{' '}
+              <a href="#/glossary" className="underline decoration-indigo-400 font-medium">Glossary page</a>
+              {' '}(also in the left rail). Diagnostic buckets are post-hoc benchmark outcomes; predicted difficulty is pre-retrieval from query text.
+            </p>
+            <p className="text-indigo-700 mt-1">
+              Hybrid stages run parallel arms and fuse with RRF. q-values are BH-adjusted p-values (significant when q&lt;0.05).
             </p>
             <p className="text-indigo-700 mt-1">
               Color convention: emerald = good/win, amber = caution, rose = regression/failure, slate/gray = neutral or insufficient data.
