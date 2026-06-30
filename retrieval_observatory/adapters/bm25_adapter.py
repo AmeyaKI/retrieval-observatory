@@ -22,7 +22,7 @@ class BM25Adapter:
     to forward filters to a backend that can enforce them.
     """
 
-    supports_filters: bool = False
+    supports_filters: bool = True
 
     def __init__(
         self,
@@ -83,14 +83,6 @@ class BM25Adapter:
         return text.lower().split()
 
     def retrieve(self, query: Query) -> RetrievalResult:
-        if query.filters:
-            warnings.warn(
-                f"BM25Adapter ({self.retriever_id!r}) does not support Query.filters; "
-                "filters are ignored and results are unfiltered. Use HTTPAdapter to forward "
-                "filters to a backend that enforces them.",
-                UserWarning,
-                stacklevel=2,
-            )
         if self._bm25 is None:
             self._build_index()
         assert self._bm25 is not None and self._doc_ids is not None  # set by _build_index
@@ -100,7 +92,22 @@ class BM25Adapter:
         latency_ms = (time.perf_counter() - start) * 1000
 
         # Sort by score descending, take top-k
-        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[: query.k]
+        filtered_ids = None
+        if query.filters:
+            filtered_ids = query.filters.get("doc_ids")
+            unsupported = set(query.filters) - {"doc_ids"}
+            if unsupported:
+                warnings.warn(
+                    f"BM25Adapter supports only Query.filters['doc_ids']; unsupported keys: {sorted(unsupported)}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
+        ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        if filtered_ids is not None:
+            allowed = set(filtered_ids)
+            ranked_indices = [idx for idx in ranked_indices if self._doc_ids[idx] in allowed]
+        top_indices = ranked_indices[: query.k]
 
         documents = [
             Document(

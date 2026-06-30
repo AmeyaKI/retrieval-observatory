@@ -4,6 +4,7 @@ import { formatMetricKey } from '../utils/formatMetricKey'
 import { METRIC_GLOSSARY, lookupFailureLabel } from '../utils/metricGlossary'
 import { MetricTooltip } from './MetricTooltip'
 import ClassifierCalibration from './ClassifierCalibration'
+import NoData from './NoData'
 
 export default function ExperimentOverview({ dbId, runId }: { dbId: string; runId: string }) {
   const [overview, setOverview] = useState<Overview | null>(null)
@@ -13,7 +14,7 @@ export default function ExperimentOverview({ dbId, runId }: { dbId: string; runI
     fetchRunOverview(dbId, runId).then(setOverview).catch(() => setOverview(null))
   }, [dbId, runId])
 
-  if (!overview) return null
+  if (!overview) return <NoData label="No run overview data available." />
 
   const buckets = Object.entries(overview.diagnostics.difficulty_buckets || {})
   const labels = Object.entries(overview.diagnostics.failure_labels || {})

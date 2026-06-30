@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 
+from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.types import PipelineResult
 
 
@@ -17,6 +18,21 @@ class BaseStore(Protocol):
         ...
 
     async def save_result(self, run_id: str, result: PipelineResult) -> None:
+        ...
+
+    async def save_trace_v2(self, trace: RetrievalTraceV2) -> None:
+        ...
+
+    async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
+        ...
+
+    async def get_traces_v2(self, run_id: str) -> List[RetrievalTraceV2]:
+        ...
+
+    async def save_doc_edge(self, src_doc_id: str, dst_doc_id: str, edge_type: str, weight: float = 1.0) -> None:
+        ...
+
+    async def get_doc_neighbors(self, src_doc_id: str, edge_type: Optional[str] = None) -> List[Dict]:
         ...
 
     async def save_metric(
@@ -40,6 +56,9 @@ class BaseStore(Protocol):
         ...
 
     async def get_results(self, run_id: str) -> List[PipelineResult]:
+        ...
+
+    async def get_run_status_counts(self, run_id: str) -> Dict[str, int]:
         ...
 
     async def get_metrics(self, run_id: str) -> List[Dict]:

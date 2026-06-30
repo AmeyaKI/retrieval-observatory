@@ -15,9 +15,6 @@ from retrieval_observatory.metrics.ranking import (
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
-from retrieval_observatory.types import PipelineResult
-
-
 class MetricsEngine:
     """Computes and stores per-query metrics; aggregation is always a GROUP BY query."""
 
@@ -43,7 +40,7 @@ class MetricsEngine:
         self,
         run_id: str,
         store: BaseStore,
-        results: List[PipelineResult],
+        results: List[Any],
         qrels: Union[Dict[str, Set[str]], Dict[str, Dict[str, int]]],
         queries_by_id: Optional[Dict] = None,
         corpus_documents: Optional[Dict] = None,
@@ -315,8 +312,40 @@ class MetricsEngine:
                 "zero_pct": round(zero_count / len(scores) * 100, 1),
             }
 
+        # Stage-6 path: use trace-native run status counts when available.
+        status_counts = await store.get_run_status_counts(run_id)
+        if status_counts:
+            timeout_count = int(status_counts.get("TIMEOUT", 0))
+            error_count = int(status_counts.get("ERROR", 0))
+            ok_count = int(status_counts.get("OK", 0))
+            total = ok_count + timeout_count + error_count
+            if total > 0:
+                dropout_count = timeout_count + error_count
+                for pipeline_id in sorted({value.get("pipeline_id") for value in aggregated.values() if value.get("pipeline_id")}):
+                    for metric_name, value in (
+                        ("failure_rate", dropout_count / total),
+                        ("timeout_rate", timeout_count / total),
+                        ("dropout_count", float(dropout_count)),
+                    ):
+                        key = f"{pipeline_id}|stage-1|{metric_name}@0"
+                        aggregated[key] = {
+                            "pipeline_id": pipeline_id,
+                            "stage_index": -1,
+                            "metric_name": metric_name,
+                            "k": 0,
+                            "mean": float(value),
+                            "std": 0.0,
+                            "ci_low": float(value),
+                            "ci_high": float(value),
+                            "n": total,
+                            "zero_count": 0,
+                            "zero_pct": 0.0,
+                        }
+                return aggregated
+
+        # Backward-compatible fallback when traces_v2 is unavailable.
         results = await store.get_results(run_id)
-        by_pipeline: Dict[str, List[PipelineResult]] = defaultdict(list)
+        by_pipeline: Dict[str, List[Any]] = defaultdict(list)
         for result in results:
             by_pipeline[result.pipeline_id].append(result)
         for pipeline_id, pipeline_results in by_pipeline.items():

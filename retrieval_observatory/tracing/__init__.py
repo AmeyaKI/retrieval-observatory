@@ -1,4 +1,5 @@
 from retrieval_observatory.tracing.types import RetrievalTrace
+from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.tracing.recorder import TraceRecorder
 from retrieval_observatory.tracing.sink import StoreSink, HTTPSink, MemorySink, TraceSink
 from retrieval_observatory.tracing.enrich import enrich, predict_difficulty, detect_suspected_failures
@@ -32,6 +33,7 @@ def init(
 
 __all__ = [
     "RetrievalTrace",
+    "RetrievalTraceV2",
     "TraceRecorder",
     "StoreSink",
     "HTTPSink",

@@ -453,22 +453,22 @@ def test_expansion_stage_excluded_from_churn_rate():
 
 
 def test_supports_filters_flag_on_adapters():
-    """Fix 2: adapters declare supports_filters; only HTTPAdapter returns True."""
+    """In-process BM25/HF and HTTP adapters declare filter support."""
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
     from retrieval_observatory.adapters.hf_biencoder_adapter import HFBiEncoderAdapter
     from retrieval_observatory.adapters.http_adapter import HTTPAdapter
     from retrieval_observatory.adapters.langchain_adapter import LangChainAdapter
     from retrieval_observatory.adapters.llamaindex_adapter import LlamaIndexAdapter
 
-    assert BM25Adapter.supports_filters is False
-    assert HFBiEncoderAdapter.supports_filters is False
+    assert BM25Adapter.supports_filters is True
+    assert HFBiEncoderAdapter.supports_filters is True
     assert LangChainAdapter.supports_filters is False
     assert LlamaIndexAdapter.supports_filters is False
     assert HTTPAdapter.supports_filters is True
 
 
 def test_bm25_adapter_warns_on_filters(tmp_path):
-    """Fix 2: BM25Adapter emits a UserWarning when retrieve() is called with filters set."""
+    """BM25Adapter warns when unsupported filter keys are provided."""
     import warnings as _warnings
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
     from retrieval_observatory.types import Query
@@ -483,7 +483,7 @@ def test_bm25_adapter_warns_on_filters(tmp_path):
         _warnings.simplefilter("always")
         adapter.retrieve(q)
 
-    assert any("filters" in str(w.message).lower() and issubclass(w.category, UserWarning) for w in caught)
+    assert any("unsupported keys" in str(w.message).lower() and issubclass(w.category, UserWarning) for w in caught)
 
 
 def test_stage_contributions_include_n_pairs():

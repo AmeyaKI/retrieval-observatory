@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, List, Protocol, runtime_checkable
 
+from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.tracing.types import RetrievalTrace
 
 
@@ -74,6 +75,12 @@ class HTTPSink:
         payload = trace_to_dict(trace)
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             await client.post(self._endpoint, json=payload)
+
+    async def emit_v2(self, trace: RetrievalTraceV2) -> None:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            await client.post(self._endpoint, json=trace.to_dict())
 
 
 class MemorySink:

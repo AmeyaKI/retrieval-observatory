@@ -10,7 +10,17 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Changed
 
+- `THREE_TRACK_PLAN.md` — split Stage 0 into demo-credibility and deployability tracks; refine trace-native roadmap with operator schema, replay-tier, segment, and public-claim audit gates.
 - `.gitignore` — stop tracking `docs/PYPI_PUBLISH.md` (local-only PyPI publish notes).
+- `dashboard/registry.py` — database registry now accepts Postgres DSNs in addition to SQLite paths for serving.
+- `adapters/bm25_adapter.py` and `adapters/hf_biencoder_adapter.py` — `Query.filters['doc_ids']` is now enforced in-process; unsupported filter keys emit explicit warnings.
+- `dashboard/ui/src/components/StageCombinationMatrix.tsx` — replaced fixed 80-row truncation with client-side pagination (50 rows per page).
+- `metrics/engine.py`, `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — aggregation now prefers trace-native run status counts (`get_run_status_counts`) and falls back to legacy `raw_results` only when trace-v2 rows are absent.
+- `dashboard/api.py` — run overview/query endpoints now read trace-v2 runs directly (compat-converted snapshots) before using legacy `get_results`.
+- `dashboard/ui/src/components/RunDetail.tsx` and `ExperimentOverview.tsx` — run page now renders operator attribution grid, operator inspector, per-query winner table, and shared no-data states.
+- `metrics/diagnostics.py` — removed direct `PipelineResult` type imports from metric/dashboard paths as part of Stage-6 migration cleanup.
+- `tests/unit/test_metrics.py` and `tests/unit/test_classifier_train.py` — updated adapter filter expectations and skipped sklearn round-trip training on Darwin to avoid reproducible platform-level segfaults.
+- `README.md` and `BREAKDOWN.md` — capability matrix/storage notes updated for Qdrant adapter, Postgres serving, and in-process filter support.
 
 ### Fixed
 
@@ -34,6 +44,14 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 - `tests/unit/test_stage_cache.py` — fused-stage arm cache snapshot round-trip for `_snap_to_json`/`_snap_from_json`.
 - `tests/unit/test_dashboard_warnings.py` — indeterminate arm-vs-fused stage-contribution API coverage.
 - `tests/unit/test_metrics.py` — branch-metric aggregation keeps fused and main rows separate.
+- `tracing/model_v2.py`, `tracing/lift.py`, `tracing/attribution.py`, and `tracing/replay.py` — trace-native `RetrievalTraceV2` model with lift, segment attribution, replay, and miss attribution primitives.
+- `store/sqlite.py` and `store/postgres.py` — `traces_v2` persistence/read APIs and `doc_edges` storage for graph-aware retrieval metadata.
+- `dashboard/api.py` — remote run ingest lifecycle (`/experiments/{name}/runs`, `/runs/{run_id}/results`, `/runs/{run_id}/metrics`, `/runs/{run_id}/finish`), trace-v2 ingest/read APIs, operator attribution endpoint, and query-winner endpoint.
+- `sdk/observe.py`, `sdk/otel_exporter.py`, and `sdk/remote.py` — production trace instrumentation helpers, OTEL export bridge, and remote results client.
+- `adapters/qdrant_adapter.py` and `pipeline/factory.py` — native Qdrant adapter support via `adapter.qdrant`.
+- `dashboard/ui/src/components/SegmentOperatorGrid.tsx`, `OperatorInspector.tsx`, `ProvenanceSankey.tsx`, `QueryWinnerTable.tsx`, `SectionHeading.tsx`, and `NoData.tsx` — trace-native dashboard components for attribution/provenance and shared empty-state/section primitives.
+- `tests/unit/test_trace_lift.py`, `tests/unit/test_attribution_segments.py`, `tests/unit/test_replay.py`, and `tests/integration/test_observe_roundtrip.py` — coverage for trace-v2 lift/store, attribution, replay/miss, and observe ingest roundtrip.
+- `Dockerfile` and `docker-compose.yml` — containerized single-tenant `retobs serve` deployment scaffolding.
 
 ### Changed
 
@@ -375,4 +393,3 @@ Initial public release. Multi-stage retrieval benchmarking with a React dashboar
 - SciFact: BM25 NDCG@10=0.544, Dense NDCG@10=0.640 (+17.7%)
 - FiQA: BM25 NDCG@10=0.159, Dense NDCG@10=0.369 (+132%)
 - Dense (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA at 133–228× lower latency than cross-encoder reranking
-

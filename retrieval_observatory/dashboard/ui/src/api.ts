@@ -229,6 +229,54 @@ export async function fetchStageMatrix(
   return res.json()
 }
 
+export interface OperatorAttributionRow {
+  op_id: string
+  segment: string
+  metric: string
+  k: number
+  delta: number | null
+  ci_low: number | null
+  ci_high: number | null
+  n_pairs: number
+  replay_policy: 'EXACT' | 'OBSERVED_ABLATION' | 'NOT_REPLAYABLE'
+  result_status: string
+  low_power?: boolean
+  fire_rate?: number
+}
+
+export async function fetchOperatorAttribution(
+  dbId: string,
+  runId: string,
+  metric: string = 'recall',
+  k: number = 10,
+): Promise<OperatorAttributionRow[]> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/operator-attribution?metric=${encodeURIComponent(metric)}&k=${k}`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch operator attribution for run ${runId}`)
+  return res.json()
+}
+
+export interface QueryWinnerRow {
+  query_id: string
+  winner_pipeline_id: string | null
+  score?: number
+  status: 'measured' | 'not_judged'
+}
+
+export async function fetchQueryWinners(
+  dbId: string,
+  runId: string,
+  metric: string = 'recall',
+  k: number = 10,
+): Promise<{ run_id: string; metric: string; k: number; items: QueryWinnerRow[] }> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/query-winners?metric=${encodeURIComponent(metric)}&k=${k}`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch query winners for run ${runId}`)
+  return res.json()
+}
+
 export interface ParetoPipelineMetrics {
   'ndcg@10': number
   'recall@10': number

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from statistics import mean, pstdev
-from typing import Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Set
 
 from retrieval_observatory.metrics.ranking import dedupe_preserve_rank
-from retrieval_observatory.types import CandidateLineage, PipelineResult
+from retrieval_observatory.types import CandidateLineage
 
 
-def compute_candidate_lineage(result: PipelineResult) -> List[CandidateLineage]:
+def compute_candidate_lineage(result: Any) -> List[CandidateLineage]:
     """Return per-stage candidate flow for a single pipeline result."""
     lineages: List[CandidateLineage] = []
     prev_ids: Set[str] = set()
@@ -58,11 +58,11 @@ def compute_churn_rate(lineages: List[CandidateLineage]) -> float:
 
 def build_query_diagnostics(
     run_id: str,
-    results: List[PipelineResult],
+    results: List[Any],
     qrels: Dict,
 ) -> List[Dict]:
     """Create per-query, per-pipeline diagnostic labels from stored stage outputs."""
-    by_query: Dict[str, List[PipelineResult]] = defaultdict(list)
+    by_query: Dict[str, List[Any]] = defaultdict(list)
     for result in results:
         by_query[result.query_id].append(result)
 
@@ -231,7 +231,7 @@ def _difficulty_bucket(scores: List[float]) -> str:
     return "medium"
 
 
-def _pipeline_ids(results: Iterable[PipelineResult]) -> List[str]:
+def _pipeline_ids(results: Iterable[Any]) -> List[str]:
     return [result.pipeline_id for result in results]
 
 

@@ -20,15 +20,21 @@ function fmtCell(v: number, isLatency: boolean): string {
 
 export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }: Props) {
   const [cells, setCells] = useState<Cell[]>([])
+  const [page, setPage] = useState(1)
+  const pageSize = 50
 
   useEffect(() => {
     fetchStageMatrix(dbId, runId).then((data) => setCells(data.cells)).catch(() => setCells([]))
+    setPage(1)
   }, [dbId, runId])
 
-  const rows = cells
+  const filteredRows = cells
     .filter((cell) => ['recall', 'ndcg', 'latency_p50', 'latency_p95'].includes(cell.metric_name))
-    .slice(0, 80)
-  const totalFiltered = cells.filter((cell) => ['recall', 'ndcg', 'latency_p50', 'latency_p95'].includes(cell.metric_name)).length
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pageStart = (currentPage - 1) * pageSize
+  const rows = filteredRows.slice(pageStart, pageStart + pageSize)
+  const totalFiltered = filteredRows.length
 
   if (!rows.length) return null
 
@@ -79,11 +85,32 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
         </tbody>
       </table>
       </div>
-      {totalFiltered > 80 && (
-        <p className="mt-2 text-xs text-amber-700">
-          Showing 80 of {totalFiltered} rows.
-          <MetricTooltip text={METRIC_GLOSSARY.truncation_notice} />
-        </p>
+      {totalFiltered > pageSize && (
+        <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+          <p>
+            Showing {pageStart + 1}-{Math.min(pageStart + pageSize, totalFiltered)} of {totalFiltered} rows.
+            <MetricTooltip text={METRIC_GLOSSARY.truncation_notice} />
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              className="px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </button>
+            <span>
+              Page {currentPage}/{totalPages}
+            </span>
+            <button
+              className="px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

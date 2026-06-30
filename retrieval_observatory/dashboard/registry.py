@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from retrieval_observatory.store.postgres import PostgresStore
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 
@@ -18,7 +19,7 @@ class DbSource:
     db_id: str
     label: str
     path: str
-    store: SQLiteStore
+    store: object
 
 
 class DbRegistry:
@@ -31,18 +32,24 @@ class DbRegistry:
         used_ids: Dict[str, int] = {}
 
         for raw_path in db_paths:
-            path = str(Path(raw_path).expanduser().resolve())
-            stem = Path(path).stem
+            is_dsn = raw_path.startswith("postgres://") or raw_path.startswith("postgresql://")
+            path = raw_path if is_dsn else str(Path(raw_path).expanduser().resolve())
+            stem = raw_path.split("://", 1)[0] if is_dsn else Path(path).stem
             base_id = _slugify(stem)
             count = used_ids.get(base_id, 0)
             used_ids[base_id] = count + 1
             db_id = base_id if count == 0 else f"{base_id}_{count + 1}"
 
+            if path.startswith("postgres://") or path.startswith("postgresql://"):
+                store = PostgresStore(dsn=path)
+            else:
+                store = SQLiteStore(db_path=path)
+
             self._sources[db_id] = DbSource(
                 db_id=db_id,
                 label=stem,
                 path=path,
-                store=SQLiteStore(db_path=path),
+                store=store,
             )
 
     @property
@@ -61,7 +68,7 @@ class DbRegistry:
             raise KeyError(db_id)
         return source
 
-    def get_store(self, db_id: str) -> SQLiteStore:
+    def get_store(self, db_id: str):
         return self.get(db_id).store
 
     async def init_all(self) -> None:

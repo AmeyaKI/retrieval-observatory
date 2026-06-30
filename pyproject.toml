@@ -47,6 +47,8 @@ llamaindex = ["llama-index-core>=0.10"]
 pgvector = ["asyncpg>=0.29", "pgvector>=0.3"]
 postgres = ["asyncpg>=0.29"]
 dashboard = ["fastapi>=0.111", "uvicorn>=0.29", "python-multipart>=0.0.9"]
+serve = ["fastapi>=0.111", "uvicorn>=0.29", "python-multipart>=0.0.9"]
+qdrant = ["qdrant-client>=1.9"]
 llm-judge = ["google-generativeai>=0.8", "anthropic>=0.28", "openai>=1.0"]
 demo = ["beir>=2.0", "datasets>=2.0", "rank-bm25>=0.2.2"]
 classifier = ["scikit-learn>=1.4", "joblib>=1.3"]
@@ -78,8 +80,8 @@ retrieval_observatory = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-# Avoid pytest-rerunfailures (often auto-loaded in Conda) — it can segfault with numpy on macOS.
-addopts = "-p no:rerunfailures"
+# Avoid externally auto-loaded plugins (often injected by global Conda envs) that destabilize test runs.
+addopts = "-p no:rerunfailures -p no:seleniumbase -p no:xdist -p no:langsmith -p no:html"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

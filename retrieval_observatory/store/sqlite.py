@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 import aiosqlite
 
+from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 _CREATE_RUNS = """
@@ -207,6 +208,39 @@ CREATE TABLE IF NOT EXISTS reliability_snapshots (
 )
 """
 
+_CREATE_TRACES_V2 = """
+CREATE TABLE IF NOT EXISTS traces_v2 (
+    trace_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    pipeline_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    trace_json TEXT NOT NULL
+)
+"""
+
+_CREATE_TRACES_V2_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_traces_v2_run ON traces_v2 (run_id, query_id)"
+)
+
+_CREATE_DOC_EDGES = """
+CREATE TABLE IF NOT EXISTS doc_edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    src_doc_id TEXT NOT NULL,
+    dst_doc_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL,
+    weight REAL NOT NULL DEFAULT 1.0
+)
+"""
+
+_CREATE_DOC_EDGES_SRC_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_doc_edges_src ON doc_edges (src_doc_id, edge_type)"
+)
+_CREATE_DOC_EDGES_DST_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_doc_edges_dst ON doc_edges (dst_doc_id, edge_type)"
+)
+
 
 class SQLiteStore:
     def __init__(self, db_path: str = ".retobs/results.db"):
@@ -244,6 +278,11 @@ class SQLiteStore:
             await db.execute(_CREATE_TRACE_STAGES)
             await db.execute(_CREATE_GOLDEN_SETS)
             await db.execute(_CREATE_RELIABILITY_SNAPSHOTS)
+            await db.execute(_CREATE_TRACES_V2)
+            await db.execute(_CREATE_TRACES_V2_IDX)
+            await db.execute(_CREATE_DOC_EDGES)
+            await db.execute(_CREATE_DOC_EDGES_SRC_IDX)
+            await db.execute(_CREATE_DOC_EDGES_DST_IDX)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -363,6 +402,72 @@ class SQLiteStore:
                         ),
                     )
             await db.commit()
+
+    async def save_trace_v2(self, trace: RetrievalTraceV2) -> None:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """INSERT OR REPLACE INTO traces_v2
+                   (trace_id, run_id, query_id, pipeline_id, status, timestamp, trace_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    trace.trace_id,
+                    trace.run_id,
+                    trace.query_id,
+                    trace.pipeline_id,
+                    trace.status,
+                    trace.timestamp.isoformat(),
+                    json.dumps(trace.to_dict()),
+                ),
+            )
+            await db.commit()
+
+    async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute("SELECT trace_json FROM traces_v2 WHERE trace_id = ?", (trace_id,)) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        return RetrievalTraceV2.from_dict(json.loads(row[0]))
+
+    async def get_traces_v2(self, run_id: str) -> List[RetrievalTraceV2]:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT trace_json FROM traces_v2 WHERE run_id = ? ORDER BY timestamp",
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [RetrievalTraceV2.from_dict(json.loads(row[0])) for row in rows]
+
+    async def save_doc_edge(
+        self,
+        src_doc_id: str,
+        dst_doc_id: str,
+        edge_type: str,
+        weight: float = 1.0,
+    ) -> None:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO doc_edges (src_doc_id, dst_doc_id, edge_type, weight) VALUES (?, ?, ?, ?)",
+                (src_doc_id, dst_doc_id, edge_type, weight),
+            )
+            await db.commit()
+
+    async def get_doc_neighbors(self, src_doc_id: str, edge_type: Optional[str] = None) -> List[Dict]:
+        await self._ensure_schema()
+        sql = "SELECT src_doc_id, dst_doc_id, edge_type, weight FROM doc_edges WHERE src_doc_id = ?"
+        params: List = [src_doc_id]
+        if edge_type:
+            sql += " AND edge_type = ?"
+            params.append(edge_type)
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(params)) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
 
     async def save_metric(
         self,
@@ -500,6 +605,30 @@ class SQLiteStore:
                 d["query_metadata"] = {}
             result.append(d)
         return result
+
+    async def get_run_status_counts(self, run_id: str) -> Dict[str, int]:
+        await self._ensure_schema()
+        counts: Dict[str, int] = {}
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT status, COUNT(*) FROM traces_v2 WHERE run_id = ? GROUP BY status",
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        if rows:
+            for status, count in rows:
+                counts[str(status)] = int(count)
+            return counts
+
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT status, COUNT(*) FROM raw_results WHERE run_id = ? AND stage_index = -1 GROUP BY status",
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        for status, count in rows:
+            counts[str(status)] = int(count)
+        return counts
 
     async def cache_get(self, cache_key: str) -> Optional[str]:
         async with aiosqlite.connect(self.db_path) as db:

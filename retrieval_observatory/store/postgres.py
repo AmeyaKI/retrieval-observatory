@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
+from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 _CREATE_RUNS = """
@@ -185,6 +186,32 @@ CREATE TABLE IF NOT EXISTS reliability_snapshots (
 )
 """
 
+_CREATE_TRACES_V2 = """
+CREATE TABLE IF NOT EXISTS traces_v2 (
+    trace_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    query_id TEXT NOT NULL,
+    pipeline_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    timestamp TIMESTAMPTZ NOT NULL,
+    trace_json TEXT NOT NULL
+)
+"""
+
+_CREATE_TRACES_V2_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_v2_run ON traces_v2(run_id, query_id)"
+
+_CREATE_DOC_EDGES = """
+CREATE TABLE IF NOT EXISTS doc_edges (
+    id SERIAL PRIMARY KEY,
+    src_doc_id TEXT NOT NULL,
+    dst_doc_id TEXT NOT NULL,
+    edge_type TEXT NOT NULL,
+    weight DOUBLE PRECISION NOT NULL DEFAULT 1.0
+)
+"""
+_CREATE_DOC_EDGES_SRC_IDX = "CREATE INDEX IF NOT EXISTS idx_doc_edges_src ON doc_edges(src_doc_id, edge_type)"
+_CREATE_DOC_EDGES_DST_IDX = "CREATE INDEX IF NOT EXISTS idx_doc_edges_dst ON doc_edges(dst_doc_id, edge_type)"
+
 
 class PostgresStore:
     """Async Postgres backend using asyncpg connection pooling."""
@@ -229,6 +256,11 @@ class PostgresStore:
             await conn.execute(_CREATE_TRACE_STAGES)
             await conn.execute(_CREATE_GOLDEN_SETS)
             await conn.execute(_CREATE_RELIABILITY_SNAPSHOTS)
+            await conn.execute(_CREATE_TRACES_V2)
+            await conn.execute(_CREATE_TRACES_V2_IDX)
+            await conn.execute(_CREATE_DOC_EDGES)
+            await conn.execute(_CREATE_DOC_EDGES_SRC_IDX)
+            await conn.execute(_CREATE_DOC_EDGES_DST_IDX)
             try:
                 await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
             except Exception:
@@ -338,6 +370,76 @@ class PostgresStore:
                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)""",
                 rows,
             )
+
+    async def save_trace_v2(self, trace: RetrievalTraceV2) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO traces_v2
+                   (trace_id, run_id, query_id, pipeline_id, status, timestamp, trace_json)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                   ON CONFLICT (trace_id) DO UPDATE SET
+                       run_id = EXCLUDED.run_id,
+                       query_id = EXCLUDED.query_id,
+                       pipeline_id = EXCLUDED.pipeline_id,
+                       status = EXCLUDED.status,
+                       timestamp = EXCLUDED.timestamp,
+                       trace_json = EXCLUDED.trace_json""",
+                trace.trace_id,
+                trace.run_id,
+                trace.query_id,
+                trace.pipeline_id,
+                trace.status,
+                trace.timestamp,
+                json.dumps(trace.to_dict()),
+            )
+
+    async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT trace_json FROM traces_v2 WHERE trace_id = $1", trace_id)
+        if not row:
+            return None
+        return RetrievalTraceV2.from_dict(json.loads(row["trace_json"]))
+
+    async def get_traces_v2(self, run_id: str) -> List[RetrievalTraceV2]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT trace_json FROM traces_v2 WHERE run_id = $1 ORDER BY timestamp", run_id)
+        return [RetrievalTraceV2.from_dict(json.loads(row["trace_json"])) for row in rows]
+
+    async def save_doc_edge(
+        self,
+        src_doc_id: str,
+        dst_doc_id: str,
+        edge_type: str,
+        weight: float = 1.0,
+    ) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO doc_edges (src_doc_id, dst_doc_id, edge_type, weight) VALUES ($1, $2, $3, $4)",
+                src_doc_id,
+                dst_doc_id,
+                edge_type,
+                weight,
+            )
+
+    async def get_doc_neighbors(self, src_doc_id: str, edge_type: Optional[str] = None) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            if edge_type:
+                rows = await conn.fetch(
+                    "SELECT src_doc_id, dst_doc_id, edge_type, weight FROM doc_edges WHERE src_doc_id = $1 AND edge_type = $2",
+                    src_doc_id,
+                    edge_type,
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT src_doc_id, dst_doc_id, edge_type, weight FROM doc_edges WHERE src_doc_id = $1",
+                    src_doc_id,
+                )
+        return [dict(row) for row in rows]
 
     async def save_metric(
         self,
@@ -472,6 +574,28 @@ class PostgresStore:
                 d["query_metadata"] = {}
             result.append(d)
         return result
+
+    async def get_run_status_counts(self, run_id: str) -> Dict[str, int]:
+        pool = await self._get_pool()
+        counts: Dict[str, int] = {}
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT status, COUNT(*) AS n FROM traces_v2 WHERE run_id = $1 GROUP BY status",
+                run_id,
+            )
+        if rows:
+            for row in rows:
+                counts[str(row["status"])] = int(row["n"])
+            return counts
+
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT status, COUNT(*) AS n FROM raw_results WHERE run_id = $1 AND stage_index = -1 GROUP BY status",
+                run_id,
+            )
+        for row in rows:
+            counts[str(row["status"])] = int(row["n"])
+        return counts
 
     async def cache_get(self, cache_key: str) -> Optional[str]:
         pool = await self._get_pool()

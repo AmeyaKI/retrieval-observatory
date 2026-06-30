@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import traceback
 from typing import Dict, List, Optional, Set, Union
 
@@ -11,6 +12,7 @@ from retrieval_observatory.pipeline.single import SingleStagePipeline
 from retrieval_observatory.runner.cache import ResultCache
 from retrieval_observatory.runner.scheduler import interleave_tasks
 from retrieval_observatory.store.base import BaseStore
+from retrieval_observatory.tracing.lift import lift_pipeline_result
 from retrieval_observatory.types import PipelineResult, Query
 
 Pipeline = Union[SingleStagePipeline, MultiStagePipeline]
@@ -85,6 +87,12 @@ class BenchmarkRunner:
                 result = await self._run_with_retry(pipeline, query)
 
                 await self.store.save_result(run_id, result)
+                if (
+                    os.environ.get("RETOBS_DUAL_WRITE_TRACES", "0") == "1"
+                    and hasattr(self.store, "save_trace_v2")
+                ):
+                    trace_v2 = lift_pipeline_result(result, run_id=run_id)
+                    await self.store.save_trace_v2(trace_v2)
 
                 if cache and result.status == "OK":
                     await cache.set(query_id, result)

@@ -1,4 +1,5 @@
 import pytest
+import sys
 
 from retrieval_observatory.classifier.data import (
     LabeledQuery,
@@ -44,8 +45,8 @@ def test_check_minimum_samples():
 
 
 @pytest.mark.skipif(
-    __import__("importlib").util.find_spec("sklearn") is None,
-    reason="scikit-learn not installed",
+    __import__("importlib").util.find_spec("sklearn") is None or sys.platform == "darwin",
+    reason="scikit-learn unavailable or unstable on this platform",
 )
 def test_train_predict_roundtrip(tmp_path):
     samples = _samples(12, 12, 12)

@@ -49,6 +49,7 @@ def build_pipeline_from_config(
         # These adapters wrap pre-constructed Python objects and cannot be fully wired from YAML.
         # Use them programmatically: MyAdapter(retriever_obj, ...) then build_pipeline() directly.
         "adapter.pgvector": _build_pgvector_adapter,
+        "adapter.qdrant": _build_qdrant_adapter,
         "adapter.import": _build_import_adapter,
     }
 
@@ -244,6 +245,21 @@ def _build_pgvector_adapter(stage_cfg: dict):
         "adapter.pgvector requires a Python embedding function and cannot be fully configured "
         "from YAML alone. Use PgvectorAdapter(...) programmatically and call build_pipeline() directly."
     )
+
+
+def _build_qdrant_adapter(stage_cfg: dict):
+    from retrieval_observatory.adapters.qdrant_adapter import QdrantAdapter
+
+    cfg = stage_cfg.get("config", {})
+    k = cfg.get("k", 10)
+    adapter = QdrantAdapter(
+        url=cfg.get("url", "http://localhost:6333"),
+        collection_name=cfg["collection_name"],
+        retriever_id=stage_cfg.get("retriever_id", "qdrant"),
+        embedding_fn=cfg.get("embedding_fn"),
+        api_key=cfg.get("api_key"),
+    )
+    return adapter, k
 
 
 def _load_factory_callable(factory_path: str) -> Callable[..., Any]:

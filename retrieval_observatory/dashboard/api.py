@@ -6,6 +6,7 @@ import shutil
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, Dict, List
 
 import numpy as np
@@ -16,7 +17,9 @@ from retrieval_observatory.metrics.comparison import paired_scores_by_query, pip
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.dashboard.registry import DbRegistry
-from retrieval_observatory.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.attribution import operator_marginal_contribution
+from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+from retrieval_observatory.types import Document, StageSnapshot
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
 # Never serve the SPA shell for these — browser would execute HTML as JS/CSS → blank page.
@@ -59,6 +62,48 @@ except ImportError:
 
 def _selection_key(db_id: str, run_id: str) -> str:
     return f"{db_id}/{run_id}"
+
+
+@dataclass
+class _CompatResult:
+    query_id: str
+    pipeline_id: str
+    snapshots: List[StageSnapshot]
+    total_latency_ms: float
+    status: str
+    error_traceback: str | None = None
+
+
+def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_CompatResult]:
+    results: List[_CompatResult] = []
+    for trace in traces:
+        spans = [span for span in trace.spans if span.status == "FIRED"]
+        snapshots: List[StageSnapshot] = []
+        for idx, span in enumerate(spans):
+            docs = [
+                Document(id=c.doc_id, text="", score=c.score, rank=c.rank)
+                for c in span.outputs
+            ]
+            snapshots.append(
+                StageSnapshot(
+                    stage_index=idx,
+                    stage_id=span.op_id,
+                    documents=docs,
+                    latency_ms=span.latency_ms,
+                    candidate_count=len(docs),
+                )
+            )
+        results.append(
+            _CompatResult(
+                query_id=trace.query_id,
+                pipeline_id=trace.pipeline_id,
+                snapshots=snapshots,
+                total_latency_ms=trace.total_latency_ms,
+                status=trace.status,
+                error_traceback=trace.error_traceback,
+            )
+        )
+    return results
 
 
 def _dataset_fingerprint(manifest: Dict[str, Any] | None) -> str | None:
@@ -170,7 +215,7 @@ def create_app(
     engine = MetricsEngine()
     default_store = registry.get_store(registry.default_db_id)  # type: ignore[arg-type]
 
-    def _store_for(db_id: str) -> SQLiteStore:
+    def _store_for(db_id: str):
         try:
             return registry.get_store(db_id)
         except KeyError:
@@ -212,6 +257,52 @@ def create_app(
         if "run_ids" in body and registry.is_single:
             result["run_ids"] = body["run_ids"]
         return result
+
+    @app.post("/experiments/{name}/runs")
+    async def create_remote_run(name: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        if not registry.default_db_id:
+            raise HTTPException(status_code=503, detail="No default database configured")
+        store = registry.get_store(registry.default_db_id)
+        await store.init_db()
+        run_id = str(uuid.uuid4())[:8]
+        config_json = payload.get("config_json", "{}")
+        await store.save_run(run_id=run_id, experiment_name=name, config_json=config_json)
+        return {"run_id": run_id, "experiment_name": name}
+
+    @app.post("/runs/{run_id}/results")
+    async def remote_push_results(run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        if not registry.default_db_id:
+            raise HTTPException(status_code=503, detail="No default database configured")
+        store = registry.get_store(registry.default_db_id)
+        await store.init_db()
+        traces = payload.get("traces", [])
+        ingested = 0
+        for item in traces:
+            trace = _parse_trace_v2(item, run_id=run_id)
+            await store.save_trace_v2(trace)
+            ingested += 1
+        return {"run_id": run_id, "ingested": ingested}
+
+    @app.post("/runs/{run_id}/metrics")
+    async def remote_push_metrics(run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        if not registry.default_db_id:
+            raise HTTPException(status_code=503, detail="No default database configured")
+        store = registry.get_store(registry.default_db_id)
+        await store.init_db()
+        rows = payload.get("rows", [])
+        for row in rows:
+            row.setdefault("run_id", run_id)
+        await store.save_metrics_batch(rows)
+        return {"run_id": run_id, "stored": len(rows)}
+
+    @app.post("/runs/{run_id}/finish")
+    async def remote_finish_run(run_id: str) -> Dict[str, Any]:
+        if not registry.default_db_id:
+            raise HTTPException(status_code=503, detail="No default database configured")
+        store = registry.get_store(registry.default_db_id)
+        await store.init_db()
+        await store.finish_run(run_id)
+        return {"run_id": run_id, "finished": True}
 
     db_router = APIRouter(prefix="/dbs/{db_id}")
 
@@ -492,7 +583,8 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
         metrics = await engine.aggregate(run_id, store)
         metrics_rows = await store.get_metrics(run_id)
-        results = await store.get_results(run_id)
+        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
@@ -509,7 +601,11 @@ def create_app(
     @db_router.get("/runs/{run_id}/queries/{query_id}")
     async def get_query_result(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
-        results = [r for r in await store.get_results(run_id) if r.query_id == query_id]
+        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        if traces:
+            results = [r for r in _pipeline_results_from_traces(traces) if r.query_id == query_id]
+        else:
+            results = [r for r in await store.get_results(run_id) if r.query_id == query_id]
         diagnostics = await store.get_query_diagnostics(run_id, query_id=query_id)
         return {
             "run_id": run_id,
@@ -603,6 +699,81 @@ def create_app(
             ],
             "frontier_order": result.frontier_order,
         }
+
+    @db_router.post("/runs/{run_id}/traces")
+    async def ingest_trace_v2(db_id: str, run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        store = _store_for(db_id)
+        trace = _parse_trace_v2(payload, run_id=run_id)
+        await store.save_trace_v2(trace)
+        return {"trace_id": trace.trace_id, "stored": True}
+
+    @db_router.get("/runs/{run_id}/traces")
+    async def list_run_traces_v2(db_id: str, run_id: str) -> List[Dict[str, Any]]:
+        store = _store_for(db_id)
+        traces = await store.get_traces_v2(run_id)
+        return [trace.to_dict() for trace in traces]
+
+    @db_router.get("/runs/{run_id}/traces/{trace_id}")
+    async def get_run_trace_v2(db_id: str, run_id: str, trace_id: str) -> Dict[str, Any]:
+        store = _store_for(db_id)
+        trace = await store.get_trace_v2(trace_id)
+        if trace is None or trace.run_id != run_id:
+            raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found for run '{run_id}'")
+        return trace.to_dict()
+
+    @db_router.get("/runs/{run_id}/operator-attribution")
+    async def get_operator_attribution(
+        db_id: str,
+        run_id: str,
+        metric: str = "recall",
+        k: int = 10,
+    ) -> List[Dict[str, Any]]:
+        store = _store_for(db_id)
+        traces = await store.get_traces_v2(run_id)
+        metrics_rows = await store.get_metrics(run_id)
+        qrels: Dict[str, Dict[str, int]] = {}
+        for row in metrics_rows:
+            rel = row.get("query_metadata", {}).get("qrel_ids")
+            if isinstance(rel, list):
+                qrels.setdefault(row["query_id"], {doc_id: 1 for doc_id in rel})
+        op_ids = sorted({span.op_id for trace in traces for span in trace.spans})
+        out: List[Dict[str, Any]] = []
+        for op_id in op_ids:
+            for result in operator_marginal_contribution(traces, op_id=op_id, qrels=qrels, metric=metric, k=k):
+                out.append(result.__dict__)
+        return out
+
+    @db_router.get("/runs/{run_id}/query-winners")
+    async def get_query_winners(db_id: str, run_id: str, metric: str = "recall", k: int = 10) -> Dict[str, Any]:
+        store = _store_for(db_id)
+        rows = await store.get_metrics(run_id)
+        scored: Dict[str, Dict[str, tuple[int, float]]] = defaultdict(dict)
+        for row in rows:
+            if row.get("metric_name") != metric or int(row.get("k", 0)) != k or row.get("branch_id"):
+                continue
+            stage = int(row.get("stage_index", -1))
+            pid = row.get("pipeline_id")
+            qid = row.get("query_id")
+            current = scored[qid].get(pid)
+            if current is None:
+                scored[qid][pid] = (stage, float(row["value"]))  # type: ignore[assignment]
+            elif stage >= current[0]:
+                scored[qid][pid] = (stage, float(row["value"]))  # type: ignore[assignment]
+        winners = []
+        for qid, values in scored.items():
+            if not values:
+                winners.append({"query_id": qid, "winner_pipeline_id": None, "status": "not_judged"})
+                continue
+            best = max(values.items(), key=lambda item: item[1][1])
+            winners.append(
+                {
+                    "query_id": qid,
+                    "winner_pipeline_id": best[0],
+                    "score": best[1][1],
+                    "status": "measured",
+                }
+            )
+        return {"run_id": run_id, "metric": metric, "k": k, "items": winners}
 
     def _register_upload_unavailable() -> None:
         @app.post("/validate")
@@ -871,6 +1042,13 @@ def create_app(
     def _tl_store():
         return registry.get_store(registry.default_db_id or "")
 
+    def _parse_trace_v2(payload: Dict[str, Any], *, run_id: str = "") -> RetrievalTraceV2:
+        data = dict(payload)
+        if data.get("trace_format_version", 2) != 2:
+            raise HTTPException(status_code=422, detail="trace_format_version must be 2")
+        data.setdefault("run_id", run_id)
+        return RetrievalTraceV2.from_dict(data)
+
     def _parse_trace(payload: Dict[str, Any]):
         from datetime import datetime, timezone
         from retrieval_observatory.types import Document, StageSnapshot
@@ -1072,6 +1250,26 @@ def create_app(
         @app.get("/runs/{run_id}/pareto-frontier")
         async def legacy_pareto(run_id: str) -> Dict[str, Any]:
             return await get_pareto_frontier(_sole_db, run_id)
+
+        @app.post("/runs/{run_id}/traces")
+        async def legacy_ingest_trace(run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+            return await ingest_trace_v2(_sole_db, run_id, payload)
+
+        @app.get("/runs/{run_id}/traces")
+        async def legacy_list_traces(run_id: str) -> List[Dict[str, Any]]:
+            return await list_run_traces_v2(_sole_db, run_id)
+
+        @app.get("/runs/{run_id}/traces/{trace_id}")
+        async def legacy_get_trace(run_id: str, trace_id: str) -> Dict[str, Any]:
+            return await get_run_trace_v2(_sole_db, run_id, trace_id)
+
+        @app.get("/runs/{run_id}/operator-attribution")
+        async def legacy_operator_attribution(run_id: str, metric: str = "recall", k: int = 10) -> List[Dict[str, Any]]:
+            return await get_operator_attribution(_sole_db, run_id, metric, k)
+
+        @app.get("/runs/{run_id}/query-winners")
+        async def legacy_query_winners(run_id: str, metric: str = "recall", k: int = 10) -> Dict[str, Any]:
+            return await get_query_winners(_sole_db, run_id, metric, k)
 
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):

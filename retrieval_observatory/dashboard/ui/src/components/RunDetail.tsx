@@ -15,6 +15,9 @@ import DashboardGuide from './DashboardGuide'
 import DataQualityWarnings from './DataQualityWarnings'
 import StressTestResults from './StressTestResults'
 import { MetricTooltip } from './MetricTooltip'
+import SegmentOperatorGrid from './SegmentOperatorGrid'
+import OperatorInspector from './OperatorInspector'
+import QueryWinnerTable from './QueryWinnerTable'
 
 interface Props {
   run: Run
@@ -239,6 +242,18 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
 
       <Section title="Stage Combination Matrix" subtitle="Compact view of all pipeline configurations: quality, latency, and cost side-by-side">
         <StageCombinationMatrix dbId={dbId} runId={run.run_id} latencyBudgetMs={latencyBudgetMs} />
+      </Section>
+
+      <Section title="Operator Attribution Grid" subtitle="Per-operator attribution by segment with explicit measured/not-applicable states">
+        <SegmentOperatorGrid dbId={dbId} runId={run.run_id} />
+      </Section>
+
+      <Section title="Operator Inspector" subtitle="Replay-tier and per-segment operator details">
+        <OperatorInspector dbId={dbId} runId={run.run_id} />
+      </Section>
+
+      <Section title="Per-query Winners" subtitle="Cross-pipeline winner per query; unjudged rows are labeled explicitly">
+        <QueryWinnerTable dbId={dbId} runId={run.run_id} />
       </Section>
 
       <Section title="Query Explorer" subtitle="Drill into individual queries — see failure labels, missing relevant docs, and predicted vs actual difficulty">

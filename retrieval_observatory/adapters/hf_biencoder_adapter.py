@@ -25,7 +25,7 @@ class HFBiEncoderAdapter:
     Requires: pip install retrieval-observatory[dense]
     """
 
-    supports_filters: bool = False
+    supports_filters: bool = True
 
     def __init__(
         self,
@@ -141,11 +141,20 @@ class HFBiEncoderAdapter:
         )
 
     async def retrieve(self, query: Query) -> RetrievalResult:
+        result = await asyncio.to_thread(self._retrieve_sync, query)
         if query.filters:
-            warnings.warn(
-                f"HFBiEncoderAdapter ({self.retriever_id!r}) does not support Query.filters; "
-                "filters are ignored and results are unfiltered.",
-                UserWarning,
-                stacklevel=2,
-            )
-        return await asyncio.to_thread(self._retrieve_sync, query)
+            doc_ids = query.filters.get("doc_ids")
+            unsupported = set(query.filters) - {"doc_ids"}
+            if unsupported:
+                warnings.warn(
+                    f"HFBiEncoderAdapter supports only Query.filters['doc_ids']; unsupported keys: {sorted(unsupported)}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            if doc_ids is not None:
+                allowed = set(doc_ids)
+                filtered_docs = [doc for doc in result.documents if doc.id in allowed]
+                for rank, doc in enumerate(filtered_docs, start=1):
+                    doc.rank = rank
+                result.documents = filtered_docs[: query.k]
+        return result

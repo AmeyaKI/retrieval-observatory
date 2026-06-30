@@ -1,0 +1,11 @@
+version: "3.9"
+
+services:
+  retobs:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./.retobs:/data
+    environment:
+      - RETOBS_POSTGRES_DSN=${RETOBS_POSTGRES_DSN:-}

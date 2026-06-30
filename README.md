@@ -121,7 +121,7 @@ async def search(q: str, request: Request):
 
 ### Current storage limitation
 
-Dashboard serve paths are SQLite-first today. Postgres benchmark storage exists, but Forge/TraceLens dashboard serving is not fully wired yet.
+Dashboard serving now accepts SQLite paths and Postgres DSNs. Postgres support is still single-tenant and local-first; authentication/tenant isolation are intentionally out of scope.
 
 ---
 
@@ -135,11 +135,11 @@ runtime, that is called out so a result is never trusted past what the engine ac
 |------------|--------|--------|
 | **Corpus storage** | RAM-only | In-process adapters hold the whole corpus in memory (`datasets/inmemory.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py`). Practical ceiling ≈100–500k docs. Streaming / sharded corpora are **not supported as of now**. |
 | **Fusion (hybrid retrieval)** | Flat N-way supported | `ro.fuse([...])` combines any ≥2 retrievers as a single fan-in stage-0 (`sdk/api.py:fuse`). Nested or multiple fusion stages are **not supported as of now**. |
-| **Metadata / temporal filters** | HTTP adapter only | Only `adapters/http_adapter.py` honors `Query.filters` (`supports_filters = True`). The in-process adapters (bm25, hf_biencoder, pgvector, cohere, langchain, llamaindex) declare `supports_filters = False` and emit a warning; in-process metadata/temporal filtering is **not supported as of now** (queries with filters run unfiltered, with a run-level warning). |
+| **Metadata / temporal filters** | HTTP + selected in-process adapters | `adapters/http_adapter.py` honors `Query.filters`; `adapters/bm25_adapter.py` and `adapters/hf_biencoder_adapter.py` now support `Query.filters['doc_ids']` for in-process post-retrieval filtering. Other filter keys and other adapters remain unsupported and are explicitly warned. |
 | **Relevance scale** | Binary + graded | Graded qrels with arbitrary integer grades are supported for NDCG via standard exponential gain `2^grade − 1` (`metrics/ranking.py:ndcg_at_k_graded`, wired in `metrics/engine.py`). Recall / MAP / MRR are binary: any grade > 0 counts as relevant. |
 | **Pipeline routing** | Linear stages | A pipeline is a stage-0 retriever followed by rerankers (`runner/execute.py`). Per-query branching, conditional routing, and DAG topologies are **not supported as of now**. |
-| **Built-in adapters** | 7 | BM25, HF bi-encoder, pgvector, Cohere rerank, LangChain, LlamaIndex, HTTP (`adapters/`). Pinecone / Weaviate / Qdrant adapters are **not supported as of now** (use the HTTP adapter or implement the retriever protocol directly). |
-| **Result storage backend** | SQLite (dashboard) | The dashboard serves from SQLite (`store/sqlite.py`). A Postgres store exists (`store/postgres.py`) but is not wired into the dashboard registry and is **not supported as of now** for serving. |
+| **Built-in adapters** | 8 | BM25, HF bi-encoder, pgvector, Qdrant, Cohere rerank, LangChain, LlamaIndex, HTTP (`adapters/`). Pinecone / Weaviate remain unsupported (use the HTTP adapter or implement the retriever protocol directly). |
+| **Result storage backend** | SQLite + Postgres (single-tenant) | Dashboard registry accepts SQLite files and Postgres DSNs (`dashboard/registry.py`). Postgres serving is supported for benchmark and trace-native APIs; deployment posture remains single-tenant/no-auth by default. |
 
 ---
 
