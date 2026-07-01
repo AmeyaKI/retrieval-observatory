@@ -242,6 +242,75 @@ export interface OperatorAttributionRow {
   result_status: string
   low_power?: boolean
   fire_rate?: number
+  significant?: boolean | null
+}
+
+export interface OperatorDagNode {
+  op_id: string
+  op_type: string
+  op_name: string
+  fire_rate: number
+  avg_latency_ms: number
+}
+
+export interface OperatorDagEdge {
+  source: string
+  target: string
+}
+
+export interface OperatorDag {
+  nodes: OperatorDagNode[]
+  edges: OperatorDagEdge[]
+}
+
+export async function fetchOperatorDag(dbId: string, runId: string): Promise<OperatorDag> {
+  const res = await fetch(`${runBase(dbId, runId)}/operator-dag`)
+  if (!res.ok) throw new Error(`Failed to fetch operator DAG for run ${runId}`)
+  return res.json()
+}
+
+export interface OperatorDiff {
+  op_id: string
+  op_type: string
+  replay_policy: string
+  inputs: Array<{ doc_id: string; score: number; rank: number }>
+  outputs: Array<{ doc_id: string; score: number; rank: number }>
+  without_operator: Array<{ doc_id: string; score: number; rank: number }>
+}
+
+export async function fetchOperatorDiff(
+  dbId: string,
+  runId: string,
+  traceId: string,
+  opId: string,
+): Promise<OperatorDiff> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/traces/${encodeURIComponent(traceId)}/operator/${encodeURIComponent(opId)}/diff`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch operator diff`)
+  return res.json()
+}
+
+export interface MissAttributionRow {
+  query_id: string
+  doc_id: string
+  miss_type: string
+  op_id: string | null
+  confidence: string
+  note: string
+}
+
+export async function fetchMissAttribution(
+  dbId: string,
+  runId: string,
+  traceId: string,
+  k: number = 10,
+): Promise<MissAttributionRow[]> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/traces/${encodeURIComponent(traceId)}/miss-attribution?k=${k}`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch miss attribution`)
+  return res.json()
 }
 
 export async function fetchOperatorAttribution(

@@ -79,18 +79,23 @@ class BenchmarkRunner:
                 query = query_map[query_id]
                 cache = self.caches.get(pipeline_id)
 
+                dual_write = (
+                    os.environ.get("RETOBS_DUAL_WRITE_TRACES", "1") != "0"
+                    and hasattr(self.store, "save_trace_v2")
+                )
+
                 if cache:
                     cached = await cache.get(query_id)
                     if cached is not None:
+                        if dual_write:
+                            trace_v2 = lift_pipeline_result(cached, run_id=run_id)
+                            await self.store.save_trace_v2(trace_v2)
                         return cached
 
                 result = await self._run_with_retry(pipeline, query)
 
                 await self.store.save_result(run_id, result)
-                if (
-                    os.environ.get("RETOBS_DUAL_WRITE_TRACES", "0") == "1"
-                    and hasattr(self.store, "save_trace_v2")
-                ):
+                if dual_write:
                     trace_v2 = lift_pipeline_result(result, run_id=run_id)
                     await self.store.save_trace_v2(trace_v2)
 

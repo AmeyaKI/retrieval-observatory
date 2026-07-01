@@ -223,6 +223,12 @@ CREATE TABLE IF NOT EXISTS traces_v2 (
 _CREATE_TRACES_V2_IDX = (
     "CREATE INDEX IF NOT EXISTS idx_traces_v2_run ON traces_v2 (run_id, query_id)"
 )
+_CREATE_TRACES_V2_PIPELINE_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_traces_v2_pipeline ON traces_v2 (pipeline_id)"
+)
+_CREATE_TRACES_V2_STATUS_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_traces_v2_status ON traces_v2 (status)"
+)
 
 _CREATE_DOC_EDGES = """
 CREATE TABLE IF NOT EXISTS doc_edges (
@@ -280,6 +286,8 @@ class SQLiteStore:
             await db.execute(_CREATE_RELIABILITY_SNAPSHOTS)
             await db.execute(_CREATE_TRACES_V2)
             await db.execute(_CREATE_TRACES_V2_IDX)
+            await db.execute(_CREATE_TRACES_V2_PIPELINE_IDX)
+            await db.execute(_CREATE_TRACES_V2_STATUS_IDX)
             await db.execute(_CREATE_DOC_EDGES)
             await db.execute(_CREATE_DOC_EDGES_SRC_IDX)
             await db.execute(_CREATE_DOC_EDGES_DST_IDX)

@@ -8,8 +8,28 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 Changes on `main` not yet published to PyPI (since v0.3.4).
 
+### Added
+
+- `tracing/recorder.py` — `TraceRecorderV2` builds `OperatorSpan`/`RetrievalTraceV2` natively; old class aliased as `LegacyTraceRecorder`.
+- `tracing/integrations/langchain.py` — `RetobsLangChainCallbackV2` emits SOURCE spans via `TraceRecorderV2`.
+- `tracing/integrations/llamaindex.py` — `RetobsLlamaIndexCallbackV2` maps RETRIEVE→SOURCE and RERANKING→RERANK spans.
+- `tracing/integrations/fastapi.py` — `RetrievalTracingMiddlewareV2`; `instrument_fastapi()` auto-selects V1/V2 middleware by recorder type.
+- `tracing/sink.py` — `emit_v2()` on `MemorySink`, `StoreSink`, and `HTTPSink` for V2 trace persistence.
+- `store/sqlite.py`, `store/postgres.py` — `pipeline_id` and `status` indexes on `traces_v2` for filtered trace queries.
+- `tests/unit/test_trace_lift.py` — `test_no_metric_change` verifies recall@10 and ndcg@10 are bitwise-equal before and after V2 trace lift.
+- `dashboard/api.py` — `POST /dbs/{db_id}/edges`, `POST /dbs/{db_id}/edges/batch`, and `GET /dbs/{db_id}/edges/{doc_id}` endpoints for graph corpus edge ingest and neighbor lookup.
+- `corpus/graph.py` — `load_graph_corpus()` reads a JSONL edge file into an `EdgeStore`; `EdgeStore.add_edges_from_records()` for bulk dict import.
+- `tests/integration/test_remote_roundtrip.py` — V2 trace ingest/read round-trip, list, and batch results tests via `TestClient`.
+
 ### Changed
 
+- `sdk/observe.py` — `ObserveContext` accepts `request_id`; `start_trace()` accepts `request_id`/`pipeline_id`/`query_id` overrides; `finish_trace()` sets `final_op_id`; `@observe` accepts explicit `op_id`/`parent_ids`; `_to_candidates` handles dicts and `doc_id` attribute.
+- `tracing/__init__.py` — `init()` returns `TraceRecorderV2` by default (`v2=True`); exports `TraceRecorderV2` and `LegacyTraceRecorder`.
+- `adapters/pgvector_adapter.py` — metadata equality filters (`WHERE metadata->>key = value`) now supported alongside `doc_ids`.
+- `Dockerfile` — upgraded to `python:3.12-slim`; editable install with `.[dashboard]`; conditional UI build step.
+- `docker-compose.yml` — added optional `postgres` service (pgvector/pg16) via Docker Compose profiles; persistent named volumes.
+- `runner/benchmark.py` — V2 dual-write default flipped from opt-in (`RETOBS_DUAL_WRITE_TRACES=1`) to opt-out (`!=0`).
+- `runner/benchmark.py` — cache-hit and timeout/error paths now emit V2 traces, closing trace coverage gaps.
 - `adapters/bm25_adapter.py` — replace the `rank_bm25` runtime dependency with an in-process BM25 scorer and correct filter-support documentation.
 - `tracing/model_v2.py`, `tracing/lift.py`, and `tests/unit/test_trace_lift.py` — trace-v2 records now carry request/final-operator metadata, candidate input/output ranks, and lifted fused stages emit source arm spans followed by a first-class FUSE span with arm provenance.
 - `THREE_TRACK_PLAN.md` — split Stage 0 into demo-credibility and deployability tracks; refine trace-native roadmap with operator schema, replay-tier, segment, and public-claim audit gates.
@@ -28,6 +48,15 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Fixed
 
+- `tracing/attribution.py` — `segment_key()` now merges gate_values from ALL GATE spans (Bug B1); was only capturing the first gate.
+- `tracing/replay.py` — `without_operator()` propagates counterfactual outputs to ALL downstream children via `parent_ids` DAG edges (Bug B2); was using a single `propagated` flag.
+- `tracing/attribution.py`, `tracing/replay.py` — final output detection uses `trace.final_op_id` or DAG sink detection (Bug B3); was assuming `spans[-1]`.
+- `tracing/replay.py` — `attribute_miss()` is now async; `EdgeStore.gold_reachable_via_edge()` results are awaited (Bug B4); was silently dropping async results.
+- `tracing/attribution.py` — `MarginalResult` gains `significant: Optional[bool]`; BH-corrected p-values from `benjamini_hochberg()` now populate this field (Bug B5).
+- `tracing/replay.py` — explicit FUSE arm handler in `without_operator()`: when a SOURCE arm is removed, the FUSE span is recomputed via RRF with remaining arms (Bug B6).
+- `tracing/attribution.py` — `operator_marginal_contribution()` now calls `segments()` internally (Bug B7); was building its own segment dict.
+- `tracing/attribution.py` — `NOT_REPLAYABLE` results now report `result_status="indeterminate"` instead of `"measured"`.
+- `tracing/replay.py` — `attribute_miss()` no longer reports `miss_type="unreachable"` for docs present in final output but below k; reports `ranked_below_k` instead.
 - `metrics/significance.py`, `metrics/engine.py`, `metrics/pareto.py`, and `dashboard/api.py` — replace small Numpy-only bootstrap/stat/Pareto helpers with pure-Python implementations to avoid platform-level import crashes in trace/dashboard verification paths.
 - `tracing/attribution.py` — `operator_marginal_contribution` supports `recall`, `ndcg`, `precision`, `mrr`, and `map`; bootstrap `ci_low`/`ci_high` on paired deltas when `n_pairs >= n_power_threshold`.
 - `tracing/enrich.py` — default `low_confidence_score=0.05` so the suspected-failure signal is active; skips `low_confidence` when all stage scores are zero (unscored pipelines).
@@ -49,6 +78,15 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Added
 
+- `metrics/engine.py` — `MetricsEngine.compute_from_traces()` computes ranking metrics (recall, NDCG, precision, MRR, MAP, latency) directly from `RetrievalTraceV2` operator DAGs, producing identical values to `compute_and_store` for linear pipelines.
+- `tests/unit/test_metric_parity.py` — parity test asserting old-path and trace-native metric values match exactly for a two-stage pipeline.
+- `dashboard/api.py` — `GET /runs/{run_id}/operator-dag` returns aggregated DAG topology (nodes with fire_rate/avg_latency, edges from parent_ids).
+- `dashboard/api.py` — `GET /runs/{run_id}/traces/{trace_id}/operator/{op_id}/diff` returns per-query operator-level candidate diff for OperatorInspector.
+- `dashboard/api.py` — `GET /runs/{run_id}/traces/{trace_id}/miss-attribution` returns miss attribution for a single query trace.
+- `config/dag_schema.py` — declarative DAG config schema (`DagPipelineConfig`, `OperatorConfig`, `GateCondition`) for complex RAG pipeline definition.
+- `store/migrate.py` — `migrate_run_to_v2()` and `verify_migration_parity()` helpers for retiring PipelineResult persistence.
+- `tests/integration/test_reference_architecture.py` — 12-test production-shaped acceptance test covering gates, fusion, expansion, reranking, boosts, miss attribution, and migration.
+- `dashboard/api.py` — `/runs/{run_id}/metrics` auto-computes from V2 traces when pre-computed metrics are absent.
 - `docs/verification/trace_native_status.md` — trace-native roadmap verification matrix with code pointers, conservative implementation status, and required compile/dashboard/CI gates.
 - `sdk/api.py` — `ro.fuse([retriever_a, retriever_b, ...])` for accurate fan-in stage 0 (RRF); nested pipeline lists (`[[bm25, dense], rerank]`) are a convenience alias.
 - `tracing/__init__.py` — `ro.init(service=..., db=...)` one-line production tracing setup (store + sink + recorder, schema auto-created on first write).

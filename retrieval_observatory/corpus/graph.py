@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Set
+from pathlib import Path
+from typing import List, Literal, Optional, Set, Union
 
 EdgeType = Literal["thread_sibling", "entity_link", "reference", "action_item", "deadline", "custom"]
 
@@ -48,6 +50,19 @@ class EdgeStore:
                 break
         return visited
 
+    async def add_edges_from_records(self, records: List[dict]) -> int:
+        """Bulk-add edges from dicts with ``src``, ``dst``, ``type``, and optional ``weight``."""
+        count = 0
+        for rec in records:
+            await self.add_edge(
+                src_doc_id=str(rec["src"]),
+                dst_doc_id=str(rec["dst"]),
+                edge_type=rec.get("type", "custom"),
+                weight=float(rec.get("weight", 1.0)),
+            )
+            count += 1
+        return count
+
     async def gold_reachable_via_edge(
         self,
         retrieved_doc_ids: List[str],
@@ -57,3 +72,19 @@ class EdgeStore:
     ) -> bool:
         reachable = await self.reachable(retrieved_doc_ids, max_hops=max_hops, edge_type=edge_type)
         return gold_doc_id in reachable
+
+
+async def load_graph_corpus(path: Union[str, Path], edge_store: EdgeStore) -> int:
+    """Load edges from a JSONL file into an :class:`EdgeStore`.
+
+    Each line must be a JSON object with keys ``src``, ``dst``, ``type``, and
+    optional ``weight`` (defaults to 1.0).  Returns the number of edges loaded.
+    """
+    records: List[dict] = []
+    with open(path, "r") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            records.append(json.loads(line))
+    return await edge_store.add_edges_from_records(records)

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from retrieval_observatory.metrics.ranking import ndcg_at_k
+from retrieval_observatory.metrics.recall import recall_at_k
 from retrieval_observatory.tracing.lift import lift_pipeline_result
 from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
@@ -82,6 +84,54 @@ def test_lift_empty_result_marks_trace_error() -> None:
 
     assert trace.status == "ERROR"
     assert trace.spans == []
+
+
+def test_no_metric_change() -> None:
+    """Metrics computed on PipelineResult docs must be bitwise-equal to metrics
+    computed on the V2 trace's final span outputs."""
+    relevant_ids = {"d1", "d3", "d5"}
+
+    bm25_docs = [
+        _doc("d1", 5.0, 1),
+        _doc("d2", 4.5, 2),
+        _doc("d3", 4.0, 3),
+        _doc("d4", 3.5, 4),
+        _doc("d5", 3.0, 5),
+        _doc("d6", 2.5, 6),
+        _doc("d7", 2.0, 7),
+        _doc("d8", 1.5, 8),
+    ]
+    rerank_docs = [
+        _doc("d3", 9.0, 1),
+        _doc("d1", 8.5, 2),
+        _doc("d6", 7.0, 3),
+        _doc("d5", 6.5, 4),
+        _doc("d2", 5.0, 5),
+    ]
+
+    bm25_snap = StageSnapshot(stage_index=0, stage_id="bm25_source", documents=bm25_docs, latency_ms=5.0)
+    rerank_snap = StageSnapshot(stage_index=1, stage_id="rerank", documents=rerank_docs, latency_ms=15.0)
+
+    result = PipelineResult(
+        query_id="q-metric",
+        pipeline_id="p-metric",
+        snapshots=[bm25_snap, rerank_snap],
+        total_latency_ms=20.0,
+        status="OK",
+    )
+
+    final_doc_ids = [d.id for d in result.snapshots[-1].documents]
+    expected_recall = recall_at_k(final_doc_ids, relevant_ids, k=10)
+    expected_ndcg = ndcg_at_k(final_doc_ids, relevant_ids, k=10)
+
+    trace = lift_pipeline_result(result, run_id="run-metric")
+    trace_doc_ids = [c.doc_id for c in trace.spans[-1].outputs]
+
+    actual_recall = recall_at_k(trace_doc_ids, relevant_ids, k=10)
+    actual_ndcg = ndcg_at_k(trace_doc_ids, relevant_ids, k=10)
+
+    assert expected_recall == actual_recall
+    assert expected_ndcg == actual_ndcg
 
 
 @pytest.mark.asyncio

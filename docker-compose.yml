@@ -6,6 +6,26 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./.retobs:/data
+      - retobs-data:/data
     environment:
       - RETOBS_POSTGRES_DSN=${RETOBS_POSTGRES_DSN:-}
+    depends_on:
+      postgres:
+        condition: service_started
+        required: false
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: retobs
+      POSTGRES_PASSWORD: retobs
+      POSTGRES_DB: retobs
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+volumes:
+  retobs-data:
+  pg-data:

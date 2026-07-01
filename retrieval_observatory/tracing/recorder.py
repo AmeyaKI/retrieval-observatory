@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from retrieval_observatory.types import Document, StageSnapshot
 from retrieval_observatory.tracing.types import RetrievalTrace
+from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
 
 
 def _coerce_documents(items: Sequence[Any], corpus: Optional[Dict[str, str]] = None) -> List[Document]:
@@ -235,3 +236,215 @@ class TraceRecorder:
 
     async def _flush(self, trace: RetrievalTrace) -> None:
         await self._sink.emit(trace)
+
+
+# Legacy alias so ``from recorder import LegacyTraceRecorder`` keeps working.
+LegacyTraceRecorder = TraceRecorder
+
+
+# ---------------------------------------------------------------------------
+# V2 recorder — builds OperatorSpan / RetrievalTraceV2 objects
+# ---------------------------------------------------------------------------
+
+def _docs_to_candidates(items: Sequence[Any], op_id: str) -> List[Candidate]:
+    """Normalize bare ids / Document objects / dicts into Candidate list."""
+    candidates: List[Candidate] = []
+    for idx, item in enumerate(items, start=1):
+        if isinstance(item, Candidate):
+            candidates.append(item)
+        elif hasattr(item, "doc_id"):
+            candidates.append(Candidate(
+                doc_id=str(item.doc_id),
+                score=float(getattr(item, "score", 0.0)),
+                rank=int(getattr(item, "rank", idx)),
+                origin_op_ids=[op_id],
+            ))
+        elif hasattr(item, "id"):
+            candidates.append(Candidate(
+                doc_id=str(item.id),
+                score=float(getattr(item, "score", 0.0)),
+                rank=int(getattr(item, "rank", idx)),
+                origin_op_ids=[op_id],
+            ))
+        elif isinstance(item, dict):
+            doc_id = str(item.get("doc_id") or item.get("id", idx))
+            candidates.append(Candidate(
+                doc_id=doc_id,
+                score=float(item.get("score", 0.0)),
+                rank=int(item.get("rank", idx)),
+                origin_op_ids=[op_id],
+            ))
+        elif isinstance(item, str):
+            candidates.append(Candidate(doc_id=item, score=0.0, rank=idx, origin_op_ids=[op_id]))
+    return candidates
+
+
+class _TraceContextV2:
+    """Handle yielded inside a ``TraceRecorderV2.trace(...)`` block."""
+
+    def __init__(
+        self,
+        recorder: "TraceRecorderV2",
+        query_text: str,
+        pipeline_id: str,
+        query_id: str,
+        sampled: bool,
+        metadata: dict,
+        request_id: Optional[str],
+    ):
+        self._recorder = recorder
+        self._sampled = sampled
+        self.trace = RetrievalTraceV2(
+            trace_id=uuid.uuid4().hex,
+            run_id=recorder.service,
+            query_id=query_id or uuid.uuid4().hex,
+            query_text=query_text,
+            pipeline_id=pipeline_id,
+            spans=[],
+            total_latency_ms=0.0,
+            timestamp=datetime.now(timezone.utc),
+            metadata=metadata or {},
+            request_id=request_id,
+        )
+
+    @property
+    def sampled(self) -> bool:
+        return self._sampled
+
+    def add_span(self, span: OperatorSpan) -> None:
+        if not self._sampled:
+            return
+        self.trace.spans.append(span)
+        self.trace.total_latency_ms += span.latency_ms
+
+    def span(
+        self,
+        op_type: str,
+        op_name: str,
+        documents: Sequence[Any],
+        latency_ms: float,
+        *,
+        op_id: Optional[str] = None,
+        parent_ids: Optional[List[str]] = None,
+        deterministic: bool = False,
+        replay_policy: str = "NOT_REPLAYABLE",
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[OperatorSpan]:
+        """Convenience: build an OperatorSpan from raw documents and append it."""
+        if not self._sampled:
+            return None
+        resolved_id = op_id or f"{op_type.lower()}_{uuid.uuid4().hex[:8]}"
+        resolved_parents = parent_ids or ([self.trace.spans[-1].op_id] if self.trace.spans else [])
+        span = OperatorSpan(
+            op_id=resolved_id,
+            op_type=op_type,  # type: ignore[arg-type]
+            op_name=op_name,
+            parent_ids=resolved_parents,
+            status="FIRED",
+            deterministic=deterministic,
+            replay_policy=replay_policy,  # type: ignore[arg-type]
+            latency_ms=latency_ms,
+            outputs=_docs_to_candidates(list(documents), resolved_id),
+            params=params or {},
+        )
+        self.add_span(span)
+        return span
+
+    def set_query_text(self, text: str) -> None:
+        if self._sampled:
+            self.trace.query_text = text
+
+
+class _TraceCMV2:
+    def __init__(self, recorder: "TraceRecorderV2", ctx: _TraceContextV2):
+        self._recorder = recorder
+        self._ctx = ctx
+
+    async def __aenter__(self) -> _TraceContextV2:
+        return self._ctx
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        status = "ERROR" if exc is not None else "OK"
+        error = exc if exc is not None else None
+        await self._recorder.finish_trace(self._ctx, status=status, error=error, exc_type=exc_type, exc=exc, tb=tb)
+        return False
+
+
+class TraceRecorderV2:
+    """V2 recorder that emits OperatorSpan / RetrievalTraceV2 traces.
+
+    Drop-in replacement for TraceRecorder with the same ``trace()`` context
+    manager pattern, but builds V2 data structures internally.
+    """
+
+    def __init__(self, service: str, sink: Any, sample_rate: float = 1.0):
+        self.service = service
+        self._sink = sink
+        self.sample_rate = max(0.0, min(1.0, sample_rate))
+
+    def start_trace(
+        self,
+        query_text: str,
+        pipeline_id: str,
+        query_id: str = "",
+        metadata: Optional[dict] = None,
+        request_id: Optional[str] = None,
+    ) -> _TraceContextV2:
+        sampled = self.sample_rate >= 1.0 or random.random() < self.sample_rate
+        return _TraceContextV2(self, query_text, pipeline_id, query_id, sampled, metadata or {}, request_id)
+
+    async def finish_trace(
+        self,
+        ctx: _TraceContextV2,
+        status: str = "OK",
+        error: Optional[BaseException] = None,
+        *,
+        exc_type=None,
+        exc=None,
+        tb=None,
+    ) -> RetrievalTraceV2:
+        t = ctx.trace
+        t.status = status  # type: ignore[assignment]
+        if error is not None or exc is not None:
+            t.status = "ERROR"
+            if exc_type is not None and exc is not None and tb is not None:
+                t.error_traceback = "".join(traceback.format_exception(exc_type, exc, tb))
+            elif error is not None:
+                t.error_traceback = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+        if t.spans:
+            t.final_op_id = t.spans[-1].op_id
+        if ctx.sampled:
+            await self._flush(t)
+        return t
+
+    def trace(
+        self,
+        query_text: str,
+        pipeline_id: str,
+        query_id: str = "",
+        metadata: Optional[dict] = None,
+        request_id: Optional[str] = None,
+    ) -> _TraceCMV2:
+        ctx = self.start_trace(query_text, pipeline_id, query_id, metadata, request_id)
+        return _TraceCMV2(self, ctx)
+
+    def finish_trace_sync(
+        self,
+        ctx: _TraceContextV2,
+        status: str = "OK",
+        error: Optional[BaseException] = None,
+    ) -> None:
+        import asyncio
+
+        coro = self.finish_trace(ctx, status=status, error=error)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            asyncio.run(coro)
+
+    async def _flush(self, trace: RetrievalTraceV2) -> None:
+        if hasattr(self._sink, "emit_v2"):
+            await self._sink.emit_v2(trace)
+        else:
+            await self._sink.emit(trace)

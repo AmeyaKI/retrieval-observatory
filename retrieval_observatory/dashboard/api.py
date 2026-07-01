@@ -76,10 +76,17 @@ try:
 
     class MultiCompareRequest(_BaseModel):
         selections: List[RunSelection]
+
+    class EdgeRequest(_BaseModel):
+        src_doc_id: str
+        dst_doc_id: str
+        edge_type: str
+        weight: float = 1.0
 except ImportError:
     CompareRequest = None  # type: ignore
     RunSelection = None  # type: ignore
     MultiCompareRequest = None  # type: ignore
+    EdgeRequest = None  # type: ignore
 
 
 def _selection_key(db_id: str, run_id: str) -> str:
@@ -354,6 +361,11 @@ def create_app(
     async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:
         store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
+        if not agg and hasattr(store, "get_traces_v2"):
+            traces = await store.get_traces_v2(run_id)
+            if traces:
+                await engine.compute_from_traces(run_id, store, traces, {})
+                agg = await engine.aggregate(run_id, store)
         if not include_branches:
             agg = {k: v for k, v in agg.items() if not v.get("branch_id")}
         if not agg:
@@ -761,6 +773,126 @@ def create_app(
             for result in operator_marginal_contribution(traces, op_id=op_id, qrels=qrels, metric=metric, k=k):
                 out.append(result.__dict__)
         return out
+
+    @db_router.get("/runs/{run_id}/operator-dag")
+    async def get_operator_dag(db_id: str, run_id: str) -> Dict[str, Any]:
+        """Aggregated operator DAG topology across all traces in a run."""
+        store = _store_for(db_id)
+        traces = await store.get_traces_v2(run_id)
+        if not traces:
+            raise HTTPException(status_code=404, detail=f"No V2 traces for run '{run_id}'")
+
+        node_stats: Dict[str, Dict[str, Any]] = {}
+        edge_set: set[tuple[str, str]] = set()
+        for trace in traces:
+            for span in trace.spans:
+                if span.op_id not in node_stats:
+                    node_stats[span.op_id] = {
+                        "op_id": span.op_id,
+                        "op_type": span.op_type,
+                        "op_name": span.op_name,
+                        "fire_count": 0,
+                        "total_count": 0,
+                        "latency_ms_sum": 0.0,
+                    }
+                stats = node_stats[span.op_id]
+                stats["total_count"] += 1
+                if span.status == "FIRED":
+                    stats["fire_count"] += 1
+                    stats["latency_ms_sum"] += span.latency_ms
+                for pid in span.parent_ids:
+                    edge_set.add((pid, span.op_id))
+
+        nodes = []
+        for stats in node_stats.values():
+            fire_count = stats["fire_count"]
+            nodes.append({
+                "op_id": stats["op_id"],
+                "op_type": stats["op_type"],
+                "op_name": stats["op_name"],
+                "fire_rate": fire_count / stats["total_count"] if stats["total_count"] > 0 else 0.0,
+                "avg_latency_ms": stats["latency_ms_sum"] / fire_count if fire_count > 0 else 0.0,
+            })
+        edges = [{"source": src, "target": tgt} for src, tgt in sorted(edge_set)]
+        return {"nodes": nodes, "edges": edges}
+
+    @db_router.get("/runs/{run_id}/traces/{trace_id}/operator/{op_id}/diff")
+    async def get_operator_diff(
+        db_id: str, run_id: str, trace_id: str, op_id: str,
+    ) -> Dict[str, Any]:
+        """Per-query operator-level candidate diff for OperatorInspector."""
+        from retrieval_observatory.tracing.replay import without_operator as _without_op
+
+        store = _store_for(db_id)
+        trace = await store.get_trace_v2(trace_id)
+        if trace is None or trace.run_id != run_id:
+            raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
+        span = next((s for s in trace.spans if s.op_id == op_id), None)
+        if span is None:
+            raise HTTPException(status_code=404, detail=f"Operator '{op_id}' not found")
+        cf = _without_op(trace, op_id)
+        from retrieval_observatory.tracing.attribution import _find_final_span
+        cf_final = _find_final_span(cf)
+        return {
+            "op_id": op_id,
+            "op_type": span.op_type,
+            "replay_policy": span.replay_policy,
+            "inputs": [{"doc_id": c.doc_id, "score": c.score, "rank": c.rank} for c in span.inputs],
+            "outputs": [{"doc_id": c.doc_id, "score": c.score, "rank": c.rank} for c in span.outputs],
+            "without_operator": [
+                {"doc_id": c.doc_id, "score": c.score, "rank": c.rank}
+                for c in (cf_final.outputs if cf_final else [])
+            ],
+        }
+
+    @db_router.get("/runs/{run_id}/traces/{trace_id}/miss-attribution")
+    async def get_miss_attribution(
+        db_id: str, run_id: str, trace_id: str, k: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Miss attribution for a single query trace."""
+        from retrieval_observatory.tracing.replay import attribute_miss as _attr_miss
+
+        store = _store_for(db_id)
+        trace = await store.get_trace_v2(trace_id)
+        if trace is None or trace.run_id != run_id:
+            raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
+        metrics_rows = await store.get_metrics(run_id)
+        qrels: Dict[str, Dict[str, int]] = {}
+        for row in metrics_rows:
+            rel = row.get("query_metadata", {}).get("qrel_ids")
+            if isinstance(rel, list):
+                qrels.setdefault(row["query_id"], {doc_id: 1 for doc_id in rel})
+        misses = await _attr_miss(trace, qrels=qrels, k=k)
+        return [
+            {
+                "query_id": m.query_id,
+                "doc_id": m.doc_id,
+                "miss_type": m.miss_type,
+                "op_id": m.op_id,
+                "confidence": m.confidence,
+                "note": m.note,
+            }
+            for m in misses
+        ]
+
+    @db_router.post("/edges")
+    async def add_edge(db_id: str, edge: EdgeRequest) -> Dict[str, Any]:
+        store = _store_for(db_id)
+        await store.save_doc_edge(edge.src_doc_id, edge.dst_doc_id, edge.edge_type, edge.weight)
+        return {"stored": True}
+
+    @db_router.post("/edges/batch")
+    async def add_edges_batch(db_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        store = _store_for(db_id)
+        edges = payload.get("edges", [])
+        for e in edges:
+            await store.save_doc_edge(e["src_doc_id"], e["dst_doc_id"], e["edge_type"], float(e.get("weight", 1.0)))
+        return {"stored": len(edges)}
+
+    @db_router.get("/edges/{doc_id}")
+    async def get_neighbors(db_id: str, doc_id: str, edge_type: str = "") -> List[Dict[str, Any]]:
+        store = _store_for(db_id)
+        return await store.get_doc_neighbors(doc_id, edge_type=edge_type or None)
 
     @db_router.get("/runs/{run_id}/query-winners")
     async def get_query_winners(db_id: str, run_id: str, metric: str = "recall", k: int = 10) -> Dict[str, Any]:

@@ -60,6 +60,12 @@ class StoreSink:
         enrich(trace, latency_budget_ms=self._latency_budget_ms)
         await self._store.save_trace(trace)
 
+    async def emit_v2(self, trace: RetrievalTraceV2) -> None:
+        if hasattr(self._store, "save_trace_v2"):
+            await self._store.save_trace_v2(trace)
+        else:
+            await self._store.save_trace(trace)
+
 
 class HTTPSink:
     """POSTs traces to a TraceLens ingestion endpoint (for remote services)."""
@@ -88,6 +94,10 @@ class MemorySink:
 
     def __init__(self) -> None:
         self.traces: List[RetrievalTrace] = []
+        self.traces_v2: List[RetrievalTraceV2] = []
 
     async def emit(self, trace: RetrievalTrace) -> None:
         self.traces.append(trace)
+
+    async def emit_v2(self, trace: RetrievalTraceV2) -> None:
+        self.traces_v2.append(trace)

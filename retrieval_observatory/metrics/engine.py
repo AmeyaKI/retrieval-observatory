@@ -276,6 +276,140 @@ class MetricsEngine:
                         )
                 await self._save_metrics(store, metric_rows)
 
+    def _find_final_span(self, trace) -> "OperatorSpan | None":
+        """Return the final operator span: explicit final_op_id, or the span
+        whose op_id is never referenced as a parent by another span."""
+        fired = [s for s in trace.spans if s.status == "FIRED"]
+        if not fired:
+            return None
+        if trace.final_op_id:
+            for s in fired:
+                if s.op_id == trace.final_op_id:
+                    return s
+        all_parent_ids: Set[str] = set()
+        for s in fired:
+            all_parent_ids.update(s.parent_ids)
+        terminal = [s for s in fired if s.op_id not in all_parent_ids]
+        return terminal[-1] if terminal else fired[-1]
+
+    async def compute_from_traces(
+        self,
+        run_id: str,
+        store: BaseStore,
+        traces: list,
+        qrels: Union[Dict[str, Set[str]], Dict[str, Dict[str, int]]],
+        queries_by_id: Optional[Dict] = None,
+    ) -> None:
+        """Compute per-query metrics from RetrievalTraceV2 operator DAGs.
+
+        Produces identical metric values to compute_and_store for linear
+        pipelines — a linear recall funnel is just a special case of a DAG path.
+        """
+        _sample = next(iter(qrels.values()), None)
+        _graded = isinstance(_sample, dict)
+
+        for trace in traces:
+            if trace.status != "OK":
+                continue
+            raw_qrel = qrels.get(trace.query_id)
+            if not raw_qrel:
+                continue
+            query = queries_by_id.get(trace.query_id) if queries_by_id else None
+
+            if _graded:
+                relevant_set: Set[str] = {
+                    doc_id for doc_id, grade in raw_qrel.items() if grade > 0
+                }
+                graded_qrel: Dict[str, int] = raw_qrel  # type: ignore[assignment]
+            else:
+                relevant_set = raw_qrel  # type: ignore[assignment]
+                graded_qrel = {}
+
+            if not relevant_set:
+                continue
+
+            query_meta = query.metadata if query else {}
+            fired_spans = [s for s in trace.spans if s.status == "FIRED"]
+
+            # End-to-end latency for multi-operator traces
+            if len(fired_spans) > 1:
+                await self._save_metrics(
+                    store,
+                    [
+                        {
+                            "run_id": run_id,
+                            "pipeline_id": trace.pipeline_id,
+                            "query_id": trace.query_id,
+                            "stage_index": -1,
+                            "metric_name": "latency_ms",
+                            "k": 0,
+                            "value": trace.total_latency_ms,
+                            "query_metadata_json": query_meta,
+                        }
+                    ],
+                )
+
+            for stage_index, span in enumerate(fired_spans):
+                metric_rows: List[Dict[str, Any]] = []
+                doc_ids = dedupe_preserve_rank([c.doc_id for c in span.outputs])
+
+                for k in self.recall_k:
+                    score = recall_at_k(doc_ids, relevant_set, k)
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id, trace.pipeline_id, trace.query_id,
+                            stage_index, "recall", k, score, query_meta,
+                        )
+                    )
+
+                for k in self.precision_k:
+                    score = precision_at_k(doc_ids, relevant_set, k)
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id, trace.pipeline_id, trace.query_id,
+                            stage_index, "precision", k, score, query_meta,
+                        )
+                    )
+
+                for k in self.ndcg_k:
+                    if _graded:
+                        score = ndcg_at_k_graded(doc_ids, graded_qrel, k)
+                    else:
+                        score = ndcg_at_k(doc_ids, relevant_set, k)
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id, trace.pipeline_id, trace.query_id,
+                            stage_index, "ndcg", k, score, query_meta,
+                        )
+                    )
+
+                if self.compute_mrr:
+                    score = mrr([doc_ids], [relevant_set])
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id, trace.pipeline_id, trace.query_id,
+                            stage_index, "mrr", 0, score, query_meta,
+                        )
+                    )
+
+                if self.compute_map:
+                    from retrieval_observatory.metrics.ranking import average_precision
+                    score = average_precision(doc_ids, relevant_set)
+                    metric_rows.append(
+                        self._metric_row(
+                            run_id, trace.pipeline_id, trace.query_id,
+                            stage_index, "map", 0, score, query_meta,
+                        )
+                    )
+
+                metric_rows.append(
+                    self._metric_row(
+                        run_id, trace.pipeline_id, trace.query_id,
+                        stage_index, "latency_ms", 0, span.latency_ms, query_meta,
+                    )
+                )
+                await self._save_metrics(store, metric_rows)
+
     async def aggregate(
         self,
         run_id: str,
