@@ -2,9 +2,11 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/retrieval-observatory)](https://pypi.org/project/retrieval-observatory/)
 
-Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-stage contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
+Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-operator contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
 
 The fundamental unit is the **query**: Forge origin → benchmark scores → production trace matches → Advisor recommendations, all linked by query lineage.
+
+Retrieval pipelines are modeled as an **operator DAG** (`RetrievalTraceV2`), not a flat list of stages — sources, fusion, expansion, filters, transforms, rerankers, boosts, and gates are each a typed operator span with parent links, so gated/conditional production pipelines (not just linear `bm25 → rerank` chains) can be traced and attributed accurately. Every attribution result carries a **replay tier** (`EXACT` / `OBSERVED_ABLATION` / `NOT_REPLAYABLE`) — retobs never reports a fabricated delta when the counterfactual can't actually be replayed.
 
 ---
 
@@ -119,9 +121,15 @@ async def search(q: str, request: Request):
 
 `get_trace()` can return `None` when tracing is excluded for the route (or sampled out); your handler should continue normally.
 
+Each `t.stage(...)` call becomes a typed `OperatorSpan` in a `RetrievalTraceV2` DAG (`ro.init()` returns a V2-native recorder by default) — gates, fusion, expansion, and reranking are all first-class operator types, not a flattened list, so multi-lane production pipelines are attributed correctly. See [BREAKDOWN.md — Trace-Native Model & Attribution](BREAKDOWN.md#trace-native-model--attribution).
+
 ### Current storage limitation
 
 Dashboard serving now accepts SQLite paths and Postgres DSNs. Postgres support is still single-tenant and local-first; authentication/tenant isolation are intentionally out of scope.
+
+### Deployment
+
+A `Dockerfile` and `docker-compose.yml` are provided for a self-hosted, single-tenant `retobs serve` deployment (with an optional Postgres service via Compose profiles). No auth/multi-tenancy is included by design — see [Capability matrix](#capability-matrix).
 
 ---
 
@@ -134,12 +142,14 @@ runtime, that is called out so a result is never trusted past what the engine ac
 | Capability | Status | Detail |
 |------------|--------|--------|
 | **Corpus storage** | RAM-only | In-process adapters hold the whole corpus in memory (`datasets/inmemory.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py`). Practical ceiling ≈100–500k docs. Streaming / sharded corpora are **not supported as of now**. |
-| **Fusion (hybrid retrieval)** | Flat N-way supported | `ro.fuse([...])` combines any ≥2 retrievers as a single fan-in stage-0 (`sdk/api.py:fuse`). Nested or multiple fusion stages are **not supported as of now**. |
-| **Metadata / temporal filters** | HTTP + selected in-process adapters | `adapters/http_adapter.py` honors `Query.filters`; `adapters/bm25_adapter.py` and `adapters/hf_biencoder_adapter.py` now support `Query.filters['doc_ids']` for in-process post-retrieval filtering. Other filter keys and other adapters remain unsupported and are explicitly warned. |
+| **Fusion (hybrid retrieval)** | N-way, DAG-attributed | `ro.fuse([...])` combines any ≥2 retrievers as a first-class `FUSE` operator span with per-arm provenance (`tracing/lift.py`, `tracing/model_v2.py`). Removing a source arm re-runs RRF over the remaining arms for counterfactual attribution. Nested/multiple fusion stages inside a benchmark YAML pipeline are still **not supported as of now** — use `@observe` to trace a nested-fusion production pipeline instead. |
+| **Metadata / temporal filters** | HTTP, BM25, HF bi-encoder, pgvector, Qdrant | `adapters/http_adapter.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py` support equality filtering on `Query.filters`; `adapters/pgvector_adapter.py` builds a SQL `WHERE` clause; `adapters/qdrant_adapter.py` builds a native Qdrant `Filter`. Range filters (`>=`, `<=`, `in`) are **not supported as of now** — equality only. |
 | **Relevance scale** | Binary + graded | Graded qrels with arbitrary integer grades are supported for NDCG via standard exponential gain `2^grade − 1` (`metrics/ranking.py:ndcg_at_k_graded`, wired in `metrics/engine.py`). Recall / MAP / MRR are binary: any grade > 0 counts as relevant. |
-| **Pipeline routing** | Linear stages | A pipeline is a stage-0 retriever followed by rerankers (`runner/execute.py`). Per-query branching, conditional routing, and DAG topologies are **not supported as of now**. |
+| **Pipeline routing** | Linear (benchmarks) + operator DAG (production tracing) | A YAML/SDK benchmark pipeline is still a stage-0 retriever followed by rerankers (`runner/execute.py`). Gated, conditional, and parallel-lane production pipelines are supported today by instrumenting with `@observe`/`ro.init()`, which emits a `RetrievalTraceV2` operator DAG with `parent_ids` — the dashboard renders and attributes this DAG directly. A declarative YAML DAG-config runner (design, don't just observe, a complex pipeline) is **not supported as of now**. |
 | **Built-in adapters** | 8 | BM25, HF bi-encoder, pgvector, Qdrant, Cohere rerank, LangChain, LlamaIndex, HTTP (`adapters/`). Pinecone / Weaviate remain unsupported (use the HTTP adapter or implement the retriever protocol directly). |
 | **Result storage backend** | SQLite + Postgres (single-tenant) | Dashboard registry accepts SQLite files and Postgres DSNs (`dashboard/registry.py`). Postgres serving is supported for benchmark and trace-native APIs; deployment posture remains single-tenant/no-auth by default. |
+| **Operator attribution** | Segment × operator, replay-tiered | `tracing/attribution.py` computes per-segment marginal contribution (recall/NDCG/precision/MRR/MAP) for every operator, with bootstrap CIs, BH-corrected significance, low-power flags, and an explicit replay tier so `NOT_REPLAYABLE` operators never report a fabricated delta. |
+| **Miss attribution** | Operator-level + graph-aware | `tracing/replay.py::attribute_miss` explains why a relevant doc didn't surface (dropped by a named operator, never retrieved, or reachable via a document-graph edge that wasn't traversed) via `corpus/graph.py::EdgeStore`. |
 
 ---
 
@@ -375,8 +385,8 @@ Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 
 ## Going Deeper
 
-- [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, adapters, metrics, storage, dashboard API
-- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.3.2)
+- [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, trace-native model, adapters, metrics, storage, dashboard API
+- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.0)
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology
 - [YAML_GUIDE.md](YAML_GUIDE.md) — Six copy-paste YAML templates and an LLM prompt for generating configs
