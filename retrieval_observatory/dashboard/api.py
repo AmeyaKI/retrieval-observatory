@@ -9,8 +9,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-import numpy as np
-
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs, parse_metric_key
@@ -41,6 +39,30 @@ def _index_response(index_path: str):
         media_type="text/html",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+def _mean(values: List[float]) -> float:
+    return sum(float(value) for value in values) / len(values) if values else 0.0
+
+
+def _std(values: List[float]) -> float:
+    if not values:
+        return 0.0
+    avg = _mean(values)
+    return (sum((float(value) - avg) ** 2 for value in values) / len(values)) ** 0.5
+
+
+def _percentile(values: List[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = max(0.0, min(100.0, percentile)) / 100.0 * (len(ordered) - 1)
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return float(ordered[lower] * (1 - weight) + ordered[upper] * weight)
 
 try:
     from pydantic import BaseModel as _BaseModel
@@ -360,7 +382,6 @@ def create_app(
 
         result: Dict[str, Any] = {}
         for (seg_val, pipeline_id, stage_index, metric_name, k), scores in groups.items():
-            arr = np.array(scores)
             ci_low, ci_high = bootstrap_ci(scores)
             metric_key = f"{pipeline_id}|stage{stage_index}|{metric_name}@{k}"
             result.setdefault(seg_val, {})[metric_key] = {
@@ -368,8 +389,8 @@ def create_app(
                 "stage_index": stage_index,
                 "metric_name": metric_name,
                 "k": k,
-                "mean": float(arr.mean()),
-                "std": float(arr.std()),
+                "mean": _mean(scores),
+                "std": _std(scores),
                 "ci_low": ci_low,
                 "ci_high": ci_high,
                 "n": len(scores),
@@ -509,9 +530,7 @@ def create_app(
                 continue
             per_query_recall[r["query_id"]].append(r["value"])
 
-        query_mean_recall = {
-            qid: float(np.mean(vals)) for qid, vals in per_query_recall.items() if vals
-        }
+        query_mean_recall = {qid: _mean(vals) for qid, vals in per_query_recall.items() if vals}
 
         classes = []
         actual_classes = []
@@ -537,7 +556,7 @@ def create_app(
                 classes.append({
                     "class": cls,
                     "n": len(scores_pred),
-                    "mean_recall10": float(np.mean(scores_pred)),
+                    "mean_recall10": _mean(scores_pred),
                     "ci_low": ci_low,
                     "ci_high": ci_high,
                     "agreement_rate": agreement_rate,
@@ -559,7 +578,7 @@ def create_app(
                 actual_classes.append({
                     "class": cls,
                     "n": len(scores_actual),
-                    "mean_recall10": float(np.mean(scores_actual)),
+                    "mean_recall10": _mean(scores_actual),
                     "ci_low": ci_low,
                     "ci_high": ci_high,
                     "agreement_rate": None,
@@ -1496,7 +1515,7 @@ def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str,
                 "stage_index": stage_index,
                 "stage_id": template["stage_id"],
                 "kind": "fused" if template["arms"] else ("single" if stage_index == 0 else "rerank"),
-                "candidate_count": float(np.mean(candidate_counts.get(stage_branch_key, [0]))),
+                "candidate_count": _mean(candidate_counts.get(stage_branch_key, [0])),
                 "metrics": {
                     "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, None)) or {}).get("mean"),
                     "recall": {
@@ -1517,7 +1536,7 @@ def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str,
                 stage["arms"].append(
                     {
                         "arm_id": arm_id,
-                        "candidate_count": float(np.mean(candidate_counts.get(arm_branch_key, [0]))),
+                        "candidate_count": _mean(candidate_counts.get(arm_branch_key, [0])),
                         "metrics": {
                             "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, arm_id)) or {}).get("mean"),
                             "recall": {
@@ -1663,7 +1682,7 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 and r["metric_name"] == "latency_ms"
             ]
             if rows:
-                return float(np.percentile(np.array(rows), 50))
+                return _percentile(rows, 50)
             return None
 
         lat_before = _lat(before_id, before_stage, before_keys, before_branch)

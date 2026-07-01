@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal
 
 OperatorType = Literal["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM"]
-OperatorStatus = Literal["FIRED", "SKIPPED_BY_GATE", "ERROR"]
+OperatorStatus = Literal["FIRED", "SKIPPED_BY_GATE", "ERROR", "TIMEOUT"]
 ReplayPolicy = Literal["EXACT", "OBSERVED_ABLATION", "NOT_REPLAYABLE"]
 AddReason = Literal["retrieved", "expanded", "fused", "transformed", "boosted"]
 DropReason = Literal["filtered", "reranked_out", "gate_blocked", "deduped", "unknown"]
@@ -16,6 +16,8 @@ class Candidate:
     doc_id: str
     score: float
     rank: int
+    input_rank: int | None = None
+    output_rank: int | None = None
     origin_op_ids: List[str] = field(default_factory=list)
     score_components: Dict[str, float] = field(default_factory=dict)
     add_reason: AddReason = "retrieved"
@@ -55,6 +57,8 @@ class RetrievalTraceV2:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: Dict[str, Any] = field(default_factory=dict)
     error_traceback: str | None = None
+    request_id: str | None = None
+    final_op_id: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -100,4 +104,6 @@ class RetrievalTraceV2:
             timestamp=timestamp,
             metadata=dict(payload.get("metadata", {})),
             error_traceback=payload.get("error_traceback"),
+            request_id=payload.get("request_id"),
+            final_op_id=payload.get("final_op_id"),
         )

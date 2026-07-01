@@ -32,6 +32,7 @@ TODO
 !results/**/*.md
 !CHANGELOG.md
 !docs/ci_gating.md
+!docs/verification/*.md
 
 
 # local data / files

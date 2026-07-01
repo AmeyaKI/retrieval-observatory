@@ -10,8 +10,10 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Changed
 
+- `adapters/bm25_adapter.py` — replace the `rank_bm25` runtime dependency with an in-process BM25 scorer and correct filter-support documentation.
+- `tracing/model_v2.py`, `tracing/lift.py`, and `tests/unit/test_trace_lift.py` — trace-v2 records now carry request/final-operator metadata, candidate input/output ranks, and lifted fused stages emit source arm spans followed by a first-class FUSE span with arm provenance.
 - `THREE_TRACK_PLAN.md` — split Stage 0 into demo-credibility and deployability tracks; refine trace-native roadmap with operator schema, replay-tier, segment, and public-claim audit gates.
-- `.gitignore` — stop tracking `docs/PYPI_PUBLISH.md` (local-only PyPI publish notes).
+- `.gitignore` — stop tracking `docs/PYPI_PUBLISH.md` (local-only PyPI publish notes) while allowing trace-native verification artifacts under `docs/verification/`.
 - `dashboard/registry.py` — database registry now accepts Postgres DSNs in addition to SQLite paths for serving.
 - `adapters/bm25_adapter.py` and `adapters/hf_biencoder_adapter.py` — `Query.filters['doc_ids']` is now enforced in-process; unsupported filter keys emit explicit warnings.
 - `dashboard/ui/src/components/StageCombinationMatrix.tsx` — replaced fixed 80-row truncation with client-side pagination (50 rows per page).
@@ -22,8 +24,11 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 - `tests/unit/test_metrics.py` and `tests/unit/test_classifier_train.py` — updated adapter filter expectations and skipped sklearn round-trip training on Darwin to avoid reproducible platform-level segfaults.
 - `README.md` and `BREAKDOWN.md` — capability matrix/storage notes updated for Qdrant adapter, Postgres serving, and in-process filter support.
 
+
+
 ### Fixed
 
+- `metrics/significance.py`, `metrics/engine.py`, `metrics/pareto.py`, and `dashboard/api.py` — replace small Numpy-only bootstrap/stat/Pareto helpers with pure-Python implementations to avoid platform-level import crashes in trace/dashboard verification paths.
 - `tracing/attribution.py` — `operator_marginal_contribution` supports `recall`, `ndcg`, `precision`, `mrr`, and `map`; bootstrap `ci_low`/`ci_high` on paired deltas when `n_pairs >= n_power_threshold`.
 - `tracing/enrich.py` — default `low_confidence_score=0.05` so the suspected-failure signal is active; skips `low_confidence` when all stage scores are zero (unscored pipelines).
 - `tracing/monitor/cluster.py` — TF-IDF + agglomerative semantic clustering when sklearn is available; heuristic fallback unchanged.
@@ -40,8 +45,11 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 - `dashboard/api.py` — arm-vs-fused stage contribution deltas mark fused-zero comparisons as indeterminate instead of reporting misleading zero-gain verdicts.
 - `dashboard/ui/src/components/StagePipelineFlow.tsx` — fallback topology reconstruction restores hybrid arms from `branch_id` metrics when `pipeline_topology` is unavailable.
 
+
+
 ### Added
 
+- `docs/verification/trace_native_status.md` — trace-native roadmap verification matrix with code pointers, conservative implementation status, and required compile/dashboard/CI gates.
 - `sdk/api.py` — `ro.fuse([retriever_a, retriever_b, ...])` for accurate fan-in stage 0 (RRF); nested pipeline lists (`[[bm25, dense], rerank]`) are a convenience alias.
 - `tracing/__init__.py` — `ro.init(service=..., db=...)` one-line production tracing setup (store + sink + recorder, schema auto-created on first write).
 - `tracing/recorder.py` — `t.stage(...)` context manager with auto-timing and bare doc-id `s.results` assignment; immediate `t.stage(id, docs, latency_ms)` form retained.
@@ -62,6 +70,8 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 - `dashboard/ui/src/components/AppShell.tsx`, `ModeRail.tsx`, and `PlatformTour.tsx` — query lineage and platform tour are always reachable from the left rail and demo bar after dismissing the tour.
 - `tests/unit/test_trace_lift.py`, `tests/unit/test_attribution_segments.py`, `tests/unit/test_replay.py`, and `tests/integration/test_observe_roundtrip.py` — coverage for trace-v2 lift/store, attribution, replay/miss, and observe ingest roundtrip.
 - `Dockerfile` and `docker-compose.yml` — containerized single-tenant `retobs serve` deployment scaffolding.
+
+
 
 ### Changed
 
@@ -97,7 +107,11 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ---
 
+
+
 ## [0.3.4] — 2026-06-24 [PyPI]
+
+
 
 ### Fixed
 
@@ -106,6 +120,8 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 - Variable-shadowing bugs in `metrics.engine` and `datasets.custom` qrels loader.
 - `QueryDifficultyModel.predict` label/driver selection no longer relies on a possibly-`None` dict key.
 
+
+
 ### Changed
 
 - Removed dead module `datasets/timeqa.py` and unused imports/variables across the codebase.
@@ -113,23 +129,33 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ---
 
+
+
 ## [0.3.3] — 2026-06-24 [PyPI]
+
+
 
 ### Changed
 
-- Reverted PyPI distribution name from `retobs` back to **`retrieval-observatory`**. Install with `pip install retrieval-observatory`.
+- Reverted PyPI distribution name from `retobs` back to `retrieval-observatory`. Install with `pip install retrieval-observatory`.
 - Removed `retobs/` shim package. Public import is now `import retrieval_observatory as ro`.
 - CLI command remains `retobs` (unchanged).
 - Updated publish workflow, CI import checks, examples, and error messages to use `retrieval-observatory` extras syntax.
 
 ---
 
+
+
 ## [0.3.2] — 2026-06-24
+
+
 
 ### Added
 
 - Public Python import path: `import retobs as ro` (shim package re-exporting the SDK).
 - `retobs.tracing.integrations.*` shim modules for LangChain, LlamaIndex, and FastAPI tracing.
+
+
 
 ### Changed
 
@@ -138,7 +164,11 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ---
 
+
+
 ## [0.3.1] — 2026-06-24
+
+
 
 ### Changed
 
@@ -146,11 +176,15 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ---
 
+
+
 ## [0.3.0] — 2026-06-23 [PyPI]
 
 Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `retobs quickstart`, and pytest CI gating.
 
 ### Week 1 — Adoption friction + framework integration
+
+
 
 #### LangChain native callback integration
 
@@ -159,21 +193,29 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 - `examples/langchain_search/app.py` — new runnable example: FAISS vectorstore + `FakeEmbeddings`, no API keys, traces written to SQLite via one callback line.
 - `tests/integration/test_langchain_callback.py` — 5 integration tests: 5 queries → 5 traces, correct stage counts, latency > 0, no double-counting, pipeline_id propagated. Uses `pytest.importorskip`.
 
+
+
 #### LlamaIndex native callback integration
 
 - `retrieval_observatory/tracing/integrations/llamaindex.py` — added `RetobsLlamaIndexCallback`, a real `llama_index.core.callbacks.base_handler.BaseCallbackHandler` subclass. Hooks `on_event_start/end` for `CBEventType.RETRIEVE` and `CBEventType.RERANKING` (verified against installed `llama-index-core` version). Flushes on `end_trace`. Old `RetobsLlamaIndexHandler` kept for back-compat.
 - `examples/llamaindex_search/app.py` — new runnable example: `VectorStoreIndex` + `MockEmbedding`, no API keys.
 - `tests/integration/test_llamaindex_callback.py` — 4 integration tests: trace count, retrieve stage present, pipeline_id, nodes become Documents. Uses `pytest.importorskip`.
 
+
+
 #### Five-minute quickstart command
 
 - `retrieval_observatory/cli.py` — added `retobs quickstart` command. Delegates to `_demo` (n_traces=50, no ablation) then launches the dashboard. Data generation completes in ~1.6s; total time to open dashboard under 5 minutes on a cold install with no API keys.
 - `README.md` — updated top quickstart section: `retobs quickstart` is now the primary one-command path; `retobs demo` remains for the full platform demo.
 
+
+
 #### FastAPI live-tracing demo hardened (task 1.4)
 
 - `examples/fastapi_search/app.py` — added `?slow=1` query param (200ms sleep to trigger `latency_over_budget`), `RETOBS_LATENCY_BUDGET_MS` env var (default 50ms), score-filtering so zero-match queries produce `empty_candidates`, expanded corpus from 3 to 5 docs.
 - `docs/verification/fastapi_live_trace_run.md` — literal transcript of the full 10-request verification run: commands, responses, and the resulting trace table showing 3× `empty_candidates`, 2× `latency_over_budget`, 5× no failures.
+
+
 
 #### Error messages and failure modes (task 1.5)
 
@@ -183,10 +225,14 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 - `retrieval_observatory/cli.py` — `_forge_run` now catches `ImportError` (not just `ValueError`) from `ForgeGenerator.from_provider()`.
 - `docs/verification/error_messages_audit.md` — audit table of every triggered error class with before/after messages.
 
+
+
 #### Docs (honesty pass)
 
 - `README.md` — added "LangChain & LlamaIndex — zero-touch tracing" section under TraceLens; updated `suspected_failures` description to explicitly label all four signals as rule-based/heuristic.
 - `BREAKDOWN.md` — integration table updated: `RetobsLangChainCallback` and `RetobsLlamaIndexCallback` listed as real `BaseCallbackHandler` subclasses (not "manual stage wrapping"); `predicted_difficulty` and `suspected_failures` both labeled **heuristic rule-based**.
+
+
 
 ### Python SDK (code-first benchmarking — no YAML required)
 
@@ -196,25 +242,35 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 - `retrieval_observatory/datasets/inmemory.py` — `InMemoryDataset` for list/dict BYO queries, corpus, and qrels; no file I/O required
 - `retrieval_observatory/__init__.py` — exports `benchmark`, `retriever`, `reranker`, `generate_testset`, `Query`, `Document`, `BenchmarkReport`
 
+
+
 ### Shared benchmark executor
 
 - `retrieval_observatory/runner/execute.py` — `execute_benchmark()` and `BenchmarkArtifacts`; both `cli._run` and `sdk/api.benchmark()` route through this function, guaranteeing identical artifacts and query lineage regardless of entry point
 - `cli.py` — refactored `_run` to delegate to `execute_benchmark()`; moved `_build_llm_judged_qrels`, `_merge_qrels`, `_annotate_query_difficulty` from `cli.py` to `execute.py`
+
+
 
 ### Phase 2 — per-stage snapshots from a monolith
 
 - `pipeline/single.py` — `SingleStagePipeline.run()` now detects if the wrapped callable returns a `PipelineResult` or `list[StageSnapshot]` and passes it through unchanged; `_as_pipeline_result()` helper added
 - Enables wrapping an opaque production pipeline that reports its own internal stages; per-stage attribution and `reranker_drop` diagnostics work even for a single callable
 
+
+
 ### Phase 3 — zero-label evaluation
 
 - `ro.generate_testset(corpus)` — wraps `ForgeEngine` + `StressTestSuite` into an `InMemoryDataset` using rule-based detectors (no API key required)
 - `ro.benchmark(..., labels="llm-judge", judge=...)` — surfaces the existing LLM judge path through the SDK
 
+
+
 ### Phase 4 — pytest CI gate
 
 - `retrieval_observatory/pytest_plugin.py` — `retobs` pytest fixture with `.run()` and `.assert_no_regression()`; registered via `pytest11` entry point in `pyproject.toml`
 - `BenchmarkReport.assert_no_regression(baseline, *, metric, latency_regression_pct)` — raises `AssertionError` with formatted findings on statistically significant regression; uses paired bootstrap + Benjamini-Hochberg
+
+
 
 ### Examples & docs
 
@@ -225,6 +281,8 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 - `PLAN.md` — full adoption roadmap (Phases 0–4 committed; Phases 5–7 demand-gated)
 - `FUTURE_EDITS.md` — Phases 5–7 in Problem→Fix→Implementation format
 
+
+
 ### Tests
 
 - `tests/unit/test_sdk.py` (new) — 9 tests: wrapper normalization, async, in-memory metrics, lineage written, multi-stage per-stage snapshots
@@ -234,6 +292,8 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 - `tests/integration/test_end_to_end.py` — updated import: `_annotate_query_difficulty` now from `runner/execute.py`
 
 ---
+
+
 
 ## [0.2.0] — 2026-06-17 [PyPI]
 
@@ -246,6 +306,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 - `retobs demo --keep-db` — appends to existing demo database instead of wiping
 - `dashboard/demo_context.py` + `GET /demo/context` — dashboard auto-configuration from demo artifacts
 - Demo manifest (`demo_manifest.json`) carries baseline/degraded run IDs and a sample query ID for lineage
+
+
 
 ### Dashboard — four-mode lifecycle rail
 
@@ -260,6 +322,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 - `ForgeWorkspace` — new: dataset list, dataset detail (overview + label-trust banner, scenario explorer, query browser, stress test results by scenario/difficulty)
 - `TraceLensWorkspace` — new: trace feed, distribution, drift, hotspots, clusters (7 views)
 - `StressTestResults.tsx` — self-gated; reuses `/metrics/by-segment` to show Forge run breakdown by scenario type and difficulty
+
+
 
 ### Forge
 
@@ -276,6 +340,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 - FastAPI routes: `/forge/datasets`, `/forge/datasets/{id}`, `/forge/datasets/{id}/scenarios`, `/forge/datasets/{id}/queries`, `/forge/datasets/{id}/runs`
 - `pyproject.toml`: `forge` optional extra (LLM SDKs)
 - Backend fix: `_forge_run` now persists datasets to the store with `--db`; new `save_forge_queries` / `get_forge_queries` store methods; `validation_coverage` field
+
+
 
 ### TraceLens
 
@@ -295,6 +361,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 - CLI: `retobs tracelens demo|stats|purge`
 - `examples/fastapi_search` defaults to `StoreSink` writing to the demo DB path
 
+
+
 ### Advisor
 
 - `advisor/regression.py` — baseline vs candidate comparison; BH-adjusted q-values; non-zero CLI exit on regression
@@ -303,6 +371,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 - `advisor/trends.py` — reliability score snapshots and trend list
 - CLI: `retobs advisor check|recommend|golden create|golden run|golden list`
 - Dashboard: Advisor workspace with regression center, recommendations, reliability score, trend list
+
+
 
 ### Docs & CI
 
@@ -316,6 +386,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 
 ---
 
+
+
 ## [0.1.2] — 2026-06-05 [PyPI]
 
 Patch release to fix PyPI publish pipeline.
@@ -325,6 +397,8 @@ Patch release to fix PyPI publish pipeline.
 
 ---
 
+
+
 ## [0.1.1] — 2026-06-05 [PyPI]
 
 Patch release to fix publish pipeline.
@@ -333,6 +407,8 @@ Patch release to fix publish pipeline.
 - Bumped version to retry PyPI release
 
 ---
+
+
 
 ## [0.1.0] — 2026-06-04 [PyPI]
 
@@ -349,6 +425,8 @@ Initial public release. Multi-stage retrieval benchmarking with a React dashboar
 - Stage-level result cache (hash of config + upstream docs + query ID)
 - `run_manifests` table: config hash, dataset fingerprint, package versions, git commit
 
+
+
 ### Adapters
 
 - `adapter.bm25` — rank-bm25
@@ -362,6 +440,8 @@ Initial public release. Multi-stage retrieval benchmarking with a React dashboar
 - LangChain adapter (`adapters/langchain_adapter.py`)
 - LlamaIndex adapter (`adapters/llamaindex_adapter.py`)
 
+
+
 ### Datasets
 
 - BEIR dataset integration (via `beir` library)
@@ -370,11 +450,15 @@ Initial public release. Multi-stage retrieval benchmarking with a React dashboar
 - LLM-assisted relevance judging: `gold`, `llm_judge`, `pooled_llm_judge` modes
 - Dataset validation with schema checks
 
+
+
 ### Query difficulty classifier
 
 - `classifier/` — logistic regression on diagnostic features from past runs
 - `retobs classifier train|report|predict` CLI
 - Auto-applied when a matching model exists; difficulty buckets stored in `query_diagnostics`
+
+
 
 ### Dashboard
 
@@ -386,10 +470,14 @@ Initial public release. Multi-stage retrieval benchmarking with a React dashboar
 - `ComparePanel` for side-by-side run comparison
 - Multi-DB support: `retobs serve --db a.db --db b.db`
 
+
+
 ### Storage
 
 - SQLite store (default): `runs`, `run_manifests`, `raw_results`, `metric_scores`, `query_diagnostics`, `run_queries`, `result_cache`, `golden_sets`
 - Postgres store (`store/postgres.py`): same `BaseStore` interface (core benchmark tables)
+
+
 
 ### CLI
 
@@ -397,9 +485,12 @@ Initial public release. Multi-stage retrieval benchmarking with a React dashboar
 - `retobs advisor check|recommend|golden`
 - `retobs classifier train|report|predict`
 
+
+
 ### Benchmark results (v0.1.2 case study)
 
 - NFCorpus: BM25 NDCG@10=0.264, Dense NDCG@10=0.310 (+17.6%)
 - SciFact: BM25 NDCG@10=0.544, Dense NDCG@10=0.640 (+17.7%)
 - FiQA: BM25 NDCG@10=0.159, Dense NDCG@10=0.369 (+132%)
 - Dense (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA at 133–228× lower latency than cross-encoder reranking
+

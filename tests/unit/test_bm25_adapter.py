@@ -1,5 +1,3 @@
-import pytest
-
 from retrieval_observatory.types import Query
 
 TINY_CORPUS = {
@@ -12,7 +10,6 @@ TINY_CORPUS = {
 
 
 def test_bm25_adapter_basic():
-    pytest.importorskip("rank_bm25", reason="rank_bm25 not installed")
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
 
     adapter = BM25Adapter(corpus=TINY_CORPUS, retriever_id="test_bm25")
@@ -28,7 +25,6 @@ def test_bm25_adapter_basic():
 
 
 def test_bm25_returns_k_docs():
-    pytest.importorskip("rank_bm25", reason="rank_bm25 not installed")
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
 
     adapter = BM25Adapter(corpus=TINY_CORPUS)
@@ -37,7 +33,6 @@ def test_bm25_returns_k_docs():
 
 
 def test_bm25_ranks_are_1indexed():
-    pytest.importorskip("rank_bm25", reason="rank_bm25 not installed")
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
 
     adapter = BM25Adapter(corpus=TINY_CORPUS)
@@ -46,11 +41,11 @@ def test_bm25_ranks_are_1indexed():
     assert ranks == list(range(1, len(ranks) + 1))
 
 
-def test_bm25_missing_dependency(monkeypatch):
+def test_bm25_does_not_require_rank_bm25(monkeypatch):
     import sys
     monkeypatch.setitem(sys.modules, "rank_bm25", None)
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
 
     adapter = BM25Adapter(corpus=TINY_CORPUS)
-    with pytest.raises(ImportError, match="rank-bm25"):
-        adapter.retrieve(Query(text="test", k=3, query_id="q1"))
+    result = adapter.retrieve(Query(text="test", k=3, query_id="q1"))
+    assert len(result.documents) == 3

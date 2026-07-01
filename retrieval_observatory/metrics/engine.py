@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, Union
 
-import numpy as np
-
 from retrieval_observatory.metrics.ranking import (
     dedupe_preserve_rank,
     mrr,
@@ -15,6 +13,32 @@ from retrieval_observatory.metrics.ranking import (
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
+
+
+def _mean(values: List[float]) -> float:
+    return sum(float(value) for value in values) / len(values) if values else 0.0
+
+
+def _std(values: List[float]) -> float:
+    if not values:
+        return 0.0
+    avg = _mean(values)
+    return (sum((float(value) - avg) ** 2 for value in values) / len(values)) ** 0.5
+
+
+def _percentile(values: List[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = max(0.0, min(100.0, percentile)) / 100.0 * (len(ordered) - 1)
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return float(ordered[lower] * (1 - weight) + ordered[upper] * weight)
+
+
 class MetricsEngine:
     """Computes and stores per-query metrics; aggregation is always a GROUP BY query."""
 
@@ -269,12 +293,10 @@ class MetricsEngine:
 
         aggregated: Dict[str, Any] = {}
         for (pipeline_id, stage_index, metric_name, k, branch_id), scores in groups.items():
-            arr = np.array(scores)
-
             if metric_name == "latency_ms":
                 # Expand into per-percentile entries; no bootstrap CI (not meaningful here)
                 for p in self.latency_percentiles:
-                    pct_value = float(np.percentile(arr, p))
+                    pct_value = _percentile(scores, p)
                     suffix = f"|branch={branch_id}" if branch_id else ""
                     pct_key = f"{pipeline_id}|stage{stage_index}|latency_p{p}@0{suffix}"
                     aggregated[pct_key] = {
@@ -294,7 +316,7 @@ class MetricsEngine:
                 continue
 
             ci_low, ci_high = bootstrap_ci(scores, n_resamples=n_bootstrap)
-            zero_count = int(np.sum(arr == 0.0))
+            zero_count = sum(1 for score in scores if float(score) == 0.0)
             suffix = f"|branch={branch_id}" if branch_id else ""
             key = f"{pipeline_id}|stage{stage_index}|{metric_name}@{k}{suffix}"
             aggregated[key] = {
@@ -303,8 +325,8 @@ class MetricsEngine:
                 "metric_name": metric_name,
                 "k": k,
                 "branch_id": branch_id,
-                "mean": float(arr.mean()),
-                "std": float(arr.std()),
+                "mean": _mean(scores),
+                "std": _std(scores),
                 "ci_low": ci_low,
                 "ci_high": ci_high,
                 "n": len(scores),

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import random
 from typing import List, Tuple
-
-import numpy as np
 
 
 def benjamini_hochberg(p_values: List[float], fdr: float = 0.05) -> List[float]:
@@ -34,11 +33,11 @@ def bootstrap_ci(
     """Return (lower, upper) bootstrap confidence interval."""
     if not scores:
         return (0.0, 0.0)
-    rng = np.random.default_rng(seed)
-    arr = np.array(scores, dtype=float)
-    means = [rng.choice(arr, size=len(arr), replace=True).mean() for _ in range(n_resamples)]
+    rng = random.Random(seed)
+    arr = [float(score) for score in scores]
+    means = [sum(rng.choice(arr) for _ in arr) / len(arr) for _ in range(n_resamples)]
     alpha = (1 - ci) / 2
-    return (float(np.quantile(means, alpha)), float(np.quantile(means, 1 - alpha)))
+    return (_quantile(means, alpha), _quantile(means, 1 - alpha))
 
 
 def paired_bootstrap_test(
@@ -53,17 +52,30 @@ def paired_bootstrap_test(
     """
     if len(scores_a) != len(scores_b):
         raise ValueError("scores_a and scores_b must have equal length")
-    rng = np.random.default_rng(seed)
-    a = np.array(scores_a, dtype=float)
-    b = np.array(scores_b, dtype=float)
-    observed_diff = abs(a.mean() - b.mean())
+    rng = random.Random(seed)
+    a = [float(score) for score in scores_a]
+    b = [float(score) for score in scores_b]
+    observed_diff = abs((sum(a) / len(a)) - (sum(b) / len(b))) if a else 0.0
 
-    diffs = a - b
+    diffs = [left - right for left, right in zip(a, b)]
     count_extreme = 0
     for _ in range(n_resamples):
-        signs = rng.choice([-1.0, 1.0], size=len(diffs))
-        resampled_diff = abs((diffs * signs).mean())
+        resampled = [diff * rng.choice((-1.0, 1.0)) for diff in diffs]
+        resampled_diff = abs(sum(resampled) / len(resampled)) if resampled else 0.0
         if resampled_diff >= observed_diff:
             count_extreme += 1
 
     return count_extreme / n_resamples
+
+
+def _quantile(values: List[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = max(0.0, min(1.0, q)) * (len(ordered) - 1)
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = position - lower
+    return float(ordered[lower] * (1 - weight) + ordered[upper] * weight)

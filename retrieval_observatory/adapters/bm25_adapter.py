@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import math
 import time
 import warnings
+from collections import Counter
 from typing import Dict, List, Optional
 
 from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
 class BM25Adapter:
-    """In-process BM25 retriever backed by rank_bm25.BM25Okapi.
+    """In-process BM25 retriever.
 
     Index is built lazily on first retrieve() call.
     CPU-bound — runs synchronously (wrap in to_thread for async contexts).
@@ -18,8 +20,8 @@ class BM25Adapter:
       "nltk"                 — Porter stemming + English stopword removal; ~5% better
                                Recall@10 on BEIR vs whitespace; requires nltk package.
 
-    Note: Query.filters are not supported and will be silently ignored. Use HTTPAdapter
-    to forward filters to a backend that can enforce them.
+    Note: only Query.filters['doc_ids'] is enforced in-process. Other filter keys emit
+    a warning and are ignored.
     """
 
     supports_filters: bool = True
@@ -39,20 +41,12 @@ class BM25Adapter:
         self._stopwords: Optional[set] = None
 
     def _build_index(self) -> None:
-        try:
-            from rank_bm25 import BM25Okapi
-        except ImportError as e:
-            raise ImportError(
-                "BM25Adapter requires rank-bm25. "
-                "Install with: pip install retrieval-observatory[demo]"
-            ) from e
-
         if self._tokenizer == "nltk":
             self._init_nltk()
 
         self._doc_ids = list(self._corpus.keys())
         tokenized = [self._tokenize(self._corpus[did]) for did in self._doc_ids]
-        self._bm25 = BM25Okapi(tokenized)
+        self._bm25 = _SimpleBM25(tokenized)
 
     def _init_nltk(self) -> None:
         try:
@@ -125,3 +119,38 @@ class BM25Adapter:
             retriever_id=self.retriever_id,
             profiling={"compute_ms": latency_ms, "network_ms": 0.0, "retries": 0.0},
         )
+
+
+class _SimpleBM25:
+    def __init__(self, tokenized_documents: List[List[str]], k1: float = 1.5, b: float = 0.75):
+        self._documents = tokenized_documents
+        self._k1 = k1
+        self._b = b
+        self._doc_lengths = [len(doc) for doc in tokenized_documents]
+        self._avg_doc_length = sum(self._doc_lengths) / len(self._doc_lengths) if self._doc_lengths else 0.0
+        self._term_frequencies = [Counter(doc) for doc in tokenized_documents]
+        document_frequency: Counter[str] = Counter()
+        for doc in tokenized_documents:
+            document_frequency.update(set(doc))
+        n_docs = len(tokenized_documents)
+        self._idf = {
+            term: math.log(1 + (n_docs - freq + 0.5) / (freq + 0.5))
+            for term, freq in document_frequency.items()
+        }
+
+    def get_scores(self, query_tokens: List[str]) -> List[float]:
+        scores: List[float] = []
+        for idx, term_frequency in enumerate(self._term_frequencies):
+            doc_length = self._doc_lengths[idx]
+            score = 0.0
+            for term in query_tokens:
+                tf = term_frequency.get(term, 0)
+                if tf == 0:
+                    continue
+                idf = self._idf.get(term, 0.0)
+                denominator = tf + self._k1 * (
+                    1 - self._b + self._b * doc_length / (self._avg_doc_length or 1.0)
+                )
+                score += idf * (tf * (self._k1 + 1)) / denominator
+            scores.append(score)
+        return scores

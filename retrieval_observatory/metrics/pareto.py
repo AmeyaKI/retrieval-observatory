@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-import numpy as np
-
 
 @dataclass
 class ParetoPipelineInput:
@@ -39,7 +37,7 @@ _BASE_OBJECTIVES = ["ndcg@10", "recall@10", "latency_p50", "latency_p95"]
 
 
 def compute_pareto_frontier(pipelines: List[ParetoPipelineInput]) -> ParetoResult:
-    """Return Pareto-optimal pipelines and dominators using vectorized NumPy."""
+    """Return Pareto-optimal pipelines and dominators."""
     if not pipelines:
         return ParetoResult(
             objectives=[],
@@ -65,29 +63,16 @@ def compute_pareto_frontier(pipelines: List[ParetoPipelineInput]) -> ParetoResul
         else:
             cost_excluded_reason = "No cost configuration present in experiment config"
 
-    obj_matrix = _objective_matrix(pipelines, objectives)
-    maximize_mask = np.array([obj in {"ndcg@10", "recall@10"} for obj in objectives])
-
-    # dominates[j, i] — pipeline j dominates pipeline i
-    better = np.where(
-        maximize_mask,
-        obj_matrix[:, None, :] >= obj_matrix[None, :, :],
-        obj_matrix[:, None, :] <= obj_matrix[None, :, :],
-    )
-    strict = np.where(
-        maximize_mask,
-        obj_matrix[:, None, :] > obj_matrix[None, :, :],
-        obj_matrix[:, None, :] < obj_matrix[None, :, :],
-    )
-    dominates = better.all(axis=2) & strict.any(axis=2)
-    np.fill_diagonal(dominates, False)
-
     pipeline_ids = [p.pipeline_id for p in pipelines]
     results: List[ParetoPipelineResult] = []
     frontier_ids: List[str] = []
 
     for i, pipeline in enumerate(pipelines):
-        dominators = [pipeline_ids[j] for j in range(len(pipelines)) if dominates[j, i]]
+        dominators = [
+            pipeline_ids[j]
+            for j, candidate in enumerate(pipelines)
+            if i != j and _dominates(candidate, pipeline, objectives)
+        ]
         is_optimal = not dominators
         if is_optimal:
             frontier_ids.append(pipeline.pipeline_id)
@@ -120,22 +105,30 @@ def compute_pareto_frontier(pipelines: List[ParetoPipelineInput]) -> ParetoResul
     )
 
 
-def _objective_matrix(pipelines: List[ParetoPipelineInput], objectives: List[str]) -> np.ndarray:
-    rows = []
-    for pipeline in pipelines:
-        row = []
-        for objective in objectives:
-            if objective == "ndcg@10":
-                row.append(pipeline.ndcg10)
-            elif objective == "recall@10":
-                row.append(pipeline.recall10)
-            elif objective == "latency_p50":
-                row.append(pipeline.latency_p50)
-            elif objective == "latency_p95":
-                row.append(pipeline.latency_p95)
-            elif objective == "cost_per_1k":
-                row.append(pipeline.cost_per_1k)
-            else:
-                raise ValueError(f"Unknown objective: {objective}")
-        rows.append(row)
-    return np.array(rows, dtype=float)
+def _dominates(left: ParetoPipelineInput, right: ParetoPipelineInput, objectives: List[str]) -> bool:
+    better_or_equal = []
+    strictly_better = []
+    for objective in objectives:
+        left_value = _objective_value(left, objective)
+        right_value = _objective_value(right, objective)
+        if objective in {"ndcg@10", "recall@10"}:
+            better_or_equal.append(left_value >= right_value)
+            strictly_better.append(left_value > right_value)
+        else:
+            better_or_equal.append(left_value <= right_value)
+            strictly_better.append(left_value < right_value)
+    return all(better_or_equal) and any(strictly_better)
+
+
+def _objective_value(pipeline: ParetoPipelineInput, objective: str) -> float:
+    if objective == "ndcg@10":
+        return pipeline.ndcg10
+    if objective == "recall@10":
+        return pipeline.recall10
+    if objective == "latency_p50":
+        return pipeline.latency_p50
+    if objective == "latency_p95":
+        return pipeline.latency_p95
+    if objective == "cost_per_1k":
+        return float(pipeline.cost_per_1k or 0.0)
+    raise ValueError(f"Unknown objective: {objective}")
