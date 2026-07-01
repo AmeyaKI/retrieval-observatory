@@ -4,145 +4,56 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ---
 
-## [Unreleased]
+## [0.4.0] — 2026-07-01
 
-Changes on `main` not yet published to PyPI (since v0.3.4).
+This release completes the **trace-native revamp**: retrieval pipelines are now modeled as an operator DAG (`RetrievalTraceV2`) instead of a flat
+list of stages, with honest, replay-tiered attribution of which operator helped or hurt each query.
 
 ### Added
 
-- `tracing/recorder.py` — `TraceRecorderV2` builds `OperatorSpan`/`RetrievalTraceV2` natively; old class aliased as `LegacyTraceRecorder`.
-- `tracing/integrations/langchain.py` — `RetobsLangChainCallbackV2` emits SOURCE spans via `TraceRecorderV2`.
-- `tracing/integrations/llamaindex.py` — `RetobsLlamaIndexCallbackV2` maps RETRIEVE→SOURCE and RERANKING→RERANK spans.
-- `tracing/integrations/fastapi.py` — `RetrievalTracingMiddlewareV2`; `instrument_fastapi()` auto-selects V1/V2 middleware by recorder type.
-- `tracing/sink.py` — `emit_v2()` on `MemorySink`, `StoreSink`, and `HTTPSink` for V2 trace persistence.
-- `store/sqlite.py`, `store/postgres.py` — `pipeline_id` and `status` indexes on `traces_v2` for filtered trace queries.
-- `tests/unit/test_trace_lift.py` — `test_no_metric_change` verifies recall@10 and ndcg@10 are bitwise-equal before and after V2 trace lift.
-- `dashboard/api.py` — `POST /dbs/{db_id}/edges`, `POST /dbs/{db_id}/edges/batch`, and `GET /dbs/{db_id}/edges/{doc_id}` endpoints for graph corpus edge ingest and neighbor lookup.
-- `corpus/graph.py` — `load_graph_corpus()` reads a JSONL edge file into an `EdgeStore`; `EdgeStore.add_edges_from_records()` for bulk dict import.
-- `tests/integration/test_remote_roundtrip.py` — V2 trace ingest/read round-trip, list, and batch results tests via `TestClient`.
+- **Trace-native core model** — `RetrievalTraceV2`/`OperatorSpan`/`Candidate` operator-DAG schema, with a
+  lift path that upgrades legacy `PipelineResult` runs into valid DAGs (fused stages become first-class
+  `FUSE` spans with per-arm provenance) without changing any existing metric numbers.
+- **Honest attribution engine** — per-segment, per-operator marginal contribution (recall/NDCG/precision/
+  MRR/MAP) with bootstrap confidence intervals, Benjamini-Hochberg-corrected significance, low-power
+  flags, and a `replay_policy` (exact / observed-ablation / not-replayable) so no result overclaims
+  certainty. Counterfactual replay (`without_operator`) correctly handles boosts, filters, reranks,
+  expansions, gates, and multi-arm fusion (RRF recompute on arm removal).
+- **Miss attribution** — explains why a relevant document didn't surface (dropped by a specific operator,
+  never retrieved, or graph-reachable but not connected), including graph-aware evidence via a new
+  document edge store (thread/entity/reference relationships).
+- **Production instrumentation on V2** — `ro.init()`, `@observe`, OTEL export, and a remote results client
+  all emit the same trace shape a benchmark run produces; LangChain and LlamaIndex integrations now emit
+  native operator spans instead of flat stage snapshots.
+- **Dashboard: operator-native views** — segment × operator attribution grid, per-operator inspector,
+  operator DAG visualization, and a trace latency waterfall, backed by new DAG/diff/miss-attribution
+  endpoints.
+- **Deployability** — `Dockerfile` + `docker-compose.yml` for a self-hosted single-tenant deployment;
+  Postgres DSN support in the dashboard registry; graph corpus ingest API; pgvector and Qdrant adapters
+  gain real metadata filter support.
+- **Reference acceptance test** — a production-shaped pipeline (gates, multi-source fusion, expansion,
+  rerank, boost) exercised end to end as the north-star correctness check.
 
 ### Changed
 
-- `sdk/observe.py` — `ObserveContext` accepts `request_id`; `start_trace()` accepts `request_id`/`pipeline_id`/`query_id` overrides; `finish_trace()` sets `final_op_id`; `@observe` accepts explicit `op_id`/`parent_ids`; `_to_candidates` handles dicts and `doc_id` attribute.
-- `tracing/__init__.py` — `init()` returns `TraceRecorderV2` by default (`v2=True`); exports `TraceRecorderV2` and `LegacyTraceRecorder`.
-- `adapters/pgvector_adapter.py` — metadata equality filters (`WHERE metadata->>key = value`) now supported alongside `doc_ids`.
-- `Dockerfile` — upgraded to `python:3.12-slim`; editable install with `.[dashboard]`; conditional UI build step.
-- `docker-compose.yml` — added optional `postgres` service (pgvector/pg16) via Docker Compose profiles; persistent named volumes.
-- `runner/benchmark.py` — V2 dual-write default flipped from opt-in (`RETOBS_DUAL_WRITE_TRACES=1`) to opt-out (`!=0`).
-- `runner/benchmark.py` — cache-hit and timeout/error paths now emit V2 traces, closing trace coverage gaps.
-- `adapters/bm25_adapter.py` — replace the `rank_bm25` runtime dependency with an in-process BM25 scorer and correct filter-support documentation.
-- `tracing/model_v2.py`, `tracing/lift.py`, and `tests/unit/test_trace_lift.py` — trace-v2 records now carry request/final-operator metadata, candidate input/output ranks, and lifted fused stages emit source arm spans followed by a first-class FUSE span with arm provenance.
-- `THREE_TRACK_PLAN.md` — split Stage 0 into demo-credibility and deployability tracks; refine trace-native roadmap with operator schema, replay-tier, segment, and public-claim audit gates.
-- `.gitignore` — stop tracking `docs/PYPI_PUBLISH.md` (local-only PyPI publish notes) while allowing trace-native verification artifacts under `docs/verification/`.
-- `dashboard/registry.py` — database registry now accepts Postgres DSNs in addition to SQLite paths for serving.
-- `adapters/bm25_adapter.py` and `adapters/hf_biencoder_adapter.py` — `Query.filters['doc_ids']` is now enforced in-process; unsupported filter keys emit explicit warnings.
-- `dashboard/ui/src/components/StageCombinationMatrix.tsx` — replaced fixed 80-row truncation with client-side pagination (50 rows per page).
-- `metrics/engine.py`, `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — aggregation now prefers trace-native run status counts (`get_run_status_counts`) and falls back to legacy `raw_results` only when trace-v2 rows are absent.
-- `dashboard/api.py` — run overview/query endpoints now read trace-v2 runs directly (compat-converted snapshots) before using legacy `get_results`.
-- `dashboard/ui/src/components/RunDetail.tsx` and `ExperimentOverview.tsx` — run page now renders operator attribution grid, operator inspector, per-query winner table, and shared no-data states.
-- `metrics/diagnostics.py` — removed direct `PipelineResult` type imports from metric/dashboard paths as part of Stage-6 migration cleanup.
-- `tests/unit/test_metrics.py` and `tests/unit/test_classifier_train.py` — updated adapter filter expectations and skipped sklearn round-trip training on Darwin to avoid reproducible platform-level segfaults.
-- `README.md` and `BREAKDOWN.md` — capability matrix/storage notes updated for Qdrant adapter, Postgres serving, and in-process filter support.
-
-
+- V2 dual-write is now **on by default** (previously opt-in), including for cache hits, timeouts, and
+  errors, so every run — not just the happy path — produces a trace.
+- Metrics, diagnostics, and dashboard run/query views now compute from trace-native data first, falling
+  back to legacy snapshot-based computation only when V2 traces are absent.
+- Replaced the `rank_bm25` runtime dependency with an in-process BM25 scorer; removed remaining Numpy-only
+  statistics helpers in favor of pure-Python implementations to avoid platform-level import crashes.
+- Dashboard UX pass: pagination instead of hard row caps, glossary links fixed, indeterminate/low-power
+  states shown explicitly instead of misleading zero-gain verdicts.
 
 ### Fixed
 
-- `tests/unit/test_tracing_improvements.py` — `test_store_save_trace_without_init_db` uses V2 `span()`/`get_traces_v2()` after `tracing.init()` default switched to `TraceRecorderV2`.
-- `tracing/attribution.py` — `segment_key()` now merges gate_values from ALL GATE spans (Bug B1); was only capturing the first gate.
-- `tracing/replay.py` — `without_operator()` propagates counterfactual outputs to ALL downstream children via `parent_ids` DAG edges (Bug B2); was using a single `propagated` flag.
-- `tracing/attribution.py`, `tracing/replay.py` — final output detection uses `trace.final_op_id` or DAG sink detection (Bug B3); was assuming `spans[-1]`.
-- `tracing/replay.py` — `attribute_miss()` is now async; `EdgeStore.gold_reachable_via_edge()` results are awaited (Bug B4); was silently dropping async results.
-- `tracing/attribution.py` — `MarginalResult` gains `significant: Optional[bool]`; BH-corrected p-values from `benjamini_hochberg()` now populate this field (Bug B5).
-- `tracing/replay.py` — explicit FUSE arm handler in `without_operator()`: when a SOURCE arm is removed, the FUSE span is recomputed via RRF with remaining arms (Bug B6).
-- `tracing/attribution.py` — `operator_marginal_contribution()` now calls `segments()` internally (Bug B7); was building its own segment dict.
-- `tracing/attribution.py` — `NOT_REPLAYABLE` results now report `result_status="indeterminate"` instead of `"measured"`.
-- `tracing/replay.py` — `attribute_miss()` no longer reports `miss_type="unreachable"` for docs present in final output but below k; reports `ranked_below_k` instead.
-- `metrics/significance.py`, `metrics/engine.py`, `metrics/pareto.py`, and `dashboard/api.py` — replace small Numpy-only bootstrap/stat/Pareto helpers with pure-Python implementations to avoid platform-level import crashes in trace/dashboard verification paths.
-- `tracing/attribution.py` — `operator_marginal_contribution` supports `recall`, `ndcg`, `precision`, `mrr`, and `map`; bootstrap `ci_low`/`ci_high` on paired deltas when `n_pairs >= n_power_threshold`.
-- `tracing/enrich.py` — default `low_confidence_score=0.05` so the suspected-failure signal is active; skips `low_confidence` when all stage scores are zero (unscored pipelines).
-- `tracing/monitor/cluster.py` — TF-IDF + agglomerative semantic clustering when sklearn is available; heuristic fallback unchanged.
-- `adapters/hf_adapter.py` — `supports_filters=True`; `rerank()` honors `Query.filters['doc_ids']`.
-- `adapters/pgvector_adapter.py` — `supports_filters=True`; vector search applies `doc_ids` SQL filter instead of silently ignoring filters.
-- `sdk/api.py` — `generate_testset(validate=True)` by default; resolves an LLM judge from provider/env keys and warns when validation is requested but no judge is available.
-- `dashboard/ui` — Glossary links route to `#/glossary`; platform tour and query lineage remain reachable after dismissing the tour.
-- `cli.py` — `retobs quickstart` no longer crashes on Rich `MarkupError` from `[dim]`/`[/dim]` split across multiple `console.print` calls.
-- `cli.py` — `retobs quickstart` starts uvicorn with `await Server.serve()` so it does not nest `asyncio.run()` inside the quickstart event loop.
-- `cli.py` — `_print_metrics_table` renders `—` when latency rows omit bootstrap CI/std (`None`).
-- `metrics/diagnostics.py` — hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`; `candidate_miss` now requires zero relevant docs across all stage snapshots and emits `late_stage_recovery` when a later/fused stage surfaces the gold doc.
-- `store/sqlite.py` — lazy schema creation on first trace write (`_ensure_schema` in `save_traces_batch`) so production tracing no longer 500s with `no such table: traces`.
-- `tracing/enrich.py` — `low_confidence` default floor changed from `0.0` to `None` (disabled unless explicitly configured).
-- `dashboard/api.py` — arm-vs-fused stage contribution deltas mark fused-zero comparisons as indeterminate instead of reporting misleading zero-gain verdicts.
-- `dashboard/ui/src/components/StagePipelineFlow.tsx` — fallback topology reconstruction restores hybrid arms from `branch_id` metrics when `pipeline_topology` is unavailable.
-
-
-
-### Added
-
-- `metrics/engine.py` — `MetricsEngine.compute_from_traces()` computes ranking metrics (recall, NDCG, precision, MRR, MAP, latency) directly from `RetrievalTraceV2` operator DAGs, producing identical values to `compute_and_store` for linear pipelines.
-- `tests/unit/test_metric_parity.py` — parity test asserting old-path and trace-native metric values match exactly for a two-stage pipeline.
-- `dashboard/api.py` — `GET /runs/{run_id}/operator-dag` returns aggregated DAG topology (nodes with fire_rate/avg_latency, edges from parent_ids).
-- `dashboard/api.py` — `GET /runs/{run_id}/traces/{trace_id}/operator/{op_id}/diff` returns per-query operator-level candidate diff for OperatorInspector.
-- `dashboard/api.py` — `GET /runs/{run_id}/traces/{trace_id}/miss-attribution` returns miss attribution for a single query trace.
-- `config/dag_schema.py` — declarative DAG config schema (`DagPipelineConfig`, `OperatorConfig`, `GateCondition`) for complex RAG pipeline definition.
-- `store/migrate.py` — `migrate_run_to_v2()` and `verify_migration_parity()` helpers for retiring PipelineResult persistence.
-- `tests/integration/test_reference_architecture.py` — 12-test production-shaped acceptance test covering gates, fusion, expansion, reranking, boosts, miss attribution, and migration.
-- `dashboard/api.py` — `/runs/{run_id}/metrics` auto-computes from V2 traces when pre-computed metrics are absent.
-- `docs/verification/trace_native_status.md` — trace-native roadmap verification matrix with code pointers, conservative implementation status, and required compile/dashboard/CI gates.
-- `sdk/api.py` — `ro.fuse([retriever_a, retriever_b, ...])` for accurate fan-in stage 0 (RRF); nested pipeline lists (`[[bm25, dense], rerank]`) are a convenience alias.
-- `tracing/__init__.py` — `ro.init(service=..., db=...)` one-line production tracing setup (store + sink + recorder, schema auto-created on first write).
-- `tracing/recorder.py` — `t.stage(...)` context manager with auto-timing and bare doc-id `s.results` assignment; immediate `t.stage(id, docs, latency_ms)` form retained.
-- `tracing/integrations/fastapi.py` — `exclude_paths` (skip docs/health by default) and `query_extractor` hook (default reads `q` query param).
-- `types.py` — `StageSnapshot.arms` and `RetrievalResult.arm_results` for fused-stage arm snapshots persisted to store and dashboard topology.
-- `tests/unit/test_hybrid_fanin.py` — hybrid fan-in SDK/pipeline integration coverage.
-- `tests/unit/test_tracing_improvements.py` — tracing onboarding (`ro.init`, lazy schema, FastAPI route filtering) coverage.
-- `tests/unit/test_store.py` — fusion-arm store round-trip coverage.
-- `tests/unit/test_stage_cache.py` — fused-stage arm cache snapshot round-trip for `_snap_to_json`/`_snap_from_json`.
-- `tests/unit/test_dashboard_warnings.py` — indeterminate arm-vs-fused stage-contribution API coverage.
-- `tests/unit/test_metrics.py` — branch-metric aggregation keeps fused and main rows separate.
-- `tracing/model_v2.py`, `tracing/lift.py`, `tracing/attribution.py`, and `tracing/replay.py` — trace-native `RetrievalTraceV2` model with lift, segment attribution, replay, and miss attribution primitives.
-- `store/sqlite.py` and `store/postgres.py` — `traces_v2` persistence/read APIs and `doc_edges` storage for graph-aware retrieval metadata.
-- `dashboard/api.py` — remote run ingest lifecycle (`/experiments/{name}/runs`, `/runs/{run_id}/results`, `/runs/{run_id}/metrics`, `/runs/{run_id}/finish`), trace-v2 ingest/read APIs, operator attribution endpoint, and query-winner endpoint.
-- `sdk/observe.py`, `sdk/otel_exporter.py`, and `sdk/remote.py` — production trace instrumentation helpers, OTEL export bridge, and remote results client.
-- `adapters/qdrant_adapter.py` and `pipeline/factory.py` — native Qdrant adapter support via `adapter.qdrant`.
-- `dashboard/ui/src/components/GlossaryWorkspace.tsx`, `DemoQuickLinks.tsx`, and `WorkspaceGlossaryLink.tsx` — dedicated `#/glossary` page, persistent demo quick links, and fixed module glossary links.
-- `dashboard/ui/src/components/AppShell.tsx`, `ModeRail.tsx`, and `PlatformTour.tsx` — query lineage and platform tour are always reachable from the left rail and demo bar after dismissing the tour.
-- `tests/unit/test_trace_lift.py`, `tests/unit/test_attribution_segments.py`, `tests/unit/test_replay.py`, and `tests/integration/test_observe_roundtrip.py` — coverage for trace-v2 lift/store, attribution, replay/miss, and observe ingest roundtrip.
-- `Dockerfile` and `docker-compose.yml` — containerized single-tenant `retobs serve` deployment scaffolding.
-
-
-
-### Changed
-
-- `__init__.py`/`sdk/__init__.py` — export `fuse` and top-level `init`.
-- `cli.py` — `--db` options accept `--db-path` alias.
-- `store/sqlite.py`/`store/postgres.py` — `raw_results` and `metric_scores` persist `branch_id` rows for fused arms with backward-compatible migrations.
-- `metrics/engine.py` — branch-aware metric emission/aggregation keeps fused arm metrics separate via `branch_id`.
-- `metrics/comparison.py` — `parse_metric_key` and paired score lookup are branch-aware (`branch=` suffix).
-- `advisor/regression.py` — regression detection skips arm `branch_id` metric rows.
-- `pipeline/multi.py`/`pipeline/single.py` — fused runs attach per-arm `StageSnapshot` children on the fused stage.
-- `runner/cache.py` — stage/result cache JSON serializers round-trip nested `StageSnapshot.arms`.
-- `dashboard/api.py` — `/runs/{run_id}/overview` returns `pipeline_topology`; stage contributions include cross-pipeline, within-pipeline, and fused-arm ablation tiers.
-- `dashboard/ui/src/components/StagePipelineFlow.tsx` — hybrid graph renders parallel arms → RRF fusion with glossary-backed arm/RRF/fused labels.
-- `dashboard/ui/src/components/VerdictCard.tsx` — tiered ablation cards, verdict legend with active thresholds, plain-language section headers, and neutral indeterminate state.
-- `dashboard/ui/src/components/ExperimentOverview.tsx`/`QueryExplorer.tsx` — diagnostic buckets (post-hoc) vs predicted difficulty (pre-retrieval) labeled distinctly; visible 3-class fold mapping and separate diagnostic-bucket column.
-- `dashboard/ui/src/components/MetricsTable.tsx` — stability-badge caption and tooltip titles include triggering threshold values.
-- `dashboard/ui/src/components/RecallFunnel.tsx` — fallback K label when Recall@10 is unavailable.
-- `dashboard/ui/src/components/StageCombinationMatrix.tsx` — truncation notice when matrix rows exceed display cap.
-- `dashboard/ui/src/components/tracelens/TraceLensOverview.tsx` — KPI labels inline active threshold cutoffs (>5% / >10% / >2000ms).
-- `dashboard/ui/src/components/tracelens/SuspectedFailureChip.tsx` — threshold-aware tooltips for suspected-failure proxy signals.
-- `dashboard/ui/src/components/tracelens/DriftExplorer.tsx` — visible PSI/KS drift threshold caption.
-- `dashboard/ui/src/components/tracelens/Hotspots.tsx` — hotspot rate defined as share-of-difficulty traffic.
-- `dashboard/ui/src/components/tracelens/Clusters.tsx` — heuristic difficulty×length clustering basis stated explicitly.
-- `dashboard/ui/src/components/TraceLensWorkspace.tsx` — prominent suspected-vs-measured callout listing four proxy signals; Forge breadcrumb for hotspot reproduction.
-- `dashboard/ui/src/components/ForgeWorkspace.tsx` — persistent purpose statement under header.
-- `dashboard/ui/src/components/forge/DatasetDetail.tsx` — label-trust caveat decoupled from amber validation styling.
-- `dashboard/ui/src/components/AdvisorWorkspace.tsx` — reliability decomposition with formulas/reference scale; recommendation priority badges; BH-adjusted q-value column tooltip.
-- `dashboard/ui/src/components/RunDetail.tsx` — benchmark run links to originating Forge dataset when `forge_dataset_id` is present.
-- `dashboard/ui/src/components/DashboardGuide.tsx` — glossary/how-to-read section and color-convention note; workspace headers link to glossary.
-- `dashboard/ui/src/utils/metricGlossary.ts` — entries for `rrf`, `arm`, `fused_stage`, `q_value`, `psi`, `ks_test`, `difficulty_diagnostic`, `difficulty_predicted`, and reliability-component weighting.
-- `types.py` — docstring on `RetrievalResult.arm_results` contract for fusing adapters.
-- `README.md` — custom JSONL/qrel formats, no-ground-truth labeling tradeoffs, production tracing recipe (`get_trace()` can be `None`), integration paths, and SQLite-first dashboard limitation.
+- Seven correctness bugs in the attribution/replay engine from the initial trace-native cut: multi-gate
+  segment keys were truncated to the first gate, counterfactual replay didn't propagate through branching
+  DAGs, final-output detection assumed the last span in a list rather than following the DAG, async
+  graph-reachability checks were silently dropped, and FUSE arm removal didn't recompute RRF.
+- Hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`.
+- Lazy schema creation so production tracing doesn't 500 on a fresh database.
+- `retobs quickstart` no longer crashes on Rich markup or nested event loops.
 
 ---
 
