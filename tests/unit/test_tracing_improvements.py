@@ -23,11 +23,11 @@ def _trace(docs):
 # ---- A2: lazy schema creation -------------------------------------------------
 @pytest.mark.asyncio
 async def test_store_save_trace_without_init_db(tmp_path):
-    """save_trace must auto-create the schema (no manual init_db)."""
+    """save_trace_v2 must auto-create the schema (no manual init_db)."""
     recorder = tracing_init(service="svc", db=str(tmp_path / "prod.db"))
     async with recorder.trace(query_text="hello", pipeline_id="p") as t:
-        t.stage("bm25", [Document("d1", "txt", 0.9, 1)], 5.0)
-    rows = await recorder.store.list_traces("svc")
+        t.span("RETRIEVE", "bm25", [Document("d1", "txt", 0.9, 1)], 5.0)
+    rows = await recorder.store.get_traces_v2("svc")
     assert len(rows) == 1
 
 

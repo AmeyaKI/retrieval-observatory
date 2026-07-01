@@ -48,6 +48,7 @@ Changes on `main` not yet published to PyPI (since v0.3.4).
 
 ### Fixed
 
+- `tests/unit/test_tracing_improvements.py` — `test_store_save_trace_without_init_db` uses V2 `span()`/`get_traces_v2()` after `tracing.init()` default switched to `TraceRecorderV2`.
 - `tracing/attribution.py` — `segment_key()` now merges gate_values from ALL GATE spans (Bug B1); was only capturing the first gate.
 - `tracing/replay.py` — `without_operator()` propagates counterfactual outputs to ALL downstream children via `parent_ids` DAG edges (Bug B2); was using a single `propagated` flag.
 - `tracing/attribution.py`, `tracing/replay.py` — final output detection uses `trace.final_op_id` or DAG sink detection (Bug B3); was assuming `spans[-1]`.
