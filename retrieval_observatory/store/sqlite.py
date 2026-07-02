@@ -80,6 +80,13 @@ CREATE TABLE IF NOT EXISTS run_manifests (
 )
 """
 
+_CREATE_RUN_QRELS = """
+CREATE TABLE IF NOT EXISTS run_qrels (
+    run_id TEXT PRIMARY KEY,
+    qrels_json TEXT NOT NULL
+)
+"""
+
 _CREATE_VALIDATION_REPORTS = """
 CREATE TABLE IF NOT EXISTS validation_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,6 +279,7 @@ class SQLiteStore:
             await db.execute(_CREATE_METRIC_SCORES)
             await db.execute(_CREATE_CACHE)
             await db.execute(_CREATE_RUN_MANIFESTS)
+            await db.execute(_CREATE_RUN_QRELS)
             await db.execute(_CREATE_VALIDATION_REPORTS)
             await db.execute(_CREATE_QUERY_DIAGNOSTICS)
             await db.execute(_CREATE_RUN_QUERIES)
@@ -489,7 +497,8 @@ class SQLiteStore:
         branch_id: Optional[str] = None,
         query_metadata: Optional[Dict] = None,
     ) -> None:
-        metadata_json = json.dumps(query_metadata) if query_metadata else None
+        # save_metrics_batch does its own json.dumps on query_metadata_json, so pass
+        # the raw dict through here -- pre-serializing it double-encodes the JSON.
         await self.save_metrics_batch(
             rows=[
                 {
@@ -501,7 +510,7 @@ class SQLiteStore:
                     "k": k,
                     "value": value,
                     "branch_id": branch_id,
-                    "query_metadata_json": metadata_json,
+                    "query_metadata_json": query_metadata,
                 }
             ]
         )
@@ -676,6 +685,24 @@ class SQLiteStore:
             ) as cursor:
                 row = await cursor.fetchone()
         return json.loads(row[0]) if row else None
+
+    async def save_qrels(self, run_id: str, qrels: Dict[str, Dict[str, int]]) -> None:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT OR REPLACE INTO run_qrels (run_id, qrels_json) VALUES (?, ?)",
+                (run_id, json.dumps(qrels)),
+            )
+            await db.commit()
+
+    async def get_qrels(self, run_id: str) -> Dict[str, Dict[str, int]]:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT qrels_json FROM run_qrels WHERE run_id = ?", (run_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+        return json.loads(row[0]) if row else {}
 
     async def save_validation_report(
         self,

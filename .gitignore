@@ -31,8 +31,12 @@ TODO
 !CLAUDE.md
 !results/**/*.md
 !CHANGELOG.md
-!docs/ci_gating.md
-!docs/verification/*.md
+!YAML_GUIDE.md
+!docs/USAGE.md
+!docs/informative/*.md
+
+# Internal dev-session verification artifacts -- not user-facing docs, never tracked
+docs/verification/
 
 
 # local data / files

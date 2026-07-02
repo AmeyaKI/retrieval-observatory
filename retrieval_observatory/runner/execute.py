@@ -148,6 +148,11 @@ async def execute_benchmark(
             qrels = _merge_qrels(qrels, judged_qrels)
         else:
             qrels = judged_qrels
+    if hasattr(store, "save_qrels"):
+        # Persist the qrels actually used for scoring so dashboard endpoints (operator
+        # attribution, miss attribution) can recover ground truth after the run completes —
+        # qrels only ever existed in-memory here otherwise.
+        await store.save_qrels(run_id, qrels)
     await engine.compute_and_store(
         run_id=run_id,
         store=store,

@@ -74,8 +74,9 @@ export async function fetchRuns(dbId: string): Promise<Run[]> {
   return res.json()
 }
 
-export async function fetchMetrics(dbId: string, runId: string): Promise<MetricsMap> {
-  const res = await fetch(`${runBase(dbId, runId)}/metrics`)
+export async function fetchMetrics(dbId: string, runId: string, includeBranches = false): Promise<MetricsMap> {
+  const query = includeBranches ? '?include_branches=true' : ''
+  const res = await fetch(`${runBase(dbId, runId)}/metrics${query}`)
   if (!res.ok) throw new Error(`Failed to fetch metrics for run ${runId}`)
   return res.json()
 }

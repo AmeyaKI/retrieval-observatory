@@ -71,6 +71,13 @@ CREATE TABLE IF NOT EXISTS run_manifests (
 )
 """
 
+_CREATE_RUN_QRELS = """
+CREATE TABLE IF NOT EXISTS run_qrels (
+    run_id TEXT PRIMARY KEY,
+    qrels_json TEXT NOT NULL
+)
+"""
+
 _CREATE_VALIDATION_REPORTS = """
 CREATE TABLE IF NOT EXISTS validation_reports (
     id SERIAL PRIMARY KEY,
@@ -248,6 +255,7 @@ class PostgresStore:
             await conn.execute(_CREATE_METRIC_SCORES)
             await conn.execute(_CREATE_CACHE)
             await conn.execute(_CREATE_RUN_MANIFESTS)
+            await conn.execute(_CREATE_RUN_QRELS)
             await conn.execute(_CREATE_VALIDATION_REPORTS)
             await conn.execute(_CREATE_QUERY_DIAGNOSTICS)
             await conn.execute(_CREATE_RUN_QUERIES)
@@ -457,7 +465,8 @@ class PostgresStore:
         branch_id: Optional[str] = None,
         query_metadata: Optional[Dict] = None,
     ) -> None:
-        metadata_json = json.dumps(query_metadata) if query_metadata else None
+        # save_metrics_batch does its own json.dumps on query_metadata_json, so pass
+        # the raw dict through here -- pre-serializing it double-encodes the JSON.
         await self.save_metrics_batch(
             rows=[
                 {
@@ -469,7 +478,7 @@ class PostgresStore:
                     "k": k,
                     "value": value,
                     "branch_id": branch_id,
-                    "query_metadata_json": metadata_json,
+                    "query_metadata_json": query_metadata,
                 }
             ]
         )
@@ -645,6 +654,22 @@ class PostgresStore:
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT manifest_json FROM run_manifests WHERE run_id = $1", run_id)
         return json.loads(row["manifest_json"]) if row else None
+
+    async def save_qrels(self, run_id: str, qrels: Dict[str, Dict[str, int]]) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO run_qrels (run_id, qrels_json) VALUES ($1, $2)
+                   ON CONFLICT (run_id) DO UPDATE SET qrels_json = EXCLUDED.qrels_json""",
+                run_id,
+                json.dumps(qrels),
+            )
+
+    async def get_qrels(self, run_id: str) -> Dict[str, Dict[str, int]]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT qrels_json FROM run_qrels WHERE run_id = $1", run_id)
+        return json.loads(row["qrels_json"]) if row else {}
 
     async def save_validation_report(
         self,

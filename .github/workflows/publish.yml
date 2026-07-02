@@ -78,7 +78,7 @@ jobs:
             echo "Expected package name 'retrieval-observatory' but wheel metadata says '$PKG'"
             exit 1
           fi
-          echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/PYPI_PUBLISH.md"
+          echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/informative/PYPI_PUBLISH.md"
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -134,7 +134,7 @@ jobs:
             echo "Expected package name 'retrieval-observatory' but wheel metadata says '$PKG'"
             exit 1
           fi
-          echo "::notice title=Trusted publisher config::PyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment pypi). See docs/PYPI_PUBLISH.md"
+          echo "::notice title=Trusted publisher config::PyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment pypi). See docs/informative/PYPI_PUBLISH.md"
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:

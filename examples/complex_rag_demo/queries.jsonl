@@ -1,0 +1,9 @@
+{"query_id": "q_rollback", "text": "how do i roll back the search service", "relevant_doc_ids": ["doc_runbook_rollback"]}
+{"query_id": "q_cache_cause", "text": "what caused the cache stampede outage", "relevant_doc_ids": ["doc_incident_2024_cache", "doc_incident_2024_cache_followup"]}
+{"query_id": "q_deploy_steps", "text": "steps to deploy the search service", "relevant_doc_ids": ["doc_runbook_deploy"]}
+{"query_id": "q_latency_why", "text": "why did search latency spike recently", "relevant_doc_ids": ["doc_incident_2025_latency", "doc_incident_2025_latency_followup"]}
+{"query_id": "q_ratelimit", "text": "rate limit rules for the search api", "relevant_doc_ids": ["doc_faq_ratelimit"]}
+{"query_id": "q_cache_recur", "text": "recurring cache stampede issue", "relevant_doc_ids": ["doc_incident_2025_cache", "doc_incident_2024_cache"]}
+{"query_id": "q_scaling", "text": "how to scale search replicas", "relevant_doc_ids": ["doc_runbook_scaling"]}
+{"query_id": "q_oom_root_cause", "text": "root cause of the indexer oom crash", "relevant_doc_ids": ["doc_incident_2023_oom", "doc_incident_2023_oom_followup"]}
+{"query_id": "q_auth_setup", "text": "authentication setup for the search api", "relevant_doc_ids": ["doc_faq_auth"]}

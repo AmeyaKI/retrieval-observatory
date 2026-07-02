@@ -59,6 +59,7 @@ function inferLatencyBudget(metrics: MetricsMap): number {
 
 export default function RunDetail({ run, dbId, wide = false }: Props) {
   const [metrics, setMetrics] = useState<MetricsMap | null>(null)
+  const [metricsWithArms, setMetricsWithArms] = useState<MetricsMap | null>(null)
   const [overview, setOverview] = useState<RunOverview | null>(null)
   const [baselines, setBaselines] = useState<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
@@ -71,6 +72,7 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
 
   useEffect(() => {
     setMetrics(null)
+    setMetricsWithArms(null)
     setOverview(null)
     setError(null)
     fetchMetrics(dbId, run.run_id)
@@ -79,6 +81,11 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
         setLatencyBudgetMs(inferLatencyBudget(m))
       })
       .catch((e) => setError(e.message))
+    // Separate fetch: StagePipelineFlow needs branch_id-tagged rows to render
+    // hybrid/RRF fan-in arms, which the default /metrics response strips out.
+    fetchMetrics(dbId, run.run_id, true)
+      .then(setMetricsWithArms)
+      .catch(() => setMetricsWithArms(null))
     fetchRunOverview(dbId, run.run_id)
       .then((ov) => {
         setOverview(ov)
@@ -148,7 +155,7 @@ export default function RunDetail({ run, dbId, wide = false }: Props) {
 
       {Object.values(metrics).some((e) => e.stage_index >= 0) && (
         <Section title="Pipeline Architecture" subtitle="Stage-by-stage flow of your retrieval pipeline with per-stage quality and latency">
-          <StagePipelineFlow metrics={metrics} topology={overview?.pipeline_topology} />
+          <StagePipelineFlow metrics={metricsWithArms ?? metrics} topology={overview?.pipeline_topology} />
         </Section>
       )}
 

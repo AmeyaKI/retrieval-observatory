@@ -4,6 +4,38 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ---
 
+## [0.4.1] — 2026-07-02
+
+### Fixed
+
+- Operator Attribution Grid always showed `not_applicable`: qrels used for scoring were never
+  persisted anywhere the dashboard could read them back from. Added a `run_qrels` store table
+  (SQLite + Postgres) written once per run by `execute_benchmark`, and wired both
+  `/operator-attribution` and `/miss-attribution` to read real ground truth from it.
+- `tracing/lift.py` misclassified any dense-retrieval stage named `sentence-transformers/...`
+  (the standard model-naming convention) as a `TRANSFORM` operator instead of `SOURCE`, because
+  the naming heuristic substring-matched "transform" inside "transformers".
+- `StagePipelineFlow.tsx`'s hybrid/RRF fan-in arm rendering could never receive arm-level metrics
+  because the frontend never requested `include_branches=true`; added a dedicated branch-inclusive
+  fetch for the pipeline architecture diagram.
+
+### Added
+
+- `docs/USAGE.md` — comprehensive usage guide: core concepts, YAML vs SDK, wiring retobs into an
+  existing pipeline, hybrid/multi-stage/DAG pipelines, production tracing, the dashboard, metrics
+  and attribution reference, CLI reference, CI gating.
+- `examples/complex_rag_demo/` — a hybrid, multi-stage RAG benchmark (BM25 + dense fan-in via RRF,
+  cross-encoder rerank, custom recency-boost stage) comparing six architectures in one run.
+
+### Changed
+
+- `docs/` reorganized: `docs/verification/` (dev-session audit artifacts) is no longer tracked in
+  git; `docs/informative/` holds maintainer/ops reference docs (`ci_gating.md`, `PYPI_PUBLISH.md`);
+  restored `YAML_GUIDE.md`, which had been accidentally left untracked despite being linked from
+  README.md and BREAKDOWN.md.
+
+---
+
 ## [0.4.0] — 2026-07-01
 
 This release completes the **trace-native revamp**: retrieval pipelines are now modeled as an operator DAG (`RetrievalTraceV2`) instead of a flat

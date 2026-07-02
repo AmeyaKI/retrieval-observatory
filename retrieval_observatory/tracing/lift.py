@@ -19,7 +19,7 @@ def _candidate(doc, op_id: str, *, origin_op_ids: List[str] | None = None) -> Ca
 
 def _op_type(stage_id: str) -> str:
     name = stage_id.lower()
-    if any(part in name for part in ("bm25", "sparse", "keyword", "dense", "embed", "vector", "semantic", "temporal", "recency", "time", "source")):
+    if any(part in name for part in ("bm25", "sparse", "keyword", "dense", "embed", "vector", "semantic", "temporal", "recency", "time", "source", "sentence-transformer")):
         return "SOURCE"
     if "fuse" in name or "rrf" in name:
         return "FUSE"

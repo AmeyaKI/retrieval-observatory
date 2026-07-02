@@ -72,7 +72,7 @@ def test_no_regression(retobs):
     candidate.assert_no_regression("GOLDEN_RUN_ID", metric="ndcg")
 ```
 
-Details: [docs/ci_gating.md](docs/ci_gating.md).
+Details: [docs/informative/ci_gating.md](docs/informative/ci_gating.md).
 
 ---
 
@@ -301,7 +301,7 @@ retobs advisor recommend --run RUN_ID --db .retobs/results.db
 retobs advisor golden create --set my-golden --queries queries.json
 ```
 
-Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml). For Python pipelines, the bundled pytest plugin turns this into a one-line assertion — see [docs/ci_gating.md](docs/ci_gating.md).
+Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml). For Python pipelines, the bundled pytest plugin turns this into a one-line assertion — see [docs/informative/ci_gating.md](docs/informative/ci_gating.md).
 
 ---
 
@@ -385,6 +385,7 @@ Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 
 ## Going Deeper
 
+- [docs/USAGE.md](docs/USAGE.md) — Full usage guide: every CLI command, the Python SDK, wiring retobs into an existing (including hybrid/multi-stage) RAG pipeline, the dashboard, and metrics reference
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, trace-native model, adapters, metrics, storage, dashboard API
 - [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.0)
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets

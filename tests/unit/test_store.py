@@ -48,6 +48,30 @@ async def test_save_and_get_metric(store):
 
 
 @pytest.mark.asyncio
+async def test_save_and_get_qrels_roundtrip(store):
+    await store.save_run("run1", "test-experiment", "{}")
+    qrels = {"q1": {"doc_a": 1, "doc_b": 2}, "q2": {"doc_c": 1}}
+
+    await store.save_qrels("run1", qrels)
+
+    assert await store.get_qrels("run1") == qrels
+
+
+@pytest.mark.asyncio
+async def test_get_qrels_missing_run_returns_empty_dict(store):
+    assert await store.get_qrels("no-such-run") == {}
+
+
+@pytest.mark.asyncio
+async def test_save_qrels_overwrites_existing(store):
+    await store.save_run("run1", "test-experiment", "{}")
+    await store.save_qrels("run1", {"q1": {"doc_a": 1}})
+    await store.save_qrels("run1", {"q1": {"doc_b": 1}})
+
+    assert await store.get_qrels("run1") == {"q1": {"doc_b": 1}}
+
+
+@pytest.mark.asyncio
 async def test_save_result_with_empty_snapshots_persists_envelope(store):
     result = PipelineResult(
         query_id="q_timeout",

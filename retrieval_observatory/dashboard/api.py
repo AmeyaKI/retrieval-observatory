@@ -93,6 +93,29 @@ def _selection_key(db_id: str, run_id: str) -> str:
     return f"{db_id}/{run_id}"
 
 
+async def _resolve_qrels(store: Any, run_id: str) -> Dict[str, Dict[str, int]]:
+    """Ground truth for a run, for operator attribution and miss attribution.
+
+    Prefers run_qrels (persisted once per run by execute_benchmark — see
+    runner/execute.py::execute_benchmark). Falls back to the legacy
+    query_metadata.qrel_ids convention on metric_scores rows for runs persisted
+    before run_qrels existed; that field is never written by the standard
+    benchmark path but some callers set it manually (e.g. production-trace-only
+    runs seeding qrels by hand).
+    """
+    if hasattr(store, "get_qrels"):
+        qrels = await store.get_qrels(run_id)
+        if qrels:
+            return qrels
+    metrics_rows = await store.get_metrics(run_id)
+    qrels: Dict[str, Dict[str, int]] = {}
+    for row in metrics_rows:
+        rel = row.get("query_metadata", {}).get("qrel_ids")
+        if isinstance(rel, list):
+            qrels.setdefault(row["query_id"], {doc_id: 1 for doc_id in rel})
+    return qrels
+
+
 @dataclass
 class _CompatResult:
     query_id: str
@@ -761,12 +784,7 @@ def create_app(
     ) -> List[Dict[str, Any]]:
         store = _store_for(db_id)
         traces = await store.get_traces_v2(run_id)
-        metrics_rows = await store.get_metrics(run_id)
-        qrels: Dict[str, Dict[str, int]] = {}
-        for row in metrics_rows:
-            rel = row.get("query_metadata", {}).get("qrel_ids")
-            if isinstance(rel, list):
-                qrels.setdefault(row["query_id"], {doc_id: 1 for doc_id in rel})
+        qrels = await _resolve_qrels(store, run_id)
         op_ids = sorted({span.op_id for trace in traces for span in trace.spans})
         out: List[Dict[str, Any]] = []
         for op_id in op_ids:
@@ -856,12 +874,7 @@ def create_app(
         trace = await store.get_trace_v2(trace_id)
         if trace is None or trace.run_id != run_id:
             raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
-        metrics_rows = await store.get_metrics(run_id)
-        qrels: Dict[str, Dict[str, int]] = {}
-        for row in metrics_rows:
-            rel = row.get("query_metadata", {}).get("qrel_ids")
-            if isinstance(rel, list):
-                qrels.setdefault(row["query_id"], {doc_id: 1 for doc_id in rel})
+        qrels = await _resolve_qrels(store, run_id)
         misses = await _attr_miss(trace, qrels=qrels, k=k)
         return [
             {
