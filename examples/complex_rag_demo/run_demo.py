@@ -273,13 +273,10 @@ async def main() -> None:
         async with recorder.trace(query["text"], PIPELINE_ID, query_id=query["query_id"]) as t:
             await run_pipeline(t, query, corpus, edge_store)
 
-        # Seed qrels for the dashboard's /operator-attribution endpoint, which reads
-        # query_metadata.qrel_ids off metric_scores rows (dashboard/api.py:get_operator_attribution).
-        await store.save_metric(
-            run_id=RUN_ID, pipeline_id=PIPELINE_ID, query_id=query["query_id"], stage_index=0,
-            metric_name="qrel_marker", k=10, value=0.0,
-            query_metadata={"qrel_ids": list(query["relevant_doc_ids"])},
-        )
+    # Persist qrels so the dashboard's /operator-attribution and /miss-attribution
+    # endpoints can recover ground truth (store.get_qrels) after this process exits.
+    qrels = {q["query_id"]: {doc_id: 1 for doc_id in q["relevant_doc_ids"]} for q in queries}
+    await store.save_qrels(RUN_ID, qrels)
 
     await store.finish_run(RUN_ID)
     print(f"\nWrote {len(queries)} traces to {DB_PATH} under run_id={RUN_ID!r}")
@@ -287,7 +284,6 @@ async def main() -> None:
     # Offline attribution preview -- the same engine the dashboard's /operator-attribution
     # endpoint calls, run here directly against the traces we just wrote.
     traces = await store.get_traces_v2(RUN_ID)
-    qrels = {q["query_id"]: {doc_id: 1 for doc_id in q["relevant_doc_ids"]} for q in queries}
     op_ids = ["source_bm25", "source_dense", "fuse_rrf", "filter_cap", "expand_thread", "rerank_cross", "boost_recency"]
     print("\nOperator marginal contribution (recall@10):")
     for op_id in op_ids:

@@ -9,32 +9,38 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ### Fixed
 
 - Operator Attribution Grid always showed `not_applicable`: qrels used for scoring were never
-  persisted anywhere the dashboard could read them back from. Added a `run_qrels` store table
-  (SQLite + Postgres) written once per run by `execute_benchmark`, and wired both
-  `/operator-attribution` and `/miss-attribution` to read real ground truth from it.
+persisted anywhere the dashboard could read them back from. Added a `run_qrels` store table
+(SQLite + Postgres) written once per run by `execute_benchmark`, and wired both
+`/operator-attribution` and `/miss-attribution` to read real ground truth from it.
 - `tracing/lift.py` misclassified any dense-retrieval stage named `sentence-transformers/...`
-  (the standard model-naming convention) as a `TRANSFORM` operator instead of `SOURCE`, because
-  the naming heuristic substring-matched "transform" inside "transformers".
+(the standard model-naming convention) as a `TRANSFORM` operator instead of `SOURCE`, because
+the naming heuristic substring-matched "transform" inside "transformers".
 - `StagePipelineFlow.tsx`'s hybrid/RRF fan-in arm rendering could never receive arm-level metrics
-  because the frontend never requested `include_branches=true`; added a dedicated branch-inclusive
-  fetch for the pipeline architecture diagram.
+because the frontend never requested `include_branches=true`; added a dedicated branch-inclusive
+fetch for the pipeline architecture diagram.
+
+
 
 ### Added
 
 - `docs/USAGE.md` — comprehensive usage guide: core concepts, YAML vs SDK, wiring retobs into an
-  existing pipeline, hybrid/multi-stage/DAG pipelines, production tracing, the dashboard, metrics
-  and attribution reference, CLI reference, CI gating.
+existing pipeline, hybrid/multi-stage/DAG pipelines, production tracing, the dashboard, metrics
+and attribution reference, CLI reference, CI gating.
 - `examples/complex_rag_demo/` — a hybrid, multi-stage RAG benchmark (BM25 + dense fan-in via RRF,
-  cross-encoder rerank, custom recency-boost stage) comparing six architectures in one run.
+cross-encoder rerank, custom recency-boost stage) comparing six architectures in one run.
+
+
 
 ### Changed
 
 - `docs/` reorganized: `docs/verification/` (dev-session audit artifacts) is no longer tracked in
-  git; `docs/informative/` holds maintainer/ops reference docs (`ci_gating.md`, `PYPI_PUBLISH.md`);
-  restored `YAML_GUIDE.md`, which had been accidentally left untracked despite being linked from
-  README.md and BREAKDOWN.md.
+git; `docs/informative/` holds maintainer/ops reference docs (`ci_gating.md`, `PYPI_PUBLISH.md`);
+restored `YAML_GUIDE.md`, which had been accidentally left untracked despite being linked from
+README.md and BREAKDOWN.md.
 
 ---
+
+
 
 ## [0.4.0] — 2026-07-01
 
@@ -44,45 +50,49 @@ list of stages, with honest, replay-tiered attribution of which operator helped 
 ### Added
 
 - **Trace-native core model** — `RetrievalTraceV2`/`OperatorSpan`/`Candidate` operator-DAG schema, with a
-  lift path that upgrades legacy `PipelineResult` runs into valid DAGs (fused stages become first-class
-  `FUSE` spans with per-arm provenance) without changing any existing metric numbers.
+lift path that upgrades legacy `PipelineResult` runs into valid DAGs (fused stages become first-class
+`FUSE` spans with per-arm provenance) without changing any existing metric numbers.
 - **Honest attribution engine** — per-segment, per-operator marginal contribution (recall/NDCG/precision/
-  MRR/MAP) with bootstrap confidence intervals, Benjamini-Hochberg-corrected significance, low-power
-  flags, and a `replay_policy` (exact / observed-ablation / not-replayable) so no result overclaims
-  certainty. Counterfactual replay (`without_operator`) correctly handles boosts, filters, reranks,
-  expansions, gates, and multi-arm fusion (RRF recompute on arm removal).
+MRR/MAP) with bootstrap confidence intervals, Benjamini-Hochberg-corrected significance, low-power
+flags, and a `replay_policy` (exact / observed-ablation / not-replayable) so no result overclaims
+certainty. Counterfactual replay (`without_operator`) correctly handles boosts, filters, reranks,
+expansions, gates, and multi-arm fusion (RRF recompute on arm removal).
 - **Miss attribution** — explains why a relevant document didn't surface (dropped by a specific operator,
-  never retrieved, or graph-reachable but not connected), including graph-aware evidence via a new
-  document edge store (thread/entity/reference relationships).
+never retrieved, or graph-reachable but not connected), including graph-aware evidence via a new
+document edge store (thread/entity/reference relationships).
 - **Production instrumentation on V2** — `ro.init()`, `@observe`, OTEL export, and a remote results client
-  all emit the same trace shape a benchmark run produces; LangChain and LlamaIndex integrations now emit
-  native operator spans instead of flat stage snapshots.
+all emit the same trace shape a benchmark run produces; LangChain and LlamaIndex integrations now emit
+native operator spans instead of flat stage snapshots.
 - **Dashboard: operator-native views** — segment × operator attribution grid, per-operator inspector,
-  operator DAG visualization, and a trace latency waterfall, backed by new DAG/diff/miss-attribution
-  endpoints.
+operator DAG visualization, and a trace latency waterfall, backed by new DAG/diff/miss-attribution
+endpoints.
 - **Deployability** — `Dockerfile` + `docker-compose.yml` for a self-hosted single-tenant deployment;
-  Postgres DSN support in the dashboard registry; graph corpus ingest API; pgvector and Qdrant adapters
-  gain real metadata filter support.
+Postgres DSN support in the dashboard registry; graph corpus ingest API; pgvector and Qdrant adapters
+gain real metadata filter support.
 - **Reference acceptance test** — a production-shaped pipeline (gates, multi-source fusion, expansion,
-  rerank, boost) exercised end to end as the north-star correctness check.
+rerank, boost) exercised end to end as the north-star correctness check.
+
+
 
 ### Changed
 
 - V2 dual-write is now **on by default** (previously opt-in), including for cache hits, timeouts, and
-  errors, so every run — not just the happy path — produces a trace.
+errors, so every run — not just the happy path — produces a trace.
 - Metrics, diagnostics, and dashboard run/query views now compute from trace-native data first, falling
-  back to legacy snapshot-based computation only when V2 traces are absent.
+back to legacy snapshot-based computation only when V2 traces are absent.
 - Replaced the `rank_bm25` runtime dependency with an in-process BM25 scorer; removed remaining Numpy-only
-  statistics helpers in favor of pure-Python implementations to avoid platform-level import crashes.
+statistics helpers in favor of pure-Python implementations to avoid platform-level import crashes.
 - Dashboard UX pass: pagination instead of hard row caps, glossary links fixed, indeterminate/low-power
-  states shown explicitly instead of misleading zero-gain verdicts.
+states shown explicitly instead of misleading zero-gain verdicts.
+
+
 
 ### Fixed
 
 - Seven correctness bugs in the attribution/replay engine from the initial trace-native cut: multi-gate
-  segment keys were truncated to the first gate, counterfactual replay didn't propagate through branching
-  DAGs, final-output detection assumed the last span in a list rather than following the DAG, async
-  graph-reachability checks were silently dropped, and FUSE arm removal didn't recompute RRF.
+segment keys were truncated to the first gate, counterfactual replay didn't propagate through branching
+DAGs, final-output detection assumed the last span in a list rather than following the DAG, async
+graph-reachability checks were silently dropped, and FUSE arm removal didn't recompute RRF.
 - Hybrid fan-in pipelines no longer mislabel successful queries as `candidate_miss`.
 - Lazy schema creation so production tracing doesn't 500 on a fresh database.
 - `retobs quickstart` no longer crashes on Rich markup or nested event loops.

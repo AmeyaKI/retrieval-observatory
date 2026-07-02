@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -51,6 +52,12 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
         console.print("[dim]Run [bold]retobs validate --config <path>[/bold] for a detailed config check.[/dim]")
         raise typer.Exit(1)
     _resolve_config_paths(cfg, config_path.parent)
+    # adapter.import factory paths (e.g. "custom_adapters:build_x") are resolved via
+    # importlib against sys.path, so make modules next to the config importable without
+    # requiring the caller to set PYTHONPATH manually.
+    config_dir = str(config_path.parent.resolve())
+    if config_dir not in sys.path:
+        sys.path.insert(0, config_dir)
     console.print(f"[bold green]Experiment:[/bold green] {cfg.experiment.name}")
     validation_report = validate_experiment_config(cfg, str(config_path))
     if validation_report["status"] == "error":

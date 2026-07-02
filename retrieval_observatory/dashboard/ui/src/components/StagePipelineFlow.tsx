@@ -12,6 +12,22 @@ function titleCase(value: string): string {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+const OP_TYPE_LABELS: Record<string, string> = {
+  SOURCE: 'Retrieval',
+  FUSE: 'Fusion',
+  EXPAND: 'Expansion',
+  FILTER: 'Filtering',
+  TRANSFORM: 'Transform',
+  RERANK: 'Reranking',
+  BOOST: 'Boosting',
+  GATE: 'Gating',
+}
+
+function stageRole(stage: TopologyStage): string {
+  if (stage.op_type && OP_TYPE_LABELS[stage.op_type]) return OP_TYPE_LABELS[stage.op_type]
+  return stage.stage_index === 0 ? 'Retrieval' : 'Reranking'
+}
+
 function stageName(raw: string): string {
   return raw
     .replace(/_rerank$/, ' Reranker')
@@ -159,7 +175,7 @@ export default function StagePipelineFlow({ metrics, topology }: Props) {
           <p className="text-xs font-semibold text-gray-600 mb-2">{titleCase(pipelineId)}</p>
           <div className="flex items-stretch gap-0 overflow-x-auto">
             {stages.map((stage, i) => {
-              const role = stage.stage_index === 0 ? 'Retrieval' : 'Reranking'
+              const role = stageRole(stage)
               const fused = stage.kind === 'fused' && stage.arms.length > 0
               return (
                 <div key={stage.stage_index} className="flex items-center">

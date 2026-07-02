@@ -169,6 +169,7 @@ export interface TopologyArm {
 export interface TopologyStage {
   stage_index: number
   stage_id: string
+  op_type?: string | null
   kind: 'single' | 'fused' | 'rerank'
   candidate_count: number
   metrics: TopologyStageMetrics

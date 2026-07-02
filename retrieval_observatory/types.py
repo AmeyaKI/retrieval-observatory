@@ -55,6 +55,7 @@ class StageSnapshot:
     profiling: Dict[str, float] = field(default_factory=dict)
     candidate_count: int = 0
     arms: List["StageSnapshot"] = field(default_factory=list)
+    op_type: Optional[str] = None
 
 
 @dataclass

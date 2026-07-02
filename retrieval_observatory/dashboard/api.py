@@ -127,11 +127,20 @@ class _CompatResult:
 
 
 def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_CompatResult]:
+    """Adapt trace-native spans into legacy StageSnapshot rows for topology display.
+
+    Stage index must come from position in trace.spans (the pipeline's fixed op
+    order), not from enumerating FIRED-only spans -- a gated stage (e.g. EXPAND)
+    fires for some queries and not others, so filtering first would shift every
+    later stage's index per-trace and corrupt cross-trace aggregation in
+    _pipeline_topology (different operators would land in the same stage slot).
+    A SKIPPED_BY_GATE span still gets a snapshot; its own outputs (a passthrough
+    of its inputs) honestly reflect that it was a no-op for that query.
+    """
     results: List[_CompatResult] = []
     for trace in traces:
-        spans = [span for span in trace.spans if span.status == "FIRED"]
         snapshots: List[StageSnapshot] = []
-        for idx, span in enumerate(spans):
+        for idx, span in enumerate(trace.spans):
             docs = [
                 Document(id=c.doc_id, text="", score=c.score, rank=c.rank)
                 for c in span.outputs
@@ -143,6 +152,7 @@ def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_Compa
                     documents=docs,
                     latency_ms=span.latency_ms,
                     candidate_count=len(docs),
+                    op_type=span.op_type,
                 )
             )
         results.append(
@@ -1642,6 +1652,7 @@ def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str,
                 continue
             stage_templates[result.pipeline_id][snap.stage_index] = {
                 "stage_id": snap.stage_id,
+                "op_type": snap.op_type,
                 "arms": [arm.stage_id for arm in snap.arms],
             }
 
@@ -1659,6 +1670,7 @@ def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str,
             stage = {
                 "stage_index": stage_index,
                 "stage_id": template["stage_id"],
+                "op_type": template.get("op_type"),
                 "kind": "fused" if template["arms"] else ("single" if stage_index == 0 else "rerank"),
                 "candidate_count": _mean(candidate_counts.get(stage_branch_key, [0])),
                 "metrics": {
