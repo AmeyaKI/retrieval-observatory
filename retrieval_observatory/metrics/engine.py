@@ -329,7 +329,15 @@ class MetricsEngine:
                 continue
 
             query_meta = query.metadata if query else {}
-            fired_spans = [s for s in trace.spans if s.status == "FIRED"]
+            # Stage index must reflect position in the pipeline's fixed op order, not
+            # position among FIRED-only spans: a gated stage (e.g. EXPAND) is SKIPPED_BY_GATE
+            # for some queries and not others, so filtering to FIRED first would shift every
+            # later stage's index per-query and silently corrupt cross-query metric averages
+            # (different operators' scores would get averaged together under one stage_index).
+            # A SKIPPED_BY_GATE span still gets a stage slot; its outputs are a passthrough of
+            # its inputs by convention, so its recall/ndcg honestly equal the prior stage's.
+            # ERROR/TIMEOUT spans carry no valid outputs and are excluded.
+            fired_spans = [s for s in trace.spans if s.status in ("FIRED", "SKIPPED_BY_GATE")]
 
             # End-to-end latency for multi-operator traces
             if len(fired_spans) > 1:

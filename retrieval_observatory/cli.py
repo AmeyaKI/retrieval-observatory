@@ -299,6 +299,48 @@ def serve(
         raise typer.Exit(1)
 
 
+@app.command()
+def mcp() -> None:
+    """Run the MCP server (stdio) exposing retobs benchmarking tools to agents."""
+    try:
+        from retrieval_observatory.mcp.server import main as _mcp_main
+    except ImportError:
+        console.print("[red]MCP server requires the 'mcp' package. Install: pip install 'retrieval-observatory[mcp]'[/red]")
+        raise typer.Exit(1)
+    _mcp_main()
+
+
+@app.command()
+def diagram(
+    run_id: str = typer.Argument(..., help="Run ID to render."),
+    output: str = typer.Option("diagram.html", "--output", "-o", help="Output HTML file path."),
+    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
+) -> None:
+    """Export a read-only pipeline diagram (per-stage metrics + CIs) as a standalone HTML file."""
+    asyncio.run(_diagram(run_id, output, db))
+
+
+async def _diagram(run_id: str, output: str, db_path: str) -> None:
+    from retrieval_observatory.dashboard.api import _build_diagram, _pipeline_results_from_traces
+    from retrieval_observatory.diagram.html import render_diagram_html
+    from retrieval_observatory.metrics.engine import MetricsEngine
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    metrics = await MetricsEngine().aggregate(run_id, store)
+    if not metrics:
+        console.print(f"[red]Run '{run_id}' not found or has no metrics in {db_path}.[/red]")
+        raise typer.Exit(1)
+    traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+    results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
+    pipelines = _build_diagram(metrics, results)
+    html = render_diagram_html(run_id, pipelines)
+    with open(output, "w") as f:
+        f.write(html)
+    console.print(f"[green]Wrote diagram → {output}[/green] ({len(pipelines)} pipeline(s))")
+
+
 _BEIR_NAMES = {
     "msmarco", "trec-covid", "nfcorpus", "nq", "hotpotqa", "fiqa",
     "arguana", "webis-touche2020", "cqadupstack", "quora", "dbpedia-entity",

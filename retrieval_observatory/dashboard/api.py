@@ -252,10 +252,21 @@ def create_app(
     enable_uploads: bool = True,
 ):
     try:
-        from fastapi import APIRouter, Body, FastAPI, File, HTTPException, UploadFile
+        from fastapi import APIRouter, Body, Depends, FastAPI, File, Header, HTTPException, UploadFile
         from fastapi.middleware.cors import CORSMiddleware
     except ImportError as e:
         raise ImportError("Dashboard requires fastapi. Install with: pip install fastapi") from e
+
+    # Optional bearer-token auth (local-first: off unless RETOBS_API_TOKEN is set). Gates the
+    # expensive write/run endpoints only; reads stay open so the dashboard SPA keeps working.
+    _api_token = os.environ.get("RETOBS_API_TOKEN")
+
+    def _require_auth(authorization: str | None = Header(default=None)) -> None:
+        if not _api_token:
+            return
+        expected = f"Bearer {_api_token}"
+        if authorization != expected:
+            raise HTTPException(status_code=401, detail="Missing or invalid bearer token")
 
     if registry is None:
         paths = db_paths if db_paths else ([db_path] if db_path else [".retobs/results.db"])
@@ -276,6 +287,16 @@ def create_app(
 
     engine = MetricsEngine()
     default_store = registry.get_store(registry.default_db_id)  # type: ignore[arg-type]
+
+    # In-process benchmark job tracking. Runs are triggered via POST /dbs/{db_id}/runs and
+    # execute in the background (execute_benchmark is async); status is polled via
+    # GET /dbs/{db_id}/runs/{run_id}/status. A small concurrency cap protects against an agent
+    # firing many expensive runs at once — the real rate-limit concern for a local-first tool.
+    _jobs: Dict[str, Dict[str, Any]] = {}
+    _max_concurrent_runs = int(os.environ.get("RETOBS_MAX_CONCURRENT_RUNS", "2"))
+
+    def _active_run_count() -> int:
+        return sum(1 for job in _jobs.values() if job.get("status") == "running")
 
     def _store_for(db_id: str):
         try:
@@ -397,7 +418,8 @@ def create_app(
         if not agg and hasattr(store, "get_traces_v2"):
             traces = await store.get_traces_v2(run_id)
             if traces:
-                await engine.compute_from_traces(run_id, store, traces, {})
+                qrels = await _resolve_qrels(store, run_id)
+                await engine.compute_from_traces(run_id, store, traces, qrels)
                 agg = await engine.aggregate(run_id, store)
         if not include_branches:
             agg = {k: v for k, v in agg.items() if not v.get("branch_id")}
@@ -1445,6 +1467,173 @@ def create_app(
         async def legacy_query_winners(run_id: str, metric: str = "recall", k: int = 10) -> Dict[str, Any]:
             return await get_query_winners(_sole_db, run_id, metric, k)
 
+    # ─────────────────────── Agent API: trigger + diagram ───────────────────────
+    # Net-new endpoints for agent/programmatic use: trigger benchmark runs from a config
+    # (not live Python objects — see run_from_config), poll status, compare two configs, and
+    # fetch diagram-ready pipeline JSON with per-stage metrics + bootstrap CIs.
+    runs_router = APIRouter(prefix="/dbs/{db_id}")
+
+    def _config_for_db(db_id: str, config_body: Dict[str, Any]):
+        from retrieval_observatory.config.schema import ExperimentConfig
+
+        try:
+            source = registry.get(db_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Unknown database '{db_id}'")
+        try:
+            cfg = ExperimentConfig.model_validate(config_body)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Invalid experiment config: {e}")
+        if source.path.startswith("postgres://") or source.path.startswith("postgresql://"):
+            cfg.output.store = "postgres"
+            cfg.output.postgres_dsn = source.path
+        else:
+            cfg.output.store = "sqlite"
+            cfg.output.db_path = source.path
+        return cfg
+
+    async def _execute_config_run(cfg, run_id: str, max_queries: int | None) -> Dict[str, Any]:
+        from retrieval_observatory.sdk.run_config import _run_from_config_async
+
+        _jobs[run_id] = {"run_id": run_id, "status": "running", "error": None}
+        try:
+            report = await _run_from_config_async(
+                config=cfg, db_path=None, max_queries=max_queries, run_id=run_id, no_cache=False
+            )
+            _jobs[run_id]["status"] = "completed"
+            return report.metrics
+        except Exception as e:  # noqa: BLE001 — surface the failure via job status
+            _jobs[run_id]["status"] = "error"
+            _jobs[run_id]["error"] = str(e)
+            raise
+
+    @runs_router.post("/runs", dependencies=[Depends(_require_auth)])
+    async def trigger_run(
+        db_id: str,
+        payload: Dict[str, Any] = Body(...),
+    ) -> Dict[str, Any]:
+        """Trigger a benchmark run from an ExperimentConfig JSON.
+
+        Body: {"config": <ExperimentConfig>, "wait"?: bool, "max_queries"?: int}. Default is a
+        background job returning {run_id, status:"running"}; poll GET .../status then read the
+        existing metric endpoints. wait=true runs bounded-synchronously (use with max_queries).
+        """
+        config_body = payload.get("config")
+        if not isinstance(config_body, dict):
+            raise HTTPException(status_code=422, detail="Body must include a 'config' object")
+        wait = bool(payload.get("wait", False))
+        max_queries = payload.get("max_queries")
+        cfg = _config_for_db(db_id, config_body)
+        run_id = str(uuid.uuid4())[:8]
+
+        if _active_run_count() >= _max_concurrent_runs:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many concurrent runs (max {_max_concurrent_runs}); retry shortly.",
+            )
+
+        if wait:
+            metrics = await _execute_config_run(cfg, run_id, max_queries)
+            return {"run_id": run_id, "status": "completed", "metrics": metrics}
+
+        import asyncio
+
+        _jobs[run_id] = {"run_id": run_id, "status": "running", "error": None}
+        asyncio.create_task(_execute_config_run(cfg, run_id, max_queries))
+        return {"run_id": run_id, "status": "running"}
+
+    @runs_router.get("/runs/{run_id}/status")
+    async def run_status(db_id: str, run_id: str) -> Dict[str, Any]:
+        """Poll a triggered run. Falls back to the persisted runs table for completed runs."""
+        job = _jobs.get(run_id)
+        if job:
+            return job
+        store = _store_for(db_id)
+        rows = [r for r in await store.list_runs() if r["run_id"] == run_id]
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+        row = rows[0]
+        status = "completed" if row.get("finished_at") else "running"
+        return {"run_id": run_id, "status": status, "error": None,
+                "started_at": row.get("started_at"), "finished_at": row.get("finished_at")}
+
+    @runs_router.post("/compare-configs", dependencies=[Depends(_require_auth)])
+    async def compare_configs(db_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Run a baseline and candidate config, then return a paired comparison.
+
+        Body: {"baseline_config": {...}, "candidate_config": {...}, "max_queries"?: int}.
+        This is the agent 'benchmark this config against a baseline' primitive.
+        """
+        baseline_body = payload.get("baseline_config")
+        candidate_body = payload.get("candidate_config")
+        if not isinstance(baseline_body, dict) or not isinstance(candidate_body, dict):
+            raise HTTPException(status_code=422, detail="Provide baseline_config and candidate_config")
+        max_queries = payload.get("max_queries")
+        if _active_run_count() >= _max_concurrent_runs:
+            raise HTTPException(status_code=429, detail="Too many concurrent runs; retry shortly.")
+
+        baseline_cfg = _config_for_db(db_id, baseline_body)
+        candidate_cfg = _config_for_db(db_id, candidate_body)
+        baseline_run_id = str(uuid.uuid4())[:8]
+        candidate_run_id = str(uuid.uuid4())[:8]
+        await _execute_config_run(baseline_cfg, baseline_run_id, max_queries)
+        await _execute_config_run(candidate_cfg, candidate_run_id, max_queries)
+
+        result = await _build_comparison(
+            [(db_id, baseline_run_id), (db_id, candidate_run_id)], registry, engine
+        )
+        significant = any(
+            entry.get("p_value") is not None and entry["p_value"] < 0.05
+            for entry in result["comparison"]
+        )
+        return {
+            "baseline_run_id": baseline_run_id,
+            "candidate_run_id": candidate_run_id,
+            "comparison": result["comparison"],
+            "warnings": result["warnings"],
+            "significant": significant,
+        }
+
+    @runs_router.get("/runs/{run_id}/diagram")
+    async def get_run_diagram(db_id: str, run_id: str) -> Dict[str, Any]:
+        """Diagram-ready pipeline JSON: per-stage nodes with metrics + bootstrap CIs, edges,
+        and (when V2 traces exist) operator-DAG fire-rate/latency. Consumed by the SPA and by
+        the `retobs diagram` HTML export."""
+        store = _store_for(db_id)
+        metrics = await engine.aggregate(run_id, store)
+        if not metrics:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
+        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
+        operator_dag = None
+        if traces:
+            operator_dag = await get_operator_dag(db_id, run_id)
+        return {
+            "run_id": run_id,
+            "pipelines": _build_diagram(metrics, results),
+            "operator_dag": operator_dag,
+        }
+
+    @app.get("/config/schema")
+    async def config_schema_endpoint() -> Dict[str, Any]:
+        """ExperimentConfig JSON schema + runnable example + per-adapter snippets. Lets an agent
+        discover the config shape before triggering a run."""
+        from retrieval_observatory.config.discovery import config_schema
+
+        return config_schema()
+
+    @app.post("/config/validate")
+    async def validate_config_endpoint(payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Dry-run validate a config ({"config": {...}}) without running a benchmark."""
+        from retrieval_observatory.config.discovery import validate_config_dict
+
+        config_body = payload.get("config", payload)
+        if not isinstance(config_body, dict):
+            raise HTTPException(status_code=422, detail="Body must include a 'config' object")
+        return validate_config_dict(config_body)
+
+    app.include_router(runs_router)
+
     # Serve React UI static files if built
     if os.path.exists(_UI_DIST):
         from starlette.staticfiles import StaticFiles as StarletteStaticFiles
@@ -1709,6 +1898,99 @@ def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str,
             stages.append(stage)
         topology[pipeline_id] = stages
     return topology
+
+
+def _metric_with_ci(entry: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Reshape an aggregate entry into a {mean, ci_low, ci_high} overlay value."""
+    if not entry:
+        return None
+    return {
+        "mean": entry.get("mean"),
+        "ci_low": entry.get("ci_low"),
+        "ci_high": entry.get("ci_high"),
+    }
+
+
+def _build_diagram(metrics: Dict[str, Any], results: List[Any]) -> List[Dict[str, Any]]:
+    """Diagram-ready per-pipeline nodes (per-stage metrics WITH bootstrap CIs) + linear/fused
+    edges. Unlike _pipeline_topology (which drops CIs for the SPA's existing shape), each node
+    metric here carries {mean, ci_low, ci_high} — the overlay the read-only diagram renders."""
+    # Index aggregate entries by (pipeline_id, stage_index, metric_name, k, branch_id).
+    by_key: Dict[tuple, Dict[str, Any]] = {}
+    for entry in metrics.values():
+        by_key[(
+            entry.get("pipeline_id"),
+            entry.get("stage_index"),
+            entry.get("metric_name"),
+            entry.get("k"),
+            entry.get("branch_id"),
+        )] = entry
+
+    # Stage templates (op_type, arms) from the first OK result per pipeline stage.
+    templates: Dict[str, Dict[int, Any]] = defaultdict(dict)
+    for result in results:
+        if result.status != "OK":
+            continue
+        for snap in result.snapshots:
+            if snap.stage_index in templates[result.pipeline_id]:
+                continue
+            templates[result.pipeline_id][snap.stage_index] = {
+                "stage_id": snap.stage_id,
+                "op_type": snap.op_type,
+                "arms": [arm.stage_id for arm in getattr(snap, "arms", [])],
+            }
+
+    def _best_recall(pipeline_id: str, stage_index: int, branch_id: str | None):
+        recalls = [
+            (k, e) for (pid, sidx, mname, k, br), e in by_key.items()
+            if pid == pipeline_id and sidx == stage_index and br == branch_id and mname == "recall"
+        ]
+        if not recalls:
+            return None
+        k, entry = max(recalls, key=lambda item: item[0] or 0)
+        overlay = _metric_with_ci(entry)
+        overlay["k"] = k
+        return overlay
+
+    def _node_metrics(pipeline_id: str, stage_index: int, branch_id: str | None):
+        return {
+            "ndcg@10": _metric_with_ci(by_key.get((pipeline_id, stage_index, "ndcg", 10, branch_id))),
+            "recall": _best_recall(pipeline_id, stage_index, branch_id),
+            "latency_p50": _metric_with_ci(
+                by_key.get((pipeline_id, stage_index, "latency_p50", 0, branch_id))
+            ),
+        }
+
+    pipelines: List[Dict[str, Any]] = []
+    for pipeline_id, by_stage in templates.items():
+        nodes: List[Dict[str, Any]] = []
+        edges: List[Dict[str, str]] = []
+        prev_node_id: str | None = None
+        for stage_index in sorted(by_stage):
+            template = by_stage[stage_index]
+            node_id = f"stage{stage_index}"
+            arms = []
+            for arm_id in template["arms"]:
+                arms.append({
+                    "arm_id": arm_id,
+                    "metrics": _node_metrics(pipeline_id, stage_index, arm_id),
+                })
+                # A fused arm feeds into its stage node.
+                edges.append({"source": f"{node_id}:{arm_id}", "target": node_id})
+            nodes.append({
+                "node_id": node_id,
+                "stage_index": stage_index,
+                "stage_id": template["stage_id"],
+                "op_type": template.get("op_type"),
+                "kind": "fused" if template["arms"] else ("source" if stage_index == 0 else "rerank"),
+                "metrics": _node_metrics(pipeline_id, stage_index, None),
+                "arms": arms,
+            })
+            if prev_node_id is not None:
+                edges.append({"source": prev_node_id, "target": node_id})
+            prev_node_id = node_id
+        pipelines.append({"pipeline_id": pipeline_id, "nodes": nodes, "edges": edges})
+    return pipelines
 
 
 def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:

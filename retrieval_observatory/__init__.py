@@ -13,6 +13,7 @@ from retrieval_observatory.sdk import (  # noqa: E402
     generate_testset,
     reranker,
     retriever,
+    run_from_config,
 )
 from retrieval_observatory.types import Document, Query, StageSnapshot  # noqa: E402
 
@@ -28,6 +29,7 @@ __all__ = [
     "EXAMPLES_DIR",
     "PACKAGE_DIR",
     "benchmark",
+    "run_from_config",
     "fuse",
     "init",
     "generate_testset",

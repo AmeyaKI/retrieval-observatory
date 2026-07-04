@@ -25,7 +25,7 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: pip install -e ".[dev,dashboard,demo,dense]"
+        run: pip install -e ".[dev,dashboard,demo,dense,mcp]"
 
       - name: Build dashboard UI
         run: make dashboard-build
@@ -41,6 +41,7 @@ jobs:
           python -c "import retrieval_observatory as ro; from retrieval_observatory import Query, Document, benchmark"
           python -c "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback"
           python -c "from retrieval_observatory.cli import app"
+          python -c "from retrieval_observatory import run_from_config; from retrieval_observatory.mcp.server import build_server; build_server()"
 
   postgres:
     runs-on: ubuntu-latest

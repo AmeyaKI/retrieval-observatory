@@ -4,6 +4,31 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- `retrieval_observatory.sdk.run_from_config(config: dict)` — run a benchmark from an
+`ExperimentConfig`-shaped dict (adapter specs, not live Python objects); the shared seam REST and
+MCP both call. Exported at top level as `retrieval_observatory.run_from_config`.
+- REST endpoints in `dashboard/api.py`: `POST /dbs/{db_id}/runs` (trigger a run; background job or
+`wait=true` bounded-sync), `GET /dbs/{db_id}/runs/{run_id}/status`, `POST /dbs/{db_id}/compare-configs`,
+and `GET /dbs/{db_id}/runs/{run_id}/diagram` (diagram-ready per-stage nodes with bootstrap CIs).
+- `retrieval_observatory/mcp/server.py` — MCP server exposing 10 agent tools: self-describing
+`describe_config` / `validate_config` (config schema + dry-run validation, no run), plus
+`list_runs`, `get_run_metrics`, `benchmark_config`, `benchmark_vs_baseline`, `get_pareto_frontier`,
+`get_recommendations`, `get_operator_attribution`, `get_pipeline_diagram`. New `retobs mcp` CLI
+command and `[mcp]` optional-dependency group.
+- `config/discovery.py` + REST `GET /config/schema` and `POST /config/validate` — let an agent
+discover the ExperimentConfig shape and validate a config without running a benchmark.
+- `retobs diagram <run_id> -o out.html` — export a read-only pipeline diagram (per-stage
+Recall/NDCG/latency with 95% CIs) as a standalone, offline HTML file (`diagram/html.py`).
+- Optional bearer-token auth via `RETOBS_API_TOKEN` and a concurrent-run cap via
+`RETOBS_MAX_CONCURRENT_RUNS` (default 2) gating the run-trigger endpoints.
+- `docs/integrations/api.md` and `docs/integrations/mcp.md` — agent/REST/MCP integration guides.
+
+---
+
 ## [0.4.1] — 2026-07-02
 
 ### Fixed

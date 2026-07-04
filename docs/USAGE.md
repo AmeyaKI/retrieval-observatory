@@ -534,6 +534,23 @@ Deeper detail (golden-run patterns, GitHub Actions template): [docs/informative/
 
 ---
 
+## Agent integration (REST + MCP)
+
+Expose retobs to agents and other programs. Pipelines are passed as **config** (adapter specs),
+not live Python objects.
+
+- **Python:** `ro.run_from_config(cfg_dict)` runs a benchmark from an `ExperimentConfig`-shaped
+  dict (the same seam the REST/MCP layers use) and returns a `BenchmarkReport`.
+- **REST:** `retobs serve` exposes `POST /dbs/{db_id}/runs` (trigger), `.../status` (poll),
+  `POST /dbs/{db_id}/compare-configs`, and `.../diagram` (diagram JSON). See
+  [docs/integrations/api.md](integrations/api.md).
+- **MCP:** `pip install 'retrieval-observatory[mcp]'` then `retobs mcp` exposes tools like
+  `benchmark_config` and `benchmark_vs_baseline`. See [docs/integrations/mcp.md](integrations/mcp.md).
+- **Read-only diagram:** `retobs diagram <run_id> -o out.html` writes a standalone HTML pipeline
+  diagram with per-stage Recall/NDCG/latency and 95% bootstrap CIs.
+
+---
+
 ## Troubleshooting
 
 - **"No relevance judgments" warning** — queries with empty `relevant_doc_ids` are excluded from
