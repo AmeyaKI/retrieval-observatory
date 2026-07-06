@@ -11,9 +11,9 @@ export default function DemoQuickLinks({ context, onOpenTour }: Props) {
     : null
 
   return (
-    <div className="shrink-0 border-b border-indigo-200 bg-gradient-to-r from-indigo-50 via-amber-50/80 to-teal-50 px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-700">
+    <div className="shrink-0 border-b border-indigo-200 bg-gradient-to-r from-indigo-50 via-amber-50/80 to-teal-50 px-4 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-700 dark:text-slate-200">
       <span className="font-semibold text-indigo-900">Demo dataset</span>
-      <span className="text-gray-500">
+      <span className="text-gray-500 dark:text-slate-400">
         baseline <span className="font-mono">{context.experiment_names?.baseline ?? context.baseline_run_id}</span>
         {' vs '}
         candidate <span className="font-mono">{context.experiment_names?.candidate ?? context.candidate_run_id}</span>
@@ -49,11 +49,11 @@ export default function DemoQuickLinks({ context, onOpenTour }: Props) {
           Advisor
         </a>
         {lineageHref && (
-          <a href={lineageHref} className="text-gray-800 hover:text-gray-950 underline decoration-gray-400 font-medium">
+          <a href={lineageHref} className="text-gray-800 dark:text-slate-100 hover:text-gray-950 underline decoration-gray-400 font-medium">
             Query lineage
           </a>
         )}
-        <a href="#/glossary" className="text-gray-600 hover:text-gray-800 underline decoration-gray-300">
+        <a href="#/glossary" className="text-gray-600 dark:text-slate-300 hover:text-gray-800 underline decoration-gray-300">
           Glossary
         </a>
       </span>

@@ -40,10 +40,10 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-2">Stage metrics table — per-pipeline, per-stage aggregate signals (not a combination heatmap).</p>
-      <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+      <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">Stage metrics table — per-pipeline, per-stage aggregate signals (not a combination heatmap).</p>
+      <div className="overflow-x-auto border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900">
       <table className="min-w-full text-xs">
-        <thead className="bg-gray-50">
+        <thead className="bg-gray-50 dark:bg-slate-800/60">
           <tr>
             <th className="text-left px-3 py-2">Signal</th>
             <th className="text-left px-3 py-2">Pipeline</th>
@@ -86,14 +86,14 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
       </table>
       </div>
       {totalFiltered > pageSize && (
-        <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+        <div className="mt-2 flex items-center justify-between text-xs text-gray-600 dark:text-slate-300">
           <p>
             Showing {pageStart + 1}-{Math.min(pageStart + pageSize, totalFiltered)} of {totalFiltered} rows.
             <MetricTooltip text={METRIC_GLOSSARY.truncation_notice} />
           </p>
           <div className="flex items-center gap-2">
             <button
-              className="px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
+              className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 disabled:opacity-50"
               disabled={currentPage <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
@@ -103,7 +103,7 @@ export default function StageCombinationMatrix({ dbId, runId, latencyBudgetMs }:
               Page {currentPage}/{totalPages}
             </span>
             <button
-              className="px-2 py-1 rounded border border-gray-300 disabled:opacity-50"
+              className="px-2 py-1 rounded border border-gray-300 dark:border-slate-600 disabled:opacity-50"
               disabled={currentPage >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             >

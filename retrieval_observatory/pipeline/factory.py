@@ -85,6 +85,85 @@ def build_pipeline_from_config(
     )
 
 
+def _infer_op_type(node: dict) -> str:
+    if node.get("op_type"):
+        return str(node["op_type"]).upper()
+    if node.get("op") == "fuse":
+        return "FUSE"
+    if not node.get("inputs"):
+        return "SOURCE"
+    if node.get("type") == "adapter.import":
+        return "BOOST"
+    return "RERANK"
+
+
+def build_dag_from_config(
+    graph_config: dict,
+    corpus: dict | None = None,
+) -> "object":
+    """Build a DAGPipeline from a graph config dict (GraphPipelineConfig.model_dump()).
+
+    Source nodes and single-input nodes are built via the same adapter builders as linear
+    pipelines; fusion nodes (op: fuse) carry no adapter and merge their inputs with RRF.
+    """
+    from retrieval_observatory.pipeline.dag import DAGNode, DAGPipeline
+
+    _CORPUS_ADAPTERS = {"adapter.bm25", "adapter.hf_biencoder"}
+    _ADAPTER_MAP = {
+        "adapter.http": _build_http_adapter,
+        "adapter.bm25": _build_bm25_adapter,
+        "adapter.hf_biencoder": _build_hf_biencoder_adapter,
+        "adapter.hf_crossencoder": _build_hf_crossencoder_adapter,
+        "adapter.cohere_rerank": _build_cohere_rerank_adapter,
+        "adapter.qdrant": _build_qdrant_adapter,
+        "adapter.import": _build_import_adapter,
+    }
+
+    nodes: list = []
+    for node_cfg in graph_config["nodes"]:
+        op_type = _infer_op_type(node_cfg)
+        cfg = node_cfg.get("config", {})
+        if op_type == "FUSE":
+            nodes.append(
+                DAGNode(
+                    node_id=node_cfg["id"],
+                    op_type="FUSE",
+                    inputs=list(node_cfg.get("inputs", [])),
+                    rrf_k=cfg.get("rrf_k", 60),
+                    top_k=cfg.get("top_k", 100),
+                    fetch_k=cfg.get("fetch_k", 100),
+                    k=cfg.get("top_k", 100),
+                )
+            )
+            continue
+        stage_type = node_cfg.get("type")
+        if stage_type not in _ADAPTER_MAP:
+            raise ValueError(
+                f"graph node '{node_cfg['id']}' has unknown type '{stage_type}'. "
+                f"Supported: {sorted(_ADAPTER_MAP)} or op: fuse"
+            )
+        builder = _ADAPTER_MAP[stage_type]
+        if stage_type in _CORPUS_ADAPTERS or stage_type == "adapter.import":
+            adapter, k = builder(node_cfg, corpus)
+        else:
+            adapter, k = builder(node_cfg)
+        nodes.append(
+            DAGNode(
+                node_id=node_cfg["id"],
+                op_type=op_type,
+                inputs=list(node_cfg.get("inputs", [])),
+                adapter=adapter,
+                k=k,
+            )
+        )
+
+    return DAGPipeline(
+        pipeline_id=graph_config["id"],
+        nodes=nodes,
+        output_id=graph_config["output"],
+    )
+
+
 def _build_bm25_adapter(stage_cfg: dict, corpus: dict | None = None):
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
 

@@ -30,7 +30,7 @@ const NODE_COLORS: Record<string, string> = {
   BOOST: 'bg-green-200 border-green-400',
   GATE: 'bg-yellow-200 border-yellow-400',
   TRANSFORM: 'bg-indigo-200 border-indigo-400',
-  final: 'bg-gray-200 border-gray-400',
+  final: 'bg-gray-200 dark:bg-slate-700 border-gray-400',
 }
 
 export default function ProvenanceSankey({ nodes = [], links = [] }: Props) {
@@ -58,15 +58,15 @@ export default function ProvenanceSankey({ nodes = [], links = [] }: Props) {
   return (
     <div>
       <SectionHeading title="Candidate provenance flow" />
-      <div className="rounded border border-gray-200 bg-white p-4">
+      <div className="rounded border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
         <div className="flex justify-between items-start gap-6 min-w-max">
           {columns.map((col, colIdx) => (
             <div key={colIdx} className="flex flex-col gap-2 min-w-[120px]">
-              <div className="text-[10px] text-gray-400 font-medium text-center">
+              <div className="text-[10px] text-gray-400 dark:text-slate-500 font-medium text-center">
                 {colIdx === 0 ? 'Sources' : colIdx === columns.length - 1 ? 'Output' : 'Operators'}
               </div>
               {col.map((node) => {
-                const colorClass = NODE_COLORS[node.type || ''] || 'bg-gray-100 border-gray-300'
+                const colorClass = NODE_COLORS[node.type || ''] || 'bg-gray-100 dark:bg-slate-800 border-gray-300 dark:border-slate-600'
                 const outLinks = links.filter((l) => l.source === node.id)
                 const inLinks = links.filter((l) => l.target === node.id)
                 const totalOut = outLinks.reduce((s, l) => s + l.value, 0)
@@ -90,8 +90,8 @@ export default function ProvenanceSankey({ nodes = [], links = [] }: Props) {
           ))}
         </div>
 
-        <div className="mt-3 border-t border-gray-100 pt-2">
-          <div className="text-[10px] font-medium text-gray-500 mb-1">Flows</div>
+        <div className="mt-3 border-t border-gray-100 dark:border-slate-800 pt-2">
+          <div className="text-[10px] font-medium text-gray-500 dark:text-slate-400 mb-1">Flows</div>
           <div className="flex flex-wrap gap-1">
             {links.map((link, idx) => {
               const widthPx = Math.max(2, (link.value / maxValue) * 40)
@@ -101,14 +101,14 @@ export default function ProvenanceSankey({ nodes = [], links = [] }: Props) {
                 <div
                   key={`${link.source}:${link.target}:${idx}`}
                   className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1
-                    ${isDropped ? 'bg-red-50 text-red-600 line-through' : isExpanded ? 'bg-teal-50 text-teal-600' : 'bg-gray-50 text-gray-600'}`}
+                    ${isDropped ? 'bg-red-50 text-red-600 line-through' : isExpanded ? 'bg-teal-50 text-teal-600' : 'bg-gray-50 dark:bg-slate-800/60 text-gray-600 dark:text-slate-300'}`}
                 >
                   <div
                     className={`h-1 rounded ${isDropped ? 'bg-red-300' : isExpanded ? 'bg-teal-300' : 'bg-blue-300'}`}
                     style={{ width: `${widthPx}px` }}
                   />
                   <span>{link.source} → {link.target}</span>
-                  <span className="text-gray-400">({link.value})</span>
+                  <span className="text-gray-400 dark:text-slate-500">({link.value})</span>
                 </div>
               )
             })}

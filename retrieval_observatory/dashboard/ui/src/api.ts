@@ -178,6 +178,51 @@ export interface TopologyStage {
 
 export type PipelineTopology = Record<string, TopologyStage[]>
 
+// ── PipelineGraph render contract (mirrors dashboard/pipeline_graph.schema.json) ──
+export interface GraphMetricValue {
+  mean: number | null
+  ci_low: number | null
+  ci_high: number | null
+  k?: number | null
+}
+
+export interface PipelineGraphNodeMetrics {
+  'ndcg@10': GraphMetricValue | null
+  recall: GraphMetricValue | null
+  latency_p50: GraphMetricValue | null
+}
+
+export interface PipelineGraphNode {
+  node_id: string
+  label: string
+  op_type: string
+  depth: number
+  branch_id: string | null
+  candidate_count: number
+  metrics: PipelineGraphNodeMetrics
+  is_merge: boolean
+  source: 'measured'
+}
+
+export interface PipelineGraphEdge {
+  source: string
+  target: string
+  kind: 'flow' | 'fan_in'
+}
+
+export interface PipelineGraph {
+  pipeline_id: string
+  nodes: PipelineGraphNode[]
+  edges: PipelineGraphEdge[]
+}
+
+export async function fetchPipelineGraphs(dbId: string, runId: string): Promise<PipelineGraph[]> {
+  const res = await fetch(`${runBase(dbId, runId)}/pipeline-graph`)
+  if (!res.ok) throw new Error(`Failed to fetch pipeline graph for run ${runId}`)
+  const body = await res.json()
+  return body.pipelines ?? []
+}
+
 export interface PipelineDiagnostics {
   n: number
   labels: Record<string, number>
@@ -354,6 +399,10 @@ export interface ParetoPipelineMetrics {
   latency_p50: number
   latency_p95: number
   cost_per_1k: number | null
+  'ndcg@10_ci_low'?: number | null
+  'ndcg@10_ci_high'?: number | null
+  'recall@10_ci_low'?: number | null
+  'recall@10_ci_high'?: number | null
 }
 
 export interface ParetoPipelineEntry {
@@ -371,6 +420,8 @@ export interface ParetoFrontierResponse {
   cost_included: boolean
   cost_excluded_reason: string | null
   latency_budget_ms: number | null
+  omitted_pipelines?: string[]
+  omitted_reason?: string | null
   pipelines: ParetoPipelineEntry[]
   frontier_order: string[]
 }

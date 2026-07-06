@@ -69,9 +69,9 @@ export default function GlossaryWorkspace() {
     <div className="flex-1 overflow-auto p-6">
       <div className="max-w-3xl mx-auto">
         <header className="mb-6">
-          <p className="text-xs uppercase tracking-wide text-gray-400">Reference</p>
-          <h1 className="text-xl font-bold text-gray-900">Glossary</h1>
-          <p className="text-sm text-gray-600 mt-1">
+          <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Reference</p>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Glossary</h1>
+          <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">
             How to read metrics, labels, and dashboard badges across Benchmarks, Forge, TraceLens, and Advisor.
           </p>
         </header>
@@ -90,12 +90,12 @@ export default function GlossaryWorkspace() {
 
         {SECTIONS.map((section) => (
           <section key={section.title} className="mb-8">
-            <h2 className="text-base font-semibold text-gray-800 mb-3">{section.title}</h2>
+            <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100 mb-3">{section.title}</h2>
             <dl className="space-y-3">
               {section.keys.map((key) => (
-                <div key={key} className="rounded-lg border border-gray-200 bg-white p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelForKey(key)}</dt>
-                  <dd className="text-sm text-gray-700 mt-1 leading-relaxed">{METRIC_GLOSSARY[key]}</dd>
+                <div key={key} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{labelForKey(key)}</dt>
+                  <dd className="text-sm text-gray-700 dark:text-slate-200 mt-1 leading-relaxed">{METRIC_GLOSSARY[key]}</dd>
                 </div>
               ))}
             </dl>
@@ -103,14 +103,14 @@ export default function GlossaryWorkspace() {
         ))}
 
         <section className="mb-8">
-          <h2 className="text-base font-semibold text-gray-800 mb-3">Other</h2>
+          <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100 mb-3">Other</h2>
           <dl className="space-y-3">
             {Object.keys(METRIC_GLOSSARY)
               .filter((key) => !used.has(key as keyof typeof METRIC_GLOSSARY))
               .map((key) => (
-                <div key={key} className="rounded-lg border border-gray-200 bg-white p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelForKey(key)}</dt>
-                  <dd className="text-sm text-gray-700 mt-1 leading-relaxed">
+                <div key={key} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{labelForKey(key)}</dt>
+                  <dd className="text-sm text-gray-700 dark:text-slate-200 mt-1 leading-relaxed">
                     {METRIC_GLOSSARY[key as keyof typeof METRIC_GLOSSARY]}
                   </dd>
                 </div>

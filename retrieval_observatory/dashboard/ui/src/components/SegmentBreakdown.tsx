@@ -127,19 +127,19 @@ export default function SegmentBreakdown({ dbId, runId, field = 'n_relevant', ta
 
   if (!data || !built) {
     return (
-      <div className="flex items-center gap-2 text-gray-400 text-sm">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-indigo-600" />
+      <div className="flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 dark:border-slate-600 border-t-indigo-600" />
         Loading segment data...
       </div>
     )
   }
 
   if (Object.keys(data.segments).length === 0) {
-    return <p className="text-sm text-gray-400">No segment data available for field &quot;{field}&quot;.</p>
+    return <p className="text-sm text-gray-400 dark:text-slate-500">No segment data available for field &quot;{field}&quot;.</p>
   }
 
   if (built.seriesLabels.length === 0) {
-    return <p className="text-sm text-gray-400">No &quot;{targetMetric}&quot; metric found in segment data.</p>
+    return <p className="text-sm text-gray-400 dark:text-slate-500">No &quot;{targetMetric}&quot; metric found in segment data.</p>
   }
 
   const { chartData, seriesLabels, seriesKeysSorted } = built
@@ -154,10 +154,10 @@ export default function SegmentBreakdown({ dbId, runId, field = 'n_relevant', ta
     if (!active || !payload?.length) return null
     const row = chartData.find((r) => r.segment === label)
     return (
-      <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded shadow p-2 text-xs">
         <p className="font-semibold mb-1">{field === 'n_relevant' ? `${label} relevant doc(s)` : label}</p>
         {field === 'n_relevant' && (
-          <p className="text-gray-500 mb-1">Queries where ground truth has exactly {label} relevant document{label === '1' ? '' : 's'}.</p>
+          <p className="text-gray-500 dark:text-slate-400 mb-1">Queries where ground truth has exactly {label} relevant document{label === '1' ? '' : 's'}.</p>
         )}
         {payload.map((p) => {
           const n = row?.[`${p.dataKey}__n`]
@@ -207,7 +207,7 @@ export default function SegmentBreakdown({ dbId, runId, field = 'n_relevant', ta
         return (
         <div
           key={label}
-          className="flex items-center gap-1.5 text-xs text-gray-600 max-w-[240px] cursor-pointer select-none"
+          className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300 max-w-[240px] cursor-pointer select-none"
           style={{ opacity: hiddenSeries.has(label) ? 0.35 : 1 }}
           onClick={() => toggleSeries(label)}
         >
@@ -223,7 +223,7 @@ export default function SegmentBreakdown({ dbId, runId, field = 'n_relevant', ta
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-2">
+      <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
         {field === 'n_relevant' ? (
           <>
             <strong>X-axis:</strong> number of ground-truth relevant documents per query ({field}).

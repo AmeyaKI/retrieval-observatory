@@ -25,7 +25,7 @@ export default function DashboardGuide() {
           >
             {collapsed ? 'Expand' : 'Collapse'}
           </button>
-          <button type="button" onClick={dismiss} className="text-xs text-gray-500 hover:text-gray-700">
+          <button type="button" onClick={dismiss} className="text-xs text-gray-500 dark:text-slate-400 hover:text-gray-700">
             Dismiss
           </button>
         </div>

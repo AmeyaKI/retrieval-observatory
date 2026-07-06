@@ -14,8 +14,8 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   return (
     <section className="mb-8">
       <div className="mb-3">
-        <h2 className="text-base font-semibold text-gray-800">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+        <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
       {children}
     </section>
@@ -25,19 +25,19 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 function DistributionBars({ counts, colorFor }: { counts: Record<string, number>; colorFor?: (k: string) => string }) {
   const entries = Object.entries(counts)
   const total = entries.reduce((a, [, n]) => a + n, 0) || 1
-  if (!entries.length) return <p className="text-xs text-gray-400">No data</p>
+  if (!entries.length) return <p className="text-xs text-gray-400 dark:text-slate-500">No data</p>
   return (
     <div className="space-y-1.5">
       {entries.map(([k, n]) => (
         <div key={k} className="flex items-center gap-2 text-xs">
-          <span className="w-24 shrink-0 text-gray-600 capitalize">{k}</span>
-          <div className="flex-1 bg-gray-100 rounded-full h-2.5 overflow-hidden">
+          <span className="w-24 shrink-0 text-gray-600 dark:text-slate-300 capitalize">{k}</span>
+          <div className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
             <div
               className="h-full rounded-full"
               style={{ width: `${(n / total) * 100}%`, backgroundColor: colorFor ? colorFor(k) : '#6366f1' }}
             />
           </div>
-          <span className="w-10 text-right tabular-nums text-gray-700 font-medium">{n}</span>
+          <span className="w-10 text-right tabular-nums text-gray-700 dark:text-slate-200 font-medium">{n}</span>
         </div>
       ))}
     </div>
@@ -49,8 +49,8 @@ function LabelTrustBanner({ coverage }: { coverage: number }) {
   const validated = pct > 0
   return (
     <div className={`rounded-lg border p-3 text-xs ${validated ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
-      <p className="font-semibold text-gray-800 mb-0.5">Ground-truth provenance</p>
-      <p className="text-gray-700 leading-relaxed">
+      <p className="font-semibold text-gray-800 dark:text-slate-100 mb-0.5">Ground-truth provenance</p>
+      <p className="text-gray-700 dark:text-slate-200 leading-relaxed">
         Relevance labels are <strong>extractive</strong> — each query's source document is graded relevant (grade&nbsp;2).
         {validated
           ? ` An LLM validation pass expanded/confirmed labels for ${pct}% of queries.`
@@ -110,8 +110,8 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
   }
   if (!detail) {
     return (
-      <div className="p-6 flex items-center gap-2 text-gray-400 text-sm">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-amber-500" />
+      <div className="p-6 flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 dark:border-slate-600 border-t-amber-500" />
         Loading dataset…
       </div>
     )
@@ -124,9 +124,9 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
       <div className="mb-6">
         <div className="flex items-center gap-2">
           <span className="text-amber-600 text-lg">🜂</span>
-          <h1 className="text-xl font-bold text-gray-900 font-mono">{detail.dataset_id}</h1>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100 font-mono">{detail.dataset_id}</h1>
         </div>
-        <p className="text-sm text-gray-500 mt-0.5">{detail.corpus_path}</p>
+        <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{detail.corpus_path}</p>
       </div>
 
       <Section title="Overview" subtitle="What Forge generated and how trustworthy its labels are">
@@ -137,20 +137,20 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
             ['Corpus docs', s.corpus_size ?? 0],
             ['Validated', `${Math.round((detail.validation_coverage || 0) * 100)}%`],
           ].map(([label, val]) => (
-            <div key={label as string} className="rounded-lg border border-gray-200 bg-white p-3">
-              <p className="text-xs text-gray-500">{label}</p>
-              <p className="text-xl font-bold text-gray-900 tabular-nums">{val}</p>
+            <div key={label as string} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+              <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
+              <p className="text-xl font-bold text-gray-900 dark:text-slate-100 tabular-nums">{val}</p>
             </div>
           ))}
         </div>
         <div className="mb-4"><LabelTrustBanner coverage={detail.validation_coverage || 0} /></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div>
-            <p className="text-xs font-semibold text-gray-600 mb-2">By difficulty</p>
+            <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-2">By difficulty</p>
             <DistributionBars counts={s.by_difficulty || {}} colorFor={difficultyBarColor} />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-600 mb-2">By query type</p>
+            <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-2">By query type</p>
             <DistributionBars counts={s.by_query_type || {}} />
           </div>
         </div>
@@ -160,19 +160,19 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
         title="Scenario Explorer"
         subtitle="Structural weaknesses Forge found in your corpus — the patterns that cause retrieval failures"
       >
-        {Object.keys(scenariosByType).length === 0 && <p className="text-xs text-gray-400">No scenarios recorded.</p>}
+        {Object.keys(scenariosByType).length === 0 && <p className="text-xs text-gray-400 dark:text-slate-500">No scenarios recorded.</p>}
         {Object.entries(scenariosByType).map(([type, list]) => (
           <div key={type} className="mb-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{type}</span>
-              <span className="text-xs text-gray-400">{list.length}</span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">{type}</span>
+              <span className="text-xs text-gray-400 dark:text-slate-500">{list.length}</span>
               {list.length > 12 && <span className="text-[10px] text-amber-700">showing 12 of {list.length}</span>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {list.slice(0, 12).map((sc) => (
-                <div key={sc.scenario_id} className="rounded-lg border border-gray-200 bg-white p-3">
-                  <p className="text-xs text-gray-700 leading-relaxed">{sc.evidence_summary}</p>
-                  <p className="text-[10px] text-gray-400 mt-1.5 font-mono">
+                <div key={sc.scenario_id} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+                  <p className="text-xs text-gray-700 dark:text-slate-200 leading-relaxed">{sc.evidence_summary}</p>
+                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1.5 font-mono">
                     anchors: {sc.anchor_doc_ids.join(', ')}
                   </p>
                 </div>
@@ -187,15 +187,15 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
           <FilterSelect label="Scenario" value={scenarioFilter} setValue={setScenarioFilter} options={SCENARIO_TYPES} />
           <FilterSelect label="Difficulty" value={difficultyFilter} setValue={setDifficultyFilter} options={DIFFICULTIES} />
           <FilterSelect label="Type" value={queryTypeFilter} setValue={setQueryTypeFilter} options={QUERY_TYPES} />
-          <label className="flex items-center gap-1.5 text-gray-600">
+          <label className="flex items-center gap-1.5 text-gray-600 dark:text-slate-300">
             <input type="checkbox" className="accent-amber-500" checked={validatedOnly} onChange={(e) => setValidatedOnly(e.target.checked)} />
             Validated only
           </label>
-          <span className="text-gray-400 ml-auto">{queries.length} shown</span>
+          <span className="text-gray-400 dark:text-slate-500 ml-auto">{queries.length} shown</span>
         </div>
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
           <table className="w-full text-xs">
-            <thead className="bg-gray-50 text-gray-500">
+            <thead className="bg-gray-50 dark:bg-slate-800/60 text-gray-500 dark:text-slate-400">
               <tr>
                 <th className="text-left font-medium px-3 py-2">Query</th>
                 <th className="text-left font-medium px-3 py-2 w-24">Type</th>
@@ -212,22 +212,22 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
                     className="hover:bg-gray-50 cursor-pointer"
                     onClick={() => setExpanded(expanded === q.query_id ? null : q.query_id)}
                   >
-                    <td className="px-3 py-2 text-gray-800">{q.text}</td>
-                    <td className="px-3 py-2 text-gray-600 capitalize">{q.query_type}</td>
+                    <td className="px-3 py-2 text-gray-800 dark:text-slate-100">{q.text}</td>
+                    <td className="px-3 py-2 text-gray-600 dark:text-slate-300 capitalize">{q.query_type}</td>
                     <td className="px-3 py-2">
                       <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium capitalize ${difficultyChipClass(q.difficulty_label)}`}>
                         {q.difficulty_label}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-center tabular-nums text-gray-600">{q.positive_doc_ids.length}</td>
+                    <td className="px-3 py-2 text-center tabular-nums text-gray-600 dark:text-slate-300">{q.positive_doc_ids.length}</td>
                     <td className="px-3 py-2 text-center">{q.validated ? '✓' : '—'}</td>
                   </tr>
                   {expanded === q.query_id && (
-                    <tr key={`${q.query_id}-exp`} className="bg-gray-50">
-                      <td colSpan={5} className="px-3 py-2 text-[11px] text-gray-600">
+                    <tr key={`${q.query_id}-exp`} className="bg-gray-50 dark:bg-slate-800/60">
+                      <td colSpan={5} className="px-3 py-2 text-[11px] text-gray-600 dark:text-slate-300">
                         <span className="font-medium">Relevant docs:</span> {q.positive_doc_ids.join(', ') || '—'}
                         {q.failure_category && <span className="ml-3"><span className="font-medium">Failure category:</span> {q.failure_category}</span>}
-                        <span className="ml-3 font-mono text-gray-400">scenario {q.scenario_id}</span>
+                        <span className="ml-3 font-mono text-gray-400 dark:text-slate-500">scenario {q.scenario_id}</span>
                         <a href={`#/query/${encodeURIComponent(q.query_id)}`} className="ml-3 text-indigo-600 hover:underline">View lineage →</a>
                       </td>
                     </tr>
@@ -235,7 +235,7 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
                 </>
               ))}
               {queries.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400">No queries match these filters.</td></tr>
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400 dark:text-slate-500">No queries match these filters.</td></tr>
               )}
             </tbody>
           </table>
@@ -244,11 +244,11 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
 
       <Section title="Stress Test Results" subtitle="Benchmark runs executed against this dataset">
         {runs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-xs text-gray-500">
+          <div className="rounded-lg border border-dashed border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-800/60 p-4 text-xs text-gray-500 dark:text-slate-400">
             No runs have benchmarked this dataset yet. Point a config at this dataset's exported
-            <code className="mx-1 px-1 rounded bg-white border border-gray-200">corpus.jsonl</code> /
-            <code className="mx-1 px-1 rounded bg-white border border-gray-200">queries.jsonl</code> and run
-            <code className="mx-1 px-1 rounded bg-white border border-gray-200">retobs run</code>. The run's per-scenario
+            <code className="mx-1 px-1 rounded bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">corpus.jsonl</code> /
+            <code className="mx-1 px-1 rounded bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">queries.jsonl</code> and run
+            <code className="mx-1 px-1 rounded bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">retobs run</code>. The run's per-scenario
             and per-difficulty breakdown will appear in the Benchmarks workspace.
           </div>
         ) : (
@@ -257,10 +257,10 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
               <li key={r.run_id}>
                 <a
                   href={`#/benchmarks`}
-                  className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3 hover:border-indigo-300"
+                  className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 hover:border-indigo-300"
                 >
-                  <span className="text-sm text-gray-800">{r.experiment_name}</span>
-                  <span className="text-xs text-gray-400 font-mono">{r.run_id}</span>
+                  <span className="text-sm text-gray-800 dark:text-slate-100">{r.experiment_name}</span>
+                  <span className="text-xs text-gray-400 dark:text-slate-500 font-mono">{r.run_id}</span>
                 </a>
               </li>
             ))}
@@ -283,12 +283,12 @@ function FilterSelect({
   options: readonly string[]
 }) {
   return (
-    <label className="flex items-center gap-1 text-gray-600">
+    <label className="flex items-center gap-1 text-gray-600 dark:text-slate-300">
       <span>{label}:</span>
       <select
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className="border border-gray-200 rounded px-1.5 py-1 bg-white text-gray-700"
+        className="border border-gray-200 dark:border-slate-700 rounded px-1.5 py-1 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-200"
       >
         {options.map((o) => (
           <option key={o} value={o}>{o === '' ? 'all' : o}</option>

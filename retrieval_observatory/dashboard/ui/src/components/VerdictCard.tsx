@@ -14,10 +14,18 @@ interface PipelineSummary {
   pipelineId: string
   finalStage: number
   ndcg10: number | null
+  ndcg10CiLow: number | null
+  ndcg10CiHigh: number | null
   recall20: number | null
   recallBestK: number | null
   recallBestMean: number | null
   latencyP50: number | null
+}
+
+function ciClearsRunnerUp(leader: PipelineSummary, runner: PipelineSummary): boolean {
+  if (leader.ndcg10 == null || runner.ndcg10 == null) return false
+  if (leader.ndcg10CiLow == null || runner.ndcg10CiHigh == null) return leader.ndcg10 > runner.ndcg10
+  return leader.ndcg10CiLow > runner.ndcg10CiHigh
 }
 
 function fmt(v: number | null): string {
@@ -101,12 +109,12 @@ function StageContributionCard({
   const colorMap: Record<string, string> = {
     emerald: 'border-emerald-200 bg-emerald-50 text-emerald-800',
     amber: 'border-amber-200 bg-amber-50 text-amber-800',
-    gray: 'border-gray-200 bg-gray-50 text-gray-600',
+    gray: 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-gray-600 dark:text-slate-300',
     slate: 'border-slate-200 bg-slate-50 text-slate-700',
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white">
+    <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-4 bg-white dark:bg-slate-900">
       <div className="text-[10px] font-bold uppercase tracking-wide text-indigo-400 mb-1">
         {contribution.from_pipeline} → {contribution.to_pipeline}
       </div>
@@ -119,9 +127,9 @@ function StageContributionCard({
       <div className="space-y-1 text-xs">
         {Object.entries(contribution.deltas).map(([label, d]) => (
           <div key={label} className="flex justify-between items-center gap-2">
-            <span className="text-gray-500">{label}</span>
+            <span className="text-gray-500 dark:text-slate-400">{label}</span>
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-gray-700">{fmtQuality(d.before)} → {fmtQuality(d.after)}</span>
+              <span className="font-mono text-gray-700 dark:text-slate-200">{fmtQuality(d.before)} → {fmtQuality(d.after)}</span>
               <span className={`font-mono text-xs font-semibold ${d.absolute > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                 {d.absolute >= 0 ? '+' : ''}{fmtQuality(d.absolute)}
               </span>
@@ -131,7 +139,7 @@ function StageContributionCard({
                 </span>
               )}
               {d.q_value != null && (
-                <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-emerald-700 bg-emerald-50' : 'text-gray-400 bg-gray-100'}`}>
+                <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-emerald-700 bg-emerald-50' : 'text-gray-400 dark:text-slate-500 bg-gray-100 dark:bg-slate-800'}`}>
                   q={d.q_value.toFixed(3)}{d.significant ? ' ✓' : ''}
                 </span>
               )}
@@ -144,8 +152,8 @@ function StageContributionCard({
           </div>
         ))}
         {contribution.latency_delta_ms != null && (
-          <div className="flex justify-between items-center gap-2 pt-1 mt-1 border-t border-gray-100">
-            <span className="text-gray-500">Latency P50</span>
+          <div className="flex justify-between items-center gap-2 pt-1 mt-1 border-t border-gray-100 dark:border-slate-800">
+            <span className="text-gray-500 dark:text-slate-400">Latency P50</span>
             <span className={`font-mono text-xs font-semibold ${contribution.latency_delta_ms > latencyBudgetMs ? 'text-red-600' : 'text-emerald-600'}`}>
               {contribution.latency_delta_ms >= 0 ? '+' : ''}{fmtLatencyMs(contribution.latency_delta_ms)}ms
             </span>
@@ -161,13 +169,33 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
   const summaryMap = new Map<string, PipelineSummary>()
 
   for (const [, entry] of Object.entries(metrics)) {
-    if (entry.stage_index < 0) continue
     const pid = entry.pipeline_id
+    if (entry.stage_index < 0) {
+      if (entry.metric_name === 'latency_p50') {
+        if (!summaryMap.has(pid)) {
+          summaryMap.set(pid, {
+            pipelineId: pid,
+            finalStage: 0,
+            ndcg10: null,
+            ndcg10CiLow: null,
+            ndcg10CiHigh: null,
+            recall20: null,
+            recallBestK: null,
+            recallBestMean: null,
+            latencyP50: null,
+          })
+        }
+        summaryMap.get(pid)!.latencyP50 = entry.mean
+      }
+      continue
+    }
     if (!summaryMap.has(pid)) {
       summaryMap.set(pid, {
         pipelineId: pid,
         finalStage: 0,
         ndcg10: null,
+        ndcg10CiLow: null,
+        ndcg10CiHigh: null,
         recall20: null,
         recallBestK: null,
         recallBestMean: null,
@@ -183,7 +211,11 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
     const s = summaryMap.get(entry.pipeline_id)
     if (!s || entry.stage_index !== s.finalStage) continue
 
-    if (entry.metric_name === 'ndcg' && entry.k === 10) s.ndcg10 = entry.mean
+    if (entry.metric_name === 'ndcg' && entry.k === 10) {
+      s.ndcg10 = entry.mean
+      s.ndcg10CiLow = entry.ci_low
+      s.ndcg10CiHigh = entry.ci_high
+    }
     if (entry.metric_name === 'recall' && entry.k === 20) s.recall20 = entry.mean
     if (entry.metric_name === 'recall') {
       if (s.recallBestK == null || entry.k > s.recallBestK) {
@@ -191,7 +223,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
         s.recallBestMean = entry.mean
       }
     }
-    if (entry.metric_name === 'latency_p50') s.latencyP50 = entry.mean
+    if (entry.metric_name === 'latency_p50' && s.latencyP50 == null) s.latencyP50 = entry.mean
   }
 
   // Rank pipelines: best NDCG@10 first, tie-break on best recall
@@ -204,14 +236,22 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
   const toLabel = (pid: string) =>
     pid.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
-  const rankLabel = (i: number) => (['Best', '2nd', '3rd'][i] ?? `${i + 1}th`)
+  const rankLabel = (i: number) => {
+    if (i === 0 && ranked.length > 1) {
+      const runner = ranked[1]
+      const leader = ranked[0]
+      if (ciClearsRunnerUp(leader, runner)) return 'Best (significant)'
+      return 'Best (within CI of 2nd)'
+    }
+    return (['Best', '2nd', '3rd'][i] ?? `${i + 1}th`)
+  }
 
   const rankColors = [
     { border: 'border-emerald-400', bg: 'bg-emerald-50', badge: 'text-amber-600 bg-amber-50 border-amber-200', label: 'text-emerald-600' },
     { border: 'border-slate-400', bg: 'bg-slate-50', badge: 'text-slate-500 bg-slate-100 border-slate-200', label: 'text-slate-500' },
     { border: 'border-amber-400', bg: 'bg-amber-50', badge: 'text-amber-700 bg-amber-100 border-amber-200', label: 'text-amber-600' },
   ]
-  const defaultColor = { border: 'border-gray-200', bg: 'bg-gray-50', badge: 'text-gray-500 bg-gray-100 border-gray-200', label: 'text-gray-400' }
+  const defaultColor = { border: 'border-gray-200 dark:border-slate-700', bg: 'bg-gray-50 dark:bg-slate-800/60', badge: 'text-gray-500 dark:text-slate-400 bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700', label: 'text-gray-400 dark:text-slate-500' }
 
   const hasContributions = stageContributions && stageContributions.length > 0
   const crossPrefix = (stageContributions ?? []).filter((c) => c.comparison_tier === 'cross_pipeline_prefix')
@@ -224,8 +264,8 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
   return (
     <div className="mb-6">
       <div className="flex items-center gap-2 mb-3">
-        <h2 className="text-base font-semibold text-gray-800">Pipeline Verdict</h2>
-        <MetricTooltip text="Pipelines ranked left-to-right by NDCG@10 (best at far left). Metrics shown are from each pipeline's final stage." />
+        <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">Pipeline Verdict</h2>
+        <MetricTooltip text="Pipelines ranked by NDCG@10 (final stage). Latency is end-to-end P50 (stage_index=-1). Medals use CI overlap, not raw means alone." />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 mb-4">
@@ -237,25 +277,32 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
                 <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${color.badge}`}>
                   {rankLabel(i)}
                 </span>
-                <span className="text-[10px] text-gray-400 uppercase tracking-wide">
+                <span className="text-[10px] text-gray-400 dark:text-slate-500 uppercase tracking-wide">
                   {s.finalStage > 0 ? `${s.finalStage + 1}-stage` : '1-stage'}
                 </span>
               </div>
-              <div className="text-sm font-semibold text-gray-800 mb-3 truncate" title={toLabel(s.pipelineId)}>
+              <div className="text-sm font-semibold text-gray-800 dark:text-slate-100 mb-3 truncate" title={toLabel(s.pipelineId)}>
                 {toLabel(s.pipelineId)}
               </div>
               <div className="space-y-1.5 text-xs">
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500">NDCG@10</span>
-                  <span className={`font-mono font-semibold ${color.label}`}>{fmt(s.ndcg10)}</span>
+                  <span className="text-gray-500 dark:text-slate-400">NDCG@10</span>
+                  <span className={`font-mono font-semibold text-right ${color.label}`}>
+                    {fmt(s.ndcg10)}
+                    {s.ndcg10CiLow != null && s.ndcg10CiHigh != null && (
+                      <span className="block text-[9px] text-gray-400 dark:text-slate-500 font-normal">
+                        [{fmt(s.ndcg10CiLow)}, {fmt(s.ndcg10CiHigh)}]
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500">Recall@{s.recallBestK ?? 20}</span>
+                  <span className="text-gray-500 dark:text-slate-400">Recall@{s.recallBestK ?? 20}</span>
                   <span className={`font-mono font-semibold ${color.label}`}>{fmt(s.recallBestMean)}</span>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <span className="text-gray-500">P50 Latency</span>
-                  <span className="font-mono font-semibold text-gray-700">
+                  <span className="text-gray-500 dark:text-slate-400">E2E P50 Latency</span>
+                  <span className="font-mono font-semibold text-gray-700 dark:text-slate-200">
                     {s.latencyP50 != null ? `${fmtLatencyMs(s.latencyP50)} ms` : '—'}
                   </span>
                 </div>
@@ -267,15 +314,15 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
 
       {hasContributions ? (
         <div>
-          <div className="text-sm font-semibold text-gray-700 mb-2">Stage Ablation Attribution</div>
-          <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-3">
+          <div className="text-sm font-semibold text-gray-700 dark:text-slate-200 mb-2">Stage Ablation Attribution</div>
+          <p className="text-xs text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded px-3 py-2 mb-3">
             Decision rule: a stage <strong>pays for itself</strong> when the quality gain is statistically significant and at least {minQualityDelta.toFixed(2)}, while staying within the latency budget ({fmtLatencyMs(latencyBudgetMs)}ms P50).
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3 text-xs">
             <div className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-emerald-800">✓ Significant gain and within latency budget.</div>
             <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">⚠ Gain exists but is not significant.</div>
             <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">⚠ Significant gain but over latency budget.</div>
-            <div className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-gray-700">○ Significant/insignificant gain below quality threshold.</div>
+            <div className="rounded border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 px-2 py-1 text-gray-700 dark:text-slate-200">○ Significant/insignificant gain below quality threshold.</div>
             <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700 sm:col-span-2">◌ Neutral: insufficient fused-stage signal for arm-vs-fused comparison.</div>
           </div>
           {hasIndependentPipelines && crossPrefix.length > 0 && (
@@ -288,7 +335,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
           )}
           {crossPrefix.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Does each added stage earn its cost? (prefix pipelines)</div>
+              <div className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Does each added stage earn its cost? (prefix pipelines)</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
                 {crossPrefix.map((c) => (
                   <StageContributionCard
@@ -303,7 +350,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
           )}
           {withinPipeline.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Does each added stage earn its cost? (within one pipeline)</div>
+              <div className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Does each added stage earn its cost? (within one pipeline)</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 mb-3">
                 {withinPipeline.map((c) => (
                   <StageContributionCard
@@ -318,7 +365,7 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
           )}
           {armAblations.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Which retriever arm is carrying the hybrid?</div>
+              <div className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">Which retriever arm is carrying the hybrid?</div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {armAblations.map((c) => (
                   <StageContributionCard
@@ -332,13 +379,13 @@ export default function VerdictCard({ metrics, stageContributions, latencyBudget
             </>
           )}
           {crossPrefix.length === 0 && withinPipeline.length === 0 && armAblations.length === 0 && (
-            <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+            <p className="text-xs text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded px-3 py-2">
               No ablation deltas were available for this run.
             </p>
           )}
         </div>
       ) : ranked.length >= 2 ? (
-        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+        <p className="text-xs text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 rounded px-3 py-2">
           Stage ablation attribution is not available for this run — pipelines are independent variants
           (not prefix chains like bm25 → bm25__rerank). Compare quality and latency in the cards above.
         </p>

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 # Self-describing config helpers so an agent can discover the ExperimentConfig shape and
 # dry-run-validate a config WITHOUT running a benchmark or reading external docs. Both the REST
@@ -123,5 +123,39 @@ def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
             "items": [{"level": "error", "message": f"Config does not parse: {e}", "field": None}],
         }
     report = validate_experiment_config(cfg)
+    qdrant_items = _qdrant_yaml_guard(config)
+    report["items"] = list(report.get("items", [])) + qdrant_items
+    if qdrant_items:
+        report["status"] = "error"
+        summary = dict(report.get("summary") or {})
+        summary["errors"] = summary.get("errors", 0) + len(qdrant_items)
+        report["summary"] = summary
     report["valid"] = report["status"] != "error"
     return report
+
+
+def _qdrant_yaml_guard(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Hard-error when adapter.qdrant references embedding_fn — not expressible in YAML."""
+    items: List[Dict[str, Any]] = []
+
+    def walk(obj: Any, path: str) -> None:
+        if isinstance(obj, dict):
+            if obj.get("type") == "adapter.qdrant" and "embedding_fn" in (obj.get("config") or {}):
+                items.append(
+                    {
+                        "level": "error",
+                        "field": path or "stages",
+                        "message": (
+                            "adapter.qdrant cannot use embedding_fn in YAML — use adapter.import "
+                            "with a Python factory or adapter.hf_biencoder for dense vectors."
+                        ),
+                    }
+                )
+            for key, val in obj.items():
+                walk(val, f"{path}.{key}" if path else str(key))
+        elif isinstance(obj, list):
+            for i, val in enumerate(obj):
+                walk(val, f"{path}[{i}]")
+
+    walk(config, "")
+    return items

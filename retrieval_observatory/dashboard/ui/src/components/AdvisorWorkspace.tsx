@@ -22,8 +22,8 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   return (
     <section className="mb-8">
       <div className="mb-3">
-        <h2 className="text-base font-semibold text-gray-800">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+        <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
       {children}
     </section>
@@ -107,12 +107,12 @@ export default function AdvisorWorkspace() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-gray-200 bg-white px-6 py-4">
+      <header className="shrink-0 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-6 py-4">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-lg font-semibold text-violet-800">Advisor</h1>
           <WorkspaceGlossaryLink className="text-[11px] text-violet-700 underline decoration-violet-300" />
         </div>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
           Rule-based recommendations with cited evidence — heuristics, not guarantees.
         </p>
         {demoContext?.baseline_run_id && (
@@ -129,7 +129,7 @@ export default function AdvisorWorkspace() {
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200">heuristic</span>
               <MetricTooltip text={METRIC_GLOSSARY.reliability_components} />
             </div>
-            <p className="text-[11px] text-gray-600 mt-1">
+            <p className="text-[11px] text-gray-600 dark:text-slate-300 mt-1">
               Unweighted average of four components (25% each). Not a calibrated metric — use as a directional indicator.
             </p>
             {reliability.notes && reliability.notes.length > 0 && (
@@ -141,17 +141,17 @@ export default function AdvisorWorkspace() {
                 ))}
               </div>
             )}
-            <p className="text-[11px] text-gray-600 mt-1">
+            <p className="text-[11px] text-gray-600 dark:text-slate-300 mt-1">
               Reference scale: &ge;85% strong, 70–84% watchlist, &lt;70% poor.
             </p>
-            <div className="flex flex-wrap gap-3 mt-1 text-gray-700">
+            <div className="flex flex-wrap gap-3 mt-1 text-gray-700 dark:text-slate-200">
               {Object.entries(reliability.components).map(([k, v]) => (
                 <span key={k}>{k.replace(/_/g, ' ')}: {(v * 100).toFixed(0)}%</span>
               ))}
             </div>
             <details className="mt-2">
               <summary className="cursor-pointer text-[11px] text-violet-800 font-medium">Show component formulas</summary>
-              <p className="mt-1 text-[11px] text-gray-700">
+              <p className="mt-1 text-[11px] text-gray-700 dark:text-slate-200">
                 recall_at_10 = mean Recall@10 across pipelines; low_failure_rate = 1 − failure_label_rate; latency_headroom = budget headroom from latency_p95 (fallback 0.5 if no budget set); diagnostic_health = 1 − unstable_rate.
               </p>
             </details>
@@ -159,14 +159,14 @@ export default function AdvisorWorkspace() {
         )}
       </header>
 
-      <div className="shrink-0 flex gap-2 px-6 py-2 border-b border-gray-100 bg-white">
+      <div className="shrink-0 flex gap-2 px-6 py-2 border-b border-gray-100 dark:border-slate-800 bg-white dark:bg-slate-900">
         {(['recommendations', 'regressions'] as AdvisorView[]).map((v) => (
           <button
             key={v}
             type="button"
             onClick={() => setView(v)}
             className={`px-3 py-1.5 rounded text-xs font-medium capitalize ${
-              view === v ? 'bg-violet-100 text-violet-800' : 'text-gray-500 hover:bg-gray-50'
+              view === v ? 'bg-violet-100 text-violet-800' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50'
             }`}
           >
             {v === 'regressions' ? 'Regression Center' : v}
@@ -180,9 +180,9 @@ export default function AdvisorWorkspace() {
         {view === 'recommendations' && (
           <>
             <div className="mb-4">
-              <label className="text-xs text-gray-500 block mb-1">Run</label>
+              <label className="text-xs text-gray-500 dark:text-slate-400 block mb-1">Run</label>
               <select
-                className="text-sm border border-gray-200 rounded px-2 py-1.5"
+                className="text-sm border border-gray-200 dark:border-slate-700 rounded px-2 py-1.5"
                 value={selectedRun}
                 onChange={(e) => setSelectedRun(e.target.value)}
               >
@@ -196,19 +196,19 @@ export default function AdvisorWorkspace() {
             </div>
             <Section title="Recommendations" subtitle="Ranked by priority">
               {recommendations.length === 0 ? (
-                <p className="text-xs text-gray-400">Select a run to see recommendations.</p>
+                <p className="text-xs text-gray-400 dark:text-slate-500">Select a run to see recommendations.</p>
               ) : (
                 <div className="space-y-3">
                   {recommendations.map((rec, i) => (
-                    <div key={i} className="rounded-lg border border-gray-200 bg-white p-4">
+                    <div key={i} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-gray-900">{rec.action}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{rec.action}</p>
                         <span className="text-[10px] px-1.5 py-0.5 rounded border border-violet-200 bg-violet-50 text-violet-700 font-semibold">
                           Priority {rec.priority}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-600 mt-1">{rec.rationale}</p>
-                      <ul className="mt-2 text-[11px] text-gray-500 list-disc pl-4">
+                      <p className="text-xs text-gray-600 dark:text-slate-300 mt-1">{rec.rationale}</p>
+                      <ul className="mt-2 text-[11px] text-gray-500 dark:text-slate-400 list-disc pl-4">
                         {rec.evidence.map((ev, j) => (
                           <li key={j}>{ev}</li>
                         ))}
@@ -220,9 +220,9 @@ export default function AdvisorWorkspace() {
             </Section>
             {history.length > 1 && (
               <Section title="Reliability trend" subtitle="Snapshots recorded when reliability is computed">
-                <div className="rounded-lg border border-gray-200 bg-white p-3 text-xs space-y-1">
+                <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs space-y-1">
                   {(showAllHistory ? history : history.slice(0, 8)).map((h) => (
-                    <div key={h.recorded_at} className="flex justify-between text-gray-600">
+                    <div key={h.recorded_at} className="flex justify-between text-gray-600 dark:text-slate-300">
                       <span>{new Date(h.recorded_at).toLocaleString()}</span>
                       <span className="font-mono font-semibold">{(h.value * 100).toFixed(0)}%</span>
                     </div>
@@ -266,10 +266,10 @@ export default function AdvisorWorkspace() {
               </button>
             </div>
             {regressions.length === 0 ? (
-              <p className="text-xs text-gray-400">No significant regressions (or compare not run yet).</p>
+              <p className="text-xs text-gray-400 dark:text-slate-500">No significant regressions (or compare not run yet).</p>
             ) : (
-              <table className="w-full text-xs border border-gray-200 rounded-lg overflow-hidden">
-                <thead className="bg-gray-50">
+              <table className="w-full text-xs border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
+                <thead className="bg-gray-50 dark:bg-slate-800/60">
                   <tr>
                     <th className="text-left px-3 py-2">Metric</th>
                     <th className="text-right px-3 py-2">Before</th>

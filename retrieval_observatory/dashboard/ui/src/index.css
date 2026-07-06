@@ -1,3 +1,70 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ── Design tokens ─────────────────────────────────────────────────────────
+   Semantic surface/ink/hairline scales, driven by CSS variables so light and
+   dark share one component vocabulary. rgb triplets (space-separated) so
+   Tailwind's <alpha-value> works. */
+:root {
+  --canvas: 248 249 251;        /* app background          */
+  --surface: 255 255 255;       /* card / panel            */
+  --surface-muted: 244 245 247; /* inset / muted panel     */
+  --hairline: 226 229 234;      /* borders / dividers      */
+  --ink: 17 24 39;              /* primary text            */
+  --ink-muted: 82 91 107;       /* secondary text          */
+  --ink-faint: 128 137 153;     /* tertiary text / labels  */
+  color-scheme: light;
+}
+
+:root.dark {
+  --canvas: 13 17 23;
+  --surface: 22 27 34;
+  --surface-muted: 30 37 46;
+  --hairline: 45 53 64;
+  --ink: 233 237 243;
+  --ink-muted: 165 174 188;
+  --ink-faint: 120 130 145;
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background-color: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizelegibility;
+}
+
+@layer components {
+  /* Reusable, theme-aware surfaces used by the revamped shell + panels. */
+  .app-card {
+    background-color: rgb(var(--surface));
+    border: 1px solid rgb(var(--hairline));
+    border-radius: 0.75rem;
+  }
+  .app-inset {
+    background-color: rgb(var(--surface-muted));
+    border: 1px solid rgb(var(--hairline));
+    border-radius: 0.5rem;
+  }
+  .hairline-b { border-bottom: 1px solid rgb(var(--hairline)); }
+  .hairline-r { border-right: 1px solid rgb(var(--hairline)); }
+  .eyebrow {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(var(--ink-faint));
+  }
+}
+
+/* Smooth theme flips without janking chart repaints. */
+* {
+  transition-property: background-color, border-color;
+  transition-duration: 120ms;
+}
+svg, svg * { transition: none; }

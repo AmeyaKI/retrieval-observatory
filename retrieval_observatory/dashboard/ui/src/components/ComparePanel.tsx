@@ -43,7 +43,7 @@ function WinBadge({ winner }: { winner: 'left' | 'right' | 'tie' | null }) {
 
 function cellClass(isWinner: boolean, isLoser: boolean): string {
   if (isWinner) return 'px-3 py-2 text-right tabular-nums text-xs bg-green-50 font-semibold text-green-800'
-  if (isLoser) return 'px-3 py-2 text-right tabular-nums text-xs text-gray-400'
+  if (isLoser) return 'px-3 py-2 text-right tabular-nums text-xs text-gray-400 dark:text-slate-500'
   return 'px-3 py-2 text-right tabular-nums text-xs'
 }
 
@@ -65,10 +65,10 @@ function determineWinner(
 
 function SectionHeader({ title, note }: { title: string; note?: string }) {
   return (
-    <tr className="bg-gray-100">
-      <td colSpan={100} className="px-3 py-1.5 text-xs font-bold text-gray-600 uppercase tracking-wide">
+    <tr className="bg-gray-100 dark:bg-slate-800">
+      <td colSpan={100} className="px-3 py-1.5 text-xs font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wide">
         {title}
-        {note && <span className="ml-2 font-normal normal-case text-gray-400">{note}</span>}
+        {note && <span className="ml-2 font-normal normal-case text-gray-400 dark:text-slate-500">{note}</span>}
       </td>
     </tr>
   )
@@ -103,7 +103,7 @@ function SummaryBanner({
         ? 'bg-green-50 border-green-200 text-green-800'
         : overallWinner === 'B'
         ? 'bg-blue-50 border-blue-200 text-blue-800'
-        : 'bg-gray-50 border-gray-200 text-gray-700'
+        : 'bg-gray-50 dark:bg-slate-800/60 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200'
     }`}>
       <span className="font-semibold">
         {overallWinner
@@ -146,8 +146,8 @@ export default function ComparePanel({ selections }: Props) {
 
   if (!comparison) {
     return (
-      <div className="p-6 flex items-center gap-2 text-gray-400 text-sm">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-indigo-600" />
+      <div className="p-6 flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 dark:border-slate-600 border-t-indigo-600" />
         Loading comparison...
       </div>
     )
@@ -166,30 +166,35 @@ export default function ComparePanel({ selections }: Props) {
       const pv = row.p_value as number | undefined
       const significant = pv !== undefined && pv < 0.05
       return (
-        <tr key={row.metric} className="hover:bg-gray-50 border-b border-gray-100">
-          <td className="px-3 py-2 text-xs text-gray-800">
+        <tr key={row.metric} className="hover:bg-gray-50 border-b border-gray-100 dark:border-slate-800">
+          <td className="px-3 py-2 text-xs text-gray-800 dark:text-slate-100">
             {formatMetricKey(row.metric)}
             {twoRuns && <WinBadge winner={winner} />}
           </td>
           {runKeys.map((key, i) => {
-            const v = row[key] as { mean: number | null; std: number | null } | undefined
+            const v = row[key] as { mean: number | null; std: number | null; ci_low?: number | null; ci_high?: number | null } | undefined
             const isWinner = twoRuns && winner === (i === 0 ? 'left' : 'right')
             const isLoser = twoRuns && winner !== null && winner !== 'tie' && !isWinner
+            const showCi = !isLatency && v?.ci_low != null && v?.ci_high != null
             return (
               <td key={key} className={cellClass(isWinner, isLoser)}>
                 {v?.mean != null ? (
                   <>
                     <span>{fmt(v.mean, isLatency ? 1 : 4)}</span>
-                    {v.std != null && (
-                      <span className="text-gray-400 ml-1">±{fmt(v.std, isLatency ? 1 : 4)}</span>
-                    )}
+                    {showCi ? (
+                      <span className="block text-[9px] text-gray-400 dark:text-slate-500">
+                        [{fmt(v.ci_low!, isLatency ? 1 : 4)}, {fmt(v.ci_high!, isLatency ? 1 : 4)}]
+                      </span>
+                    ) : v.std != null ? (
+                      <span className="text-gray-400 dark:text-slate-500 ml-1">±{fmt(v.std, isLatency ? 1 : 4)}</span>
+                    ) : null}
                     {isWinner && <span className="ml-1 text-green-600">▲</span>}
                   </>
                 ) : '—'}
               </td>
             )
           })}
-          <td className={`px-3 py-2 text-right tabular-nums text-xs ${significant ? 'font-bold text-indigo-700' : 'text-gray-400'}`}>
+          <td className={`px-3 py-2 text-right tabular-nums text-xs ${significant ? 'font-bold text-indigo-700' : 'text-gray-400 dark:text-slate-500'}`}>
             {pv !== undefined ? `${pv.toFixed(3)}${significant ? ' *' : ''}` : '—'}
           </td>
         </tr>
@@ -204,7 +209,7 @@ export default function ComparePanel({ selections }: Props) {
 
   return (
     <div className="p-6 max-w-6xl">
-      <h1 className="text-xl font-bold text-gray-900 mb-1">Run Comparison</h1>
+      <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100 mb-1">Run Comparison</h1>
       <div className="flex flex-wrap gap-2 mb-3">
         {runLabels.map((r, i) => (
           <span
@@ -225,8 +230,8 @@ export default function ComparePanel({ selections }: Props) {
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-100 text-left border-b border-gray-200">
-              <th className="px-3 py-2 font-semibold text-gray-700">Metric</th>
+            <tr className="bg-gray-100 dark:bg-slate-800 text-left border-b border-gray-200 dark:border-slate-700">
+              <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200">Metric</th>
               {runLabels.map((r, i) => (
                 <th
                   key={r.full}
@@ -235,10 +240,10 @@ export default function ComparePanel({ selections }: Props) {
                   }`}
                 >
                   {`Run ${String.fromCharCode(65 + i)}`}
-                  <span className="block font-normal font-mono text-gray-400">{r.full}</span>
+                  <span className="block font-normal font-mono text-gray-400 dark:text-slate-500">{r.full}</span>
                 </th>
               ))}
-              <th className="px-3 py-2 font-semibold text-gray-700 text-right">
+              <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">
                 p-value
                 <MetricTooltip text={METRIC_GLOSSARY.p_value} alignLeft />
               </th>
@@ -268,10 +273,10 @@ export default function ComparePanel({ selections }: Props) {
       </div>
 
       <div className="mt-3 space-y-1">
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-400 dark:text-slate-500">
           * p &lt; 0.05 (paired bootstrap significance test on matched query IDs)
         </p>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-400 dark:text-slate-500">
           Green cells = winner on that metric. Win counts in summary banner include all metrics regardless of significance.
         </p>
         {!twoRuns && (

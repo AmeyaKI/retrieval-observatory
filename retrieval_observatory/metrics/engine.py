@@ -357,7 +357,20 @@ class MetricsEngine:
                     ],
                 )
 
-            for stage_index, span in enumerate(fired_spans):
+            # Bucket each span by its TOPOLOGICAL DEPTH (longest path from a root), not its
+            # position in the span list, so parallel branches don't collapse into fake
+            # sequential stages. When a depth layer holds a single node it is the "spine"
+            # (branch_id=None); parallel nodes sharing a depth each get branch_id=op_id so
+            # their per-node metrics stay distinct. A linear chain has one node per depth →
+            # branch_id=None and stage_index==position, identical to compute_and_store.
+            depth_by_op = self._span_depths(fired_spans)
+            nodes_at_depth: Dict[int, int] = defaultdict(int)
+            for op_id, depth in depth_by_op.items():
+                nodes_at_depth[depth] += 1
+
+            for span in fired_spans:
+                stage_index = depth_by_op[span.op_id]
+                branch_id = None if nodes_at_depth[stage_index] == 1 else span.op_id
                 metric_rows: List[Dict[str, Any]] = []
                 doc_ids = dedupe_preserve_rank([c.doc_id for c in span.outputs])
 
@@ -366,7 +379,7 @@ class MetricsEngine:
                     metric_rows.append(
                         self._metric_row(
                             run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "recall", k, score, query_meta,
+                            stage_index, "recall", k, score, query_meta, branch_id=branch_id,
                         )
                     )
 
@@ -375,7 +388,7 @@ class MetricsEngine:
                     metric_rows.append(
                         self._metric_row(
                             run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "precision", k, score, query_meta,
+                            stage_index, "precision", k, score, query_meta, branch_id=branch_id,
                         )
                     )
 
@@ -387,7 +400,7 @@ class MetricsEngine:
                     metric_rows.append(
                         self._metric_row(
                             run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "ndcg", k, score, query_meta,
+                            stage_index, "ndcg", k, score, query_meta, branch_id=branch_id,
                         )
                     )
 
@@ -396,7 +409,7 @@ class MetricsEngine:
                     metric_rows.append(
                         self._metric_row(
                             run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "mrr", 0, score, query_meta,
+                            stage_index, "mrr", 0, score, query_meta, branch_id=branch_id,
                         )
                     )
 
@@ -406,17 +419,36 @@ class MetricsEngine:
                     metric_rows.append(
                         self._metric_row(
                             run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "map", 0, score, query_meta,
+                            stage_index, "map", 0, score, query_meta, branch_id=branch_id,
                         )
                     )
 
                 metric_rows.append(
                     self._metric_row(
                         run_id, trace.pipeline_id, trace.query_id,
-                        stage_index, "latency_ms", 0, span.latency_ms, query_meta,
+                        stage_index, "latency_ms", 0, span.latency_ms, query_meta, branch_id=branch_id,
                     )
                 )
                 await self._save_metrics(store, metric_rows)
+
+    @staticmethod
+    def _span_depths(fired_spans: list) -> Dict[str, int]:
+        """Longest-path depth of every span from a root, counting only parents that also
+        fired. Roots (no fired parent) are depth 0."""
+        fired_ids = {s.op_id for s in fired_spans}
+        span_by_id = {s.op_id: s for s in fired_spans}
+        cache: Dict[str, int] = {}
+
+        def depth_of(op_id: str, seen: frozenset) -> int:
+            if op_id in cache:
+                return cache[op_id]
+            span = span_by_id[op_id]
+            parents = [p for p in span.parent_ids if p in fired_ids and p not in seen]
+            d = 0 if not parents else 1 + max(depth_of(p, seen | {op_id}) for p in parents)
+            cache[op_id] = d
+            return d
+
+        return {s.op_id: depth_of(s.op_id, frozenset()) for s in fired_spans}
 
     async def aggregate(
         self,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import WorkspaceGlossaryLink from './WorkspaceGlossaryLink'
 import {
   DbSource,
@@ -14,7 +14,13 @@ import RunsSidebar from './RunsSidebar'
 import RunDetail from './RunDetail'
 import ComparePanel from './ComparePanel'
 
-export default function BenchmarksWorkspace({ demoContext }: { demoContext?: DemoContext | null }) {
+export default function BenchmarksWorkspace({
+  demoContext,
+  route = '',
+}: {
+  demoContext?: DemoContext | null
+  route?: string
+}) {
   const [sources, setSources] = useState<DbSource[]>([])
   const [activeDbId, setActiveDbId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Run[]>([])
@@ -22,6 +28,17 @@ export default function BenchmarksWorkspace({ demoContext }: { demoContext?: Dem
   const [resolvedRun, setResolvedRun] = useState<Run | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  const deepLink = useMemo(() => {
+    const parts = route.split('/').filter(Boolean)
+    if (parts[0] !== 'run' || !parts[1]) return null
+    return { runId: decodeURIComponent(parts[1]), section: parts[2] ? decodeURIComponent(parts[2]) : undefined }
+  }, [route])
+
+  useEffect(() => {
+    if (!deepLink || !activeDbId) return
+    setSelected([{ dbId: activeDbId, runId: deepLink.runId }])
+  }, [deepLink?.runId, activeDbId])
 
   useEffect(() => {
     fetchDbs()
@@ -86,16 +103,16 @@ export default function BenchmarksWorkspace({ demoContext }: { demoContext?: Dem
   return (
     <div className="flex flex-1 min-w-0">
       <aside
-        className={`shrink-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-200 overflow-hidden ${
+        className={`shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col transition-all duration-200 overflow-hidden ${
           sidebarOpen ? 'w-72' : 'w-0 border-r-0'
         }`}
       >
-        <div className="px-4 py-4 border-b border-gray-200 min-w-[18rem]">
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-slate-700 min-w-[18rem]">
           <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-bold text-gray-900">Benchmarks</h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Benchmarks</h1>
             <WorkspaceGlossaryLink className="text-[11px] text-indigo-700 underline decoration-indigo-300" />
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">Evaluate retrieval pipelines offline</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Evaluate retrieval pipelines offline</p>
         </div>
         {error && (
           <div className="m-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 min-w-[18rem]">
@@ -112,11 +129,11 @@ export default function BenchmarksWorkspace({ demoContext }: { demoContext?: Dem
       </aside>
 
       <main className="flex-1 overflow-auto min-w-0">
-        <div className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200 px-3 py-2 flex items-center gap-2 flex-wrap">
+        <div className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur border-b border-gray-200 dark:border-slate-700 px-3 py-2 flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setSidebarOpen((v) => !v)}
-            className="p-1.5 rounded-md border border-gray-200 bg-white text-gray-600 hover:text-gray-900 hover:border-gray-300"
+            className="p-1.5 rounded-md border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 hover:text-gray-900 hover:border-gray-300"
             title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
             aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
@@ -130,7 +147,7 @@ export default function BenchmarksWorkspace({ demoContext }: { demoContext?: Dem
               )}
             </svg>
           </button>
-          <span className="text-xs text-gray-500">Toggle run list</span>
+          <span className="text-xs text-gray-500 dark:text-slate-400">Toggle run list</span>
           {demoContext?.baseline_run_id && (
             <span className="ml-auto text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1">
               Demo runs loaded — baseline vs degraded selected for comparison
@@ -142,21 +159,26 @@ export default function BenchmarksWorkspace({ demoContext }: { demoContext?: Dem
           <div className="flex items-center justify-center h-[calc(100%-3rem)]">
             <div className="text-center max-w-sm">
               <div className="text-4xl mb-4 select-none" role="img" aria-label="Benchmarks module icon" title="Benchmarks module icon">📊</div>
-              <p className="text-lg font-semibold text-gray-700">Select a run to explore</p>
-              <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+              <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">Select a run to explore</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
                 Click any run in the sidebar to view its metrics, charts, and query-level diagnostics.
               </p>
-              <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+              <p className="text-sm text-gray-400 dark:text-slate-500 mt-3 leading-relaxed">
                 Check two or more runs to compare them side-by-side with significance tests.
               </p>
             </div>
           </div>
         )}
         {selected.length === 1 && resolvedRun && (
-          <RunDetail run={resolvedRun} dbId={selected[0].dbId} wide={!sidebarOpen} />
+          <RunDetail
+            run={resolvedRun}
+            dbId={selected[0].dbId}
+            wide={!sidebarOpen}
+            initialSection={deepLink?.section}
+          />
         )}
         {selected.length === 1 && !resolvedRun && (
-          <div className="p-6 text-sm text-gray-400">Loading run…</div>
+          <div className="p-6 text-sm text-gray-400 dark:text-slate-500">Loading run…</div>
         )}
         {selected.length >= 2 && <ComparePanel selections={selected} />}
       </main>

@@ -66,6 +66,10 @@ class PipelineResult:
     total_latency_ms: float
     status: Literal["OK", "TIMEOUT", "ERROR"]
     error_traceback: Optional[str] = None
+    # Populated by DAGPipeline with a real branching trace so the runner persists true
+    # topology (parent_ids) instead of lifting the flattened snapshot list. None for
+    # linear pipelines (they lift as before).
+    trace_v2: Optional[Any] = None
 
 
 @dataclass

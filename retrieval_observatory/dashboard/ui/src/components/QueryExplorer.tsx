@@ -42,31 +42,31 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
   const visible = filtered.slice(0, 100)
 
   return (
-    <div className="border border-gray-200 rounded bg-white">
-      <p className="text-xs text-gray-500 px-3 pt-3 pb-1">
+    <div className="border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900">
+      <p className="text-xs text-gray-500 dark:text-slate-400 px-3 pt-3 pb-1">
         <strong>Diagnostic buckets (post-hoc from observed recall/variance)</strong>: easy, medium, hard, discriminative, unstable, unknown.
         <strong className="ml-2">Predicted difficulty (pre-retrieval from query text)</strong>: easy, medium, hard, extreme.
         <MetricTooltip text={`${METRIC_GLOSSARY.difficulty_diagnostic}\n\n${METRIC_GLOSSARY.difficulty_predicted}`} />
       </p>
-      <p className="text-[11px] text-gray-500 px-3 pb-2">
+      <p className="text-[11px] text-gray-500 dark:text-slate-400 px-3 pb-2">
         Agreement uses a 3-class fold: easy → easy, medium/discriminative/unstable → medium, hard/extreme → hard.
       </p>
-      <div className="p-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
+      <div className="p-3 border-b border-gray-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
         <input
-          className="flex-1 min-w-[200px] border border-gray-200 rounded px-2 py-1 text-sm"
+          className="flex-1 min-w-[200px] border border-gray-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter queries, labels, predicted difficulty"
         />
-        <label className="flex items-center gap-1.5 text-xs text-gray-600">
-          <input type="checkbox" checked={mismatchOnly} onChange={(e) => setMismatchOnly(e.target.checked)} className="rounded border-gray-300" />
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300">
+          <input type="checkbox" checked={mismatchOnly} onChange={(e) => setMismatchOnly(e.target.checked)} className="rounded border-gray-300 dark:border-slate-600" />
           Mismatches only
         </label>
-        <span className="text-xs text-gray-400">{Math.min(visible.length, 100)}/{filtered.length}</span>
+        <span className="text-xs text-gray-400 dark:text-slate-500">{Math.min(visible.length, 100)}/{filtered.length}</span>
       </div>
       <div className="overflow-x-auto max-h-80">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50 sticky top-0">
+          <thead className="bg-gray-50 dark:bg-slate-800/60 sticky top-0">
             <tr>
               <th className="text-left px-3 py-2">Query</th>
               <th className="text-left px-3 py-2">Text</th>
@@ -92,7 +92,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                 <td className="px-3 py-2 capitalize">{item.actual_bucket}</td>
                 <td className="px-3 py-2">{item.actual_class || item.actual_bucket}</td>
                 <td className="px-3 py-2">{item.predicted_difficulty || '—'}</td>
-                <td className="px-3 py-2 font-mono text-[10px] text-gray-600">
+                <td className="px-3 py-2 font-mono text-[10px] text-gray-600 dark:text-slate-300">
                   {formatProba(item.predicted_difficulty_proba)}
                 </td>
                 <td className="px-3 py-2">
@@ -102,7 +102,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                     </span>
                   ) : '—'}
                 </td>
-                <td className="px-3 py-2 text-gray-600">
+                <td className="px-3 py-2 text-gray-600 dark:text-slate-300">
                   {(item.predicted_risks?.length ?? 0) > 0
                     ? item.predicted_risks!.join(', ')
                     : '—'}
@@ -113,7 +113,7 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
         </table>
       </div>
       {filtered.length > 100 && (
-        <div className="px-3 py-2 border-t border-gray-100 text-xs text-amber-700 bg-amber-50">
+        <div className="px-3 py-2 border-t border-gray-100 dark:border-slate-800 text-xs text-amber-700 bg-amber-50">
           Showing 100 of {filtered.length} queries — refine filters to narrow the list.
         </div>
       )}

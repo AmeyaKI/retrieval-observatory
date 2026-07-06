@@ -153,14 +153,29 @@ async def execute_benchmark(
         # attribution, miss attribution) can recover ground truth after the run completes —
         # qrels only ever existed in-memory here otherwise.
         await store.save_qrels(run_id, qrels)
+    # DAG pipelines carry a real branching trace (parent_ids); their metrics are bucketed by
+    # topological depth via compute_from_traces so parallel branches aren't collapsed into fake
+    # sequential stages. Linear pipelines keep the snapshot path. The two pipeline sets are
+    # disjoint, so no metric row is double-counted.
+    dag_results = [r for r in all_results if getattr(r, "trace_v2", None) is not None]
+    linear_results = [r for r in all_results if getattr(r, "trace_v2", None) is None]
     await engine.compute_and_store(
         run_id=run_id,
         store=store,
-        results=all_results,
+        results=linear_results,
         qrels=qrels,
         queries_by_id=queries_by_id,
         corpus_documents=getattr(dataset, "corpus_documents", None),
     )
+    if dag_results:
+        dag_traces = [r.trace_v2 for r in dag_results if r.status == "OK"]
+        await engine.compute_from_traces(
+            run_id=run_id,
+            store=store,
+            traces=dag_traces,
+            qrels=qrels,
+            queries_by_id=queries_by_id,
+        )
 
     # Warn about unjudged queries: queries with no or empty qrel entries are excluded from
     # quality metric means (they contribute no metric_score row), so the dashboard n count

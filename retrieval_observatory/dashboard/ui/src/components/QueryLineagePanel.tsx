@@ -5,8 +5,8 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   return (
     <section className="mb-6">
       <div className="mb-2">
-        <h2 className="text-base font-semibold text-gray-800">{title}</h2>
-        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+        <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{subtitle}</p>}
       </div>
       {children}
     </section>
@@ -27,7 +27,7 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
     return <div className="p-6 text-sm text-red-600">{error}</div>
   }
   if (!lineage) {
-    return <div className="p-6 text-sm text-gray-400">Loading lineage…</div>
+    return <div className="p-6 text-sm text-gray-400 dark:text-slate-500">Loading lineage…</div>
   }
 
   const origin = lineage.origin
@@ -36,10 +36,10 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
     <div className="flex-1 overflow-auto p-6">
       <div className="max-w-4xl mx-auto">
         <header className="mb-6">
-          <p className="text-xs text-gray-400 uppercase tracking-wide">Query Lineage</p>
-          <h1 className="text-lg font-semibold font-mono text-gray-900">{lineage.query_id}</h1>
+          <p className="text-xs text-gray-400 dark:text-slate-500 uppercase tracking-wide">Query Lineage</p>
+          <h1 className="text-lg font-semibold font-mono text-gray-900 dark:text-slate-100">{lineage.query_id}</h1>
           {origin.query_text && (
-            <p className="text-sm text-gray-600 mt-1">{origin.query_text}</p>
+            <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">{origin.query_text}</p>
           )}
           <div className="mt-3 flex flex-wrap gap-3 text-xs">
             <a href="#/benchmarks" className="text-indigo-700 underline decoration-indigo-300">
@@ -53,7 +53,7 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
                 Forge origin
               </a>
             )}
-            <a href="#/glossary" className="text-gray-600 underline decoration-gray-300">
+            <a href="#/glossary" className="text-gray-600 dark:text-slate-300 underline decoration-gray-300">
               Glossary
             </a>
           </div>
@@ -70,19 +70,19 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
               )}
             </div>
           ) : (
-            <p className="text-xs text-gray-600">Dataset: {origin.dataset_name || 'unknown'}</p>
+            <p className="text-xs text-gray-600 dark:text-slate-300">Dataset: {origin.dataset_name || 'unknown'}</p>
           )}
         </Section>
 
         <Section title="Benchmark evaluations" subtitle="Runs that scored this query">
           {lineage.evaluations.length === 0 ? (
-            <p className="text-xs text-gray-400">No benchmark evaluations found.</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500">No benchmark evaluations found.</p>
           ) : (
             <div className="space-y-2">
               {lineage.evaluations.map((ev) => (
-                <div key={ev.run_id} className="rounded-lg border border-gray-200 bg-white p-3 text-xs">
-                  <p className="font-medium text-gray-800">{ev.experiment_name} <span className="font-mono text-gray-400">({ev.run_id})</span></p>
-                  <p className="text-gray-500">{ev.metrics.length} metric rows · {ev.diagnostics.length} diagnostic rows</p>
+                <div key={ev.run_id} className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs">
+                  <p className="font-medium text-gray-800 dark:text-slate-100">{ev.experiment_name} <span className="font-mono text-gray-400 dark:text-slate-500">({ev.run_id})</span></p>
+                  <p className="text-gray-500 dark:text-slate-400">{ev.metrics.length} metric rows · {ev.diagnostics.length} diagnostic rows</p>
                 </div>
               ))}
             </div>
@@ -93,18 +93,18 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
           title="Production matches (categorical)"
           subtitle={lineage.production_matches.note}
         >
-          <p className="text-[11px] text-gray-500 mb-2">
+          <p className="text-[11px] text-gray-500 dark:text-slate-400 mb-2">
             Production queries are novel — matches are by predicted difficulty and failure category overlap,
             not exact query ID. Benchmark pipelines may differ from production pipeline IDs.
             {' '}Match: difficulty={lineage.production_matches.match_difficulty || '—'},{' '}
             labels={lineage.production_matches.match_failure_labels.join(', ') || '—'}
           </p>
           {lineage.production_matches.traces.length === 0 ? (
-            <p className="text-xs text-gray-400">No matching production traces.</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500">No matching production traces.</p>
           ) : (
             <div className="rounded-lg border border-teal-200 overflow-hidden">
               <table className="w-full text-xs">
-                <thead className="bg-teal-50 text-gray-600">
+                <thead className="bg-teal-50 text-gray-600 dark:text-slate-300">
                   <tr>
                     <th className="text-left px-3 py-2">Service</th>
                     <th className="text-left px-3 py-2">Query</th>

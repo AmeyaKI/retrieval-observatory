@@ -1,3 +1,5 @@
+import { useTheme } from '../hooks/useTheme'
+
 export type Mode = 'benchmarks' | 'forge' | 'tracelens' | 'advisor'
 export type ShellMode = Mode | 'glossary' | 'query'
 
@@ -88,7 +90,7 @@ function UtilityLink({
   onClick?: () => void
 }) {
   const className = `w-full text-left px-2 py-1.5 rounded text-[10px] font-medium transition-colors ${
-    active ? 'bg-gray-100 text-gray-900' : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+    active ? 'bg-gray-100 dark:bg-slate-800 text-gray-900 dark:text-slate-100' : 'text-gray-500 dark:text-slate-400 hover:text-gray-800 hover:bg-gray-50'
   }`
   if (onClick) {
     return (
@@ -109,10 +111,11 @@ export default function ModeRail({ mode, onSelect, lineageQueryId, onOpenTour, s
   const glossaryActive = mode === 'glossary'
   const lineageActive = mode === 'query'
   const lineageHref = lineageQueryId ? `#/query/${encodeURIComponent(lineageQueryId)}` : null
+  const { theme, toggle } = useTheme()
 
   return (
-    <nav className="shrink-0 w-20 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-1">
-      <div className="mb-3 w-9 h-9 rounded-lg bg-gray-900 text-white flex items-center justify-center text-[11px] font-bold tracking-tight select-none" title="Retrieval Observatory">
+    <nav className="shrink-0 w-20 bg-surface hairline-r flex flex-col items-center py-3 gap-1">
+      <div className="mb-3 w-9 h-9 rounded-lg bg-ink text-surface flex items-center justify-center text-[11px] font-bold tracking-tight select-none" title="Retrieval Observatory">
         RO
       </div>
       {MODES.map((m) => {
@@ -126,7 +129,7 @@ export default function ModeRail({ mode, onSelect, lineageQueryId, onOpenTour, s
             aria-label={m.label}
             aria-current={active ? 'page' : undefined}
             className={`relative w-full flex flex-col items-center gap-1 py-2.5 transition-colors ${
-              active ? m.activeText : 'text-gray-400 hover:text-gray-700'
+              active ? m.activeText : 'text-gray-400 dark:text-slate-500 hover:text-gray-700'
             }`}
           >
             {active && <span className={`absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r ${m.activeBar}`} />}
@@ -138,12 +141,22 @@ export default function ModeRail({ mode, onSelect, lineageQueryId, onOpenTour, s
         )
       })}
 
-      <div className="mt-auto w-full px-1.5 pt-2 border-t border-gray-100 space-y-0.5">
+      <div className="mt-auto w-full px-1.5 pt-2 hairline-b space-y-0.5" />
+      <div className="w-full px-1.5 pt-2 space-y-0.5">
         <UtilityLink href="#/glossary" label="Glossary" active={glossaryActive} />
         {showTourLink && onOpenTour ? (
           <UtilityLink label="Platform tour" onClick={onOpenTour} />
         ) : null}
         {lineageHref ? <UtilityLink href={lineageHref} label="Query lineage" active={lineageActive} /> : null}
+        <button
+          type="button"
+          onClick={toggle}
+          className="w-full text-left px-2 py-1.5 rounded text-[10px] font-medium text-ink-faint hover:text-ink hover:bg-surface-muted transition-colors flex items-center gap-1.5"
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? '☀' : '☾'} {theme === 'dark' ? 'Light' : 'Dark'}
+        </button>
       </div>
     </nav>
   )

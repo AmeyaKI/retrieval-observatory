@@ -31,20 +31,20 @@ export default function TraceDetail({ traceId, onClose }: { traceId: string; onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-5 py-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-800">Trace detail</h2>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700 text-lg leading-none">×</button>
+      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl max-w-3xl w-full max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-5 py-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-slate-100">Trace detail</h2>
+          <button type="button" onClick={onClose} className="text-gray-400 dark:text-slate-500 hover:text-gray-700 text-lg leading-none">×</button>
         </div>
 
         {error && <div className="m-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>}
-        {!trace && !error && <div className="p-6 text-sm text-gray-400">Loading…</div>}
+        {!trace && !error && <div className="p-6 text-sm text-gray-400 dark:text-slate-500">Loading…</div>}
 
         {trace && (
           <div className="p-5 space-y-5">
             <div>
-              <p className="text-base text-gray-900 font-medium">{trace.query_text}</p>
-              <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-500">
+              <p className="text-base text-gray-900 dark:text-slate-100 font-medium">{trace.query_text}</p>
+              <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-gray-500 dark:text-slate-400">
                 <span className="font-mono">{trace.pipeline_id}</span>
                 <span>·</span>
                 <span className={trace.status === 'OK' ? 'text-green-600' : 'text-rose-600 font-medium'}>{trace.status}</span>
@@ -65,17 +65,17 @@ export default function TraceDetail({ traceId, onClose }: { traceId: string; onC
 
             {/* Retrieval topology */}
             <div>
-              <p className="text-xs font-semibold text-gray-600 mb-2">Retrieval topology (candidate flow)</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-2">Retrieval topology (candidate flow)</p>
               <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
                 {lineage(trace.stages).map((l, i) => (
                   <div key={i} className="flex items-center gap-2 shrink-0">
-                    {i > 0 && <span className="text-gray-300">→</span>}
-                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 min-w-[7rem]">
-                      <p className="text-xs font-mono text-gray-800">{l.stage}</p>
-                      <p className="text-lg font-bold text-gray-900 tabular-nums">{l.count}</p>
-                      <p className="text-[10px] text-gray-500">candidates</p>
+                    {i > 0 && <span className="text-gray-300 dark:text-slate-600">→</span>}
+                    <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-3 min-w-[7rem]">
+                      <p className="text-xs font-mono text-gray-800 dark:text-slate-100">{l.stage}</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-slate-100 tabular-nums">{l.count}</p>
+                      <p className="text-[10px] text-gray-500 dark:text-slate-400">candidates</p>
                       {i > 0 && (
-                        <p className="text-[10px] text-gray-400 mt-1">
+                        <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-1">
                           <span className="text-green-600">{l.survived} kept</span>
                           {' · '}
                           <span className="text-rose-500">{l.dropped} dropped</span>
@@ -91,21 +91,21 @@ export default function TraceDetail({ traceId, onClose }: { traceId: string; onC
             <div className="space-y-3">
               {trace.stages.map((s) => (
                 <div key={s.stage_index}>
-                  <p className="text-xs font-semibold text-gray-600 mb-1">
-                    {s.stage_id} <span className="text-gray-400 font-normal">· {s.latency_ms.toFixed(0)} ms · {s.candidate_count} candidates</span>
+                  <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1">
+                    {s.stage_id} <span className="text-gray-400 dark:text-slate-500 font-normal">· {s.latency_ms.toFixed(0)} ms · {s.candidate_count} candidates</span>
                     {s.documents.length > 10 && <span className="text-amber-700 font-normal"> · showing 10 of {s.documents.length}</span>}
                   </p>
-                  <div className="border border-gray-200 rounded overflow-hidden">
+                  <div className="border border-gray-200 dark:border-slate-700 rounded overflow-hidden">
                     <table className="w-full text-[11px]">
-                      <thead className="bg-gray-50 text-gray-400">
+                      <thead className="bg-gray-50 dark:bg-slate-800/60 text-gray-400 dark:text-slate-500">
                         <tr><th className="text-left px-2 py-1 w-10">#</th><th className="text-left px-2 py-1">Doc</th><th className="text-right px-2 py-1 w-20">Score</th></tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
                         {s.documents.slice(0, 10).map((d) => (
                           <tr key={d.id}>
-                            <td className="px-2 py-1 text-gray-400">{d.rank}</td>
-                            <td className="px-2 py-1 font-mono text-gray-700">{d.id}{d.title ? ` — ${d.title}` : ''}</td>
-                            <td className="px-2 py-1 text-right tabular-nums text-gray-600">{d.score.toFixed(3)}</td>
+                            <td className="px-2 py-1 text-gray-400 dark:text-slate-500">{d.rank}</td>
+                            <td className="px-2 py-1 font-mono text-gray-700 dark:text-slate-200">{d.id}{d.title ? ` — ${d.title}` : ''}</td>
+                            <td className="px-2 py-1 text-right tabular-nums text-gray-600 dark:text-slate-300">{d.score.toFixed(3)}</td>
                           </tr>
                         ))}
                       </tbody>

@@ -19,7 +19,7 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
   if (!activeDbId) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-gray-400">No database selected</p>
+        <p className="text-sm text-gray-400 dark:text-slate-500">No database selected</p>
       </div>
     )
   }
@@ -27,7 +27,7 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
   if (runs.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-4">
-        <p className="text-sm text-gray-400 text-center">No runs in this database</p>
+        <p className="text-sm text-gray-400 dark:text-slate-500 text-center">No runs in this database</p>
       </div>
     )
   }
@@ -36,19 +36,19 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 min-w-[18rem]">
+      <div className="px-4 py-2 border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/60 min-w-[18rem]">
         {selectedCount === 0 && (
-          <p className="text-xs text-gray-400">Click a run to explore it · Check two to compare</p>
+          <p className="text-xs text-gray-400 dark:text-slate-500">Click a run to explore it · Check two to compare</p>
         )}
         {selectedCount === 1 && (
-          <p className="text-xs text-gray-500 font-medium">1 run selected — viewing details</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">1 run selected — viewing details</p>
         )}
         {selectedCount >= 2 && (
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-0.5">
               {selectedCount} runs selected
             </span>
-            <span className="text-xs text-gray-400">— comparing</span>
+            <span className="text-xs text-gray-400 dark:text-slate-500">— comparing</span>
           </div>
         )}
       </div>
@@ -74,7 +74,7 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
                   className="accent-indigo-600 mt-0.5 shrink-0"
                 />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate flex items-center gap-1.5">
+                  <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate flex items-center gap-1.5">
                     <span className="truncate">{run.experiment_name}</span>
                     {run.golden_set && (
                       <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide px-1 py-0.5 rounded bg-amber-100 text-amber-800">
@@ -82,8 +82,8 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
                       </span>
                     )}
                   </p>
-                  <p className="text-xs text-gray-500 font-mono truncate">{run.run_id}</p>
-                  <p className="text-xs text-gray-400">{formatDate(run.started_at)}</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-mono truncate">{run.run_id}</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500">{formatDate(run.started_at)}</p>
                 </div>
               </div>
             </li>

@@ -16,13 +16,13 @@ const REPLAY_BADGES: Record<string, { label: string; color: string }> = {
 }
 
 function CellContent({ row }: { row: OperatorAttributionRow | undefined }) {
-  if (!row) return <span className="text-gray-300">—</span>
-  if (row.result_status === 'not_applicable') return <span className="text-gray-400">—</span>
-  if (row.result_status === 'indeterminate') return <span className="text-gray-400">?</span>
-  if (row.delta == null) return <span className="text-gray-400">—</span>
+  if (!row) return <span className="text-gray-300 dark:text-slate-600">—</span>
+  if (row.result_status === 'not_applicable') return <span className="text-gray-400 dark:text-slate-500">—</span>
+  if (row.result_status === 'indeterminate') return <span className="text-gray-400 dark:text-slate-500">?</span>
+  if (row.delta == null) return <span className="text-gray-400 dark:text-slate-500">—</span>
 
   const badge = REPLAY_BADGES[row.replay_policy]
-  const deltaColor = row.delta > 0 ? 'text-green-700' : row.delta < 0 ? 'text-red-700' : 'text-gray-700'
+  const deltaColor = row.delta > 0 ? 'text-green-700' : row.delta < 0 ? 'text-red-700' : 'text-gray-700 dark:text-slate-200'
   const sigMark = row.significant === true ? '*' : row.significant === false ? '' : ''
 
   return (
@@ -38,7 +38,7 @@ function CellContent({ row }: { row: OperatorAttributionRow | undefined }) {
         )}
       </div>
       {row.ci_low != null && row.ci_high != null && (
-        <span className="text-[10px] text-gray-400">
+        <span className="text-[10px] text-gray-400 dark:text-slate-500">
           [{row.ci_low.toFixed(3)}, {row.ci_high.toFixed(3)}]
         </span>
       )}
@@ -85,11 +85,11 @@ export default function SegmentOperatorGrid({ dbId, runId, onSelectOp }: Props) 
           </select>
         </div>
       </div>
-      <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+      <div className="overflow-x-auto border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-slate-800/60">
             <tr>
-              <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 z-10">Operator</th>
+              <th className="text-left px-3 py-2 sticky left-0 bg-gray-50 dark:bg-slate-800/60 z-10">Operator</th>
               <th className="text-right px-3 py-2">Fire rate</th>
               {segments.map((seg) => (
                 <th key={seg} className="text-right px-3 py-2">{seg}</th>
@@ -105,8 +105,8 @@ export default function SegmentOperatorGrid({ dbId, runId, onSelectOp }: Props) 
                   className="hover:bg-blue-50 cursor-pointer"
                   onClick={() => onSelectOp?.(opId)}
                 >
-                  <td className="px-3 py-2 font-mono sticky left-0 bg-white z-10">{opId}</td>
-                  <td className="px-3 py-2 text-right text-gray-500">
+                  <td className="px-3 py-2 font-mono sticky left-0 bg-white dark:bg-slate-900 z-10">{opId}</td>
+                  <td className="px-3 py-2 text-right text-gray-500 dark:text-slate-400">
                     {firstRow?.fire_rate != null ? `${(firstRow.fire_rate * 100).toFixed(0)}%` : '—'}
                   </td>
                   {segments.map((seg) => (
@@ -120,7 +120,7 @@ export default function SegmentOperatorGrid({ dbId, runId, onSelectOp }: Props) 
           </tbody>
         </table>
       </div>
-      <div className="text-[10px] text-gray-400 mt-1 flex gap-3">
+      <div className="text-[10px] text-gray-400 dark:text-slate-500 mt-1 flex gap-3">
         <span><span className="bg-green-100 text-green-700 px-1 rounded">E</span> = Exact replay</span>
         <span><span className="bg-yellow-100 text-yellow-700 px-1 rounded">O</span> = Observed ablation</span>
         <span><span className="bg-red-100 text-red-700 px-1 rounded">N</span> = Not replayable</span>

@@ -45,6 +45,80 @@ class PipelineConfig(BaseModel):
     stages: List[StageConfig]
 
 
+class GraphNodeConfig(BaseModel):
+    """One node in a DAG pipeline. Source nodes have empty `inputs` and a retriever `type`;
+    fusion nodes set `op: fuse` and list ≥2 `inputs`; single-input nodes rerank/boost the
+    candidates flowing in from their one upstream node."""
+    id: str
+    type: Optional[str] = None  # adapter.* — omit for op: fuse nodes
+    op: Optional[Literal["fuse"]] = None
+    op_type: Optional[str] = None  # explicit taxonomy override (SOURCE/RERANK/BOOST/…)
+    inputs: List[str] = Field(default_factory=list)
+    url: Optional[str] = None
+    retriever_id: Optional[str] = None
+    model: Optional[str] = None
+    config: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _defaults(self) -> "GraphNodeConfig":
+        if self.retriever_id is None:
+            self.retriever_id = self.id
+        return self
+
+
+class GraphPipelineConfig(BaseModel):
+    """A DAG pipeline: named nodes wired by `inputs`. Executes as a real directed graph with
+    branching (parallel sources) and merge points (fusion nodes), unlike the linear
+    `PipelineConfig`."""
+    id: str
+    nodes: List[GraphNodeConfig]
+    output: Optional[str] = None  # final node id; defaults to the unique sink
+
+    @model_validator(mode="after")
+    def _validate_dag(self) -> "GraphPipelineConfig":
+        ids = [n.id for n in self.nodes]
+        if len(ids) != len(set(ids)):
+            raise ValueError(f"graph '{self.id}' has duplicate node ids")
+        id_set = set(ids)
+        for node in self.nodes:
+            for dep in node.inputs:
+                if dep not in id_set:
+                    raise ValueError(f"graph '{self.id}' node '{node.id}' references unknown input '{dep}'")
+            if node.op == "fuse":
+                if len(node.inputs) < 2:
+                    raise ValueError(f"graph '{self.id}' fusion node '{node.id}' needs ≥2 inputs")
+            elif not node.inputs and not node.type:
+                raise ValueError(f"graph '{self.id}' source node '{node.id}' needs a `type`")
+        # Acyclicity via topological sort (Kahn).
+        indeg = {n.id: 0 for n in self.nodes}
+        adj: Dict[str, List[str]] = {n.id: [] for n in self.nodes}
+        for node in self.nodes:
+            for dep in node.inputs:
+                adj[dep].append(node.id)
+                indeg[node.id] += 1
+        queue = [nid for nid, d in indeg.items() if d == 0]
+        seen = 0
+        while queue:
+            cur = queue.pop()
+            seen += 1
+            for nxt in adj[cur]:
+                indeg[nxt] -= 1
+                if indeg[nxt] == 0:
+                    queue.append(nxt)
+        if seen != len(self.nodes):
+            raise ValueError(f"graph '{self.id}' contains a cycle")
+        sinks = [n.id for n in self.nodes if not adj[n.id]]
+        if self.output is None:
+            if len(sinks) != 1:
+                raise ValueError(
+                    f"graph '{self.id}' has {len(sinks)} sink nodes; set `output` to the final node id"
+                )
+            self.output = sinks[0]
+        elif self.output not in id_set:
+            raise ValueError(f"graph '{self.id}' output '{self.output}' is not a node id")
+        return self
+
+
 class CombinationConfig(BaseModel):
     include: List[List[str]] = Field(default_factory=list)
     ablations: Union[bool, List[str]] = False
@@ -93,6 +167,7 @@ class ExperimentConfig(BaseModel):
     experiment: ExperimentMeta
     dataset: DatasetConfig
     pipelines: List[PipelineConfig] = Field(default_factory=list)
+    graphs: List[GraphPipelineConfig] = Field(default_factory=list)
     stages: Dict[str, StageConfig] = Field(default_factory=dict)
     combinations: Optional[CombinationConfig] = None
     labels: LabelsConfig = Field(default_factory=LabelsConfig)
@@ -155,8 +230,13 @@ class ExperimentConfig(BaseModel):
                 for combo in all_combos
             ]
             self.pipelines = [*self.pipelines, *expanded]
-        if not self.pipelines:
-            raise ValueError("At least one pipeline or combination is required")
+        if not self.pipelines and not self.graphs:
+            raise ValueError("At least one pipeline, combination, or graph is required")
+        graph_ids = {g.id for g in self.graphs}
+        pipeline_ids = {p.id for p in self.pipelines}
+        clash = graph_ids & pipeline_ids
+        if clash:
+            raise ValueError(f"graph and pipeline share id(s): {sorted(clash)}")
         return self
 
     @classmethod

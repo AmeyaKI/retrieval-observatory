@@ -65,12 +65,12 @@ export default function TraceLensWorkspace({ route }: Props) {
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md px-6">
           <div className="text-4xl mb-4 select-none" role="img" aria-label="TraceLens module icon" title="TraceLens module icon">📡</div>
-          <p className="text-lg font-semibold text-gray-700">No traces yet</p>
-          <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+          <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">No traces yet</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
             TraceLens captures production retrieval requests as structured traces so you can inspect any
             request and watch how traffic and retriever behavior drift over time.
           </p>
-          <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+          <p className="text-sm text-gray-400 dark:text-slate-500 mt-3 leading-relaxed">
             Seed sample data with{' '}
             <code className="text-teal-700 bg-teal-50 px-1 rounded">retobs demo</code>
             {' '}or{' '}
@@ -84,20 +84,20 @@ export default function TraceLensWorkspace({ route }: Props) {
 
   return (
     <div className="flex flex-1 min-w-0">
-      <aside className="shrink-0 w-60 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
-        <div className="px-4 py-4 border-b border-gray-200">
+      <aside className="shrink-0 w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col overflow-hidden">
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-bold text-gray-900">TraceLens</h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">TraceLens</h1>
             <WorkspaceGlossaryLink className="text-[11px] text-teal-700 underline decoration-teal-300" />
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">Production observability</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Production observability</p>
         </div>
-        <div className="px-3 py-3 border-b border-gray-100">
-          <label className="text-[10px] uppercase tracking-wide text-gray-400">Service</label>
+        <div className="px-3 py-3 border-b border-gray-100 dark:border-slate-800">
+          <label className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-slate-500">Service</label>
           <select
             value={activeService}
             onChange={(e) => selectService(e.target.value)}
-            className="w-full mt-1 border border-gray-200 rounded px-2 py-1.5 text-sm bg-white"
+            className="w-full mt-1 border border-gray-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm bg-white dark:bg-slate-900"
           >
             {services.map((s) => (
               <option key={s.service} value={s.service}>{s.service} ({s.trace_count})</option>
@@ -113,11 +113,11 @@ export default function TraceLensWorkspace({ route }: Props) {
                 type="button"
                 onClick={() => setView(v.id)}
                 className={`w-full text-left rounded-lg px-3 py-2 transition-colors ${
-                  active ? 'bg-teal-50 text-teal-800' : 'text-gray-600 hover:bg-gray-50'
+                  active ? 'bg-teal-50 text-teal-800' : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50'
                 }`}
               >
-                <span className={`block text-sm font-medium ${active ? 'text-teal-800' : 'text-gray-700'}`}>{v.label}</span>
-                <span className="block text-[10px] text-gray-400">{v.desc}</span>
+                <span className={`block text-sm font-medium ${active ? 'text-teal-800' : 'text-gray-700 dark:text-slate-200'}`}>{v.label}</span>
+                <span className="block text-[10px] text-gray-400 dark:text-slate-500">{v.desc}</span>
               </button>
             )
           })}
@@ -142,8 +142,8 @@ export default function TraceLensWorkspace({ route }: Props) {
         <div className="px-6 py-4">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-base font-semibold text-gray-800">{VIEWS.find((v) => v.id === view)?.label}</h2>
-              <p className="text-xs text-gray-400">Service: <span className="font-mono">{activeService}</span> · Window: <span className="font-medium">{WINDOWS[windowIdx].label}</span></p>
+              <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">{VIEWS.find((v) => v.id === view)?.label}</h2>
+              <p className="text-xs text-gray-400 dark:text-slate-500">Service: <span className="font-mono">{activeService}</span> · Window: <span className="font-medium">{WINDOWS[windowIdx].label}</span></p>
             </div>
             <div className="flex gap-1">
               {WINDOWS.map((w, i) => (
@@ -152,7 +152,7 @@ export default function TraceLensWorkspace({ route }: Props) {
                   type="button"
                   onClick={() => setWindowIdx(i)}
                   className={`px-2.5 py-1 rounded text-xs border ${
-                    i === windowIdx ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                    i === windowIdx ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-500 dark:text-slate-400 hover:border-gray-300'
                   }`}
                 >
                   {w.label}

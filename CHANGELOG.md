@@ -8,6 +8,30 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `PipelineGraph` contract + `/runs/{id}/pipeline-graph` — canonical DAG JSON with bootstrap CIs; `PipelineDagView.tsx` (dagre-free layered SVG) replaces `StagePipelineFlow`; honest empty state (no `fallbackTopology`).
+- `runner/manifest.py` — `schema_version`, `stage_labels`, `duplicate_ablation_stages` from resolved config (retires float-equality ablation heuristics).
+- `integrations/registry.py` + MCP `describe_integration` / `verify_integration`; CLI `retobs integrate`, `retobs doctor`.
+- `docs/integrations/AGENT_QUICKSTART.md` — numbered MCP journeys for benchmark vs instrument paths.
+- `examples/hybrid_fiqa_demo/` — hybrid RRF+rerk BEIR configs (FiQA, SciFact, NFCorpus) + `run_demo.sh`.
+- Dashboard vitest harness + `dagLayout.test.ts` (pure layout fidelity for 2-arm + FUSE + RERANK fixture).
+- `RunSectionNav` + Benchmarks deep links `#/benchmarks/run/{id}/{section}`; sticky in-page IA (Overview · Architecture · Quality · Tradeoffs · Queries).
+- `RunManifestPanel` — dataset fingerprint, query count, config hash on run overview.
+
+### Changed
+
+- `dashboard/api.py` `_extract_final_stage_metrics` — Pareto/tradeoff inputs use end-to-end P50/P95 (`stage_index=-1`); `/pareto-frontier` emits NDCG CI bounds + omitted-pipeline note.
+- `TradeoffScatter.tsx` — NDCG CI whiskers, end-to-end latency axis label, frontier-overlap highlighting.
+- `RecallFunnel.tsx` / `ComparePanel.tsx` / `VerdictCard.tsx` — bootstrap CIs surfaced; verdict medals CI-aware; e2e latency on ranking cards.
+- `LatencyChart.tsx` / `pipelineStages.ts` — stage labels from manifest, not `__`-split pipeline-id parsing.
+- `mcp/server.py` — `benchmark_config` normalizes legacy descriptor shape; `benchmark_pipeline_descriptor` deprecated in-tool; `retobs-mcp.yaml` drops unused `pipeline_name`.
+- `config/discovery.py` — hard-error on `adapter.qdrant` + `embedding_fn` in YAML.
+
+### Removed
+
+- `StagePipelineFlow.tsx` — superseded by `PipelineDagView`.
+- `OperatorDagView.tsx` — superseded by `PipelineDagView` (benchmark + trace-native graphs share one contract).
+- Root planning clutter (`SHORT_TERM.md`, `LONG_TERM.md`, `BREAKDOWN.md`, `TODO`, `IMPLEMENTATION_PLAN.md`, `RESULTS_v0.1.2.md`) moved to `.archive/`.
+
 - `retrieval_observatory.sdk.run_from_config(config: dict)` — run a benchmark from an
 `ExperimentConfig`-shaped dict (adapter specs, not live Python objects); the shared seam REST and
 MCP both call. Exported at top level as `retrieval_observatory.run_from_config`.
@@ -26,6 +50,7 @@ Recall/NDCG/latency with 95% CIs) as a standalone, offline HTML file (`diagram/h
 - Optional bearer-token auth via `RETOBS_API_TOKEN` and a concurrent-run cap via
 `RETOBS_MAX_CONCURRENT_RUNS` (default 2) gating the run-trigger endpoints.
 - `docs/integrations/api.md` and `docs/integrations/mcp.md` — agent/REST/MCP integration guides.
+- `retrieval_observatory/cli.py` and `retrieval_observatory/mcp/` — added a simple `retobs mcp init` bootstrap flow plus YAML-driven defaults so agents can wire retobs into an existing pipeline with minimal setup.
 
 ---
 

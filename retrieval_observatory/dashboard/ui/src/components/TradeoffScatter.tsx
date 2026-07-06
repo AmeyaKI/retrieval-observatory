@@ -25,10 +25,13 @@ interface ChartPoint {
   latencyP50: number
   ndcg10: number
   recall10: number
+  ndcg10CiLow: number | null
+  ndcg10CiHigh: number | null
   latencyP95: number
   costPer1k: number | null
   isParetoOptimal: boolean
   dominatedBy: string[]
+  ciOverlapsFrontier: boolean
 }
 
 function toChartPoint(entry: ParetoPipelineEntry): ChartPoint {
@@ -39,10 +42,13 @@ function toChartPoint(entry: ParetoPipelineEntry): ChartPoint {
     latencyP50: m.latency_p50 ?? 0,
     ndcg10: m['ndcg@10'] ?? 0,
     recall10: m['recall@10'] ?? 0,
+    ndcg10CiLow: m['ndcg@10_ci_low'] ?? null,
+    ndcg10CiHigh: m['ndcg@10_ci_high'] ?? null,
     latencyP95: m.latency_p95 ?? 0,
     costPer1k: m.cost_per_1k,
     isParetoOptimal: entry.is_pareto_optimal,
     dominatedBy: entry.dominated_by,
+    ciOverlapsFrontier: false,
   }
 }
 
@@ -50,11 +56,15 @@ function TradeoffTooltip({ active, payload }: { active?: boolean; payload?: Arra
   if (!active || !payload?.length) return null
   const pt = payload[0].payload
   return (
-    <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs max-w-xs">
+    <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded shadow p-2 text-xs max-w-xs">
       <p className="font-semibold mb-1">{pt.label}</p>
-      <p>NDCG@10: <span className="font-mono">{fmtQuality(pt.ndcg10)}</span></p>
+      <p>NDCG@10: <span className="font-mono">{fmtQuality(pt.ndcg10)}</span>
+        {pt.ndcg10CiLow != null && pt.ndcg10CiHigh != null && (
+          <span className="text-gray-400 dark:text-slate-500 ml-1">[{fmtQuality(pt.ndcg10CiLow)}, {fmtQuality(pt.ndcg10CiHigh)}]</span>
+        )}
+      </p>
       <p>Recall@10: <span className="font-mono">{fmtQuality(pt.recall10)}</span></p>
-      <p>P50 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP50)} ms</span></p>
+      <p>End-to-end P50: <span className="font-mono">{fmtLatencyMs(pt.latencyP50)} ms</span></p>
       <p>P95 Latency: <span className="font-mono">{fmtLatencyMs(pt.latencyP95)} ms</span></p>
       {pt.costPer1k != null && pt.costPer1k > 0 && (
         <p>Cost / 1k queries: <span className="font-mono">{fmtCost(pt.costPer1k)}</span></p>
@@ -62,9 +72,41 @@ function TradeoffTooltip({ active, payload }: { active?: boolean; payload?: Arra
       {pt.isParetoOptimal ? (
         <p className="text-indigo-600 font-semibold mt-1">Pareto optimal</p>
       ) : pt.dominatedBy.length > 0 ? (
-        <p className="text-gray-600 mt-1">Dominated by: {pt.dominatedBy.join(', ')}</p>
+        <p className="text-gray-600 dark:text-slate-300 mt-1">Dominated by: {pt.dominatedBy.join(', ')}</p>
       ) : null}
     </div>
+  )
+}
+
+function CIWhiskerLayer({
+  xAxisMap,
+  yAxisMap,
+  points,
+}: {
+  xAxisMap?: Record<string, { scale?: (v: number) => number }>
+  yAxisMap?: Record<string, { scale?: (v: number) => number }>
+  points: ChartPoint[]
+}) {
+  const xScale = xAxisMap?.[Object.keys(xAxisMap ?? {})[0] ?? '']?.scale
+  const yScale = yAxisMap?.[Object.keys(yAxisMap ?? {})[0] ?? '']?.scale
+  if (!xScale || !yScale) return null
+  return (
+    <g aria-hidden>
+      {points.map((pt) => {
+        if (pt.ndcg10CiLow == null || pt.ndcg10CiHigh == null) return null
+        const cx = xScale(pt.latencyP50)
+        const y1 = yScale(pt.ndcg10CiLow)
+        const y2 = yScale(pt.ndcg10CiHigh)
+        const stroke = pt.ciOverlapsFrontier ? '#d97706' : '#6b7280'
+        return (
+          <g key={pt.pipelineId}>
+            <line x1={cx} y1={y1} x2={cx} y2={y2} stroke={stroke} strokeWidth={2} opacity={0.85} />
+            <line x1={cx - 4} y1={y1} x2={cx + 4} y2={y1} stroke={stroke} strokeWidth={1.5} />
+            <line x1={cx - 4} y1={y2} x2={cx + 4} y2={y2} stroke={stroke} strokeWidth={1.5} />
+          </g>
+        )
+      })}
+    </g>
   )
 }
 
@@ -170,10 +212,15 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
       .catch((e) => setLoadError(e.message))
   }, [dbId, runId])
 
-  const points = useMemo(
-    () => (frontier?.pipelines ?? []).map(toChartPoint),
-    [frontier],
-  )
+  const points = useMemo(() => {
+    const raw = (frontier?.pipelines ?? []).map(toChartPoint)
+    const optimal = raw.filter((p) => p.isParetoOptimal)
+    return raw.map((pt) => {
+      if (pt.isParetoOptimal || pt.ndcg10CiHigh == null) return pt
+      const overlaps = optimal.some((o) => pt.ndcg10CiHigh! >= o.ndcg10 && pt.ndcg10 >= (o.ndcg10CiLow ?? o.ndcg10))
+      return { ...pt, ciOverlapsFrontier: overlaps }
+    })
+  }, [frontier])
 
   const colorMap = useMemo(
     () => buildPipelineColorMap(points.map((p) => p.pipelineId)),
@@ -199,6 +246,13 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
   const xMax = points.length > 0 ? Math.max(...points.map((p) => p.latencyP50)) : 1
   const yMin = points.length > 0 ? Math.min(...points.map((p) => p.ndcg10)) : 0
   const yMax = points.length > 0 ? Math.max(...points.map((p) => p.ndcg10)) : 1
+
+  const ciLayer = useCallback(
+    (props: { xAxisMap?: Record<string, { scale?: (v: number) => number }>; yAxisMap?: Record<string, { scale?: (v: number) => number }> }) => (
+      <CIWhiskerLayer {...props} points={points} />
+    ),
+    [points],
+  )
 
   const paretoLayer = useCallback(
     (props: { xAxisMap?: Record<string, { scale?: (v: number) => number }>; yAxisMap?: Record<string, { scale?: (v: number) => number }> }) => (
@@ -237,12 +291,12 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
   }
 
   if (!frontier) {
-    return <p className="text-sm text-gray-400">Loading tradeoff chart…</p>
+    return <p className="text-sm text-gray-400 dark:text-slate-500">Loading tradeoff chart…</p>
   }
 
   if (points.length < 2) {
     return (
-      <p className="text-sm text-gray-400">
+      <p className="text-sm text-gray-400 dark:text-slate-500">
         Tradeoff chart requires at least 2 pipeline configurations with latency and NDCG@10 data.
       </p>
     )
@@ -288,7 +342,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
           tick={{ fontSize: 11 }}
           tickFormatter={(v) => `${fmtLatencyMs(v)}ms`}
         >
-          <Label value="P50 Latency (ms)" offset={-12} position="insideBottom" style={{ fontSize: 11, fill: '#6b7280' }} />
+          <Label value="End-to-end P50 latency (ms)" offset={-12} position="insideBottom" style={{ fontSize: 11, fill: '#6b7280' }} />
         </XAxis>
         <YAxis
           type="number"
@@ -312,6 +366,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
         {isSelecting && refAreaLeft != null && refAreaRight != null && (
           <ReferenceArea x1={refAreaLeft} x2={refAreaRight} strokeOpacity={0.3} fill="#0072B2" fillOpacity={0.1} />
         )}
+        <Customized component={ciLayer} />
         <Customized component={paretoLayer} />
         {points.map((pt) => {
           const color = getPipelineColor(pt.pipelineId, colorMap)
@@ -333,7 +388,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
   const paretoOptimalCount = points.filter((p) => p.isParetoOptimal).length
 
   const legend = (
-    <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2 justify-center items-center text-xs text-gray-600">
+    <div className="flex flex-wrap gap-x-4 gap-y-2 mt-2 justify-center items-center text-xs text-gray-600 dark:text-slate-300">
       {points.map((pt) => {
         const color = getPipelineColor(pt.pipelineId, colorMap)
         return (
@@ -349,8 +404,8 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
           </div>
         )
       })}
-      <span className="text-gray-300 hidden sm:inline">|</span>
-      <div className="flex items-center gap-1.5 text-gray-500">
+      <span className="text-gray-300 dark:text-slate-600 hidden sm:inline">|</span>
+      <div className="flex items-center gap-1.5 text-gray-500 dark:text-slate-400">
         <svg width={12} height={12} viewBox="0 0 14 14" className="shrink-0" aria-hidden>
           <path d={starPath(7, 7, 7, 3.5)} fill="#9ca3af" stroke="#e5e7eb" strokeWidth={0.75} />
         </svg>
@@ -358,7 +413,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
       </div>
       {frontierPoints.length >= 2 && (
         <>
-          <span className="text-gray-300 hidden sm:inline">|</span>
+          <span className="text-gray-300 dark:text-slate-600 hidden sm:inline">|</span>
           <div className="flex items-center gap-1.5">
             <span className="inline-block w-5 border-t-2 border-dashed border-[#0072B2] opacity-70" />
             <span>Pareto frontier (quality–latency step-line)</span>
@@ -377,7 +432,7 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
         onReset={resetY}
         onExpand={() => setExpanded(true)}
       />
-      <button type="button" onClick={() => fitXToData(xMin, xMax)} className="text-xs text-gray-500 hover:text-indigo-600 border border-gray-200 rounded px-1.5 py-0.5">Fit X</button>
+      <button type="button" onClick={() => fitXToData(xMin, xMax)} className="text-xs text-gray-500 dark:text-slate-400 hover:text-indigo-600 border border-gray-200 dark:border-slate-700 rounded px-1.5 py-0.5">Fit X</button>
       {isXZoomed && (
         <button type="button" onClick={resetX} className="text-xs text-indigo-600 border border-indigo-200 rounded px-2 py-0.5">Reset X</button>
       )}
@@ -389,20 +444,26 @@ export default function TradeoffScatter({ dbId, runId, latencyBudgetMs }: Props)
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-2">
-        Each point is one pipeline (final stage). Top-left = best (high NDCG@10, low latency).{' '}
-        The dashed step-line connects <strong>Pareto-optimal</strong> pipelines only — dominated configs (e.g. same quality at much higher latency) are omitted from the frontier.{' '}
-        A <strong>star</strong> replaces the dot for optimal pipelines (same color as that pipeline). Drag to select an X range; hold ⌘ and pinch or scroll to zoom both axes.
-        <MetricTooltip text="A pipeline is Pareto-optimal if no other pipeline is simultaneously better on NDCG@10, Recall@10, and latency (P50 and P95). The frontier step-line links optimal points sorted by latency — it does not pass through dominated pipelines." />
+      <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
+        Each point is one pipeline (final-stage quality, end-to-end P50 latency). Vertical whiskers show NDCG@10 95% bootstrap CIs; amber whiskers overlap a Pareto-optimal point's CI. Top-left = best.
+        {' '}
+        The dashed step-line connects <strong>Pareto-optimal</strong> pipelines only.
+        <MetricTooltip text="Latency is end-to-end (stage_index=-1 joint distribution). Quality is from the final stage. A pipeline is Pareto-optimal if no other pipeline dominates on NDCG@10, Recall@10, and latency." />
       </p>
+      {frontier.omitted_pipelines && frontier.omitted_pipelines.length > 0 && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 mb-2">
+          {frontier.omitted_pipelines.length} pipeline(s) omitted from chart: {frontier.omitted_reason}
+          {' '}({frontier.omitted_pipelines.join(', ')})
+        </p>
+      )}
       {frontier.cost_included && (
-        <label className="flex items-center gap-2 text-xs text-gray-600 mb-2">
-          <input type="checkbox" checked={sizeByCost} onChange={(e) => setSizeByCost(e.target.checked)} className="rounded border-gray-300" />
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-300 mb-2">
+          <input type="checkbox" checked={sizeByCost} onChange={(e) => setSizeByCost(e.target.checked)} className="rounded border-gray-300 dark:border-slate-600" />
           Size by cost
         </label>
       )}
       {!frontier.cost_included && frontier.cost_excluded_reason && (
-        <p className="text-xs text-gray-400 mb-2">{frontier.cost_excluded_reason}</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500 mb-2">{frontier.cost_excluded_reason}</p>
       )}
       {zoomControls}
       <ChartZoomSurface onWheel={handleChartWheel} onPinchScale={handleChartPinchScale}>

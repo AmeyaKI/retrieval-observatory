@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://retrieval-observatory/pipeline_graph.schema.json",
+  "title": "PipelineGraph",
+  "description": "Render-only projection of a benchmarked pipeline as a directed graph. Every quality metric carries its bootstrap CI or is null.",
+  "type": "object",
+  "required": ["pipeline_id", "nodes", "edges"],
+  "additionalProperties": false,
+  "properties": {
+    "pipeline_id": { "type": "string" },
+    "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } }
+  },
+  "definitions": {
+    "metricValue": {
+      "type": ["object", "null"],
+      "required": ["mean", "ci_low", "ci_high"],
+      "additionalProperties": false,
+      "properties": {
+        "mean": { "type": ["number", "null"] },
+        "ci_low": { "type": ["number", "null"] },
+        "ci_high": { "type": ["number", "null"] },
+        "k": { "type": ["integer", "null"] }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["node_id", "label", "op_type", "depth", "branch_id", "candidate_count", "metrics", "is_merge", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "node_id": { "type": "string" },
+        "label": { "type": "string" },
+        "op_type": {
+          "type": "string",
+          "enum": ["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM"]
+        },
+        "depth": { "type": "integer", "minimum": 0 },
+        "branch_id": { "type": ["string", "null"] },
+        "candidate_count": { "type": "number" },
+        "is_merge": { "type": "boolean" },
+        "source": { "type": "string", "enum": ["measured"] },
+        "metrics": {
+          "type": "object",
+          "required": ["ndcg@10", "recall", "latency_p50"],
+          "additionalProperties": false,
+          "properties": {
+            "ndcg@10": { "$ref": "#/definitions/metricValue" },
+            "recall": { "$ref": "#/definitions/metricValue" },
+            "latency_p50": { "$ref": "#/definitions/metricValue" }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["source", "target", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "source": { "type": "string" },
+        "target": { "type": "string" },
+        "kind": { "type": "string", "enum": ["flow", "fan_in"] }
+      }
+    }
+  }
+}

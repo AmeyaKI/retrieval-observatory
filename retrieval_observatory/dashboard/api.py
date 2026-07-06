@@ -748,6 +748,8 @@ def create_app(
         manifest = await store.get_run_manifest(run_id)
 
         final_metrics = _extract_final_stage_metrics(agg)
+        all_pipeline_ids = _pareto_pipeline_ids_in_agg(agg)
+        omitted = sorted(all_pipeline_ids - set(final_metrics.keys()))
         pareto_inputs: List[ParetoPipelineInput] = []
         for pipeline_id, metrics in final_metrics.items():
             cost = _pipeline_cost_per_1k(config, pipeline_id, costs)
@@ -772,12 +774,18 @@ def create_app(
             "cost_included": result.cost_included,
             "cost_excluded_reason": result.cost_excluded_reason,
             "latency_budget_ms": latency_budget_ms,
+            "omitted_pipelines": omitted,
+            "omitted_reason": (
+                "Missing one or more of NDCG@10, Recall@10, or end-to-end latency (P50/P95)."
+                if omitted
+                else None
+            ),
             "pipelines": [
                 {
                     "pipeline_id": row.pipeline_id,
                     "stage_index": row.stage_index,
                     "label": row.pipeline_id,
-                    "metrics": row.metrics,
+                    "metrics": {**row.metrics, **_pareto_quality_ci(agg, row.pipeline_id, row.stage_index)},
                     "is_pareto_optimal": row.is_pareto_optimal,
                     "dominated_by": row.dominated_by,
                 }
@@ -823,6 +831,19 @@ def create_app(
             for result in operator_marginal_contribution(traces, op_id=op_id, qrels=qrels, metric=metric, k=k):
                 out.append(result.__dict__)
         return out
+
+    @db_router.get("/runs/{run_id}/pipeline-graph")
+    async def get_pipeline_graph(db_id: str, run_id: str) -> Dict[str, Any]:
+        """Canonical PipelineGraph projection (nodes + edges, every metric with its CI or null)
+        built from persisted traces + aggregated metrics. Drives the dashboard DAG view, the
+        offline HTML diagram, and the MCP get_pipeline_diagram tool from one contract."""
+        from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
+
+        store = _store_for(db_id)
+        agg = await engine.aggregate(run_id, store)
+        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        graphs = build_pipeline_graphs(agg, traces)
+        return {"run_id": run_id, "pipelines": [g.to_dict() for g in graphs]}
 
     @db_router.get("/runs/{run_id}/operator-dag")
     async def get_operator_dag(db_id: str, run_id: str) -> Dict[str, Any]:
@@ -2196,24 +2217,51 @@ def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[
     return pipeline_cost_per_1k(config, pipeline_id, costs)
 
 
+def _lookup_agg_metric(
+    agg: Dict[str, Any],
+    pipeline_id: str,
+    stage_index: int,
+    metric_name: str,
+    k: int = 0,
+) -> Dict[str, Any] | None:
+    for value in agg.values():
+        if value.get("pipeline_id") != pipeline_id:
+            continue
+        if value.get("stage_index") != stage_index:
+            continue
+        if value.get("metric_name") != metric_name:
+            continue
+        if value.get("k", 0) != k:
+            continue
+        return value
+    return None
+
+
 def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
-    """Return per-pipeline final-stage metrics needed for Pareto analysis."""
+    """Return per-pipeline metrics needed for Pareto analysis: final-stage QUALITY, but
+    end-to-end LATENCY.
+
+    Quality (NDCG/Recall) is read from the pipeline's final stage. Latency is read from the
+    end-to-end distribution stored at stage_index=-1 (the joint per-query latency) for
+    multi-stage pipelines, so a hybrid+rerank pipeline is plotted at its true total latency,
+    not the reranker's stage-local latency. Single-stage pipelines have no stage -1 entry, so
+    their final-stage latency is already end-to-end and is used directly."""
     by_pipeline: Dict[str, Dict[int, Dict[tuple, float]]] = defaultdict(lambda: defaultdict(dict))
+    e2e_latency: Dict[str, Dict[tuple, float]] = defaultdict(dict)
     for value in agg.values():
         if value.get("branch_id"):
             continue
         stage_index = value.get("stage_index", -1)
-        if stage_index < 0:
-            continue
         metric_key = (value["metric_name"], value.get("k", 0))
+        if stage_index < 0:
+            # End-to-end latency percentiles live at stage -1 for multi-stage pipelines.
+            if value["metric_name"] in ("latency_p50", "latency_p95"):
+                e2e_latency[value["pipeline_id"]][metric_key] = value["mean"]
+            continue
         by_pipeline[value["pipeline_id"]][stage_index][metric_key] = value["mean"]
 
-    required = {
-        ("ndcg", 10): "ndcg10",
-        ("recall", 10): "recall10",
-        ("latency_p50", 0): "latency_p50",
-        ("latency_p95", 0): "latency_p95",
-    }
+    quality_required = {("ndcg", 10): "ndcg10", ("recall", 10): "recall10"}
+    latency_required = {("latency_p50", 0): "latency_p50", ("latency_p95", 0): "latency_p95"}
 
     final_metrics: Dict[str, Dict[str, float | int]] = {}
     for pipeline_id, stages in by_pipeline.items():
@@ -2221,11 +2269,45 @@ def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, flo
         stage_metrics = stages[final_stage]
         row: Dict[str, float | int] = {"stage_index": final_stage}
         complete = True
-        for metric_key, field in required.items():
+        for metric_key, field in quality_required.items():
             if metric_key not in stage_metrics:
                 complete = False
                 break
             row[field] = stage_metrics[metric_key]
+        if not complete:
+            continue
+        for metric_key, field in latency_required.items():
+            # Prefer end-to-end latency (stage -1); fall back to final-stage latency for
+            # single-stage pipelines that have no joint-distribution entry.
+            if metric_key in e2e_latency.get(pipeline_id, {}):
+                row[field] = e2e_latency[pipeline_id][metric_key]
+            elif metric_key in stage_metrics:
+                row[field] = stage_metrics[metric_key]
+            else:
+                complete = False
+                break
         if complete:
             final_metrics[pipeline_id] = row
     return final_metrics
+
+
+def _pareto_quality_ci(
+    agg: Dict[str, Any], pipeline_id: str, stage_index: int
+) -> Dict[str, float | None]:
+    """Bootstrap CI bounds for quality metrics on the pipeline's final stage."""
+    out: Dict[str, float | None] = {}
+    for metric_name, k, prefix in (("ndcg", 10, "ndcg@10"), ("recall", 10, "recall@10")):
+        entry = _lookup_agg_metric(agg, pipeline_id, stage_index, metric_name, k)
+        if entry is None:
+            continue
+        out[f"{prefix}_ci_low"] = entry.get("ci_low")
+        out[f"{prefix}_ci_high"] = entry.get("ci_high")
+    return out
+
+
+def _pareto_pipeline_ids_in_agg(agg: Dict[str, Any]) -> set[str]:
+    return {
+        value["pipeline_id"]
+        for value in agg.values()
+        if value.get("stage_index", -1) >= 0 and not value.get("branch_id")
+    }

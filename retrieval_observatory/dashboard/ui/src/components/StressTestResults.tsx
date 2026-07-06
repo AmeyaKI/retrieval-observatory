@@ -38,25 +38,25 @@ export default function StressTestResults({ dbId, runId }: Props) {
     <section className="mb-8">
       <div className="mb-3 flex items-center gap-2">
         <span className="text-amber-600">🜂</span>
-        <h2 className="text-base font-semibold text-gray-800">Stress Test Results</h2>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">Stress Test Results</h2>
         <span className="text-[10px] font-medium uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
           Forge dataset
         </span>
       </div>
-      <p className="text-xs text-gray-400 mb-4">
+      <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">
         Performance broken down by the failure scenario and difficulty each query was generated to probe —
         this is where benchmark-blindness shows up (e.g. strong overall but weak on temporal queries).
       </p>
 
       {hasScenario && (
         <div className="mb-6">
-          <p className="text-sm font-medium text-gray-700 mb-1">NDCG@10 by scenario type</p>
+          <p className="text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">NDCG@10 by scenario type</p>
           <SegmentBreakdown dbId={dbId} runId={runId} field="scenario_type" targetMetric="ndcg" />
         </div>
       )}
       {hasDifficulty && (
         <div>
-          <p className="text-sm font-medium text-gray-700 mb-1">NDCG@10 by difficulty</p>
+          <p className="text-sm font-medium text-gray-700 dark:text-slate-200 mb-1">NDCG@10 by difficulty</p>
           <SegmentBreakdown dbId={dbId} runId={runId} field="difficulty_label" targetMetric="ndcg" />
         </div>
       )}

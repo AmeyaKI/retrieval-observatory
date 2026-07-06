@@ -28,14 +28,14 @@ export function ChartModal({ title, onClose, children }: Props) {
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-5xl max-h-[90vh] overflow-auto outline-none"
+        className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl p-6 w-full max-w-5xl max-h-[90vh] overflow-auto outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4">
-          <h3 className="font-semibold text-gray-800">{title}</h3>
+          <h3 className="font-semibold text-gray-800 dark:text-slate-100">{title}</h3>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-xl leading-none px-1"
+            className="text-gray-400 dark:text-slate-500 hover:text-gray-700 text-xl leading-none px-1"
           >
             ✕
           </button>

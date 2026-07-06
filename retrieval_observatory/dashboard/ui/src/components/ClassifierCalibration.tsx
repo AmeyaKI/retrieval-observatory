@@ -46,9 +46,9 @@ export default function ClassifierCalibration({ dbId, runId }: { dbId: string; r
 
   if (!data.has_predictions) {
     return (
-      <div className="md:col-span-3 border border-gray-200 rounded p-3 bg-white">
-        <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Classifier Calibration</div>
-        <p className="text-xs text-gray-400">
+      <div className="md:col-span-3 border border-gray-200 dark:border-slate-700 rounded p-3 bg-white dark:bg-slate-900">
+        <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-1">Classifier Calibration</div>
+        <p className="text-xs text-gray-400 dark:text-slate-500">
           Run a benchmark with a trained difficulty model to see predicted-class Recall@10 validation.
         </p>
       </div>
@@ -59,23 +59,23 @@ export default function ClassifierCalibration({ dbId, runId }: { dbId: string; r
   const chartData = buildChartRows(sourceClasses)
 
   return (
-    <div className="md:col-span-3 border border-gray-200 rounded p-3 bg-white">
+    <div className="md:col-span-3 border border-gray-200 dark:border-slate-700 rounded p-3 bg-white dark:bg-slate-900">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <div className="text-xs uppercase tracking-wide text-gray-500">
+        <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">
           Classifier Calibration — Mean Recall@10 by {view === 'predicted' ? 'Predicted' : 'Actual'} Difficulty
         </div>
-        <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
+        <div className="flex rounded border border-gray-200 dark:border-slate-700 overflow-hidden text-xs">
           <button
             type="button"
             onClick={() => setView('predicted')}
-            className={`px-2 py-1 ${view === 'predicted' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+            className={`px-2 py-1 ${view === 'predicted' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50'}`}
           >
             By predicted
           </button>
           <button
             type="button"
             onClick={() => setView('actual')}
-            className={`px-2 py-1 border-l border-gray-200 ${view === 'actual' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+            className={`px-2 py-1 border-l border-gray-200 dark:border-slate-700 ${view === 'actual' ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50'}`}
           >
             By actual
           </button>
@@ -111,7 +111,7 @@ export default function ClassifierCalibration({ dbId, runId }: { dbId: string; r
           </Bar>
         </BarChart>
       </ChartFrame>
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600">
+      <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-600 dark:text-slate-300">
         {ALL_CLASSES.map((cls) => {
           const c = sourceClasses.find((row) => row.class === cls)
           return (

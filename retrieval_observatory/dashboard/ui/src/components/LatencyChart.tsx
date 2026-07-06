@@ -18,8 +18,11 @@ import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
 import ChartZoomSurface from './ChartZoomSurface'
 
+import { stageLabelFromManifest, PipelineDisplayMeta } from '../utils/stageLabels'
+
 interface Props {
   metrics: MetricsMap
+  displayMeta?: PipelineDisplayMeta | null
 }
 
 interface LatencyRow {
@@ -32,33 +35,16 @@ interface LatencyRow {
   p99: number | null
 }
 
-// Abbreviate one stage part of a pipeline ID: "fast_rerank" → "FR", "bm25" → "BM25"
-function stageAbbrev(part: string): string {
-  const known: Record<string, string> = { bm25: 'BM25', dense: 'DN', rrf: 'RRF' }
-  return known[part] ?? part.split('_').map((w) => w[0].toUpperCase()).join('')
-}
-
-// Human-readable stage name: "fast_rerank" → "Fast Reranker", "bm25" → "BM25"
-function stageDisplayName(part: string): string {
-  const known: Record<string, string> = { bm25: 'BM25', dense: 'Dense Retriever', rrf: 'RRF Fusion' }
-  if (known[part]) return known[part]
-  return part
-    .replace(/_rerank$/, ' Reranker')
-    .replace(/_retriever$/, ' Retriever')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-// "bm25__fast_rerank__precise_rerank" → "BM25+FR+PR"
-function pipelineAbbrev(pipelineId: string): string {
-  return pipelineId.split('__').map(stageAbbrev).join('+')
-}
-
-// Unique bar label: "BM25+FR+PR · Fast Reranker" or just "BM25" for single-stage
-function barLabel(pipelineId: string, stageIndex: number, isMulti: boolean): string {
-  const parts = pipelineId.split('__')
-  const name = stageDisplayName(parts[stageIndex] ?? '')
-  return isMulti ? `${pipelineAbbrev(pipelineId)} · ${name}` : name
+// Unique bar label from manifest stage labels (config-derived, not pipeline-id parsing).
+function barLabel(
+  pipelineId: string,
+  stageIndex: number,
+  isMulti: boolean,
+  displayMeta?: PipelineDisplayMeta | null,
+): string {
+  const name = stageLabelFromManifest(displayMeta, pipelineId, stageIndex)
+  if (!isMulti) return name
+  return `${pipelineId.replace(/_/g, ' ')} · ${name}`
 }
 
 function buildLatencyGroups(metrics: MetricsMap): Record<string, Record<string, number>> {
@@ -85,7 +71,7 @@ function buildPipelineMaxStage(metrics: MetricsMap): Record<string, number> {
 function rowFromGroup(
   rawKey: string,
   groups: Record<string, Record<string, number>>,
-  opts: { isTotal: boolean; isMultiStage: (id: string) => boolean },
+  opts: { isTotal: boolean; isMultiStage: (id: string) => boolean; displayMeta?: PipelineDisplayMeta | null },
 ): LatencyRow {
   const [pipelineId, stageStr] = rawKey.split('|||')
   const stageIndex = parseInt(stageStr, 10)
@@ -94,8 +80,8 @@ function rowFromGroup(
     pipelineId,
     stageIndex,
     label: opts.isTotal
-      ? `${pipelineAbbrev(pipelineId)} · E2E Total`
-      : barLabel(pipelineId, stageIndex, opts.isMultiStage(pipelineId)),
+      ? `${pipelineId.replace(/_/g, ' ')} · E2E Total`
+      : barLabel(pipelineId, stageIndex, opts.isMultiStage(pipelineId), opts.displayMeta),
     isTotal: opts.isTotal,
     p50: g.latency_p50 ?? null,
     p95: g.latency_p95 ?? null,
@@ -117,7 +103,7 @@ function LatencyTooltip({
   if (!active || !payload?.length) return null
   const byKey = Object.fromEntries(percentileSeries.map((s) => [s.dataKey, s.label]))
   return (
-    <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+    <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded shadow p-2 text-xs">
       <p className="font-semibold mb-1">{label}</p>
       {payload
         .filter((p) => p.value != null)
@@ -130,7 +116,7 @@ function LatencyTooltip({
   )
 }
 
-export default function LatencyChart({ metrics }: Props) {
+export default function LatencyChart({ metrics, displayMeta }: Props) {
   const [expanded, setExpanded] = useState(false)
   const { domain: yDomain, fitToData, reset, zoomIn, zoomOut, handleWheel, handlePinchScale, isZoomed } = useChartZoom({
     initialDomain: [0, 1],
@@ -153,15 +139,15 @@ export default function LatencyChart({ metrics }: Props) {
         const cmp = pa.localeCompare(pb)
         return cmp !== 0 ? cmp : parseInt(sa, 10) - parseInt(sb, 10)
       })
-      .map((rawKey) => rowFromGroup(rawKey, groups, { isTotal: false, isMultiStage }))
+      .map((rawKey) => rowFromGroup(rawKey, groups, { isTotal: false, isMultiStage, displayMeta }))
 
     const totalRows = groupKeys
       .filter((k) => parseInt(k.split('|||')[1], 10) === -1)
       .sort((a, b) => a.localeCompare(b))
-      .map((rawKey) => rowFromGroup(rawKey, groups, { isTotal: true, isMultiStage }))
+      .map((rawKey) => rowFromGroup(rawKey, groups, { isTotal: true, isMultiStage, displayMeta }))
 
     return { chartData: [...perStageData, ...totalRows], totalRowCount: totalRows.length }
-  }, [metrics])
+  }, [metrics, displayMeta])
 
   const latencyMax = useMemo(() => {
     const values: number[] = []
@@ -175,7 +161,7 @@ export default function LatencyChart({ metrics }: Props) {
   }, [chartData, percentileSeries])
 
   if (chartData.length === 0 || percentileSeries.length === 0) {
-    return <p className="text-sm text-gray-400">No latency data.</p>
+    return <p className="text-sm text-gray-400 dark:text-slate-500">No latency data.</p>
   }
 
   const yMax = isZoomed ? yDomain[1] * latencyMax : undefined
@@ -185,14 +171,14 @@ export default function LatencyChart({ metrics }: Props) {
     && LATENCY_PERCENTILE_SERIES.some((s) => s.dataKey === 'p99')
 
   const note = (
-    <p className="text-xs text-gray-500 mb-2">
+    <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
       Grouped bars use fixed colors per percentile (P50 / P95 / P99). Each x-axis label is a pipeline stage.
       <MetricTooltip text={`${METRIC_GLOSSARY.latency_p50}\n\n${METRIC_GLOSSARY.latency_p95}\n\n${METRIC_GLOSSARY.latency_p99}`} />
       {totalRowCount > 0 && (
-        <span className="ml-2 text-gray-400">· &quot;E2E Total&quot; = end-to-end percentiles on per-query total latency</span>
+        <span className="ml-2 text-gray-400 dark:text-slate-500">· &quot;E2E Total&quot; = end-to-end percentiles on per-query total latency</span>
       )}
       {missingP99 && (
-        <span className="ml-2 text-gray-400">· P99 not collected in this run</span>
+        <span className="ml-2 text-gray-400 dark:text-slate-500">· P99 not collected in this run</span>
       )}
     </p>
   )

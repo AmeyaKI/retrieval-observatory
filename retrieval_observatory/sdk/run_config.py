@@ -86,9 +86,11 @@ async def _run_from_config_async(
         effective_db_path = cfg.output.db_path
     await store.init_db()
 
+    from retrieval_observatory.pipeline.factory import build_dag_from_config
     pipelines = [build_pipeline_from_config(p.model_dump(), corpus=corpus) for p in cfg.pipelines]
+    pipelines += [build_dag_from_config(g.model_dump(), corpus=corpus) for g in cfg.graphs]
     if not pipelines:
-        raise ValueError("Config defines no pipelines; add at least one entry under 'pipelines'.")
+        raise ValueError("Config defines no pipelines; add at least one entry under 'pipelines' or 'graphs'.")
 
     artifacts = await execute_benchmark(
         cfg=cfg,

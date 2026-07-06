@@ -64,3 +64,32 @@ async def test_mcp_benchmark_config(tmp_path):
     }
     out = await server._benchmark_config(cfg, max_queries=5, db_path=db_path)
     assert out["run_id"] and out["metrics"]
+
+
+def test_mcp_loads_simple_config(tmp_path):
+    config_path = tmp_path / "retobs-mcp.yaml"
+    config_path.write_text("db_path: /tmp/results.db\nmax_queries: 12\n", encoding="utf-8")
+
+    cfg = server.load_config(str(config_path))
+
+    assert cfg["db_path"] == "/tmp/results.db"
+    assert cfg["max_queries"] == 12
+
+
+@pytest.mark.asyncio
+async def test_mcp_benchmark_pipeline_descriptor(tmp_path):
+    db_path = str(tmp_path / "descriptor.db")
+    descriptor = {
+        "name": "descriptor-test",
+        "dataset": {
+            "type": "custom",
+            "name": "custom",
+            "queries_path": os.path.join(FIXTURES, "tiny_queries.jsonl"),
+            "corpus_path": os.path.join(FIXTURES, "tiny_corpus.jsonl"),
+        },
+        "pipelines": [{"id": "bm25", "stages": [{"type": "adapter.bm25", "retriever_id": "bm25"}]}],
+    }
+
+    out = await server._benchmark_pipeline_descriptor(descriptor, max_queries=5, db_path=db_path)
+
+    assert out["run_id"] and out["metrics"]

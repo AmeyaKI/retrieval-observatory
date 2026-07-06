@@ -13,3 +13,6 @@ dashboard-dev:
 dashboard-build:
 	npm --prefix retrieval_observatory/dashboard/ui install
 	npm --prefix retrieval_observatory/dashboard/ui run build
+
+dashboard-test:
+	npm --prefix retrieval_observatory/dashboard/ui run test

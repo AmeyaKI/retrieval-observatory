@@ -59,7 +59,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
   )
 
   if (seriesKeys.length === 0) {
-    return <p className="text-sm text-gray-400">No recall metrics found.</p>
+    return <p className="text-sm text-gray-400 dark:text-slate-500">No recall metrics found.</p>
   }
 
   const allK = [...new Set(seriesKeys.flatMap((s) => Object.keys(seriesMap[s]).map(Number)))].sort((a, b) => a - b)
@@ -139,16 +139,16 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
   )
 
   const footer = referenceLines.length > 0 && (
-    <p className="text-xs text-gray-400 mt-1">Dashed line: published BM25 (Elasticsearch) baseline from BEIR benchmark.</p>
+    <p className="text-xs text-gray-400 dark:text-slate-500 mt-1">Dashed line: published BM25 (Elasticsearch) baseline from BEIR benchmark.</p>
   )
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-slate-400">
           Final-stage recall per pipeline. Per-stage breakdown is in the Stage Recall Funnel below.
         </p>
-        <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+        <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300 cursor-pointer select-none">
           <input
             type="checkbox"
             checked={showIntermediateStages}
@@ -156,7 +156,7 @@ export default function RecallCurve({ metrics, baselines = {} }: Props) {
               setShowIntermediateStages(e.target.checked)
               setHiddenSeries(new Set())
             }}
-            className="rounded border-gray-300"
+            className="rounded border-gray-300 dark:border-slate-600"
           />
           Show intermediate stages
         </label>

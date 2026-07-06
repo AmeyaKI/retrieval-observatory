@@ -21,9 +21,9 @@ export default function QueryWinnerTable({ dbId, runId }: Props) {
   return (
     <div>
       <SectionHeading title="Per-query winners" />
-      <div className="overflow-x-auto border border-gray-200 rounded bg-white">
+      <div className="overflow-x-auto border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900">
         <table className="min-w-full text-xs">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-slate-800/60">
             <tr>
               <th className="text-left px-3 py-2">Query</th>
               <th className="text-left px-3 py-2">Winner</th>

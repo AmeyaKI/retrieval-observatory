@@ -23,13 +23,13 @@ export default function ForgeWorkspace({ route }: Props) {
 
   return (
     <div className="flex flex-1 min-w-0">
-      <aside className="shrink-0 w-72 bg-white border-r border-gray-200 flex flex-col overflow-hidden">
-        <div className="px-4 py-4 border-b border-gray-200">
+      <aside className="shrink-0 w-72 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col overflow-hidden">
+        <div className="px-4 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-bold text-gray-900">Forge</h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Forge</h1>
             <WorkspaceGlossaryLink className="text-[11px] text-amber-700 underline decoration-amber-300" />
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">Corpus-specific stress datasets</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Corpus-specific stress datasets</p>
           <p className="text-[11px] text-amber-800 mt-2">
             Synthetic, corpus-specific stress tests — hard queries Forge mines from your own corpus.
           </p>
@@ -47,12 +47,12 @@ export default function ForgeWorkspace({ route }: Props) {
           <div className="flex items-center justify-center h-full">
             <div className="text-center max-w-md px-6">
               <div className="text-4xl mb-4 select-none" role="img" aria-label="Forge module icon" title="Forge module icon">🜂</div>
-              <p className="text-lg font-semibold text-gray-700">No Forge datasets yet</p>
-              <p className="text-sm text-gray-500 mt-2 leading-relaxed">
+              <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">No Forge datasets yet</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
                 Forge scans your corpus for failure patterns (temporal confusion, alias mismatches) and
                 generates hard, targeted evaluation queries.
               </p>
-              <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+              <p className="text-sm text-gray-400 dark:text-slate-500 mt-3 leading-relaxed">
                 Fastest path:{' '}
                 <code className="text-amber-700 bg-amber-50 px-1 rounded">retobs demo</code>
                 {' '}— or generate with{' '}

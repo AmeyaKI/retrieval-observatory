@@ -2,6 +2,11 @@
 
 Use this checklist before tagging a GitHub release. Run against full publish sweep DBs (not smoke runs).
 
+## Notes (2026-07-05 REVAMP)
+
+- **Tradeoff scatter latency axis** now plots end-to-end P50 (`stage_index=-1`), not final-stage-only. Re-screenshot tradeoff charts if comparing to pre-REVAMP PNGs in `results/screenshots/`.
+- **Architecture** uses `PipelineDagView` (SVG DAG from `/pipeline-graph`), not the legacy linear stage flow.
+
 ## Prerequisites
 
 ```bash

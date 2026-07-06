@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import traceback
+import uuid
 from typing import Dict, List, Optional, Set, Union
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -88,16 +89,14 @@ class BenchmarkRunner:
                     cached = await cache.get(query_id)
                     if cached is not None:
                         if dual_write:
-                            trace_v2 = lift_pipeline_result(cached, run_id=run_id)
-                            await self.store.save_trace_v2(trace_v2)
+                            await self._persist_trace(cached, run_id)
                         return cached
 
                 result = await self._run_with_retry(pipeline, query)
 
                 await self.store.save_result(run_id, result)
                 if dual_write:
-                    trace_v2 = lift_pipeline_result(result, run_id=run_id)
-                    await self.store.save_trace_v2(trace_v2)
+                    await self._persist_trace(result, run_id)
 
                 if cache and result.status == "OK":
                     await cache.set(query_id, result)
@@ -122,6 +121,18 @@ class BenchmarkRunner:
             await asyncio.gather(*[_bounded(pid, qid) for pid, qid in tasks])
 
         return results_by_pipeline
+
+    async def _persist_trace(self, result: PipelineResult, run_id: str) -> None:
+        """Save a real branching trace when the pipeline produced one (DAG), else lift the
+        flattened snapshot list (linear pipelines) — same behaviour as before for those."""
+        native = getattr(result, "trace_v2", None)
+        if native is not None:
+            native.run_id = run_id
+            if not native.trace_id:
+                native.trace_id = uuid.uuid4().hex
+            await self.store.save_trace_v2(native)
+        else:
+            await self.store.save_trace_v2(lift_pipeline_result(result, run_id=run_id))
 
     async def _run_with_retry(self, pipeline: Pipeline, query: Query) -> PipelineResult:
         last_result: Optional[PipelineResult] = None

@@ -43,28 +43,28 @@ export default function LiveTraces({ service, since, initialFilter }: Props) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-3 text-xs">
-        <label className="flex items-center gap-1 text-gray-600">
+        <label className="flex items-center gap-1 text-gray-600 dark:text-slate-300">
           Status:
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-gray-200 rounded px-1.5 py-1 bg-white">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-gray-200 dark:border-slate-700 rounded px-1.5 py-1 bg-white dark:bg-slate-900">
             <option value="">all</option><option value="OK">OK</option><option value="ERROR">ERROR</option><option value="TIMEOUT">TIMEOUT</option>
           </select>
         </label>
-        <label className="flex items-center gap-1 text-gray-600">
+        <label className="flex items-center gap-1 text-gray-600 dark:text-slate-300">
           Difficulty:
-          <select value={difficultyFilter} onChange={(e) => setDifficultyFilter(e.target.value)} className="border border-gray-200 rounded px-1.5 py-1 bg-white">
+          <select value={difficultyFilter} onChange={(e) => setDifficultyFilter(e.target.value)} className="border border-gray-200 dark:border-slate-700 rounded px-1.5 py-1 bg-white dark:bg-slate-900">
             <option value="">all</option><option value="easy">easy</option><option value="medium">medium</option><option value="hard">hard</option><option value="extreme">extreme</option>
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-gray-600">
+        <label className="flex items-center gap-1.5 text-gray-600 dark:text-slate-300">
           <input type="checkbox" className="accent-teal-500" checked={suspectedOnly} onChange={(e) => setSuspectedOnly(e.target.checked)} />
           Suspected failures only
         </label>
-        <span className="text-gray-400 ml-auto">{rows?.length ?? '…'} traces</span>
+        <span className="text-gray-400 dark:text-slate-500 ml-auto">{rows?.length ?? '…'} traces</span>
       </div>
 
-      <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <div className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
         <table className="w-full text-xs">
-          <thead className="bg-gray-50 text-gray-500">
+          <thead className="bg-gray-50 dark:bg-slate-800/60 text-gray-500 dark:text-slate-400">
             <tr>
               <th className="text-left font-medium px-3 py-2 w-40">Time</th>
               <th className="text-left font-medium px-3 py-2">Query</th>
@@ -78,13 +78,13 @@ export default function LiveTraces({ service, since, initialFilter }: Props) {
           <tbody className="divide-y divide-gray-100">
             {rows?.map((r) => (
               <tr key={r.trace_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setOpenId(r.trace_id)}>
-                <td className="px-3 py-2 text-gray-500 whitespace-nowrap">{fmtTime(r.timestamp)}</td>
-                <td className="px-3 py-2 text-gray-800 truncate max-w-0">{r.query_text}</td>
-                <td className="px-3 py-2 text-gray-600 font-mono">{r.pipeline_id}</td>
+                <td className="px-3 py-2 text-gray-500 dark:text-slate-400 whitespace-nowrap">{fmtTime(r.timestamp)}</td>
+                <td className="px-3 py-2 text-gray-800 dark:text-slate-100 truncate max-w-0">{r.query_text}</td>
+                <td className="px-3 py-2 text-gray-600 dark:text-slate-300 font-mono">{r.pipeline_id}</td>
                 <td className="px-3 py-2">
                   <span className={r.status === 'OK' ? 'text-green-600' : 'text-rose-600 font-medium'}>{r.status}</span>
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-600">{r.total_latency_ms.toFixed(0)} ms</td>
+                <td className="px-3 py-2 text-right tabular-nums text-gray-600 dark:text-slate-300">{r.total_latency_ms.toFixed(0)} ms</td>
                 <td className="px-3 py-2">
                   {r.predicted_difficulty && (
                     <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium capitalize ${difficultyChipClass(r.predicted_difficulty)}`}>
@@ -100,10 +100,10 @@ export default function LiveTraces({ service, since, initialFilter }: Props) {
               </tr>
             ))}
             {rows && rows.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">No traces match these filters.</td></tr>
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 dark:text-slate-500">No traces match these filters.</td></tr>
             )}
             {!rows && (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400">Loading traces…</td></tr>
+              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 dark:text-slate-500">Loading traces…</td></tr>
             )}
           </tbody>
         </table>

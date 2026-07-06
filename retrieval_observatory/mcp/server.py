@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import inspect
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+
+import yaml
 
 # MCP server exposing retobs to agents. Tool logic lives in plain async functions (importable and
 # unit-testable without the `mcp` package); build_server() wraps them as FastMCP tools. Each tool
@@ -12,6 +17,78 @@ from typing import Any, Dict, List, Optional
 
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_MAX_QUERIES = 50
+
+
+class _FallbackFastMCP:
+    """Minimal stand-in used when the optional `mcp` package is not installed."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self._tools: List[tuple[str, Any]] = []
+
+    def tool(self, name: Optional[str] = None):
+        def decorator(func):
+            self._tools.append((name or func.__name__, func))
+            return func
+
+        return decorator
+
+    async def list_tools(self):
+        return [SimpleNamespace(name=name) for name, _ in self._tools]
+
+    def run(self) -> None:
+        raise RuntimeError("The 'mcp' package is required to run the server. Install with: pip install 'retrieval-observatory[mcp]'")
+
+
+def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
+    """Load simple MCP defaults from a YAML file if present."""
+    if not config_path:
+        candidate = Path("retobs-mcp.yaml")
+        if candidate.exists():
+            config_path = str(candidate)
+        else:
+            return {
+                "db_path": DEFAULT_DB_PATH,
+                "max_queries": DEFAULT_MAX_QUERIES,
+                "baseline_run_id": None,
+            }
+
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(f"MCP config not found: {path}")
+
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+
+    return {
+        "db_path": data.get("db_path", DEFAULT_DB_PATH),
+        "max_queries": int(data.get("max_queries", DEFAULT_MAX_QUERIES)),
+        "baseline_run_id": data.get("baseline_run_id"),
+    }
+
+
+def _with_config_defaults(config_path: Optional[str], func):
+    cfg = load_config(config_path)
+    params = inspect.signature(func).parameters
+
+    if inspect.iscoroutinefunction(func):
+        async def wrapped(*args, **kwargs):
+            if "db_path" in params and "db_path" not in kwargs:
+                kwargs["db_path"] = cfg.get("db_path", DEFAULT_DB_PATH)
+            if "max_queries" in params and "max_queries" not in kwargs:
+                kwargs["max_queries"] = int(cfg.get("max_queries", DEFAULT_MAX_QUERIES))
+            return await func(*args, **kwargs)
+
+        return wrapped
+
+    def wrapped(*args, **kwargs):
+        if "db_path" in params and "db_path" not in kwargs:
+            kwargs["db_path"] = cfg.get("db_path", DEFAULT_DB_PATH)
+        if "max_queries" in params and "max_queries" not in kwargs:
+            kwargs["max_queries"] = int(cfg.get("max_queries", DEFAULT_MAX_QUERIES))
+        return func(*args, **kwargs)
+
+    return wrapped
 
 
 def _store(db_path: str):
@@ -62,6 +139,80 @@ async def _get_run_metrics(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[
     return await MetricsEngine().aggregate(run_id, store)
 
 
+def _normalize_benchmark_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Accept full ExperimentConfig or legacy pipeline-descriptor shape."""
+    if config.get("experiment") and config.get("dataset"):
+        return config
+    if "pipelines" in config and ("dataset" in config or config.get("name")):
+        name = str(config.get("name", config.get("experiment", {}).get("name", "mcp-pipeline")))
+        return {
+            "experiment": {"name": name},
+            "dataset": config.get("dataset", {}),
+            "pipelines": config.get("pipelines", []),
+            "output": config.get("output", {"store": "sqlite", "db_path": DEFAULT_DB_PATH}),
+            **{k: v for k, v in config.items() if k in ("metrics", "execution", "combinations", "stages", "costs", "graphs")},
+        }
+    raise ValueError(
+        "Config must be an ExperimentConfig (experiment + dataset + pipelines) "
+        "or a legacy descriptor with name, dataset, and pipelines."
+    )
+
+
+async def _describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
+    from retrieval_observatory.integrations.registry import describe_integration
+
+    return describe_integration(framework)
+
+
+async def _verify_integration(
+    db_path: str = DEFAULT_DB_PATH,
+    run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Report whether traces/metrics exist and suggest next MCP steps."""
+    store = _store(db_path)
+    await store.init_db()
+    runs = await store.list_runs()
+    if not runs:
+        return {
+            "status": "no_runs",
+            "message": "No runs in database yet.",
+            "next": "benchmark_config or push traces, then call verify_integration again.",
+            "dashboard_url": "http://127.0.0.1:8000",
+        }
+
+    target = run_id or runs[0]["run_id"]
+    traces = await store.get_traces_v2(target) if hasattr(store, "get_traces_v2") else []
+    from retrieval_observatory.metrics.engine import MetricsEngine
+
+    metrics = await MetricsEngine().aggregate(target, store)
+    stages_seen = sorted(
+        {
+            span.op_id
+            for trace in traces
+            for span in trace.spans
+        }
+    )
+    pipeline_ids = sorted({v["pipeline_id"] for v in metrics.values() if v.get("stage_index", -1) >= 0})
+
+    next_steps = ["get_run_metrics"]
+    if pipeline_ids:
+        next_steps.append("get_pareto_frontier")
+        next_steps.append("get_pipeline_diagram")
+    if not traces:
+        next_steps.insert(0, "describe_integration(framework='...') to wire tracing")
+
+    return {
+        "status": "ok",
+        "run_id": target,
+        "trace_count": len(traces),
+        "stages_seen": stages_seen,
+        "pipeline_ids": pipeline_ids,
+        "has_metrics": bool(metrics),
+        "dashboard_url": f"http://127.0.0.1:8000/#/benchmarks/run/{target}/overview",
+        "next": next_steps,
+    }
+
+
 async def _benchmark_config(
     config: Dict[str, Any],
     max_queries: int = DEFAULT_MAX_QUERIES,
@@ -72,13 +223,27 @@ async def _benchmark_config(
     from retrieval_observatory.dashboard.api import _headline_winner
     from retrieval_observatory.sdk.run_config import _run_from_config_async
 
+    normalized = _normalize_benchmark_config(config)
     report = await _run_from_config_async(
-        config=config, db_path=db_path, max_queries=max_queries, run_id=None, no_cache=False
+        config=normalized, db_path=db_path, max_queries=max_queries, run_id=None, no_cache=False
     )
     return {
         "run_id": report.run_id,
         "metrics": report.metrics,
         "headline_winner": _headline_winner(report.metrics),
+    }
+
+
+async def _benchmark_pipeline_descriptor(
+    descriptor: Dict[str, Any],
+    max_queries: int = DEFAULT_MAX_QUERIES,
+    db_path: str = DEFAULT_DB_PATH,
+) -> Dict[str, Any]:
+    """Deprecated — use benchmark_config with the same shape (auto-normalized)."""
+    out = await _benchmark_config(descriptor, max_queries=max_queries, db_path=db_path)
+    return {
+        **out,
+        "deprecated": "benchmark_pipeline_descriptor is deprecated; pass this shape to benchmark_config instead.",
     }
 
 
@@ -213,33 +378,33 @@ async def _get_pipeline_diagram(run_id: str, db_path: str = DEFAULT_DB_PATH) -> 
     return {"run_id": run_id, "pipelines": _build_diagram(metrics, results)}
 
 
-def build_server():
+def build_server(config_path: Optional[str] = None):
     """Construct the FastMCP server with all retobs tools registered."""
     try:
         from mcp.server.fastmcp import FastMCP
-    except ImportError as e:  # pragma: no cover - exercised only without the extra
-        raise ImportError(
-            "The MCP server requires the 'mcp' package. Install with: "
-            "pip install 'retrieval-observatory[mcp]'"
-        ) from e
+    except ImportError:  # pragma: no cover - exercised only without the extra
+        FastMCP = _FallbackFastMCP
 
     server = FastMCP("retrieval-observatory")
     server.tool(name="describe_config")(_describe_config)
     server.tool(name="validate_config")(_validate_config)
-    server.tool(name="list_runs")(_list_runs)
-    server.tool(name="get_run_metrics")(_get_run_metrics)
-    server.tool(name="benchmark_config")(_benchmark_config)
-    server.tool(name="benchmark_vs_baseline")(_benchmark_vs_baseline)
-    server.tool(name="get_pareto_frontier")(_get_pareto_frontier)
-    server.tool(name="get_recommendations")(_get_recommendations)
-    server.tool(name="get_operator_attribution")(_get_operator_attribution)
-    server.tool(name="get_pipeline_diagram")(_get_pipeline_diagram)
+    server.tool(name="describe_integration")(_describe_integration)
+    server.tool(name="verify_integration")(_with_config_defaults(config_path, _verify_integration))
+    server.tool(name="list_runs")(_with_config_defaults(config_path, _list_runs))
+    server.tool(name="get_run_metrics")(_with_config_defaults(config_path, _get_run_metrics))
+    server.tool(name="benchmark_config")(_with_config_defaults(config_path, _benchmark_config))
+    server.tool(name="benchmark_pipeline_descriptor")(_with_config_defaults(config_path, _benchmark_pipeline_descriptor))
+    server.tool(name="benchmark_vs_baseline")(_with_config_defaults(config_path, _benchmark_vs_baseline))
+    server.tool(name="get_pareto_frontier")(_with_config_defaults(config_path, _get_pareto_frontier))
+    server.tool(name="get_recommendations")(_with_config_defaults(config_path, _get_recommendations))
+    server.tool(name="get_operator_attribution")(_with_config_defaults(config_path, _get_operator_attribution))
+    server.tool(name="get_pipeline_diagram")(_with_config_defaults(config_path, _get_pipeline_diagram))
     return server
 
 
-def main() -> None:
+def main(config_path: Optional[str] = None) -> None:
     """Entry point for `retobs mcp` — run the server over stdio."""
-    build_server().run()
+    build_server(config_path).run()
 
 
 if __name__ == "__main__":

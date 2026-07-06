@@ -56,18 +56,18 @@ export default function OperatorInspector({ dbId, runId, selectedOpId }: Props) 
           const firstRow = opRows[0]
           if (!firstRow) return null
           const isSelected = opId === selectedOpId
-          const replayColor = REPLAY_COLORS[firstRow.replay_policy] || 'bg-gray-100'
+          const replayColor = REPLAY_COLORS[firstRow.replay_policy] || 'bg-gray-100 dark:bg-slate-800'
 
           return (
             <div
               key={opId}
-              className={`rounded border p-3 text-xs ${isSelected ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 bg-white'}`}
+              className={`rounded border p-3 text-xs ${isSelected ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'}`}
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-mono font-semibold text-sm">{opId}</span>
                   {dagNode && (
-                    <span className="text-gray-400 text-[10px]">{dagNode.op_type}</span>
+                    <span className="text-gray-400 dark:text-slate-500 text-[10px]">{dagNode.op_type}</span>
                   )}
                 </div>
                 <span className={`px-2 py-0.5 rounded border text-[10px] font-medium ${replayColor}`}>
@@ -77,42 +77,42 @@ export default function OperatorInspector({ dbId, runId, selectedOpId }: Props) 
 
               <div className="grid grid-cols-3 gap-3 mb-2">
                 <div>
-                  <div className="text-gray-500 mb-0.5">Fire rate</div>
+                  <div className="text-gray-500 dark:text-slate-400 mb-0.5">Fire rate</div>
                   <div className="font-medium">
                     {firstRow.fire_rate != null ? `${(firstRow.fire_rate * 100).toFixed(1)}%` : '—'}
                   </div>
                 </div>
                 <div>
-                  <div className="text-gray-500 mb-0.5">Avg latency</div>
+                  <div className="text-gray-500 dark:text-slate-400 mb-0.5">Avg latency</div>
                   <div className="font-medium">
                     {dagNode?.avg_latency_ms != null ? `${dagNode.avg_latency_ms.toFixed(1)}ms` : '—'}
                   </div>
                 </div>
                 <div>
-                  <div className="text-gray-500 mb-0.5">Result</div>
+                  <div className="text-gray-500 dark:text-slate-400 mb-0.5">Result</div>
                   <div className="font-medium">{firstRow.result_status}</div>
                 </div>
               </div>
 
-              <div className="border-t border-gray-100 pt-2">
-                <div className="text-gray-500 mb-1 font-medium">Attribution by segment</div>
+              <div className="border-t border-gray-100 dark:border-slate-800 pt-2">
+                <div className="text-gray-500 dark:text-slate-400 mb-1 font-medium">Attribution by segment</div>
                 <div className="grid gap-1">
                   {opRows.map((row) => (
                     <div key={`${row.op_id}:${row.segment}`} className="flex items-center justify-between">
-                      <span className="text-gray-600">{row.segment}</span>
+                      <span className="text-gray-600 dark:text-slate-300">{row.segment}</span>
                       <div className="flex items-center gap-2">
-                        <span className={row.delta != null && row.delta > 0 ? 'text-green-700' : row.delta != null && row.delta < 0 ? 'text-red-700' : 'text-gray-500'}>
+                        <span className={row.delta != null && row.delta > 0 ? 'text-green-700' : row.delta != null && row.delta < 0 ? 'text-red-700' : 'text-gray-500 dark:text-slate-400'}>
                           {row.delta == null ? '—' : `${row.delta > 0 ? '+' : ''}${row.delta.toFixed(4)}`}
                         </span>
                         {row.ci_low != null && row.ci_high != null && (
-                          <span className="text-gray-400 text-[10px]">
+                          <span className="text-gray-400 dark:text-slate-500 text-[10px]">
                             [{row.ci_low.toFixed(3)}, {row.ci_high.toFixed(3)}]
                           </span>
                         )}
                         {row.significant === true && (
                           <span className="text-green-600 text-[10px]">sig</span>
                         )}
-                        <span className="text-gray-400 text-[10px]">n={row.n_pairs}</span>
+                        <span className="text-gray-400 dark:text-slate-500 text-[10px]">n={row.n_pairs}</span>
                       </div>
                     </div>
                   ))}

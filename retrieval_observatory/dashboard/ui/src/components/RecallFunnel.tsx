@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend,
+  Legend, ErrorBar,
 } from 'recharts'
 import { MetricsMap } from '../api'
 import { MetricTooltip } from './MetricTooltip'
@@ -12,8 +12,9 @@ import {
   buildPipelineMaxStage,
   buildStageRecallGrid,
   collectRecallKValues,
-  stageComponentLabel,
+  recallCellKey,
 } from '../utils/pipelineStages'
+import { PipelineDisplayMeta, stageLabelFromManifest } from '../utils/stageLabels'
 import { useChartZoom } from '../hooks/useChartZoom'
 import ChartFrame from './ChartFrame'
 import ChartZoomControls from './ChartZoomControls'
@@ -21,13 +22,10 @@ import ChartZoomSurface from './ChartZoomSurface'
 
 interface Props {
   metrics: MetricsMap
+  displayMeta?: PipelineDisplayMeta | null
 }
 
-function recallCellKey(pipelineId: string, stageIndex: number): string {
-  return `${pipelineId}|${stageIndex}`
-}
-
-export default function RecallFunnel({ metrics }: Props) {
+export default function RecallFunnel({ metrics, displayMeta }: Props) {
   const [hiddenRecall, setHiddenRecall] = useState<Set<string>>(new Set())
   const [hiddenNdcg, setHiddenNdcg] = useState<Set<string>>(new Set())
 
@@ -52,28 +50,41 @@ export default function RecallFunnel({ metrics }: Props) {
     [metrics],
   )
 
-  const recallGrid = useMemo(() => buildStageRecallGrid(metrics, activeK), [metrics, activeK])
+  const recallGrid = useMemo(
+    () => buildStageRecallGrid(metrics, activeK, displayMeta),
+    [metrics, activeK, displayMeta],
+  )
 
   const stageNdcg = useMemo(() => {
     const values = new Map<string, number>()
+    const ciMap = new Map<string, { ci_low: number | null; ci_high: number | null }>()
     for (const entry of Object.values(metrics)) {
       if (entry.metric_name !== 'ndcg' || entry.k !== 10 || entry.stage_index < 0) continue
       values.set(recallCellKey(entry.pipeline_id, entry.stage_index), entry.mean)
+      ciMap.set(recallCellKey(entry.pipeline_id, entry.stage_index), {
+        ci_low: entry.ci_low,
+        ci_high: entry.ci_high,
+      })
     }
-    return values
+    return { values, ci: ciMap }
   }, [metrics])
 
   const maxStageIndex = useMemo(() => {
     const fromRecall = recallGrid.maxStageIndex
     let max = fromRecall
-    for (const key of stageNdcg.keys()) {
+    for (const key of stageNdcg.values.keys()) {
       const stageIndex = parseInt(key.split('|')[1] ?? '0', 10)
       max = Math.max(max, stageIndex)
     }
     return max
-  }, [recallGrid.maxStageIndex, stageNdcg])
+  }, [recallGrid.maxStageIndex, stageNdcg.values])
 
   const pipelineIds = recallGrid.pipelineIds
+
+  const omittedAblationCount = useMemo(() => {
+    if (!displayMeta?.duplicate_ablation_stages?.length) return 0
+    return displayMeta.duplicate_ablation_stages.length
+  }, [displayMeta])
 
   const toggleRecall = (pipelineId: string) => setHiddenRecall((prev) => {
     const next = new Set(prev)
@@ -87,16 +98,24 @@ export default function RecallFunnel({ metrics }: Props) {
   })
 
   const buildChartRows = useMemo(() => {
-    return (valueMap: Map<string, number>) => {
-      const rows: Record<string, string | number>[] = []
+    return (
+      valueMap: Map<string, number>,
+      ciMap?: Map<string, { ci_low: number | null; ci_high: number | null }>,
+    ) => {
+      const rows: Record<string, string | number | [number, number]>[] = []
       for (let stageIndex = 0; stageIndex <= maxStageIndex; stageIndex += 1) {
-        const row: Record<string, string | number> = { stage: `Stage ${stageIndex}` }
+        const row: Record<string, string | number | [number, number]> = { stage: `Stage ${stageIndex}` }
         let hasAny = false
         for (const pipelineId of pipelineIds) {
           if ((maxStageByPipeline[pipelineId] ?? 0) < stageIndex) continue
-          const v = valueMap.get(recallCellKey(pipelineId, stageIndex))
+          const key = recallCellKey(pipelineId, stageIndex)
+          const v = valueMap.get(key)
           if (v === undefined) continue
           row[pipelineId] = v
+          const c = ciMap?.get(key)
+          if (c?.ci_low != null && c?.ci_high != null) {
+            row[`${pipelineId}_err`] = [v - c.ci_low, c.ci_high - v]
+          }
           hasAny = true
         }
         if (hasAny) rows.push(row)
@@ -105,11 +124,17 @@ export default function RecallFunnel({ metrics }: Props) {
     }
   }, [maxStageIndex, pipelineIds, maxStageByPipeline])
 
-  const recallChartData = useMemo(() => buildChartRows(recallGrid.values), [buildChartRows, recallGrid.values])
-  const ndcgChartData = useMemo(() => buildChartRows(stageNdcg), [buildChartRows, stageNdcg])
+  const recallChartData = useMemo(
+    () => buildChartRows(recallGrid.values, recallGrid.ci),
+    [buildChartRows, recallGrid.values, recallGrid.ci],
+  )
+  const ndcgChartData = useMemo(
+    () => buildChartRows(stageNdcg.values, stageNdcg.ci),
+    [buildChartRows, stageNdcg.values, stageNdcg.ci],
+  )
 
-  if (recallKValues.length === 0 && stageNdcg.size === 0) {
-    return <p className="text-sm text-gray-400">No stage data.</p>
+  if (recallKValues.length === 0 && stageNdcg.values.size === 0) {
+    return <p className="text-sm text-gray-400 dark:text-slate-500">No stage data.</p>
   }
 
   const hasMultipleStages = maxStageIndex > 0
@@ -147,11 +172,11 @@ export default function RecallFunnel({ metrics }: Props) {
       if (!active || !payload?.length || !label) return null
       const stageIndex = parseInt(String(label).replace('Stage ', ''), 10)
       return (
-        <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded shadow p-2 text-xs">
           <p className="font-semibold mb-1">{label}</p>
           {payload.map((p: any) => {
             const pipelineId = String(p.dataKey)
-            const stageName = stageComponentLabel(pipelineId, stageIndex)
+            const stageName = stageLabelFromManifest(displayMeta, pipelineId, stageIndex)
             const stageLabel = stageIndex === 0 ? 'all retrieved' : 'stage input'
             return (
               <p key={p.dataKey} style={{ color: p.color }}>
@@ -167,11 +192,11 @@ export default function RecallFunnel({ metrics }: Props) {
       if (!active || !payload?.length || !label) return null
       const stageIndex = parseInt(String(label).replace('Stage ', ''), 10)
       return (
-        <div className="bg-white border border-gray-200 rounded shadow p-2 text-xs">
+        <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded shadow p-2 text-xs">
           <p className="font-semibold mb-1">{label}</p>
           {payload.map((p: any) => {
             const pipelineId = String(p.dataKey)
-            const stageName = stageComponentLabel(pipelineId, stageIndex)
+            const stageName = stageLabelFromManifest(displayMeta, pipelineId, stageIndex)
             return (
               <p key={p.dataKey} style={{ color: p.color }}>
                 {`NDCG@10 ${stageName}: ${fmtQuality(p.value)}`}
@@ -184,7 +209,7 @@ export default function RecallFunnel({ metrics }: Props) {
 
   const kSelector = recallKValues.length > 1 ? (
     <div className="flex flex-col gap-1 shrink-0 pr-2">
-      <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Recall@K</span>
+      <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-0.5">Recall@K</span>
       {recallKValues.map((k) => (
         <button
           key={k}
@@ -193,7 +218,7 @@ export default function RecallFunnel({ metrics }: Props) {
           className={`text-xs border rounded px-2 py-1 text-left font-mono ${
             activeK === k
               ? 'bg-indigo-50 text-indigo-700 border-indigo-300 font-semibold'
-              : 'text-gray-600 border-gray-200 hover:border-indigo-200 hover:text-indigo-600'
+              : 'text-gray-600 dark:text-slate-300 border-gray-200 dark:border-slate-700 hover:border-indigo-200 hover:text-indigo-600'
           }`}
         >
           @{k}
@@ -204,8 +229,13 @@ export default function RecallFunnel({ metrics }: Props) {
 
   return (
     <div className="space-y-6">
+      {omittedAblationCount > 0 && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          {omittedAblationCount} ablation-prefix stage row(s) omitted — identical to a shorter standalone pipeline (from run manifest lineage, not inferred).
+        </p>
+      )}
       <div className="flex items-start justify-between gap-2">
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-slate-400">
           Grouped by pipeline stage: each stage row shows only pipelines that include that stage. <strong>Stage 0</strong> recall is scored over all retrieved candidates. <strong>Stage 1+</strong> recall is scored over the subset passed in from the prior stage — a later stage can only find relevant docs that were already in its input, so apparent recall drops are expected and do not mean regression. Check NDCG@10 to measure re-ranking quality.
           <MetricTooltip text={METRIC_GLOSSARY.stage} />
         </p>
@@ -224,9 +254,9 @@ export default function RecallFunnel({ metrics }: Props) {
         <div className="flex-1 min-w-0 space-y-6">
           {recallKValues.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-600 mb-1">
+              <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1">
                 Recall@{activeK} on Stage Input
-                {!recallKValues.includes(10) && <span className="ml-1 text-gray-400 font-normal">(K=10 unavailable; using K={activeK})</span>}
+                {!recallKValues.includes(10) && <span className="ml-1 text-gray-400 dark:text-slate-500 font-normal">(K=10 unavailable; using K={activeK})</span>}
               </p>
               {hasMultipleStages && (
                 <div className="mb-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
@@ -253,7 +283,9 @@ export default function RecallFunnel({ metrics }: Props) {
                         hide={hiddenRecall.has(pid)}
                         fill={getPipelineColor(pid, pipelineColorMap)}
                         radius={[3, 3, 0, 0]}
-                      />
+                      >
+                        <ErrorBar dataKey={`${pid}_err`} width={4} strokeWidth={1.5} stroke={getPipelineColor(pid, pipelineColorMap)} />
+                      </Bar>
                     ))}
                   </BarChart>
                 </ChartFrame>
@@ -261,9 +293,9 @@ export default function RecallFunnel({ metrics }: Props) {
             </div>
           )}
 
-          {stageNdcg.size > 0 && (
+          {stageNdcg.values.size > 0 && (
             <div>
-              <p className="text-xs font-semibold text-gray-600 mb-1">NDCG@10 per Stage</p>
+              <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-1">NDCG@10 per Stage</p>
               <ChartZoomSurface onWheel={handleWheel} onPinchScale={handlePinchScale}>
                 <ChartFrame height={220}>
                   <BarChart data={ndcgChartData} margin={{ top: 4, right: 20, bottom: 4, left: 0 }}>
@@ -285,7 +317,9 @@ export default function RecallFunnel({ metrics }: Props) {
                         fill={getPipelineColor(pid, pipelineColorMap)}
                         fillOpacity={0.75}
                         radius={[3, 3, 0, 0]}
-                      />
+                      >
+                        <ErrorBar dataKey={`${pid}_err`} width={4} strokeWidth={1.5} stroke={getPipelineColor(pid, pipelineColorMap)} />
+                      </Bar>
                     ))}
                   </BarChart>
                 </ChartFrame>

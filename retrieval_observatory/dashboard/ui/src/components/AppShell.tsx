@@ -56,7 +56,7 @@ export default function AppShell() {
   const showDemoBar = demoContext?.baseline_run_id && mode !== 'glossary'
 
   return (
-    <div className="flex h-screen bg-gray-50 font-sans">
+    <div className="flex h-screen bg-canvas text-ink font-sans">
       <ModeRail
         mode={mode}
         onSelect={selectMode}
@@ -74,7 +74,7 @@ export default function AppShell() {
           <GlossaryWorkspace />
         ) : (
           <>
-            {mode === 'benchmarks' && <BenchmarksWorkspace demoContext={demoContext} />}
+            {mode === 'benchmarks' && <BenchmarksWorkspace demoContext={demoContext} route={rest} />}
             {mode === 'forge' && <ForgeWorkspace route={rest} />}
             {mode === 'tracelens' && <TraceLensWorkspace route={rest} />}
             {mode === 'advisor' && <AdvisorWorkspace />}

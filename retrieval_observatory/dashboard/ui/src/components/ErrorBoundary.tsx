@@ -28,10 +28,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
-          <div className="max-w-md rounded-lg border border-red-200 bg-white p-6 shadow-sm">
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-slate-800/60 p-6">
+          <div className="max-w-md rounded-lg border border-red-200 bg-white dark:bg-slate-900 p-6 shadow-sm">
             <h1 className="text-lg font-semibold text-red-800">Dashboard failed to load</h1>
-            <p className="mt-2 text-sm text-gray-600">{this.state.error.message}</p>
+            <p className="mt-2 text-sm text-gray-600 dark:text-slate-300">{this.state.error.message}</p>
             <button
               type="button"
               className="mt-4 rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700"

@@ -12,10 +12,12 @@ from rich.console import Console
 from rich.table import Table
 
 app = typer.Typer(name="retobs", help="Retrieval Observatory — RAG pipeline benchmarking.")
+mcp_app = typer.Typer(name="mcp", help="Run the MCP server and bootstrap agent integration.")
 classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
 forge_app = typer.Typer(name="forge", help="Generate corpus-specific stress-test evaluation datasets.")
 tracelens_app = typer.Typer(name="tracelens", help="Production retrieval observability — inspect and monitor live traces.")
 advisor_app = typer.Typer(name="advisor", help="Reliability advisor — regressions, recommendations, golden sets.")
+app.add_typer(mcp_app, name="mcp")
 app.add_typer(classifier_app, name="classifier")
 app.add_typer(forge_app, name="forge")
 app.add_typer(tracelens_app, name="tracelens")
@@ -110,7 +112,9 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
 
     # Wire a shared cross-pipeline stage cache into the pipeline objects at build time.
     stage_cache = StageResultCache(store=store) if (cfg.execution.cache_results and not no_cache) else None
+    from retrieval_observatory.pipeline.factory import build_dag_from_config
     pipelines = [build_pipeline_from_config(p.model_dump(), corpus=corpus, stage_cache=stage_cache) for p in cfg.pipelines]
+    pipelines += [build_dag_from_config(g.model_dump(), corpus=corpus) for g in cfg.graphs]
     console.print(f"Built {len(pipelines)} pipeline(s): {[p.pipeline_id for p in pipelines]}")
 
     # ID consistency smoke test
@@ -299,15 +303,104 @@ def serve(
         raise typer.Exit(1)
 
 
-@app.command()
-def mcp() -> None:
+@mcp_app.callback(invoke_without_command=True)
+def mcp(
+    ctx: typer.Context,
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Path to an MCP YAML config file."),
+) -> None:
     """Run the MCP server (stdio) exposing retobs benchmarking tools to agents."""
+    if ctx.invoked_subcommand is not None:
+        return
     try:
         from retrieval_observatory.mcp.server import main as _mcp_main
     except ImportError:
         console.print("[red]MCP server requires the 'mcp' package. Install: pip install 'retrieval-observatory[mcp]'[/red]")
         raise typer.Exit(1)
-    _mcp_main()
+    _mcp_main(str(config) if config else None)
+
+
+@mcp_app.command("init")
+def mcp_init(
+    output: str = typer.Option("retobs-mcp.yaml", "--output", help="Path to write the starter MCP config."),
+) -> None:
+    """Create a starter MCP config file and print registration guidance for agents."""
+    from retrieval_observatory.mcp.config import write_default_config
+
+    path = write_default_config(output)
+    console.print(f"[green]Wrote MCP config to[/green] {path}")
+    console.print("Example registration:")
+    console.print('{"mcpServers": {"retobs": {"command": "retobs", "args": ["mcp"]}}}')
+
+
+@app.command("integrate")
+def integrate_cmd(
+    framework: str = typer.Option(..., "--framework", "-f", help="langchain|llamaindex|fastapi|http|python"),
+    check: bool = typer.Option(False, "--check", help="Print verification steps after the snippet."),
+) -> None:
+    """Print the wiring snippet for instrumenting an existing pipeline."""
+    from retrieval_observatory.integrations.registry import describe_integration
+
+    guide = describe_integration(framework)
+    if guide.get("error"):
+        console.print(f"[red]{guide['error']}[/red]")
+        console.print(f"Frameworks: {', '.join(guide.get('frameworks', []))}")
+        raise typer.Exit(1)
+    console.print(f"[bold]{guide['title']}[/bold]")
+    if guide.get("install_extra"):
+        console.print(f"Install extra: pip install 'retrieval-observatory[{guide['install_extra']}]'")
+    if guide.get("env_vars"):
+        console.print(f"Env: {', '.join(guide['env_vars'])}")
+    console.print("\n[bold]Snippet[/bold]\n")
+    console.print(guide["snippet"])
+    if check:
+        console.print("\n[bold]Verify[/bold]")
+        console.print(guide.get("verify", ""))
+        console.print("Then: retobs doctor && retobs mcp (verify_integration tool)")
+
+
+@app.command("doctor")
+def doctor_cmd(
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB to probe."),
+) -> None:
+    """Check local retobs install: extras, DB, dashboard build, MCP registration."""
+    import importlib.util
+    from pathlib import Path
+
+    ok = True
+
+    def check(label: str, passed: bool, detail: str = "") -> None:
+        nonlocal ok
+        if not passed:
+            ok = False
+        mark = "[green]✓[/green]" if passed else "[red]✗[/red]"
+        console.print(f"{mark} {label}" + (f" — {detail}" if detail else ""))
+
+    check("retrieval_observatory import", True)
+    check("numpy", importlib.util.find_spec("numpy") is not None)
+    check("fastapi (dashboard)", importlib.util.find_spec("fastapi") is not None)
+    check("mcp server", importlib.util.find_spec("mcp") is not None, "optional: pip install 'retrieval-observatory[mcp]'")
+
+    ui_dist = Path(__file__).resolve().parent / "dashboard" / "ui" / "dist" / "index.html"
+    check("dashboard UI build", ui_dist.is_file(), str(ui_dist))
+
+    db_path = Path(db)
+    check("database reachable", db_path.is_file() or not db_path.exists(), "missing file is OK until first run")
+
+    try:
+        from retrieval_observatory.mcp.server import build_server
+
+        srv = build_server()
+        import asyncio
+
+        tools = asyncio.run(srv.list_tools())
+        names = {t.name for t in tools}
+        check("MCP tools registered", "benchmark_config" in names and "describe_integration" in names, f"{len(names)} tools")
+    except Exception as e:
+        check("MCP tools registered", False, str(e))
+
+    if not ok:
+        raise typer.Exit(1)
+    console.print("[green]All checks passed.[/green]")
 
 
 @app.command()

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from importlib import metadata
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 def detect_forge_dataset_id(cfg: Any) -> str | None:
@@ -53,7 +53,9 @@ def build_run_manifest(
         except metadata.PackageNotFoundError:
             continue
 
+    display = build_pipeline_display(config)
     manifest = {
+        "schema_version": 2,
         "config_hash": hashlib.sha256(config_json.encode("utf-8")).hexdigest(),
         "dataset": dataset_fingerprint,
         "python": sys.version,
@@ -62,6 +64,7 @@ def build_run_manifest(
         "packages": packages,
         "git_commit": _git_commit(),
         "cache_results": getattr(getattr(config, "execution", None), "cache_results", None),
+        **display,
     }
     if latency_budget_ms is not None:
         manifest["latency_budget_ms"] = latency_budget_ms
@@ -70,6 +73,47 @@ def build_run_manifest(
     if golden_set is not None:
         manifest["golden_set"] = golden_set
     return manifest
+
+
+def _stage_label(stage: Any) -> str:
+    rid = getattr(stage, "retriever_id", None)
+    if rid:
+        return str(rid)
+    stype = getattr(stage, "type", "") or ""
+    return stype.replace("adapter.", "")
+
+
+def build_pipeline_display(config: Any) -> Dict[str, Any]:
+    """Per-pipeline stage labels and explicit ablation duplicate-stage hints from resolved config."""
+    stage_labels: Dict[str, List[str]] = {}
+    duplicate_ablation_stages: List[Dict[str, Any]] = []
+    all_ids: set[str] = set()
+
+    for pipeline in getattr(config, "pipelines", []) or []:
+        all_ids.add(pipeline.id)
+        stage_labels[pipeline.id] = [_stage_label(s) for s in pipeline.stages]
+
+    for graph in getattr(config, "graphs", []) or []:
+        all_ids.add(graph.id)
+        stage_labels[graph.id] = [n.id for n in graph.nodes]
+
+    for pid in sorted(stage_labels.keys(), key=len):
+        parts = pid.split("__")
+        for stage_index in range(len(parts) - 1):
+            prefix = "__".join(parts[: stage_index + 1])
+            if prefix in all_ids and prefix != pid:
+                duplicate_ablation_stages.append(
+                    {
+                        "pipeline_id": pid,
+                        "stage_index": stage_index,
+                        "equivalent_pipeline_id": prefix,
+                    }
+                )
+
+    return {
+        "stage_labels": stage_labels,
+        "duplicate_ablation_stages": duplicate_ablation_stages,
+    }
 
 
 def _git_commit() -> str | None:

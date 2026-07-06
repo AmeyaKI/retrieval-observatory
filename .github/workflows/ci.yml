@@ -30,11 +30,17 @@ jobs:
       - name: Build dashboard UI
         run: make dashboard-build
 
+      - name: Dashboard UI tests (vitest)
+        run: make dashboard-test
+
       - name: Run unit tests
         run: pytest tests/unit/ -v --tb=short
 
       - name: Run integration tests
-        run: pytest tests/integration/ -v --tb=short
+        run: pytest tests/integration/ -v --tb=short -m "not slow"
+
+      - name: Hybrid graph smoke (slow)
+        run: pytest tests/integration/test_hybrid_graph_smoke.py -v --tb=short
 
       - name: Check imports
         run: |
