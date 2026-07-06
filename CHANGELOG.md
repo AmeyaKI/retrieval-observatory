@@ -13,6 +13,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `integrations/registry.py` + MCP `describe_integration` / `verify_integration`; CLI `retobs integrate`, `retobs doctor`.
 - `docs/integrations/AGENT_QUICKSTART.md` — numbered MCP journeys for benchmark vs instrument paths.
 - `examples/hybrid_fiqa_demo/` — hybrid RRF+rerk BEIR configs (FiQA, SciFact, NFCorpus) + `run_demo.sh`.
+- `examples/hybrid_fiqa_demo/config_scifact_graph.yaml` — declarative `graphs:` DAG config with two genuine merge points (bm25∥dense → RRF fuse → rerank → second RRF re-fusion with the raw bm25 arm); verified end-to-end against real BEIR SciFact (run `fdc717bd`) — `/pipeline-graph` renders both fusion nodes as `MERGE` with correct `fan_in` edges, Pareto/tradeoff correctly uses end-to-end P50 (~1219ms) rather than any single node's stage-local latency.
 - Dashboard vitest harness + `dagLayout.test.ts` (pure layout fidelity for 2-arm + FUSE + RERANK fixture).
 - `RunSectionNav` + Benchmarks deep links `#/benchmarks/run/{id}/{section}`; sticky in-page IA (Overview · Architecture · Quality · Tradeoffs · Queries).
 - `RunManifestPanel` — dataset fingerprint, query count, config hash on run overview.

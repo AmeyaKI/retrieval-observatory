@@ -1,0 +1,75 @@
+# Hybrid DAG benchmark — BEIR SciFact, using the declarative `graphs:` DAG runner
+# (pipeline/dag.py::DAGPipeline) instead of the single-merge adapter.rrf shape used by
+# config_scifact.yaml. This topology has TWO genuine merge points:
+#
+#   bm25 ──────────────┬──────────────────────────────────┐
+#                       ├─ fuse_hybrid (RRF) ── rerank ────┼─ fuse_final (RRF)  ── output
+#   dense ──────────────┘                                  │
+#                                                           │
+#   bm25 feeds fuse_final a second time as a "safety net" arm, re-injecting raw BM25
+#   candidates the cross-encoder reranker may have dropped — a reconvergent DAG, not a
+#   linear chain with one fusion stage.
+#
+# Run:
+#   retobs run --config examples/hybrid_fiqa_demo/config_scifact_graph.yaml
+#   retobs serve --db .retobs/hybrid_scifact_graph_demo.db
+
+experiment:
+  name: hybrid-dag-scifact-graph
+
+dataset:
+  name: beir/scifact
+  split: test
+  max_queries: 50
+
+graphs:
+  - id: hybrid_dag
+    output: fuse_final
+    nodes:
+      - id: bm25
+        type: adapter.bm25
+        config:
+          k: 100
+      - id: dense
+        type: adapter.hf_biencoder
+        config:
+          model: sentence-transformers/all-MiniLM-L6-v2
+          k: 100
+          batch_size: 64
+      - id: fuse_hybrid
+        op: fuse
+        inputs: [bm25, dense]
+        config:
+          rrf_k: 60
+          top_k: 100
+          fetch_k: 100
+      - id: rerank
+        type: adapter.hf_crossencoder
+        op_type: RERANK
+        inputs: [fuse_hybrid]
+        config:
+          model: cross-encoder/ms-marco-MiniLM-L-6-v2
+          k: 20
+          batch_size: 32
+      - id: fuse_final
+        op: fuse
+        inputs: [rerank, bm25]
+        config:
+          rrf_k: 60
+          top_k: 10
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 1
+  timeout_seconds: 300
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/hybrid_scifact_graph_demo.db
