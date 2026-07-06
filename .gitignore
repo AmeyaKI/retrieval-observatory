@@ -33,7 +33,8 @@ TODO
 !CHANGELOG.md
 !YAML_GUIDE.md
 !docs/USAGE.md
-!docs/informative/*.md
+!docs/integrations/*.md
+!docs/informative/ci_gating.md
 
 # Internal dev-session verification artifacts -- not user-facing docs, never tracked
 docs/verification/
