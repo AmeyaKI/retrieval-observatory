@@ -6,6 +6,8 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-07-06
+
 ### Added
 
 - `PipelineGraph` contract + `/runs/{id}/pipeline-graph` — canonical DAG JSON with bootstrap CIs; `PipelineDagView.tsx` (dagre-free layered SVG) replaces `StagePipelineFlow`; honest empty state (no `fallbackTopology`).
