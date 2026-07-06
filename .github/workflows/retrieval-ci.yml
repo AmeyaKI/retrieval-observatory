@@ -20,9 +20,12 @@ jobs:
       - name: Run demo benchmark
         run: |
           retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
-          echo "CANDIDATE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['candidate_run_id'])")" >> $GITHUB_ENV
           echo "BASELINE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])")" >> $GITHUB_ENV
+
+      - name: Run healthy candidate benchmark
+        run: retobs run -c .retobs/ci/benchmark_baseline.yaml --no-cache
 
       - name: Advisor regression check
         run: |
+          CANDIDATE=$(python -c "import sqlite3; print(sqlite3.connect('.retobs/ci/results.db').execute('SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1').fetchone()[0])")
           retobs advisor check --baseline "$BASELINE" --candidate "$CANDIDATE" --db .retobs/ci/results.db

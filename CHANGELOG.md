@@ -58,6 +58,8 @@ Recall/NDCG/latency with 95% CIs) as a standalone, offline HTML file (`diagram/h
 
 ### Fixed
 
+- `.github/workflows/retrieval-ci.yml` — golden gate re-runs healthy baseline config as candidate; demo’s degraded run is no longer compared (advisor check correctly exits 1 on intentional regression).
+
 - Operator Attribution Grid always showed `not_applicable`: qrels used for scoring were never
 persisted anywhere the dashboard could read them back from. Added a `run_qrels` store table
 (SQLite + Postgres) written once per run by `execute_benchmark`, and wired both
