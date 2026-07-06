@@ -387,7 +387,7 @@ Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
 
 - [docs/USAGE.md](docs/USAGE.md) — Full usage guide: every CLI command, the Python SDK, wiring retobs into an existing (including hybrid/multi-stage) RAG pipeline, the dashboard, and metrics reference
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, trace-native model, adapters, metrics, storage, dashboard API
-- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.0)
+- [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.2)
 - [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology
 - [YAML_GUIDE.md](YAML_GUIDE.md) — Six copy-paste YAML templates and an LLM prompt for generating configs
