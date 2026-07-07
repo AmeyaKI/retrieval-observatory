@@ -6,6 +6,23 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Changed
+
+- `examples/` — reorganized into `basic/`, `benchmarks/`, `integrations/`, `tracing/`, `advanced/`, and `ci/`; removed top-level symlink aliases; updated docs, CLI hints, and `http_quickstart` dataset paths to config-relative JSONL files.
+- `integrations/registry.py` — agent snippets use real APIs (`ro.init`, `@observe`, V2 callbacks); removed stale `observe_run` / `push-traces` references.
+- `config/runtime.py` — shared path resolution + `sys.path` setup for MCP/REST parity with `retobs run`.
+- `sdk/run_config.py` — `config_base_dir` param for `adapter.import` and relative dataset paths.
+- `mcp/server.py` — `benchmark_config_file`, `bootstrap_project`, `push_traces`, `get_pipeline_graph`; `verify_integration` uses port 4000 and `expected_stages`.
+- `dashboard/api.py` — REST run trigger accepts `config_base_dir`.
+- `config/discovery.py` — `adapter.import` in `ADAPTER_EXAMPLES`.
+- `docs/integrations/mcp.md`, `AGENT_QUICKSTART.md` — integration tools, Cursor MCP config, external-folder workflow.
+- `examples/integrations/http_quickstart/server.py` — response field `documents` (HTTP adapter contract).
+
+### Added
+
+- `config/runtime.py` — `resolve_config_paths`, `prepare_config_runtime`.
+- MCP tools: `benchmark_config_file`, `bootstrap_project`, `push_traces`, `get_pipeline_graph`.
+
 ## [0.4.2] — 2026-07-06
 
 ### Added

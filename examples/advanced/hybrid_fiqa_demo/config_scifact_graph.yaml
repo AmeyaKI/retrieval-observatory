@@ -11,7 +11,7 @@
 #   linear chain with one fusion stage.
 #
 # Run:
-#   retobs run --config examples/hybrid_fiqa_demo/config_scifact_graph.yaml
+#   retobs run --config examples/advanced/hybrid_fiqa_demo/config_scifact_graph.yaml
 #   retobs serve --db .retobs/hybrid_scifact_graph_demo.db
 
 experiment:

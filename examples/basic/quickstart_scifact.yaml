@@ -1,5 +1,5 @@
 # 5-minute quickstart — BM25 on SciFact (50 queries)
-# Run: retobs validate --config examples/quickstart_scifact.yaml && retobs run --config examples/quickstart_scifact.yaml
+# Run: retobs validate --config examples/basic/quickstart_scifact.yaml && retobs run --config examples/basic/quickstart_scifact.yaml
 # Then: retobs serve --db .retobs/quickstart_scifact.db
 
 experiment:

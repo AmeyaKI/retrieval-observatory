@@ -4,7 +4,7 @@
 Run::
 
     pip install retrieval-observatory[dashboard,demo]
-    python examples/fastapi_search/app.py
+    python examples/integrations/fastapi_search/app.py
 
 Traces are written to the demo DB by default so ``retobs serve --db .retobs/demo/results.db``
 shows live + seeded traces together.

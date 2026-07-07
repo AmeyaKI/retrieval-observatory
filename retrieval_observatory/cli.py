@@ -53,13 +53,9 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
         console.print(f"[red]Cannot parse config {config_path}: {e}[/red]")
         console.print("[dim]Run [bold]retobs validate --config <path>[/bold] for a detailed config check.[/dim]")
         raise typer.Exit(1)
-    _resolve_config_paths(cfg, config_path.parent)
-    # adapter.import factory paths (e.g. "custom_adapters:build_x") are resolved via
-    # importlib against sys.path, so make modules next to the config importable without
-    # requiring the caller to set PYTHONPATH manually.
-    config_dir = str(config_path.parent.resolve())
-    if config_dir not in sys.path:
-        sys.path.insert(0, config_dir)
+    from retrieval_observatory.config.runtime import prepare_config_runtime
+
+    prepare_config_runtime(cfg, config_path.parent)
     console.print(f"[bold green]Experiment:[/bold green] {cfg.experiment.name}")
     validation_report = validate_experiment_config(cfg, str(config_path))
     if validation_report["status"] == "error":
@@ -1106,11 +1102,9 @@ def _starter_config(mode: str) -> dict:
 
 
 def _resolve_config_paths(cfg, base_dir: Path) -> None:
-    ds = cfg.dataset
-    for attr in ("queries_path", "corpus_path", "qrels_path"):
-        value = getattr(ds, attr, None)
-        if value and not Path(value).is_absolute():
-            setattr(ds, attr, str((base_dir / value).resolve()))
+    from retrieval_observatory.config.runtime import resolve_config_paths
+
+    resolve_config_paths(cfg, base_dir)
 
 
 def _print_classifier_report(report) -> None:
@@ -1175,7 +1169,7 @@ async def _classifier_train(
     if not runs:
         console.print(
             f"[red]No benchmark runs found for dataset '{dataset}' in {db_path}.[/red]\n"
-            "[dim]Run a benchmark first, e.g.: retobs run --config examples/dashboard_demo/config.yaml[/dim]"
+            "[dim]Run a benchmark first, e.g.: retobs run --config examples/advanced/dashboard_demo/config.yaml[/dim]"
         )
         raise typer.Exit(1)
     samples = await load_labeled_queries(store, dataset)

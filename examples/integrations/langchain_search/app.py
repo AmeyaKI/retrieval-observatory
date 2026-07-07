@@ -7,7 +7,7 @@ Requirements:
     pip install langchain-community faiss-cpu
 
 Usage:
-    python examples/langchain_search/app.py
+    python examples/integrations/langchain_search/app.py
     retobs serve --db .retobs/langchain_demo.db
 """
 from __future__ import annotations

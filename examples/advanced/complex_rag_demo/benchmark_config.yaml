@@ -10,7 +10,7 @@
 #   hybrid__rerank__boost     -- + recency boost (4-stage; the full pipeline)
 #
 # Run (needs the [dense] extra: sentence-transformers + faiss-cpu):
-#   PYTHONPATH=examples/complex_rag_demo retobs run --config examples/complex_rag_demo/benchmark_config.yaml
+#   PYTHONPATH=examples/advanced/complex_rag_demo retobs run --config examples/advanced/complex_rag_demo/benchmark_config.yaml
 #   retobs serve --db .retobs/complex_rag_demo_benchmark.db
 
 experiment:

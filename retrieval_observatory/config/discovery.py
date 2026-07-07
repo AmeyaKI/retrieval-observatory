@@ -36,6 +36,14 @@ ADAPTER_EXAMPLES: Dict[str, Dict[str, Any]] = {
         "retriever_id": "hybrid",
         "config": {"retrievers": ["<stage>", "<stage>"], "rrf_k": 60},
     },
+    "adapter.import": {
+        "type": "adapter.import",
+        "retriever_id": "my_retriever",
+        "config": {
+            "factory": "retriever.build_retriever",
+            "k": 10,
+        },
+    },
 }
 
 # A complete, runnable config that validates out of the box: benchmark an existing HTTP retrieval
@@ -82,6 +90,9 @@ CONFIG_NOTES = [
     "or modifies your live pipeline.",
     "To benchmark an existing service without touching it, use an 'adapter.http' stage pointing at "
     "its retrieval endpoint (read-only calls).",
+    "Custom Python retrievers: use adapter.import with config.factory pointing at a module next to "
+    "your config file. Factory signature: factory(corpus, stage_cfg, **kwargs) -> (adapter, k). "
+    "Pass config_base_dir (MCP/REST) or use retobs run --config for automatic sys.path setup.",
     "Datasets: use {'type':'custom', 'queries_path','corpus_path','qrels_path'} (JSONL) or a "
     "{'name':'beir/<dataset>'} id — no local files needed for BEIR.",
     "Stage 0 is the retriever/candidate generator; later stages are rerankers.",

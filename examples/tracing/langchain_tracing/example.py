@@ -2,7 +2,7 @@
 
 Run (from repo root, with optional deps):
   pip install -e .
-  python examples/langchain_tracing/example.py
+  python examples/tracing/langchain_tracing/example.py
 """
 from __future__ import annotations
 

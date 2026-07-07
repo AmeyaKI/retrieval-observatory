@@ -18,8 +18,8 @@ Requires the `[dense]` extra (`sentence-transformers`, `faiss-cpu`):
 
 ```bash
 pip install -e ".[dense,dashboard]"
-chmod +x examples/hybrid_fiqa_demo/run_demo.sh
-./examples/hybrid_fiqa_demo/run_demo.sh
+chmod +x examples/advanced/hybrid_fiqa_demo/run_demo.sh
+./examples/advanced/hybrid_fiqa_demo/run_demo.sh
 retobs serve --db .retobs/hybrid_fiqa_demo.db
 ```
 
@@ -70,7 +70,7 @@ docs the cross-encoder may have dropped. Run it and open the Architecture sectio
 `fuse_hybrid` and `fuse_final` rendered as `MERGE` nodes with `bm25` fanning out to both:
 
 ```bash
-retobs run --config examples/hybrid_fiqa_demo/config_scifact_graph.yaml
+retobs run --config examples/advanced/hybrid_fiqa_demo/config_scifact_graph.yaml
 retobs serve --db .retobs/hybrid_scifact_graph_demo.db
 ```
 
@@ -99,4 +99,4 @@ The `adapter.rrf`-based configs (`config_fiqa.yaml`, `config_scifact.yaml`, `con
 use a **single RRF merge point** and no recency-boost tail, since BEIR corpora lack per-doc
 timestamps. `config_scifact_graph.yaml` demonstrates a genuine **two-merge-point** DAG using the
 declarative `graphs:` runner instead. For the full bm25 → hybrid → rerank → boost chain with a
-timestamped custom corpus, see `examples/complex_rag_demo/`.
+timestamped custom corpus, see `examples/advanced/complex_rag_demo/`.

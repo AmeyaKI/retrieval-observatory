@@ -1,8 +1,8 @@
 # Temporal demo — compare standard recall vs temporal recall.
 #
 #   pip install -e ".[demo,dashboard]"
-#   python examples/temporal_demo/generate_data.py
-#   retobs run --config examples/temporal_demo/config.yaml --no-cache
+#   python examples/advanced/temporal_demo/generate_data.py
+#   retobs run --config examples/advanced/temporal_demo/config.yaml --no-cache
 #   retobs serve --db .retobs/temporal_demo.db
 
 experiment:

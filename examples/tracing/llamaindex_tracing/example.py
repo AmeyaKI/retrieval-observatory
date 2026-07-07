@@ -2,7 +2,7 @@
 
 Run (from repo root):
   pip install -e .
-  python examples/llamaindex_tracing/example.py
+  python examples/tracing/llamaindex_tracing/example.py
 """
 from __future__ import annotations
 

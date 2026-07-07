@@ -1,6 +1,6 @@
 """Walkthrough of the code-first features (roadmap Phases 1-3).
 
-Run:  python examples/demo_phases.py
+Run:  python examples/basic/demo_phases.py
 Then: retobs serve --db .retobs/demo_phases.db   # explore in the dashboard (Phase 0)
 """
 import retrieval_observatory as ro

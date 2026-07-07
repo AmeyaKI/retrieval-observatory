@@ -1,1 +1,0 @@
-basic/sdk_quickstart.py

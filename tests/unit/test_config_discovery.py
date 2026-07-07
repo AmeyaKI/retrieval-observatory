@@ -8,6 +8,7 @@ def test_schema_has_shape_and_examples():
     sc = config_schema()
     assert "json_schema" in sc
     assert sc["adapter_examples"]["adapter.http"]["type"] == "adapter.http"
+    assert sc["adapter_examples"]["adapter.import"]["config"]["factory"]
     assert set(sc["dataset_examples"]) == {"beir", "custom"}
     assert sc["notes"]
 

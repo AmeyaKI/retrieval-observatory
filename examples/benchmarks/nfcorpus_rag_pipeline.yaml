@@ -1,6 +1,6 @@
 # Multi-Stage RAG Pipeline Demo — NFCorpus
 #
-# Run: retobs run --config examples/nfcorpus_rag_pipeline.yaml
+# Run: retobs run --config examples/benchmarks/nfcorpus_rag_pipeline.yaml
 # Pipelines: bm25 (ablation) and bm25__rerank — stage attribution via __ prefix.
 
 experiment:

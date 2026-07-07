@@ -24,7 +24,7 @@ jobs:
 
       - name: Run golden benchmark
         run: |
-          retobs run -c examples/dashboard_demo/config.yaml --no-cache
+          retobs run -c examples/advanced/dashboard_demo/config.yaml --no-cache
           echo "CANDIDATE=$(sqlite3 .retobs/results.db 'SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1')" >> $GITHUB_ENV
 
       - name: Advisor regression check

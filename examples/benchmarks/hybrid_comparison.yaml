@@ -7,7 +7,7 @@
 #                        WARNING: do NOT commit this file with a real key in it
 #
 # Run:
-#   source .env && retobs run --config examples/hybrid_comparison.yaml
+#   source .env && retobs run --config examples/benchmarks/hybrid_comparison.yaml
 #
 # Get a free Cohere API key: https://dashboard.cohere.com
 

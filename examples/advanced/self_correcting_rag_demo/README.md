@@ -15,8 +15,8 @@ a cosmetic rerank.
 
 ```bash
 pip install -e ".[demo]"
-python examples/self_correcting_rag_demo/generate_data.py
-PYTHONPATH=examples/self_correcting_rag_demo retobs run --config examples/self_correcting_rag_demo/config.yaml
+python examples/advanced/self_correcting_rag_demo/generate_data.py
+PYTHONPATH=examples/advanced/self_correcting_rag_demo retobs run --config examples/advanced/self_correcting_rag_demo/config.yaml
 ```
 
 ## What to look at

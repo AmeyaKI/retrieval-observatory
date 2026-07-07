@@ -6,7 +6,7 @@ Requirements:
     pip install retrieval-observatory[llamaindex,dashboard]
 
 Usage:
-    python examples/llamaindex_search/app.py
+    python examples/integrations/llamaindex_search/app.py
     retobs serve --db .retobs/llamaindex_demo.db
 """
 from __future__ import annotations

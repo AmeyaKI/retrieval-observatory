@@ -6,41 +6,59 @@ from typing import Any, Dict, List, Optional
 
 INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
     "python": {
-        "title": "Python callable / multi-stage list",
+        "title": "Python callable, adapter.import factory, or @observe tracing",
         "install_extra": None,
         "env_vars": [],
         "snippet": (
+            "# Option A — SDK benchmark (no YAML):\n"
             "import retrieval_observatory as ro\n\n"
             "def retrieve(q: str) -> list[str]:\n"
             "    return my_index.search(q, k=100)\n\n"
             "report = ro.benchmark(retrieve, queries=queries, corpus=corpus, k=10)\n"
-            "report.show()"
+            "report.show()\n\n"
+            "# Option B — YAML adapter.import (factory next to config.yaml):\n"
+            "# stages: [{type: adapter.import, retriever_id: my_retriever,\n"
+            "#           config: {factory: retriever.build_retriever, k: 10}}]\n"
+            "# Run: retobs run --config retobs/config.yaml\n"
+            "# Or MCP: benchmark_config_file(config_path='.../retobs/config.yaml')\n\n"
+            "# Option C — production tracing (V2 operator DAG):\n"
+            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace\n\n"
+            "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n\n"
+            "@observe(op_type='SOURCE', op_id='my_retriever')\n"
+            "def retrieve(query: str): ...\n\n"
+            "start_trace(ObserveContext(run_id='run-1', query_id='q1', query_text=query, pipeline_id='main'))\n"
+            "retrieve(query)\n"
+            "trace = finish_trace()\n"
+            "# Push: MCP push_traces(run_id='run-1', traces=[trace.to_dict()])"
         ),
-        "verify": "Run a 5-query smoke benchmark; expect metrics rows with pipeline_id set.",
+        "verify": "Benchmark: run a 5-query smoke test; expect metrics with pipeline_id set. Tracing: verify_integration with trace_count > 0.",
     },
     "langchain": {
         "title": "LangChain retriever callback",
         "install_extra": "langchain",
         "env_vars": [],
         "snippet": (
-            "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback\n"
-            "from retrieval_observatory.sdk.observe import observe_run\n\n"
-            "with observe_run(run_id='prod-1', experiment_name='my-rag'):\n"
-            "    docs = retriever.invoke(query, config={'callbacks': [RetobsLangChainCallback()]})\n"
-            "# Push traces: retobs push-traces or REST POST /dbs/{id}/runs/{run_id}/traces"
+            "import retrieval_observatory as ro\n"
+            "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallbackV2\n\n"
+            "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
+            "cb = RetobsLangChainCallbackV2(recorder)\n"
+            "docs = retriever.invoke(query, config={'callbacks': [cb]})\n"
+            "# Push traces: MCP push_traces(run_id=..., traces=[...]) or REST POST /dbs/{id}/runs/{run_id}/traces"
         ),
-        "verify": "After 1+ traced queries, call verify_integration — expect stages seen from callback spans.",
+        "verify": "After 1+ traced queries, call verify_integration — expect stages_seen from callback spans.",
     },
     "llamaindex": {
         "title": "LlamaIndex query instrumentation",
         "install_extra": "llamaindex",
         "env_vars": [],
         "snippet": (
-            "from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexHandler\n"
-            "from retrieval_observatory.sdk.observe import observe_run\n\n"
-            "handler = RetobsLlamaIndexHandler()\n"
-            "with observe_run(run_id='prod-1', experiment_name='my-rag'):\n"
-            "    index.as_query_engine(callback_manager=CallbackManager([handler])).query(q)"
+            "import retrieval_observatory as ro\n"
+            "from llama_index.core.callbacks import CallbackManager\n"
+            "from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallbackV2\n\n"
+            "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
+            "handler = RetobsLlamaIndexCallbackV2(recorder)\n"
+            "engine = index.as_query_engine(callback_manager=CallbackManager([handler]))\n"
+            "engine.query(q)"
         ),
         "verify": "After 1+ traced queries, call verify_integration — expect operator spans in the run.",
     },
@@ -51,10 +69,17 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
         "snippet": (
             "# Option A — benchmark existing HTTP endpoint (no code change):\n"
             "# stages: [{type: adapter.http, url: http://localhost:8000/search, ...}]\n\n"
-            "# Option B — trace in-process (examples/fastapi_search/app.py):\n"
-            "from retrieval_observatory.sdk.observe import observe_operator\n\n"
-            "@observe_operator(op_id='bm25', op_type='SOURCE')\n"
-            "def search(q: str): ..."
+            "# Option B — trace in-process (see examples/integrations/fastapi_search/app.py):\n"
+            "import retrieval_observatory as ro\n"
+            "from retrieval_observatory.tracing.integrations.fastapi import get_trace, instrument_fastapi\n\n"
+            "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
+            "instrument_fastapi(app, recorder, pipeline_id='main')\n\n"
+            "@app.get('/search')\n"
+            "async def search(q: str, request: Request):\n"
+            "    t = get_trace(request)\n"
+            "    docs = my_retriever.search(q)\n"
+            "    t.stage('bm25', docs, latency_ms=...)\n"
+            "    return docs"
         ),
         "verify": "HTTP adapter: benchmark_config with adapter.http. In-process: verify_integration after traces.",
     },

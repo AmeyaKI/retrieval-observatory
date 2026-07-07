@@ -8,14 +8,14 @@
 #
 # Prerequisites:
 #   pip install -e ".[demo,hf,dashboard,classifier]"
-#   python examples/dashboard_demo/generate_data.py
+#   python examples/advanced/dashboard_demo/generate_data.py
 #
 # Quick run (~5–15 min on CPU depending on cache):
-#   retobs run --config examples/dashboard_demo/config.yaml --latency-budget-ms 3000
+#   retobs run --config examples/advanced/dashboard_demo/config.yaml --latency-budget-ms 3000
 #
 # Then train a difficulty classifier and re-run once so Query Explorer + Calibration populate:
 #   retobs classifier train --dataset observatory-demo --db .retobs/dashboard_demo.db
-#   retobs run --config examples/dashboard_demo/config.yaml --latency-budget-ms 3000
+#   retobs run --config examples/advanced/dashboard_demo/config.yaml --latency-budget-ms 3000
 #
 # Dashboard:
 #   retobs serve --db .retobs/dashboard_demo.db
@@ -26,7 +26,7 @@ experiment:
 dataset:
   type: custom
   name: observatory-demo
-  # Paths are relative to this config file's directory (examples/dashboard_demo/).
+  # Paths are relative to this config file's directory (examples/advanced/dashboard_demo/).
   queries_path: queries.jsonl
   corpus_path: corpus.jsonl
 

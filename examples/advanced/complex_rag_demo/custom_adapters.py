@@ -7,8 +7,8 @@ what `adapter.import` is for: plug a plain Python object with `.rerank()` into
 any stage position, and it participates in caching, metrics, diagnostics, and
 trace-native attribution like any built-in adapter.
 
-Wired into a pipeline via (run with PYTHONPATH=examples/complex_rag_demo so the
-bare module name resolves, matching examples/custom_retriever's convention):
+Wired into a pipeline via (run with PYTHONPATH=examples/advanced/complex_rag_demo so the
+bare module name resolves, matching examples/advanced/custom_retriever's convention):
     boost:
       type: adapter.import
       config:

@@ -5,11 +5,11 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 pip install -e ".[demo]" -q
-python examples/custom_retriever/generate_data.py
+python examples/advanced/custom_retriever/generate_data.py
 
-export PYTHONPATH="${ROOT}/examples/custom_retriever:${PYTHONPATH:-}"
+export PYTHONPATH="${ROOT}/examples/advanced/custom_retriever:${PYTHONPATH:-}"
 
-retobs run --config examples/custom_retriever/config.yaml --no-cache
+retobs run --config examples/advanced/custom_retriever/config.yaml --no-cache
 
 echo ""
 echo "Done. Inspect results:"

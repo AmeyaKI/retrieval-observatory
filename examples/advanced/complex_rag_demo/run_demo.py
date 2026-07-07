@@ -19,7 +19,7 @@ directory), so the dashboard's segment/operator attribution grid, operator
 inspector, and counterfactual replay all have something real to show.
 
 Run:
-    python examples/complex_rag_demo/run_demo.py
+    python examples/advanced/complex_rag_demo/run_demo.py
     retobs serve --db .retobs/complex_rag_demo.db
 """
 from __future__ import annotations

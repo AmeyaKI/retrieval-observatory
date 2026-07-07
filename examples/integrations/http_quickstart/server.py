@@ -47,7 +47,7 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
-    results: list[SearchResult]
+    documents: list[SearchResult]
 
 
 @app.post("/search", response_model=SearchResponse)
@@ -55,7 +55,7 @@ def search(req: SearchRequest) -> SearchResponse:
     scores = _bm25.get_scores(req.query.lower().split())
     top_k = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[: req.k]
     return SearchResponse(
-        results=[
+        documents=[
             SearchResult(id=_doc_ids[i], text=CORPUS[_doc_ids[i]], score=float(scores[i]))
             for i in top_k
         ]

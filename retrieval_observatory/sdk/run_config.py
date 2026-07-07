@@ -19,6 +19,7 @@ def run_from_config(
     max_queries: Optional[int] = None,
     run_id: Optional[str] = None,
     no_cache: bool = False,
+    config_base_dir: Optional[str] = None,
 ) -> BenchmarkReport:
     """Run a benchmark from an ``ExperimentConfig``-shaped dict (or an ExperimentConfig).
 
@@ -27,6 +28,8 @@ def run_from_config(
     ``adapter.http``, ``adapter.rrf``, dense, ...). ``max_queries`` caps the query count for
     bounded/quick runs (used by the MCP tools and the REST ``wait=true`` mode); when set it also
     overrides ``dataset.max_queries``. ``db_path`` overrides the config's output db path.
+    ``config_base_dir`` resolves relative dataset paths and adds the directory to ``sys.path``
+    for ``adapter.import`` factories (same behavior as ``retobs run --config``).
 
     Returns a :class:`BenchmarkReport`, identical to what ``benchmark()`` returns.
     """
@@ -37,6 +40,7 @@ def run_from_config(
             max_queries=max_queries,
             run_id=run_id,
             no_cache=no_cache,
+            config_base_dir=config_base_dir,
         )
     )
 
@@ -48,7 +52,9 @@ async def _run_from_config_async(
     max_queries,
     run_id,
     no_cache,
+    config_base_dir=None,
 ) -> BenchmarkReport:
+    from retrieval_observatory.config.runtime import prepare_config_runtime
     from retrieval_observatory.config.schema import ExperimentConfig
     from retrieval_observatory.pipeline.factory import build_pipeline_from_config
     from retrieval_observatory.runner.execute import execute_benchmark
@@ -56,6 +62,8 @@ async def _run_from_config_async(
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     cfg = config if isinstance(config, ExperimentConfig) else ExperimentConfig.model_validate(config)
+
+    prepare_config_runtime(cfg, config_base_dir)
 
     if max_queries is not None:
         cfg.dataset.max_queries = max_queries

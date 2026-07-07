@@ -1,8 +1,8 @@
 # Custom retriever demo — loads a Python factory via adapter.import.
 #
 #   pip install -e ".[demo]"
-#   python examples/custom_retriever/generate_data.py
-#   PYTHONPATH=examples/custom_retriever retobs run --config examples/custom_retriever/config.yaml
+#   python examples/advanced/custom_retriever/generate_data.py
+#   PYTHONPATH=examples/advanced/custom_retriever retobs run --config examples/advanced/custom_retriever/config.yaml
 
 experiment:
   name: custom-retriever-demo

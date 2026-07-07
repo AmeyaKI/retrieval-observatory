@@ -9,14 +9,14 @@ echo "==> Installing extras (demo, hf, dashboard, classifier)..."
 pip install -e ".[demo,hf,dashboard,classifier]" -q
 
 echo "==> Generating synthetic dataset..."
-python examples/dashboard_demo/generate_data.py
+python examples/advanced/dashboard_demo/generate_data.py
 
 echo "==> Building dashboard UI (production bundle)..."
 make dashboard-build
 
 echo "==> Run 1/2: benchmark all pipeline combinations..."
 retobs run \
-  --config examples/dashboard_demo/config.yaml \
+  --config examples/advanced/dashboard_demo/config.yaml \
   --latency-budget-ms 3000 \
   --no-cache
 
@@ -28,7 +28,7 @@ retobs classifier train \
 
 echo "==> Run 2/2: re-benchmark with difficulty predictions attached..."
 retobs run \
-  --config examples/dashboard_demo/config.yaml \
+  --config examples/advanced/dashboard_demo/config.yaml \
   --latency-budget-ms 3000
 
 echo ""

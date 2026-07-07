@@ -24,10 +24,10 @@
 #
 # Run with:
 #   pip install -e ".[demo,dashboard,dense,dev]"
-#   retobs run --config examples/three_stage_cascade.yaml --no-cache
+#   retobs run --config examples/benchmarks/three_stage_cascade.yaml --no-cache
 #
 # With a latency budget (prints a one-line verdict per stage pair):
-#   retobs run --config examples/three_stage_cascade.yaml --no-cache --latency-budget-ms 2000
+#   retobs run --config examples/benchmarks/three_stage_cascade.yaml --no-cache --latency-budget-ms 2000
 
 experiment:
   name: three-stage-cascade

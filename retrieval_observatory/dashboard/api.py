@@ -1517,13 +1517,23 @@ def create_app(
             cfg.output.db_path = source.path
         return cfg
 
-    async def _execute_config_run(cfg, run_id: str, max_queries: int | None) -> Dict[str, Any]:
+    async def _execute_config_run(
+        cfg,
+        run_id: str,
+        max_queries: int | None,
+        config_base_dir: str | None = None,
+    ) -> Dict[str, Any]:
         from retrieval_observatory.sdk.run_config import _run_from_config_async
 
         _jobs[run_id] = {"run_id": run_id, "status": "running", "error": None}
         try:
             report = await _run_from_config_async(
-                config=cfg, db_path=None, max_queries=max_queries, run_id=run_id, no_cache=False
+                config=cfg,
+                db_path=None,
+                max_queries=max_queries,
+                run_id=run_id,
+                no_cache=False,
+                config_base_dir=config_base_dir,
             )
             _jobs[run_id]["status"] = "completed"
             return report.metrics
@@ -1539,15 +1549,18 @@ def create_app(
     ) -> Dict[str, Any]:
         """Trigger a benchmark run from an ExperimentConfig JSON.
 
-        Body: {"config": <ExperimentConfig>, "wait"?: bool, "max_queries"?: int}. Default is a
-        background job returning {run_id, status:"running"}; poll GET .../status then read the
-        existing metric endpoints. wait=true runs bounded-synchronously (use with max_queries).
+        Body: {"config": <ExperimentConfig>, "wait"?: bool, "max_queries"?: int,
+        "config_base_dir"?: str}. Default is a background job returning {run_id, status:"running"};
+        poll GET .../status then read the existing metric endpoints. wait=true runs
+        bounded-synchronously (use with max_queries). config_base_dir resolves relative dataset
+        paths and adapter.import factories (same as retobs run --config).
         """
         config_body = payload.get("config")
         if not isinstance(config_body, dict):
             raise HTTPException(status_code=422, detail="Body must include a 'config' object")
         wait = bool(payload.get("wait", False))
         max_queries = payload.get("max_queries")
+        config_base_dir = payload.get("config_base_dir")
         cfg = _config_for_db(db_id, config_body)
         run_id = str(uuid.uuid4())[:8]
 
@@ -1558,13 +1571,13 @@ def create_app(
             )
 
         if wait:
-            metrics = await _execute_config_run(cfg, run_id, max_queries)
+            metrics = await _execute_config_run(cfg, run_id, max_queries, config_base_dir)
             return {"run_id": run_id, "status": "completed", "metrics": metrics}
 
         import asyncio
 
         _jobs[run_id] = {"run_id": run_id, "status": "running", "error": None}
-        asyncio.create_task(_execute_config_run(cfg, run_id, max_queries))
+        asyncio.create_task(_execute_config_run(cfg, run_id, max_queries, config_base_dir))
         return {"run_id": run_id, "status": "running"}
 
     @runs_router.get("/runs/{run_id}/status")
@@ -1586,7 +1599,8 @@ def create_app(
     async def compare_configs(db_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         """Run a baseline and candidate config, then return a paired comparison.
 
-        Body: {"baseline_config": {...}, "candidate_config": {...}, "max_queries"?: int}.
+        Body: {"baseline_config": {...}, "candidate_config": {...}, "max_queries"?: int,
+        "config_base_dir"?: str}.
         This is the agent 'benchmark this config against a baseline' primitive.
         """
         baseline_body = payload.get("baseline_config")
@@ -1594,6 +1608,7 @@ def create_app(
         if not isinstance(baseline_body, dict) or not isinstance(candidate_body, dict):
             raise HTTPException(status_code=422, detail="Provide baseline_config and candidate_config")
         max_queries = payload.get("max_queries")
+        config_base_dir = payload.get("config_base_dir")
         if _active_run_count() >= _max_concurrent_runs:
             raise HTTPException(status_code=429, detail="Too many concurrent runs; retry shortly.")
 
@@ -1601,8 +1616,8 @@ def create_app(
         candidate_cfg = _config_for_db(db_id, candidate_body)
         baseline_run_id = str(uuid.uuid4())[:8]
         candidate_run_id = str(uuid.uuid4())[:8]
-        await _execute_config_run(baseline_cfg, baseline_run_id, max_queries)
-        await _execute_config_run(candidate_cfg, candidate_run_id, max_queries)
+        await _execute_config_run(baseline_cfg, baseline_run_id, max_queries, config_base_dir)
+        await _execute_config_run(candidate_cfg, candidate_run_id, max_queries, config_base_dir)
 
         result = await _build_comparison(
             [(db_id, baseline_run_id), (db_id, candidate_run_id)], registry, engine

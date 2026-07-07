@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -17,6 +18,17 @@ import yaml
 
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_MAX_QUERIES = 50
+DEFAULT_SERVE_PORT = 4000
+
+
+def _dashboard_base_url() -> str:
+    port = int(os.environ.get("RETOBS_SERVE_PORT", DEFAULT_SERVE_PORT))
+    host = os.environ.get("RETOBS_SERVE_HOST", "127.0.0.1")
+    return f"http://{host}:{port}"
+
+
+def _dashboard_run_url(run_id: str, section: str = "overview") -> str:
+    return f"{_dashboard_base_url()}/#/benchmarks/run/{run_id}/{section}"
 
 
 class _FallbackFastMCP:
@@ -167,6 +179,7 @@ async def _describe_integration(framework: Optional[str] = None) -> Dict[str, An
 async def _verify_integration(
     db_path: str = DEFAULT_DB_PATH,
     run_id: Optional[str] = None,
+    expected_stages: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Report whether traces/metrics exist and suggest next MCP steps."""
     store = _store(db_path)
@@ -176,8 +189,8 @@ async def _verify_integration(
         return {
             "status": "no_runs",
             "message": "No runs in database yet.",
-            "next": "benchmark_config or push traces, then call verify_integration again.",
-            "dashboard_url": "http://127.0.0.1:8000",
+            "next": "benchmark_config or push_traces, then call verify_integration again.",
+            "dashboard_url": _dashboard_base_url(),
         }
 
     target = run_id or runs[0]["run_id"]
@@ -194,21 +207,34 @@ async def _verify_integration(
     )
     pipeline_ids = sorted({v["pipeline_id"] for v in metrics.values() if v.get("stage_index", -1) >= 0})
 
+    missing_stages: List[str] = []
+    if expected_stages:
+        missing_stages = sorted(set(expected_stages) - set(stages_seen))
+
     next_steps = ["get_run_metrics"]
     if pipeline_ids:
         next_steps.append("get_pareto_frontier")
-        next_steps.append("get_pipeline_diagram")
+        next_steps.append("get_pipeline_graph")
     if not traces:
         next_steps.insert(0, "describe_integration(framework='...') to wire tracing")
+        next_steps.insert(1, "push_traces after instrumenting your pipeline")
+    elif missing_stages:
+        next_steps.insert(0, f"wire missing stages: {missing_stages}")
+
+    instrumentation = "trace_native" if traces else "benchmark_only"
+    if missing_stages:
+        instrumentation = "incomplete"
 
     return {
         "status": "ok",
         "run_id": target,
         "trace_count": len(traces),
         "stages_seen": stages_seen,
+        "missing_stages": missing_stages,
         "pipeline_ids": pipeline_ids,
         "has_metrics": bool(metrics),
-        "dashboard_url": f"http://127.0.0.1:8000/#/benchmarks/run/{target}/overview",
+        "instrumentation": instrumentation,
+        "dashboard_url": _dashboard_run_url(target),
         "next": next_steps,
     }
 
@@ -217,21 +243,47 @@ async def _benchmark_config(
     config: Dict[str, Any],
     max_queries: int = DEFAULT_MAX_QUERIES,
     db_path: str = DEFAULT_DB_PATH,
+    config_base_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Benchmark a retrieval config (ExperimentConfig JSON of adapter specs). Bounded-synchronous:
-    capped at max_queries. Returns run_id, aggregated metrics, and the headline winner."""
+    capped at max_queries. Returns run_id, aggregated metrics, and the headline winner.
+    Pass config_base_dir to resolve relative dataset paths and adapter.import factories."""
     from retrieval_observatory.dashboard.api import _headline_winner
     from retrieval_observatory.sdk.run_config import _run_from_config_async
 
     normalized = _normalize_benchmark_config(config)
     report = await _run_from_config_async(
-        config=normalized, db_path=db_path, max_queries=max_queries, run_id=None, no_cache=False
+        config=normalized,
+        db_path=db_path,
+        max_queries=max_queries,
+        run_id=None,
+        no_cache=False,
+        config_base_dir=config_base_dir,
     )
     return {
         "run_id": report.run_id,
         "metrics": report.metrics,
         "headline_winner": _headline_winner(report.metrics),
     }
+
+
+async def _benchmark_config_file(
+    config_path: str,
+    max_queries: int = DEFAULT_MAX_QUERIES,
+    db_path: str = DEFAULT_DB_PATH,
+) -> Dict[str, Any]:
+    """Benchmark a YAML config file on disk with CLI-equivalent path resolution and sys.path setup."""
+    path = Path(config_path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Config not found: {path}")
+    with path.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    return await _benchmark_config(
+        config,
+        max_queries=max_queries,
+        db_path=db_path,
+        config_base_dir=str(path.parent),
+    )
 
 
 async def _benchmark_pipeline_descriptor(
@@ -253,6 +305,7 @@ async def _benchmark_vs_baseline(
     baseline_config: Optional[Dict[str, Any]] = None,
     max_queries: int = DEFAULT_MAX_QUERIES,
     db_path: str = DEFAULT_DB_PATH,
+    config_base_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Benchmark a candidate config against a baseline (an existing run_id OR another config).
     Returns candidate/baseline run ids and significance-tested regressions."""
@@ -268,12 +321,22 @@ async def _benchmark_vs_baseline(
 
     if baseline_config is not None:
         baseline_report = await _run_from_config_async(
-            config=baseline_config, db_path=db_path, max_queries=max_queries, run_id=None, no_cache=False
+            config=baseline_config,
+            db_path=db_path,
+            max_queries=max_queries,
+            run_id=None,
+            no_cache=False,
+            config_base_dir=config_base_dir,
         )
         baseline_run_id = baseline_report.run_id
 
     candidate_report = await _run_from_config_async(
-        config=candidate_config, db_path=db_path, max_queries=max_queries, run_id=None, no_cache=False
+        config=candidate_config,
+        db_path=db_path,
+        max_queries=max_queries,
+        run_id=None,
+        no_cache=False,
+        config_base_dir=config_base_dir,
     )
 
     engine = MetricsEngine()
@@ -382,6 +445,207 @@ async def _get_pipeline_diagram(run_id: str, db_path: str = DEFAULT_DB_PATH) -> 
     return {"run_id": run_id, "pipelines": _build_diagram(metrics, results)}
 
 
+async def _get_pipeline_graph(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
+    """Canonical PipelineGraph projection (nodes + edges with CIs) from traces + metrics."""
+    from retrieval_observatory.metrics.engine import MetricsEngine
+    from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
+
+    store = _store(db_path)
+    await store.init_db()
+    agg = await MetricsEngine().aggregate(run_id, store)
+    traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+    graphs = build_pipeline_graphs(agg, traces)
+    return {
+        "run_id": run_id,
+        "pipelines": [g.to_dict() for g in graphs],
+    }
+
+
+def _parse_trace_payload(payload: Dict[str, Any], run_id: str):
+    from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+
+    data = dict(payload)
+    if run_id:
+        data["run_id"] = run_id
+    return RetrievalTraceV2.from_dict(data)
+
+
+async def _push_traces(
+    run_id: str,
+    traces: List[Dict[str, Any]],
+    db_path: str = DEFAULT_DB_PATH,
+) -> Dict[str, Any]:
+    """Ingest V2 retrieval traces into a benchmark run (same contract as REST POST .../traces)."""
+    store = _store(db_path)
+    await store.init_db()
+    stored: List[str] = []
+    for payload in traces:
+        trace = _parse_trace_payload(payload, run_id=run_id)
+        await store.save_trace_v2(trace)
+        stored.append(trace.trace_id)
+    return {"run_id": run_id, "trace_ids": stored, "count": len(stored)}
+
+
+_RETRIEVER_STUB = '''"""Custom retriever factory for retobs adapter.import.
+
+Replace KeywordOverlapRetriever with your production retriever class.
+Factory signature: (corpus, stage_cfg, **kwargs) -> (adapter, k)
+"""
+from __future__ import annotations
+
+from typing import Dict, Optional, Tuple
+
+from retrieval_observatory.types import Document, Query, RetrievalResult
+
+
+class KeywordOverlapRetriever:
+    def __init__(self, corpus: Dict[str, str], retriever_id: str = "my_retriever"):
+        self.retriever_id = retriever_id
+        self._corpus = corpus
+
+    def retrieve(self, query: Query) -> RetrievalResult:
+        q_tokens = set(query.text.lower().split())
+        scored = [
+            (doc_id, len(q_tokens & set(text.lower().split())))
+            for doc_id, text in self._corpus.items()
+            if q_tokens & set(text.lower().split())
+        ]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[: query.k]
+        documents = [
+            Document(id=doc_id, text=self._corpus[doc_id], score=float(score), rank=rank)
+            for rank, (doc_id, score) in enumerate(top, start=1)
+        ]
+        return RetrievalResult(documents=documents, latency_ms=0.0, retriever_id=self.retriever_id)
+
+
+def build_retriever(
+    corpus: Optional[Dict[str, str]],
+    stage_cfg: dict,
+    **kwargs,
+) -> Tuple[KeywordOverlapRetriever, int]:
+    if corpus is None:
+        raise ValueError("build_retriever requires a corpus from the dataset loader.")
+    cfg = stage_cfg.get("config", {})
+    k = int(cfg.get("k", 10))
+    retriever_id = stage_cfg.get("retriever_id", "my_retriever")
+    return KeywordOverlapRetriever(corpus, retriever_id=retriever_id), k
+'''
+
+_INSTRUMENT_STUB = '''"""retobs instrumentation stub — wire into your RAG pipeline."""
+from __future__ import annotations
+
+import retrieval_observatory as ro
+from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace
+
+recorder = ro.init(service="my-rag", db=".retobs/prod.db")
+
+
+@observe(op_type="SOURCE", op_id="my_retriever")
+def retrieve(query: str):
+  """Replace with your retrieval logic."""
+  raise NotImplementedError("Wire your retriever here")
+
+
+def traced_query(run_id: str, query_id: str, query_text: str) -> None:
+    start_trace(
+        ObserveContext(
+            run_id=run_id,
+            query_id=query_id,
+            query_text=query_text,
+            pipeline_id="main",
+        )
+    )
+    retrieve(query_text)
+    finish_trace()
+'''
+
+
+def _bootstrap_config_yaml(experiment_name: str, factory: str) -> str:
+    return f"""experiment:
+  name: {experiment_name}
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: queries.jsonl
+  corpus_path: corpus.jsonl
+  qrels_path: qrels.jsonl
+
+pipelines:
+  - id: main
+    stages:
+      - type: adapter.import
+        retriever_id: my_retriever
+        config:
+          factory: {factory}
+          k: 10
+
+metrics:
+  recall_at_k: [5, 10]
+  ndcg_at_k: [10]
+
+output:
+  store: sqlite
+  db_path: .retobs/results.db
+"""
+
+
+async def _bootstrap_project(
+    project_root: str,
+    framework: str = "python",
+    retriever_entrypoint: Optional[str] = None,
+    experiment_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Scaffold retobs config and stubs in an external project directory."""
+    root = Path(project_root).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    retobs_dir = root / "retobs"
+    retobs_dir.mkdir(parents=True, exist_ok=True)
+
+    exp_name = experiment_name or Path(root.name).name or "my-rag"
+    factory = retriever_entrypoint or "retriever.build_retriever"
+    written: List[str] = []
+
+    config_path = retobs_dir / "config.yaml"
+    config_path.write_text(_bootstrap_config_yaml(exp_name, factory), encoding="utf-8")
+    written.append(str(config_path))
+
+    mcp_path = root / "retobs-mcp.yaml"
+    mcp_path.write_text(
+        "db_path: .retobs/results.db\nmax_queries: 50\nbaseline_run_id: null\n",
+        encoding="utf-8",
+    )
+    written.append(str(mcp_path))
+
+    if framework == "python":
+        retriever_path = retobs_dir / "retriever.py"
+        if not retriever_path.exists():
+            retriever_path.write_text(_RETRIEVER_STUB, encoding="utf-8")
+            written.append(str(retriever_path))
+        instrument_path = retobs_dir / "instrument.py"
+        if not instrument_path.exists():
+            instrument_path.write_text(_INSTRUMENT_STUB, encoding="utf-8")
+            written.append(str(instrument_path))
+
+    guide = await _describe_integration(framework)
+    return {
+        "project_root": str(root),
+        "framework": framework,
+        "files_written": written,
+        "config_path": str(config_path),
+        "mcp_config_path": str(mcp_path),
+        "next": [
+            "Add queries.jsonl, corpus.jsonl, qrels.jsonl under retobs/ (or switch dataset to beir/...)",
+            "validate_config with the generated config (use benchmark_config_file for on-disk YAML)",
+            "benchmark_config_file(config_path=...)",
+            "Wire instrument.py or describe_integration snippet into your pipeline",
+            "push_traces then verify_integration",
+        ],
+        "integration_guide": guide,
+    }
+
+
 def build_server(config_path: Optional[str] = None):
     """Construct the FastMCP server with all retobs tools registered."""
     try:
@@ -394,15 +658,19 @@ def build_server(config_path: Optional[str] = None):
     server.tool(name="validate_config")(_validate_config)
     server.tool(name="describe_integration")(_describe_integration)
     server.tool(name="verify_integration")(_with_config_defaults(config_path, _verify_integration))
+    server.tool(name="bootstrap_project")(_bootstrap_project)
+    server.tool(name="push_traces")(_with_config_defaults(config_path, _push_traces))
     server.tool(name="list_runs")(_with_config_defaults(config_path, _list_runs))
     server.tool(name="get_run_metrics")(_with_config_defaults(config_path, _get_run_metrics))
     server.tool(name="benchmark_config")(_with_config_defaults(config_path, _benchmark_config))
+    server.tool(name="benchmark_config_file")(_with_config_defaults(config_path, _benchmark_config_file))
     server.tool(name="benchmark_pipeline_descriptor")(_with_config_defaults(config_path, _benchmark_pipeline_descriptor))
     server.tool(name="benchmark_vs_baseline")(_with_config_defaults(config_path, _benchmark_vs_baseline))
     server.tool(name="get_pareto_frontier")(_with_config_defaults(config_path, _get_pareto_frontier))
     server.tool(name="get_recommendations")(_with_config_defaults(config_path, _get_recommendations))
     server.tool(name="get_operator_attribution")(_with_config_defaults(config_path, _get_operator_attribution))
     server.tool(name="get_pipeline_diagram")(_with_config_defaults(config_path, _get_pipeline_diagram))
+    server.tool(name="get_pipeline_graph")(_with_config_defaults(config_path, _get_pipeline_graph))
     return server
 
 

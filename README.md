@@ -1,6 +1,6 @@
 # retobs
 
-[![PyPI version](https://img.shields.io/pypi/v/retrieval-observatory)](https://pypi.org/project/retrieval-observatory/)
+[PyPI version](https://pypi.org/project/retrieval-observatory/)
 
 Most RAG evaluation tools score end-to-end answer quality and stop there. **retobs** is a local-first **retrieval reliability platform** — it measures per-operator contribution, diagnoses why queries fail, generates corpus-specific stress tests, observes production retrieval via traces, and recommends fixes when quality regresses.
 
@@ -8,9 +8,11 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 
 Retrieval pipelines are modeled as an **operator DAG** (`RetrievalTraceV2`), not a flat list of stages — sources, fusion, expansion, filters, transforms, rerankers, boosts, and gates are each a typed operator span with parent links, so gated/conditional production pipelines (not just linear `bm25 → rerank` chains) can be traced and attributed accurately. Every attribution result carries a **replay tier** (`EXACT` / `OBSERVED_ABLATION` / `NOT_REPLAYABLE`) — retobs never reports a fabricated delta when the counterfactual can't actually be replayed.
 
-![Pareto frontier view](results/screenshots/pareto-frontier-nfcorpus.png)
+Pareto frontier view
 
 ---
+
+
 
 ## Quickstart — one command, under 5 minutes, no API keys
 
@@ -33,6 +35,8 @@ Use `--keep-db` to append instead of wiping the DB. Use `retobs demo --full` for
 
 ---
 
+
+
 ## Quickstart — benchmark your pipeline in Python (no YAML)
 
 Wrap your existing retriever and benchmark it in a few lines. Same engine, metrics, diagnostics, and dashboard as the CLI path.
@@ -52,7 +56,7 @@ report.serve()       # open the dashboard on this run
 report = ro.benchmark([my_retriever, my_reranker], queries=QUERIES, corpus=CORPUS)
 ```
 
-A single callable is one stage; pass a list `[retriever, reranker, ...]` for per-stage attribution. Stages can be plain callables (`-> list[id]`, `list[(id, score)]`, or `list[Document]`), objects with `.retrieve()`/`.rerank()`, or LangChain / LlamaIndex retrievers. Full SDK reference: [BREAKDOWN.md — Python SDK](BREAKDOWN.md#python-sdk) and [examples/sdk_quickstart.py](examples/sdk_quickstart.py).
+A single callable is one stage; pass a list `[retriever, reranker, ...]` for per-stage attribution. Stages can be plain callables (`-> list[id]`, `list[(id, score)]`, or `list[Document]`), objects with `.retrieve()`/`.rerank()`, or LangChain / LlamaIndex retrievers. Full SDK reference: [BREAKDOWN.md — Python SDK](BREAKDOWN.md#python-sdk) and [examples/basic/sdk_quickstart.py](examples/basic/sdk_quickstart.py).
 
 **No labels?** Synthesize a test set (queries + ground truth) from your corpus, or grade retrieved docs on the fly with an LLM judge:
 
@@ -78,7 +82,11 @@ Details: [docs/informative/ci_gating.md](docs/informative/ci_gating.md).
 
 ---
 
+
+
 ## Real-data integration notes
+
+
 
 ### Dataset formats (custom JSONL + qrels)
 
@@ -94,11 +102,15 @@ Details: [docs/informative/ci_gating.md](docs/informative/ci_gating.md).
 - Optional `qrels_path` supports JSONL (`query_id`, `doc_id`, `grade|score`) and TREC text lines.
 - Internal qrels are normalized to `{query_id: {doc_id: grade_int}}`; binary relevance maps to grade `1`.
 
+
+
 ### Custom retriever integration options
 
 - **SDK callable path:** pass a Python callable (or `[retriever, reranker]`) to `ro.benchmark(...)`.
 - **Adapter protocol path:** provide objects implementing `.retrieve(query)` / `.rerank(query, docs)`.
 - **Any REST retriever:** use `adapter.http`; response field names are configurable via `id_field`, `text_field`, `score_field`.
+
+
 
 ### Production tracing recipe
 
@@ -135,25 +147,33 @@ A `Dockerfile` and `docker-compose.yml` are provided for a self-hosted, single-t
 
 ---
 
+
+
 ## Capability matrix
 
 What retobs does and does not support today, traced to code. "Not supported as of now" means
 the capability is genuinely absent — not silently approximated. Where a limit is silent at
 runtime, that is called out so a result is never trusted past what the engine actually computed.
 
-| Capability | Status | Detail |
-|------------|--------|--------|
-| **Corpus storage** | RAM-only | In-process adapters hold the whole corpus in memory (`datasets/inmemory.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py`). Practical ceiling ≈100–500k docs. Streaming / sharded corpora are **not supported as of now**. |
-| **Fusion (hybrid retrieval)** | N-way, DAG-attributed; multiple merge points | `ro.fuse([...])` combines any ≥2 retrievers as a first-class `FUSE` operator span with per-arm provenance (`tracing/lift.py`, `tracing/model_v2.py`). Removing a source arm re-runs RRF over the remaining arms for counterfactual attribution. A benchmark YAML pipeline can also declare a `graphs:` block (`pipeline/dag.py`, `config/schema.py::GraphPipelineConfig`) with multiple `op: fuse` nodes wired by `inputs:`, so chained/multi-merge-point hybrid pipelines run natively — not just via `@observe` tracing. |
-| **Metadata / temporal filters** | HTTP, BM25, HF bi-encoder, pgvector, Qdrant | `adapters/http_adapter.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py` support equality filtering on `Query.filters`; `adapters/pgvector_adapter.py` builds a SQL `WHERE` clause; `adapters/qdrant_adapter.py` builds a native Qdrant `Filter`. Range filters (`>=`, `<=`, `in`) are **not supported as of now** — equality only. |
-| **Relevance scale** | Binary + graded | Graded qrels with arbitrary integer grades are supported for NDCG via standard exponential gain `2^grade − 1` (`metrics/ranking.py:ndcg_at_k_graded`, wired in `metrics/engine.py`). Recall / MAP / MRR are binary: any grade > 0 counts as relevant. |
-| **Pipeline routing** | Linear (`pipelines:`) + declarative DAG (`graphs:`) + operator DAG (production tracing) | A `pipelines:` entry is still a stage-0 retriever followed by rerankers (`runner/execute.py`). A `graphs:` entry (`pipeline/dag.py::DAGPipeline`, `config/schema.py::GraphPipelineConfig`) declares named nodes wired by `inputs:` — parallel source branches, fusion merge points, and downstream rerank/boost stages — and executes it as a real directed graph, emitting a `RetrievalTraceV2` with true `parent_ids` so metrics are bucketed by topological depth (`metrics/engine.py::compute_from_traces`), not linear position. Gated/conditional production pipelines are additionally supported by instrumenting with `@observe`/`ro.init()`, which the dashboard renders and attributes directly from the same operator-DAG model. See [`retrieval_observatory/dashboard/pipeline_graph.schema.json`](retrieval_observatory/dashboard/pipeline_graph.schema.json) for the render contract both paths project into. |
-| **Built-in adapters** | 8 | BM25, HF bi-encoder, pgvector, Qdrant, Cohere rerank, LangChain, LlamaIndex, HTTP (`adapters/`). Pinecone / Weaviate remain unsupported (use the HTTP adapter or implement the retriever protocol directly). |
-| **Result storage backend** | SQLite + Postgres (single-tenant) | Dashboard registry accepts SQLite files and Postgres DSNs (`dashboard/registry.py`). Postgres serving is supported for benchmark and trace-native APIs; deployment posture remains single-tenant/no-auth by default. |
-| **Operator attribution** | Segment × operator, replay-tiered | `tracing/attribution.py` computes per-segment marginal contribution (recall/NDCG/precision/MRR/MAP) for every operator, with bootstrap CIs, BH-corrected significance, low-power flags, and an explicit replay tier so `NOT_REPLAYABLE` operators never report a fabricated delta. |
-| **Miss attribution** | Operator-level + graph-aware | `tracing/replay.py::attribute_miss` explains why a relevant doc didn't surface (dropped by a named operator, never retrieved, or reachable via a document-graph edge that wasn't traversed) via `corpus/graph.py::EdgeStore`. |
+
+| Capability                      | Status                                                                                  | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Corpus storage**              | RAM-only                                                                                | In-process adapters hold the whole corpus in memory (`datasets/inmemory.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py`). Practical ceiling ≈100–500k docs. Streaming / sharded corpora are **not supported as of now**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Fusion (hybrid retrieval)**   | N-way, DAG-attributed; multiple merge points                                            | `ro.fuse([...])` combines any ≥2 retrievers as a first-class `FUSE` operator span with per-arm provenance (`tracing/lift.py`, `tracing/model_v2.py`). Removing a source arm re-runs RRF over the remaining arms for counterfactual attribution. A benchmark YAML pipeline can also declare a `graphs:` block (`pipeline/dag.py`, `config/schema.py::GraphPipelineConfig`) with multiple `op: fuse` nodes wired by `inputs:`, so chained/multi-merge-point hybrid pipelines run natively — not just via `@observe` tracing.                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Metadata / temporal filters** | HTTP, BM25, HF bi-encoder, pgvector, Qdrant                                             | `adapters/http_adapter.py`, `adapters/bm25_adapter.py`, `adapters/hf_biencoder_adapter.py` support equality filtering on `Query.filters`; `adapters/pgvector_adapter.py` builds a SQL `WHERE` clause; `adapters/qdrant_adapter.py` builds a native Qdrant `Filter`. Range filters (`>=`, `<=`, `in`) are **not supported as of now** — equality only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Relevance scale**             | Binary + graded                                                                         | Graded qrels with arbitrary integer grades are supported for NDCG via standard exponential gain `2^grade − 1` (`metrics/ranking.py:ndcg_at_k_graded`, wired in `metrics/engine.py`). Recall / MAP / MRR are binary: any grade > 0 counts as relevant.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| **Pipeline routing**            | Linear (`pipelines:`) + declarative DAG (`graphs:`) + operator DAG (production tracing) | A `pipelines:` entry is still a stage-0 retriever followed by rerankers (`runner/execute.py`). A `graphs:` entry (`pipeline/dag.py::DAGPipeline`, `config/schema.py::GraphPipelineConfig`) declares named nodes wired by `inputs:` — parallel source branches, fusion merge points, and downstream rerank/boost stages — and executes it as a real directed graph, emitting a `RetrievalTraceV2` with true `parent_ids` so metrics are bucketed by topological depth (`metrics/engine.py::compute_from_traces`), not linear position. Gated/conditional production pipelines are additionally supported by instrumenting with `@observe`/`ro.init()`, which the dashboard renders and attributes directly from the same operator-DAG model. See `[retrieval_observatory/dashboard/pipeline_graph.schema.json](retrieval_observatory/dashboard/pipeline_graph.schema.json)` for the render contract both paths project into. |
+| **Built-in adapters**           | 8                                                                                       | BM25, HF bi-encoder, pgvector, Qdrant, Cohere rerank, LangChain, LlamaIndex, HTTP (`adapters/`). Pinecone / Weaviate remain unsupported (use the HTTP adapter or implement the retriever protocol directly).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Result storage backend**      | SQLite + Postgres (single-tenant)                                                       | Dashboard registry accepts SQLite files and Postgres DSNs (`dashboard/registry.py`). Postgres serving is supported for benchmark and trace-native APIs; deployment posture remains single-tenant/no-auth by default.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Operator attribution**        | Segment × operator, replay-tiered                                                       | `tracing/attribution.py` computes per-segment marginal contribution (recall/NDCG/precision/MRR/MAP) for every operator, with bootstrap CIs, BH-corrected significance, low-power flags, and an explicit replay tier so `NOT_REPLAYABLE` operators never report a fabricated delta.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **Miss attribution**            | Operator-level + graph-aware                                                            | `tracing/replay.py::attribute_miss` explains why a relevant doc didn't surface (dropped by a named operator, never retrieved, or reachable via a document-graph edge that wasn't traversed) via `corpus/graph.py::EdgeStore`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+
+
 
 ---
+
+
 
 ## Four Modes
 
@@ -170,6 +190,8 @@ runtime, that is called out so a result is never trusted past what the engine ac
 
 ---
 
+
+
 ## Benchmark Results from v0.1.2(3 BEIR datasets, 1,271 queries)
 
 
@@ -183,6 +205,8 @@ runtime, that is called out so a result is never trusted past what the engine ac
 Dense retrieval (`all-MiniLM-L6-v2`) is Pareto-optimal on SciFact and FiQA — matching or beating cross-encoder reranking at **133–228× lower latency**. Full numbers: [RESULTS.md](RESULTS.md)
 
 ---
+
+
 
 ## What retobs tells you
 
@@ -205,6 +229,8 @@ Stage Contribution: bm25 → bm25__rerank
 
 ---
 
+
+
 ## How It's Different
 
 
@@ -219,6 +245,8 @@ retobs is not a leaderboard and not an answer evaluator. It's a diagnostic layer
 
 ---
 
+
+
 ## Install
 
 ```bash
@@ -231,6 +259,8 @@ import retrieval_observatory as ro
 
 ---
 
+
+
 ## SciFact quickstart (single benchmark)
 
 ```bash
@@ -240,9 +270,11 @@ retobs run --config "$CFG"
 retobs serve --db .retobs/quickstart_scifact.db
 ```
 
-From a git clone: `pip install -e ".[demo,dashboard,dense]"` then use `examples/quickstart_scifact.yaml`.
+From a git clone: `pip install -e ".[demo,dashboard,dense]"` then use `examples/basic/quickstart_scifact.yaml`.
 
 ---
+
+
 
 ## Define Your Pipeline in YAML
 
@@ -290,6 +322,8 @@ Paste this into your LLM to generate a config for your pipeline. Full format: [B
 
 ---
 
+
+
 ## Advisor & CI
 
 ```bash
@@ -303,9 +337,11 @@ retobs advisor recommend --run RUN_ID --db .retobs/results.db
 retobs advisor golden create --set my-golden --queries queries.json
 ```
 
-Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml). For Python pipelines, the bundled pytest plugin turns this into a one-line assertion — see [docs/informative/ci_gating.md](docs/informative/ci_gating.md).
+Template workflow: [examples/ci/retrieval-ci.yml](examples/ci/retrieval-ci.yml). For Python pipelines, the bundled pytest plugin turns this into a one-line assertion — see [docs/informative/ci_gating.md](docs/informative/ci_gating.md).
 
 ---
+
+
 
 ## TraceLens (production observability)
 
@@ -314,13 +350,14 @@ Template workflow: [examples/retrieval-ci.yml](examples/retrieval-ci.yml). For P
 retobs tracelens demo --service demo --db .retobs/results.db
 
 # Live FastAPI tracing (writes to demo DB by default)
-RETOBS_LATENCY_BUDGET_MS=100 python examples/fastapi_search/app.py
+RETOBS_LATENCY_BUDGET_MS=100 python examples/integrations/fastapi_search/app.py
 curl "http://localhost:8080/search?q=BM25+retrieval"
 curl "http://localhost:8080/search?q=xyzzy-nonexistent"   # triggers empty_candidates
 curl "http://localhost:8080/search?q=hybrid+search&slow=1" # triggers latency_over_budget
 ```
 
 Production traces use **suspected** failure signals (label-free, rule-based proxies), not measured Recall:
+
 - `empty_candidates` — retriever returned zero results
 - `latency_over_budget` — total latency exceeded the configured budget
 - `high_churn` — candidate set changed ≥70% between pipeline stages
@@ -349,9 +386,11 @@ Settings.callback_manager = CallbackManager([cb])
 
 Both integrate via real `BaseCallbackHandler` subclasses — `RetobsLangChainCallback` inherits `langchain_core.callbacks.base.BaseCallbackHandler`, `RetobsLlamaIndexCallback` inherits `llama_index.core.callbacks.base_handler.BaseCallbackHandler`. Multi-retriever chains produce one stage per retriever without double-counting.
 
-Runnable examples: [examples/langchain_search/app.py](examples/langchain_search/app.py), [examples/llamaindex_search/app.py](examples/llamaindex_search/app.py).
+Runnable examples: [examples/integrations/langchain_search/app.py](examples/integrations/langchain_search/app.py), [examples/integrations/llamaindex_search/app.py](examples/integrations/llamaindex_search/app.py).
 
 ---
+
+
 
 ## Forge — Synthetic Stress Datasets
 
@@ -363,6 +402,8 @@ GOOGLE_API_KEY=your-key retobs forge run --corpus data/corpus.jsonl --output for
 Forge detects temporal confusion and alias mismatches and generates queries designed to probe those failure modes.
 
 ---
+
+
 
 ## CLI Reference
 
@@ -381,17 +422,15 @@ retobs tracelens demo|stats|purge ...               Production trace observabili
 retobs classifier train|report|predict ...          Query difficulty classifier
 ```
 
-Full reference: [BREAKDOWN.md — CLI Reference](BREAKDOWN.md#cli-reference)
-
 ---
+
+
 
 ## Going Deeper
 
 - [docs/USAGE.md](docs/USAGE.md) — Full usage guide: every CLI command, the Python SDK, wiring retobs into an existing (including hybrid/multi-stage) RAG pipeline, the dashboard, and metrics reference
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, trace-native model, adapters, metrics, storage, dashboard API
 - [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.2)
-- [RESULTS.md](RESULTS.md) — Full benchmark results across 3 BEIR datasets
 - [results/BENCHMARK_ANALYSIS.md](results/BENCHMARK_ANALYSIS.md) — Deep-dive: Pareto analysis, statistical methodology
 - [YAML_GUIDE.md](YAML_GUIDE.md) — Six copy-paste YAML templates and an LLM prompt for generating configs
-- [.archive/FUTURE_EDITS.md](.archive/FUTURE_EDITS.md) — Planned Phase 6–7 work: per-lane eval, sweeps (Phase 5's DAG runner has shipped — see `graphs:` in the Capability matrix above)
 

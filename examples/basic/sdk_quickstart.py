@@ -1,6 +1,6 @@
 """Code-first quickstart — benchmark a retrieval pipeline in pure Python (no YAML).
 
-Run:  python examples/sdk_quickstart.py
+Run:  python examples/basic/sdk_quickstart.py
 """
 import retrieval_observatory as ro
 

@@ -210,7 +210,7 @@ def build_recency_boost(corpus, stage_cfg, **kwargs):
 > and would misclassify a `BOOST` stage as a `SOURCE`.
 
 A full worked example combining all of this — a hybrid, multi-stage, custom-adapter pipeline on a
-real custom dataset — lives in [`examples/complex_rag_demo/`](../examples/complex_rag_demo/).
+real custom dataset — lives in [`examples/advanced/complex_rag_demo/`](../examples/advanced/complex_rag_demo/).
 
 ---
 
@@ -345,7 +345,7 @@ async with recorder.trace(query_text, pipeline_id="kb-search", query_id=qid) as 
 
 A complete worked example (intent gate → BM25+dense fan-in → thread-sibling graph expansion →
 rerank → recency boost, on a real custom dataset) is in
-[`examples/complex_rag_demo/run_demo.py`](../examples/complex_rag_demo/run_demo.py).
+[`examples/advanced/complex_rag_demo/run_demo.py`](../examples/advanced/complex_rag_demo/run_demo.py).
 
 ### Remote / centralized tracing
 
