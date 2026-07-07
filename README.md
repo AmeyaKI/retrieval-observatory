@@ -8,6 +8,8 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 
 Retrieval pipelines are modeled as an **operator DAG** (`RetrievalTraceV2`), not a flat list of stages — sources, fusion, expansion, filters, transforms, rerankers, boosts, and gates are each a typed operator span with parent links, so gated/conditional production pipelines (not just linear `bm25 → rerank` chains) can be traced and attributed accurately. Every attribution result carries a **replay tier** (`EXACT` / `OBSERVED_ABLATION` / `NOT_REPLAYABLE`) — retobs never reports a fabricated delta when the counterfactual can't actually be replayed.
 
+![Pareto frontier view](results/screenshots/pareto-frontier-nfcorpus.png)
+
 ---
 
 ## Quickstart — one command, under 5 minutes, no API keys

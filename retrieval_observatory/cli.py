@@ -244,6 +244,42 @@ async def _compare(run_id_1: str, run_id_2: str, db_path: str) -> None:
     console.print("[dim]q-value: Benjamini-Hochberg FDR-adjusted p-value. Use q < 0.05 for significance.[/dim]")
 
 
+@app.command("diff-configs")
+def diff_configs_cmd(
+    config_a: Path = typer.Argument(..., help="Path to the 'before' experiment YAML config."),
+    config_b: Path = typer.Argument(..., help="Path to the 'after' experiment YAML config."),
+) -> None:
+    """Structural diff between two pipeline configs: pipelines/stages added, removed, or changed."""
+    from retrieval_observatory.config.diff import diff_configs
+    from retrieval_observatory.config.schema import ExperimentConfig
+
+    cfg_a = ExperimentConfig.from_yaml(str(config_a))
+    cfg_b = ExperimentConfig.from_yaml(str(config_b))
+    result = diff_configs(cfg_a, cfg_b)
+
+    if not result.has_changes:
+        console.print("[dim]No structural differences.[/dim]")
+        return
+
+    if result.dataset_changed:
+        console.print("[yellow]Dataset config changed.[/yellow]")
+    if result.metrics_changed:
+        console.print("[yellow]Metrics config changed.[/yellow]")
+
+    for pdiff in result.pipeline_diffs:
+        if pdiff.change == "unchanged":
+            continue
+        console.print(f"[bold]{pdiff.pipeline_id}[/bold]: {pdiff.change}")
+        for sdiff in pdiff.stage_diffs:
+            if sdiff.change == "unchanged":
+                continue
+            console.print(f"  stage {sdiff.index}: {sdiff.change}")
+            if sdiff.before:
+                console.print(f"    before: {sdiff.before}")
+            if sdiff.after:
+                console.print(f"    after:  {sdiff.after}")
+
+
 def _collect_dashboard_db_paths(cli_dbs: Optional[List[str]]) -> List[str]:
     """Merge repeated --db flags, comma-separated paths, and RETOBS_DASHBOARD_DBS."""
     paths: List[str] = []

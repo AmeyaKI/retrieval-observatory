@@ -1,0 +1,45 @@
+# Self-correcting RAG demo — retrieve, critique the first pass, retry with an expanded
+# query when confidence is low. A genuinely non-linear topology, not a static chain.
+#
+#   pip install -e ".[demo]"
+#   python examples/self_correcting_rag_demo/generate_data.py
+#   PYTHONPATH=examples/self_correcting_rag_demo retobs run --config examples/self_correcting_rag_demo/config.yaml
+
+experiment:
+  name: self-correcting-rag-demo
+
+dataset:
+  type: custom
+  name: self-correcting-rag
+  queries_path: queries.jsonl
+  corpus_path: corpus.jsonl
+
+pipelines:
+  - id: retrieve_critique_retry
+    stages:
+      - type: adapter.import
+        retriever_id: first_pass
+        config:
+          factory: critique_retry.build_first_pass_retriever
+          k: 5
+      - type: adapter.import
+        retriever_id: critique_retry
+        config:
+          factory: critique_retry.build_critique_retry_reranker
+          k: 5
+          confidence_threshold: 0.15
+
+metrics:
+  recall_at_k: [1, 5]
+  precision_at_k: [5]
+  ndcg_at_k: [5]
+  mrr: true
+
+execution:
+  concurrency: 1
+  timeout_seconds: 30
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/self_correcting_rag_demo.db
