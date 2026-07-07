@@ -1,0 +1,38 @@
+# Example CI workflow — copy into .github/workflows/retrieval-ci.yml
+#
+# Runs a golden benchmark on every PR and fails if Advisor detects regressions
+# against the stored baseline run ID (set RETOBS_GOLDEN_BASELINE in repo secrets).
+
+name: retrieval-ci
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  golden-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install
+        run: pip install -e ".[demo,dev]"
+
+      - name: Run golden benchmark
+        run: |
+          retobs run -c examples/dashboard_demo/config.yaml --no-cache
+          echo "CANDIDATE=$(sqlite3 .retobs/results.db 'SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1')" >> $GITHUB_ENV
+
+      - name: Advisor regression check
+        env:
+          BASELINE: ${{ secrets.RETOBS_GOLDEN_BASELINE }}
+        run: |
+          if [ -n "$BASELINE" ]; then
+            retobs advisor check --baseline "$BASELINE" --candidate "$CANDIDATE"
+          else
+            echo "RETOBS_GOLDEN_BASELINE not set — skipping regression gate"
+          fi

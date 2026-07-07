@@ -1,0 +1,41 @@
+experiment:
+  name: "temporal-recall-evaluation"
+
+dataset:
+  name: custom
+  queries_path: "data/queries.jsonl"
+  corpus_path: "data/corpus.jsonl"
+
+pipelines:
+  - id: standard_dense
+    stages:
+      - type: adapter.http
+        url: "http://localhost:8000/retrieve"
+        config:
+          k: 50
+
+  - id: temporal_reranked
+    stages:
+      - type: adapter.http
+        url: "http://localhost:8000/retrieve"
+        config:
+          k: 100
+      - type: adapter.http
+        url: "http://localhost:8001/rerank_temporal"
+        config:
+          k: 20
+
+metrics:
+  recall_at_k: [5, 10]
+  temporal_recall_at_k: [5, 10]
+  mrr: true
+  latency_percentiles: [50, 95]
+
+execution:
+  concurrency: 4
+  timeout_ms: 10000
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/temporal_results.db

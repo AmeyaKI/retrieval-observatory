@@ -1,4 +1,1 @@
-db_path: .retobs/results.db
-max_queries: 50
-pipeline_name: my-pipeline
-baseline_run_id: null
+integrations/mcp_agent_quickstart.yaml

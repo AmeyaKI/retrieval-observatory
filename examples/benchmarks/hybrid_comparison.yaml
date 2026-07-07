@@ -1,0 +1,57 @@
+# Dense-only vs BM25+Cohere hybrid comparison on BEIR/nfcorpus
+#
+# Prerequisites — supply your Cohere API key via one of:
+#   Option A (env var):  export COHERE_API_KEY=your-key-here
+#   Option B (.env file): echo "COHERE_API_KEY=your-key" >> .env && source .env
+#   Option C (inline):   uncomment and fill the api_key field below
+#                        WARNING: do NOT commit this file with a real key in it
+#
+# Run:
+#   source .env && retobs run --config examples/hybrid_comparison.yaml
+#
+# Get a free Cohere API key: https://dashboard.cohere.com
+
+experiment:
+  name: "hybrid-rag-comparison-v1"
+
+dataset:
+  name: "beir/nfcorpus"
+  split: "test"
+  max_queries: 50
+
+pipelines:
+  - id: "dense_only"
+    stages:
+      - type: "adapter.hf_biencoder"
+        config:
+          model: "sentence-transformers/all-MiniLM-L6-v2"
+          k: 100
+          batch_size: 64
+
+  - id: "bm25_cohere_rerank"
+    stages:
+      - type: "adapter.bm25"
+        config:
+          k: 100
+      - type: "adapter.cohere_rerank"
+        config:
+          model: "rerank-english-v3.0"
+          k: 10
+          # api_key: "your-key-here"  # or set COHERE_API_KEY env var
+
+metrics:
+  recall_at_k: [1, 5, 10, 20]
+  mrr: true
+  ndcg_at_k: [10]
+  latency_percentiles: [50, 95, 99]
+
+execution:
+  concurrency: 4
+  timeout_ms: 10000
+  retry_attempts: 2
+  cache_results: true
+
+output:
+  store: "sqlite"
+  db_path: ".retobs/hybrid_comparison.db"
+  export: ["json"]

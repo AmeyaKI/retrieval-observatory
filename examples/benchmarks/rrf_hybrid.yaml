@@ -1,0 +1,74 @@
+# RRF (Reciprocal Rank Fusion) hybrid retrieval example.
+#
+# Compares three pipelines:
+#   bm25        — baseline sparse retrieval
+#   dense       — baseline dense retrieval
+#   rrf_hybrid  — BM25 + dense fused via RRF (score = Σ 1/(60 + rank_i))
+#
+# RRF requires: pip install retrieval-observatory[demo,dense]
+
+experiment:
+  name: rrf-hybrid-nfcorpus
+
+dataset:
+  type: beir
+  name: beir/nfcorpus
+  split: test
+  max_queries: 50
+
+stages:
+  bm25:
+    type: adapter.bm25
+    config:
+      k: 100
+
+  dense:
+    type: adapter.hf_biencoder
+    config:
+      model: sentence-transformers/all-MiniLM-L6-v2
+      k: 100
+
+# The rrf pipeline is defined explicitly (not via combinations) because it
+# references sub-retrievers inline rather than chaining top-level stages.
+pipelines:
+  - id: bm25
+    stages:
+      - type: adapter.bm25
+        config:
+          k: 100
+
+  - id: dense
+    stages:
+      - type: adapter.hf_biencoder
+        config:
+          model: sentence-transformers/all-MiniLM-L6-v2
+          k: 100
+
+  - id: rrf_hybrid
+    stages:
+      - type: adapter.rrf
+        config:
+          rrf_k: 60       # RRF constant (default 60; lower = more aggressive rank weighting)
+          fetch_k: 100    # candidates fetched from each sub-retriever before fusion
+          top_k: 100      # final candidates returned after fusion
+          retrievers:
+            - type: adapter.bm25
+            - type: adapter.hf_biencoder
+              config:
+                model: sentence-transformers/all-MiniLM-L6-v2
+
+metrics:
+  recall_at_k: [1, 5, 10, 20]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 4
+  timeout_seconds: 120
+  cache_results: true
+
+output:
+  store: sqlite
+  db_path: .retobs/results.db
+  export: [json]
