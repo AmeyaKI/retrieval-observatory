@@ -181,6 +181,94 @@ async def test_attribute_miss_with_edge_store() -> None:
         assert len(reachable_misses) == 1
 
 
+def _rerank_demotion_trace() -> RetrievalTraceV2:
+    return _trace()  # existing helper: source (d1, d2) -> rerank keeps only d2
+
+
+def _fusion_dilution_trace() -> RetrievalTraceV2:
+    arm_a = OperatorSpan(
+        op_id="arm_bm25", op_type="SOURCE", op_name="bm25",
+        parent_ids=[], status="FIRED", deterministic=True,
+        replay_policy="EXACT", latency_ms=1.0,
+        outputs=[
+            Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["arm_bm25"]),
+            Candidate(doc_id="d3", score=0.5, rank=2, origin_op_ids=["arm_bm25"]),
+        ],
+    )
+    arm_b = OperatorSpan(
+        op_id="arm_dense", op_type="SOURCE", op_name="dense",
+        parent_ids=[], status="FIRED", deterministic=True,
+        replay_policy="EXACT", latency_ms=1.0,
+        outputs=[Candidate(doc_id="d2", score=0.9, rank=1, origin_op_ids=["arm_dense"])],
+    )
+    fuse = OperatorSpan(
+        op_id="fuse", op_type="FUSE", op_name="rrf",
+        parent_ids=["arm_bm25", "arm_dense"], status="FIRED", deterministic=True,
+        replay_policy="EXACT", latency_ms=1.0,
+        outputs=[Candidate(doc_id="d1", score=2.0, rank=1, origin_op_ids=["arm_bm25"])],
+    )
+    return RetrievalTraceV2(
+        trace_id="t2", run_id="run1", query_id="q1", query_text="q",
+        pipeline_id="p1", spans=[arm_a, arm_b, fuse], total_latency_ms=3.0,
+        final_op_id="fuse",
+    )
+
+
+def _generation_ignored_context_trace() -> RetrievalTraceV2:
+    retrieve = OperatorSpan(
+        op_id="retrieve", op_type="SOURCE", op_name="bm25",
+        parent_ids=[], status="FIRED", deterministic=True,
+        replay_policy="EXACT", latency_ms=1.0,
+        outputs=[
+            Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["retrieve"]),
+            Candidate(doc_id="d2", score=0.9, rank=2, origin_op_ids=["retrieve"]),
+        ],
+    )
+    generate = OperatorSpan(
+        op_id="generate", op_type="GENERATE", op_name="answer_synthesis",
+        parent_ids=["retrieve"], status="FIRED", deterministic=False,
+        replay_policy="NOT_REPLAYABLE", latency_ms=5.0,
+        inputs=[
+            Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["retrieve"]),
+            Candidate(doc_id="d2", score=0.9, rank=2, origin_op_ids=["retrieve"]),
+        ],
+        outputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["retrieve"])],
+    )
+    return RetrievalTraceV2(
+        trace_id="t3", run_id="run1", query_id="q1", query_text="q",
+        pipeline_id="p1", spans=[retrieve, generate], total_latency_ms=6.0,
+        final_op_id="generate",
+    )
+
+
+@pytest.mark.asyncio
+async def test_attribute_miss_classifies_rerank_demotion() -> None:
+    trace = _rerank_demotion_trace()
+    misses = await attribute_miss(trace, qrels={"q1": {"d1": 1, "d2": 1}}, k=1)
+    assert misses[0].doc_id == "d1"
+    assert misses[0].miss_type == "rerank_demotion"
+    assert misses[0].op_id == "rerank"
+
+
+@pytest.mark.asyncio
+async def test_attribute_miss_classifies_fusion_dilution() -> None:
+    trace = _fusion_dilution_trace()
+    misses = await attribute_miss(trace, qrels={"q1": {"d1": 1, "d2": 1, "d3": 1}}, k=1)
+    by_doc = {m.doc_id: m for m in misses}
+    assert by_doc["d2"].miss_type == "fusion_dilution"
+    assert by_doc["d2"].op_id == "fuse"
+    assert by_doc["d3"].miss_type == "fusion_dilution"
+
+
+@pytest.mark.asyncio
+async def test_attribute_miss_classifies_generation_ignored_context() -> None:
+    trace = _generation_ignored_context_trace()
+    misses = await attribute_miss(trace, qrels={"q1": {"d1": 1, "d2": 1}}, k=1)
+    assert misses[0].doc_id == "d2"
+    assert misses[0].miss_type == "generation_ignored_context"
+    assert misses[0].op_id == "generate"
+
+
 def test_without_boost_restores_pre_boost_scores() -> None:
     source = OperatorSpan(
         op_id="src", op_type="SOURCE", op_name="bm25",

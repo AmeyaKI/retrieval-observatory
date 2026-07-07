@@ -5,6 +5,12 @@ from typing import Dict, List, Optional, Sequence, Set
 
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
 
+_MISS_TYPE_BY_OP_TYPE = {
+    "RERANK": "rerank_demotion",
+    "FUSE": "fusion_dilution",
+    "GENERATE": "generation_ignored_context",
+}
+
 
 @dataclass
 class MissAttribution:
@@ -220,6 +226,22 @@ async def attribute_miss(
         return []
 
     all_by_stage = [set(c.doc_id for c in span.outputs) for span in trace.spans]
+    children_of: Dict[str, Set[str]] = {}
+    for span in trace.spans:
+        for pid in span.parent_ids:
+            children_of.setdefault(pid, set()).add(span.op_id)
+
+    def _descendant_ids(root_op_id: str) -> Set[str]:
+        seen: Set[str] = set()
+        frontier = [root_op_id]
+        while frontier:
+            current = frontier.pop()
+            for child in children_of.get(current, set()):
+                if child not in seen:
+                    seen.add(child)
+                    frontier.append(child)
+        return seen
+
     attributions: List[MissAttribution] = []
     for miss in misses:
         found_stage = next((idx for idx, docs in enumerate(all_by_stage) if miss in docs), None)
@@ -253,17 +275,22 @@ async def attribute_miss(
             )
             continue
         dropped_at = None
+        descendant_ids = _descendant_ids(trace.spans[found_stage].op_id)
         for idx in range(found_stage + 1, len(all_by_stage)):
+            if trace.spans[idx].op_id not in descendant_ids:
+                continue
             if miss not in all_by_stage[idx]:
                 dropped_at = idx
                 break
         if dropped_at is not None:
+            dropping_span = trace.spans[dropped_at]
+            miss_type = _MISS_TYPE_BY_OP_TYPE.get(dropping_span.op_type, "dropped_by_op")
             attributions.append(
                 MissAttribution(
                     query_id=trace.query_id,
                     doc_id=miss,
-                    miss_type="dropped_by_op",
-                    op_id=trace.spans[dropped_at].op_id,
+                    miss_type=miss_type,
+                    op_id=dropping_span.op_id,
                     confidence="high",
                 )
             )
