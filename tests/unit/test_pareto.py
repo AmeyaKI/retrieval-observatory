@@ -84,3 +84,51 @@ def test_empty_and_single_pipeline():
     )
     assert single.pipelines[0].is_pareto_optimal is True
     assert single.frontier_order == ["only"]
+
+
+def _pipeline_with_ci(
+    pipeline_id: str,
+    ndcg10: float,
+    ndcg_ci: tuple[float, float],
+    recall10: float = 0.30,
+    latency_p50: float = 10.0,
+) -> ParetoPipelineInput:
+    return ParetoPipelineInput(
+        pipeline_id=pipeline_id,
+        stage_index=0,
+        ndcg10=ndcg10,
+        recall10=recall10,
+        latency_p50=latency_p50,
+        latency_p95=latency_p50 * 1.5,
+        ndcg10_ci_low=ndcg_ci[0],
+        ndcg10_ci_high=ndcg_ci[1],
+    )
+
+
+def test_pareto_dominance_requires_significant_quality_difference():
+    # "a" has a higher point-estimate NDCG than "b", but their bootstrap CIs overlap
+    # heavily — the gap could be noise, so neither should dominate the other.
+    result = compute_pareto_frontier(
+        [
+            _pipeline_with_ci("a", ndcg10=0.42, ndcg_ci=(0.35, 0.49)),
+            _pipeline_with_ci("b", ndcg10=0.40, ndcg_ci=(0.33, 0.47)),
+        ]
+    )
+    by_id = {row.pipeline_id: row for row in result.pipelines}
+    assert by_id["a"].is_pareto_optimal is True
+    assert by_id["b"].is_pareto_optimal is True
+    assert "a" not in by_id["b"].dominated_by
+
+
+def test_pareto_dominance_when_cis_dont_overlap():
+    # Non-overlapping CIs — "a" is genuinely, significantly better; it should dominate.
+    result = compute_pareto_frontier(
+        [
+            _pipeline_with_ci("a", ndcg10=0.42, ndcg_ci=(0.38, 0.46)),
+            _pipeline_with_ci("b", ndcg10=0.20, ndcg_ci=(0.16, 0.24)),
+        ]
+    )
+    by_id = {row.pipeline_id: row for row in result.pipelines}
+    assert by_id["a"].is_pareto_optimal is True
+    assert by_id["b"].is_pareto_optimal is False
+    assert "a" in by_id["b"].dominated_by

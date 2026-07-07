@@ -13,6 +13,10 @@ class ParetoPipelineInput:
     latency_p50: float
     latency_p95: float
     cost_per_1k: Optional[float] = None
+    ndcg10_ci_low: Optional[float] = None
+    ndcg10_ci_high: Optional[float] = None
+    recall10_ci_low: Optional[float] = None
+    recall10_ci_high: Optional[float] = None
 
 
 @dataclass
@@ -113,11 +117,30 @@ def _dominates(left: ParetoPipelineInput, right: ParetoPipelineInput, objectives
         right_value = _objective_value(right, objective)
         if objective in {"ndcg@10", "recall@10"}:
             better_or_equal.append(left_value >= right_value)
-            strictly_better.append(left_value > right_value)
+            strictly_better.append(_significantly_better(left, right, objective))
         else:
             better_or_equal.append(left_value <= right_value)
             strictly_better.append(left_value < right_value)
     return all(better_or_equal) and any(strictly_better)
+
+
+def _significantly_better(left: ParetoPipelineInput, right: ParetoPipelineInput, objective: str) -> bool:
+    """A quality objective only counts toward dominance if its bootstrap CIs don't
+    overlap. Without CI data (fields left as None), falls back to the point-estimate
+    comparison so existing callers that don't supply CIs are unaffected."""
+    left_low, left_high = _ci_bounds(left, objective)
+    right_low, right_high = _ci_bounds(right, objective)
+    if left_low is None or right_low is None or left_high is None or right_high is None:
+        return _objective_value(left, objective) > _objective_value(right, objective)
+    return left_low > right_high
+
+
+def _ci_bounds(pipeline: ParetoPipelineInput, objective: str) -> tuple[Optional[float], Optional[float]]:
+    if objective == "ndcg@10":
+        return pipeline.ndcg10_ci_low, pipeline.ndcg10_ci_high
+    if objective == "recall@10":
+        return pipeline.recall10_ci_low, pipeline.recall10_ci_high
+    return None, None
 
 
 def _objective_value(pipeline: ParetoPipelineInput, objective: str) -> float:
