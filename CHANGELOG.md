@@ -20,8 +20,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
-- `config/runtime.py` — `resolve_config_paths`, `prepare_config_runtime`.
-- MCP tools: `benchmark_config_file`, `bootstrap_project`, `push_traces`, `get_pipeline_graph`.
+- `integrations/detect.py`, `integrations/wire.py`, `integrations/verify.py` — project detection, one-step wiring, shared verify.
+- MCP `wire_project` — single orchestration tool for agent wiring (`setup` + `verify` phases).
+- CLI `retobs wire` — twin of `wire_project`; scaffolds `retobs/`, `.retobs/manifest.yaml`, `RETOS.md`, sample eval JSONL.
+
+### Changed
+
+- `bootstrap_project` MCP tool — deprecated alias of `wire_project(phase=setup)`.
+- `docs/integrations/AGENT_QUICKSTART.md` — Journey 0 is one-prompt `wire_project` flow.
 
 ## [0.4.2] — 2026-07-06
 

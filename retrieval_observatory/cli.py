@@ -390,6 +390,55 @@ def integrate_cmd(
         console.print("Then: retobs doctor && retobs mcp (verify_integration tool)")
 
 
+@app.command("wire")
+def wire_cmd(
+    project_root: Path = typer.Argument(Path("."), help="Project root to wire retobs into."),
+    framework: Optional[str] = typer.Option(None, "--framework", "-f", help="Override auto-detected framework."),
+    retriever_entrypoint: Optional[str] = typer.Option(None, "--retriever-entrypoint", help="adapter.import factory path."),
+    experiment_name: Optional[str] = typer.Option(None, "--experiment-name", help="Experiment name in config.yaml."),
+    verify: bool = typer.Option(False, "--verify", help="Verify wiring after agent patches (phase=verify)."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB for verify phase."),
+) -> None:
+    """Wire retobs into an external project (setup or verify). Agent twin of MCP wire_project."""
+    from retrieval_observatory.integrations.wire import setup_project, verify_project
+
+    async def _run():
+        if verify:
+            return await verify_project(project_root, db_path=db)
+        return setup_project(
+            project_root,
+            framework=framework,
+            retriever_entrypoint=retriever_entrypoint,
+            experiment_name=experiment_name,
+        )
+
+    result = asyncio.run(_run())
+    console.print(f"[bold]Status:[/bold] {result.get('status')}")
+    if result.get("framework"):
+        console.print(f"[bold]Framework:[/bold] {result['framework']}")
+    if result.get("files_written"):
+        console.print("[bold]Files written:[/bold]")
+        for path in result["files_written"]:
+            console.print(f"  {path}")
+    if result.get("wiring_brief"):
+        console.print("\n[bold]Wiring brief[/bold] — apply patches, then: [cyan]retobs wire . --verify[/cyan]")
+        for patch in result["wiring_brief"].get("patches", []):
+            console.print(f"  - {patch.get('file')}: {patch.get('description')}")
+    if result.get("post_wiring_commands"):
+        console.print("\n[bold]Post-wiring commands[/bold]")
+        for name, cmd in result["post_wiring_commands"].items():
+            console.print(f"  {name}: {cmd}")
+    if result.get("commands"):
+        console.print("\n[bold]Commands[/bold]")
+        for name, cmd in result["commands"].items():
+            console.print(f"  {name}: {cmd}")
+    retos = project_root.resolve() / "RETOS.md"
+    if retos.is_file():
+        console.print(f"\n[green]See[/green] {retos} for agent/human next steps.")
+    if result.get("agent_instructions"):
+        console.print(f"\n[dim]{result['agent_instructions']}[/dim]")
+
+
 @app.command("doctor")
 def doctor_cmd(
     db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB to probe."),
@@ -426,7 +475,7 @@ def doctor_cmd(
 
         tools = asyncio.run(srv.list_tools())
         names = {t.name for t in tools}
-        check("MCP tools registered", "benchmark_config" in names and "describe_integration" in names, f"{len(names)} tools")
+        check("MCP tools registered", "wire_project" in names and "benchmark_config" in names, f"{len(names)} tools")
     except Exception as e:
         check("MCP tools registered", False, str(e))
 

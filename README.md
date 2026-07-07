@@ -405,11 +405,25 @@ Forge detects temporal confusion and alias mismatches and generates queries desi
 
 
 
+---
+
+## Wire retobs into your RAG repo (one agent prompt)
+
+1. Register MCP: `{ "mcpServers": { "retobs": { "command": "retobs", "args": ["mcp"] } } } }`
+2. Open your pipeline repo in Cursor and prompt: **"Wire retobs into this project."**
+3. Agent calls `wire_project` → patches code per `wiring_brief` → `wire_project(phase="verify")`
+4. Then benchmark: `retobs run --config retobs/config.yaml` or ask agent to run a smoke benchmark
+
+See [docs/integrations/AGENT_QUICKSTART.md](docs/integrations/AGENT_QUICKSTART.md). CLI twin: `retobs wire .`
+
+---
+
 ## CLI Reference
 
 ```bash
 retobs demo       [--db PATH] [--full]              Full reliability platform demo
-retobs init       --mode MODE --output PATH          Generate starter config
+retobs wire        [PATH] [--verify] [--framework F]   Wire retobs into external project
+retobs integrate   --framework F                      Print integration snippet only
 retobs validate   --config PATH                       Validate config and dataset
 retobs run        --config PATH [--no-cache]          Run benchmark
 retobs serve      --db PATH [--port N]                Start dashboard

@@ -99,7 +99,8 @@ async def test_bootstrap_project_writes_files(tmp_path):
     assert (root / "retobs" / "config.yaml").exists()
     assert (root / "retobs-mcp.yaml").exists()
     assert (root / "retobs" / "retriever.py").exists()
-    assert out["config_path"].endswith("retobs/config.yaml")
+    assert (root / ".retobs" / "manifest.yaml").exists()
+    assert out.get("deprecated")
 
 
 @pytest.mark.asyncio
@@ -144,6 +145,7 @@ async def test_build_server_includes_integration_tools():
     assert "describe_integration" in names
     assert "verify_integration" in names
     assert "bootstrap_project" in names
+    assert "wire_project" in names
     assert "push_traces" in names
     assert "benchmark_config_file" in names
     assert "get_pipeline_graph" in names

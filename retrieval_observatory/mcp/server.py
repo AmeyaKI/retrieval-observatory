@@ -18,17 +18,8 @@ import yaml
 
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_MAX_QUERIES = 50
-DEFAULT_SERVE_PORT = 4000
 
-
-def _dashboard_base_url() -> str:
-    port = int(os.environ.get("RETOBS_SERVE_PORT", DEFAULT_SERVE_PORT))
-    host = os.environ.get("RETOBS_SERVE_HOST", "127.0.0.1")
-    return f"http://{host}:{port}"
-
-
-def _dashboard_run_url(run_id: str, section: str = "overview") -> str:
-    return f"{_dashboard_base_url()}/#/benchmarks/run/{run_id}/{section}"
+from retrieval_observatory.integrations.verify import dashboard_base_url, verify_integration
 
 
 class _FallbackFastMCP:
@@ -182,61 +173,7 @@ async def _verify_integration(
     expected_stages: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Report whether traces/metrics exist and suggest next MCP steps."""
-    store = _store(db_path)
-    await store.init_db()
-    runs = await store.list_runs()
-    if not runs:
-        return {
-            "status": "no_runs",
-            "message": "No runs in database yet.",
-            "next": "benchmark_config or push_traces, then call verify_integration again.",
-            "dashboard_url": _dashboard_base_url(),
-        }
-
-    target = run_id or runs[0]["run_id"]
-    traces = await store.get_traces_v2(target) if hasattr(store, "get_traces_v2") else []
-    from retrieval_observatory.metrics.engine import MetricsEngine
-
-    metrics = await MetricsEngine().aggregate(target, store)
-    stages_seen = sorted(
-        {
-            span.op_id
-            for trace in traces
-            for span in trace.spans
-        }
-    )
-    pipeline_ids = sorted({v["pipeline_id"] for v in metrics.values() if v.get("stage_index", -1) >= 0})
-
-    missing_stages: List[str] = []
-    if expected_stages:
-        missing_stages = sorted(set(expected_stages) - set(stages_seen))
-
-    next_steps = ["get_run_metrics"]
-    if pipeline_ids:
-        next_steps.append("get_pareto_frontier")
-        next_steps.append("get_pipeline_graph")
-    if not traces:
-        next_steps.insert(0, "describe_integration(framework='...') to wire tracing")
-        next_steps.insert(1, "push_traces after instrumenting your pipeline")
-    elif missing_stages:
-        next_steps.insert(0, f"wire missing stages: {missing_stages}")
-
-    instrumentation = "trace_native" if traces else "benchmark_only"
-    if missing_stages:
-        instrumentation = "incomplete"
-
-    return {
-        "status": "ok",
-        "run_id": target,
-        "trace_count": len(traces),
-        "stages_seen": stages_seen,
-        "missing_stages": missing_stages,
-        "pipeline_ids": pipeline_ids,
-        "has_metrics": bool(metrics),
-        "instrumentation": instrumentation,
-        "dashboard_url": _dashboard_run_url(target),
-        "next": next_steps,
-    }
+    return await verify_integration(db_path=db_path, run_id=run_id, expected_stages=expected_stages)
 
 
 async def _benchmark_config(
@@ -486,109 +423,27 @@ async def _push_traces(
     return {"run_id": run_id, "trace_ids": stored, "count": len(stored)}
 
 
-_RETRIEVER_STUB = '''"""Custom retriever factory for retobs adapter.import.
+async def _wire_project(
+    project_root: str,
+    framework: Optional[str] = None,
+    retriever_entrypoint: Optional[str] = None,
+    experiment_name: Optional[str] = None,
+    phase: str = "setup",
+    db_path: str = DEFAULT_DB_PATH,
+    run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Start here: wire retobs into an external project (setup) or verify after agent patches."""
+    from retrieval_observatory.integrations.wire import wire_project
 
-Replace KeywordOverlapRetriever with your production retriever class.
-Factory signature: (corpus, stage_cfg, **kwargs) -> (adapter, k)
-"""
-from __future__ import annotations
-
-from typing import Dict, Optional, Tuple
-
-from retrieval_observatory.types import Document, Query, RetrievalResult
-
-
-class KeywordOverlapRetriever:
-    def __init__(self, corpus: Dict[str, str], retriever_id: str = "my_retriever"):
-        self.retriever_id = retriever_id
-        self._corpus = corpus
-
-    def retrieve(self, query: Query) -> RetrievalResult:
-        q_tokens = set(query.text.lower().split())
-        scored = [
-            (doc_id, len(q_tokens & set(text.lower().split())))
-            for doc_id, text in self._corpus.items()
-            if q_tokens & set(text.lower().split())
-        ]
-        scored.sort(key=lambda x: x[1], reverse=True)
-        top = scored[: query.k]
-        documents = [
-            Document(id=doc_id, text=self._corpus[doc_id], score=float(score), rank=rank)
-            for rank, (doc_id, score) in enumerate(top, start=1)
-        ]
-        return RetrievalResult(documents=documents, latency_ms=0.0, retriever_id=self.retriever_id)
-
-
-def build_retriever(
-    corpus: Optional[Dict[str, str]],
-    stage_cfg: dict,
-    **kwargs,
-) -> Tuple[KeywordOverlapRetriever, int]:
-    if corpus is None:
-        raise ValueError("build_retriever requires a corpus from the dataset loader.")
-    cfg = stage_cfg.get("config", {})
-    k = int(cfg.get("k", 10))
-    retriever_id = stage_cfg.get("retriever_id", "my_retriever")
-    return KeywordOverlapRetriever(corpus, retriever_id=retriever_id), k
-'''
-
-_INSTRUMENT_STUB = '''"""retobs instrumentation stub — wire into your RAG pipeline."""
-from __future__ import annotations
-
-import retrieval_observatory as ro
-from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace
-
-recorder = ro.init(service="my-rag", db=".retobs/prod.db")
-
-
-@observe(op_type="SOURCE", op_id="my_retriever")
-def retrieve(query: str):
-  """Replace with your retrieval logic."""
-  raise NotImplementedError("Wire your retriever here")
-
-
-def traced_query(run_id: str, query_id: str, query_text: str) -> None:
-    start_trace(
-        ObserveContext(
-            run_id=run_id,
-            query_id=query_id,
-            query_text=query_text,
-            pipeline_id="main",
-        )
+    return await wire_project(
+        project_root=project_root,
+        framework=framework,
+        retriever_entrypoint=retriever_entrypoint,
+        experiment_name=experiment_name,
+        phase=phase,
+        db_path=db_path if phase == "verify" else None,
+        run_id=run_id,
     )
-    retrieve(query_text)
-    finish_trace()
-'''
-
-
-def _bootstrap_config_yaml(experiment_name: str, factory: str) -> str:
-    return f"""experiment:
-  name: {experiment_name}
-
-dataset:
-  type: custom
-  name: custom
-  queries_path: queries.jsonl
-  corpus_path: corpus.jsonl
-  qrels_path: qrels.jsonl
-
-pipelines:
-  - id: main
-    stages:
-      - type: adapter.import
-        retriever_id: my_retriever
-        config:
-          factory: {factory}
-          k: 10
-
-metrics:
-  recall_at_k: [5, 10]
-  ndcg_at_k: [10]
-
-output:
-  store: sqlite
-  db_path: .retobs/results.db
-"""
 
 
 async def _bootstrap_project(
@@ -597,53 +452,15 @@ async def _bootstrap_project(
     retriever_entrypoint: Optional[str] = None,
     experiment_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Scaffold retobs config and stubs in an external project directory."""
-    root = Path(project_root).resolve()
-    root.mkdir(parents=True, exist_ok=True)
-    retobs_dir = root / "retobs"
-    retobs_dir.mkdir(parents=True, exist_ok=True)
-
-    exp_name = experiment_name or Path(root.name).name or "my-rag"
-    factory = retriever_entrypoint or "retriever.build_retriever"
-    written: List[str] = []
-
-    config_path = retobs_dir / "config.yaml"
-    config_path.write_text(_bootstrap_config_yaml(exp_name, factory), encoding="utf-8")
-    written.append(str(config_path))
-
-    mcp_path = root / "retobs-mcp.yaml"
-    mcp_path.write_text(
-        "db_path: .retobs/results.db\nmax_queries: 50\nbaseline_run_id: null\n",
-        encoding="utf-8",
+    """Deprecated — use wire_project(phase='setup')."""
+    out = await _wire_project(
+        project_root,
+        framework=framework,
+        retriever_entrypoint=retriever_entrypoint,
+        experiment_name=experiment_name,
+        phase="setup",
     )
-    written.append(str(mcp_path))
-
-    if framework == "python":
-        retriever_path = retobs_dir / "retriever.py"
-        if not retriever_path.exists():
-            retriever_path.write_text(_RETRIEVER_STUB, encoding="utf-8")
-            written.append(str(retriever_path))
-        instrument_path = retobs_dir / "instrument.py"
-        if not instrument_path.exists():
-            instrument_path.write_text(_INSTRUMENT_STUB, encoding="utf-8")
-            written.append(str(instrument_path))
-
-    guide = await _describe_integration(framework)
-    return {
-        "project_root": str(root),
-        "framework": framework,
-        "files_written": written,
-        "config_path": str(config_path),
-        "mcp_config_path": str(mcp_path),
-        "next": [
-            "Add queries.jsonl, corpus.jsonl, qrels.jsonl under retobs/ (or switch dataset to beir/...)",
-            "validate_config with the generated config (use benchmark_config_file for on-disk YAML)",
-            "benchmark_config_file(config_path=...)",
-            "Wire instrument.py or describe_integration snippet into your pipeline",
-            "push_traces then verify_integration",
-        ],
-        "integration_guide": guide,
-    }
+    return {**out, "deprecated": "bootstrap_project is deprecated; use wire_project instead."}
 
 
 def build_server(config_path: Optional[str] = None):
@@ -657,6 +474,7 @@ def build_server(config_path: Optional[str] = None):
     server.tool(name="describe_config")(_describe_config)
     server.tool(name="validate_config")(_validate_config)
     server.tool(name="describe_integration")(_describe_integration)
+    server.tool(name="wire_project")(_with_config_defaults(config_path, _wire_project))
     server.tool(name="verify_integration")(_with_config_defaults(config_path, _verify_integration))
     server.tool(name="bootstrap_project")(_bootstrap_project)
     server.tool(name="push_traces")(_with_config_defaults(config_path, _push_traces))

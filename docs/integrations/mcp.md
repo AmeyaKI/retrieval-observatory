@@ -52,16 +52,17 @@ within an agent's timeout. For large runs use the REST job model ([api.md](api.m
 Recommended loop: `describe_config` → fill the example → `validate_config` → `benchmark_config` /
 `benchmark_vs_baseline`. For on-disk YAML in an external project, use `benchmark_config_file`.
 
-### Integration wiring (Journey B)
+### Integration wiring — start here
 
 | Tool | Params | Returns |
 |---|---|---|
-| `describe_integration` | `framework?` (`python` \| `langchain` \| `llamaindex` \| `fastapi` \| `http`) | Copy-paste snippets using real APIs (`ro.init`, `@observe`, callbacks) |
-| `bootstrap_project` | `project_root`, `framework?`, `retriever_entrypoint?`, `experiment_name?` | Writes `retobs/config.yaml`, `retobs-mcp.yaml`, and Python stubs |
-| `push_traces` | `run_id`, `traces` (list of V2 trace dicts) | Ingests traces into a benchmark run |
-| `verify_integration` | `run_id?`, `expected_stages?` | Trace/metrics check, instrumentation status, dashboard URL, next steps |
+| **`wire_project`** | `project_root`, `framework?`, `phase?` (`setup` \| `verify`) | **One-step wiring:** scaffold, manifest, `RETOS.md`, `wiring_brief`; verify returns `status: ready` |
+| `describe_integration` | `framework?` | Snippets for manual wiring |
+| `bootstrap_project` | *(deprecated)* | Alias of `wire_project(phase=setup)` |
+| `push_traces` | `run_id`, `traces` | Ingest V2 traces |
+| `verify_integration` | `run_id?`, `expected_stages?` | Trace/metrics check |
 
-CLI twins: `retobs integrate --framework langchain` · `retobs doctor`
+CLI twin: **`retobs wire .`** then **`retobs wire . --verify`**
 
 ### Run & read
 
