@@ -343,3 +343,37 @@ def test_validation_rejects_rrf_without_retrievers():
     report = validate_experiment_config(cfg)
     assert report["status"] == "error"
     assert any(item["check"] == "rrf retrievers" for item in report["items"])
+
+
+def test_validation_warns_on_near_duplicate_queries(tmp_path):
+    from retrieval_observatory.datasets.validation import validate_experiment_config
+    import json
+
+    queries_path = tmp_path / "queries.jsonl"
+    queries_path.write_text(
+        "\n".join(
+            json.dumps(row)
+            for row in [
+                {"query_id": "q1", "text": "What is the capital of France", "relevant_doc_ids": ["d1"]},
+                {"query_id": "q2", "text": "What is the capital city of France", "relevant_doc_ids": ["d1"]},
+            ]
+        )
+    )
+    corpus_path = tmp_path / "corpus.jsonl"
+    corpus_path.write_text(json.dumps({"id": "d1", "text": "Paris is the capital of France."}))
+
+    cfg = ExperimentConfig.model_validate(
+        {
+            "experiment": {"name": "dup-check"},
+            "dataset": {
+                "type": "custom",
+                "name": "custom",
+                "queries_path": str(queries_path),
+                "corpus_path": str(corpus_path),
+            },
+            "pipelines": [{"id": "p1", "stages": [{"type": "adapter.bm25", "config": {"k": 5}}]}],
+        }
+    )
+    report = validate_experiment_config(cfg, config_path=str(tmp_path / "config.yaml"))
+    checks = {item["check"] for item in report["items"]}
+    assert "near-duplicate queries" in checks

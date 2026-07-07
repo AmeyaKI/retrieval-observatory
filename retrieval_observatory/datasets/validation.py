@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import asdict, dataclass
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from retrieval_observatory.config.schema import ExperimentConfig
 
@@ -49,6 +49,45 @@ def dataset_fingerprint(name: str, queries: list, qrels: Dict, corpus: Optional[
         "missing_qrel_doc_id_examples": missing[:10],
         "label_sparsity_pct": round((1 - len(qrels) / max(len(queries), 1)) * 100, 2),
     }
+
+
+def detect_near_duplicate_queries(
+    queries: List[Dict[str, str]],
+    threshold: float = 0.8,
+) -> List[Dict[str, Any]]:
+    """Flag query pairs whose normalized token sets are near-identical (Jaccard >= threshold).
+
+    Catches paraphrased or copy-pasted eval queries that silently inflate query count while
+    measuring the same underlying question twice — an eval-set quality problem exact query-ID
+    matching (already checked elsewhere in this module) can't catch.
+    """
+    normalized = [(q["query_id"], _normalize_tokens(q.get("text", ""))) for q in queries]
+    flagged: List[Dict[str, Any]] = []
+    for i in range(len(normalized)):
+        id_a, tokens_a = normalized[i]
+        if not tokens_a:
+            continue
+        for j in range(i + 1, len(normalized)):
+            id_b, tokens_b = normalized[j]
+            if not tokens_b:
+                continue
+            similarity = _jaccard(tokens_a, tokens_b)
+            if similarity >= threshold:
+                flagged.append({"query_id_a": id_a, "query_id_b": id_b, "similarity": round(similarity, 3)})
+    return flagged
+
+
+def _normalize_tokens(text: str) -> Set[str]:
+    cleaned = "".join(ch.lower() if ch.isalnum() or ch.isspace() else " " for ch in text)
+    return {tok for tok in cleaned.split() if tok}
+
+
+def _jaccard(a: Set[str], b: Set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    intersection = len(a & b)
+    union = len(a | b)
+    return intersection / union if union else 0.0
 
 
 def _check_dataset(config: ExperimentConfig, items: List[ValidationItem], base_dir: Optional[str] = None) -> None:
@@ -156,6 +195,7 @@ def _inspect_query_file(path: str, items: List[ValidationItem]) -> None:
     duplicates = 0
     missing_labels = 0
     count = 0
+    records: List[Dict[str, str]] = []
     for obj in _read_jsonl(path):
         count += 1
         qid = obj.get("query_id")
@@ -164,10 +204,22 @@ def _inspect_query_file(path: str, items: List[ValidationItem]) -> None:
         seen.add(qid)
         if "relevant_doc_ids" not in obj:
             missing_labels += 1
+        if qid and obj.get("text"):
+            records.append({"query_id": qid, "text": obj["text"]})
     if duplicates:
         items.append(ValidationItem("error", "query ids", f"Found {duplicates} duplicate query IDs."))
     if missing_labels:
         items.append(ValidationItem("warning", "qrels", f"{missing_labels}/{count} queries have no inline relevant_doc_ids."))
+    near_dupes = detect_near_duplicate_queries(records)
+    if near_dupes:
+        examples = ", ".join(f"{d['query_id_a']}~{d['query_id_b']} ({d['similarity']})" for d in near_dupes[:5])
+        items.append(
+            ValidationItem(
+                "warning",
+                "near-duplicate queries",
+                f"Found {len(near_dupes)} near-duplicate query pair(s) (Jaccard >= 0.8): {examples}",
+            )
+        )
     items.append(ValidationItem("ok", "query count", f"Found {count} custom queries."))
 
 
