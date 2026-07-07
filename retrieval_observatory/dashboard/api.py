@@ -7,7 +7,7 @@ import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
@@ -762,6 +762,10 @@ def create_app(
                     latency_p50=metrics["latency_p50"],
                     latency_p95=metrics["latency_p95"],
                     cost_per_1k=cost if cost > 0 else None,
+                    ndcg10_ci_low=metrics.get("ndcg10_ci_low"),
+                    ndcg10_ci_high=metrics.get("ndcg10_ci_high"),
+                    recall10_ci_low=metrics.get("recall10_ci_low"),
+                    recall10_ci_high=metrics.get("recall10_ci_high"),
                 )
             )
 
@@ -2246,7 +2250,7 @@ def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, flo
     multi-stage pipelines, so a hybrid+rerank pipeline is plotted at its true total latency,
     not the reranker's stage-local latency. Single-stage pipelines have no stage -1 entry, so
     their final-stage latency is already end-to-end and is used directly."""
-    by_pipeline: Dict[str, Dict[int, Dict[tuple, float]]] = defaultdict(lambda: defaultdict(dict))
+    by_pipeline: Dict[str, Dict[int, Dict[tuple, Dict[str, Optional[float]]]]] = defaultdict(lambda: defaultdict(dict))
     e2e_latency: Dict[str, Dict[tuple, float]] = defaultdict(dict)
     for value in agg.values():
         if value.get("branch_id"):
@@ -2258,7 +2262,11 @@ def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, flo
             if value["metric_name"] in ("latency_p50", "latency_p95"):
                 e2e_latency[value["pipeline_id"]][metric_key] = value["mean"]
             continue
-        by_pipeline[value["pipeline_id"]][stage_index][metric_key] = value["mean"]
+        by_pipeline[value["pipeline_id"]][stage_index][metric_key] = {
+            "mean": value["mean"],
+            "ci_low": value.get("ci_low"),
+            "ci_high": value.get("ci_high"),
+        }
 
     quality_required = {("ndcg", 10): "ndcg10", ("recall", 10): "recall10"}
     latency_required = {("latency_p50", 0): "latency_p50", ("latency_p95", 0): "latency_p95"}
@@ -2273,7 +2281,10 @@ def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, flo
             if metric_key not in stage_metrics:
                 complete = False
                 break
-            row[field] = stage_metrics[metric_key]
+            entry = stage_metrics[metric_key]
+            row[field] = entry["mean"]
+            row[f"{field}_ci_low"] = entry.get("ci_low")
+            row[f"{field}_ci_high"] = entry.get("ci_high")
         if not complete:
             continue
         for metric_key, field in latency_required.items():
@@ -2282,7 +2293,7 @@ def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, flo
             if metric_key in e2e_latency.get(pipeline_id, {}):
                 row[field] = e2e_latency[pipeline_id][metric_key]
             elif metric_key in stage_metrics:
-                row[field] = stage_metrics[metric_key]
+                row[field] = stage_metrics[metric_key]["mean"]
             else:
                 complete = False
                 break

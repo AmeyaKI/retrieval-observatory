@@ -314,6 +314,10 @@ async def _get_pareto_frontier(run_id: str, db_path: str = DEFAULT_DB_PATH) -> D
             recall10=m["recall10"],
             latency_p50=m["latency_p50"],
             latency_p95=m["latency_p95"],
+            ndcg10_ci_low=m.get("ndcg10_ci_low"),
+            ndcg10_ci_high=m.get("ndcg10_ci_high"),
+            recall10_ci_low=m.get("recall10_ci_low"),
+            recall10_ci_high=m.get("recall10_ci_high"),
         )
         for pid, m in final.items()
     ]
