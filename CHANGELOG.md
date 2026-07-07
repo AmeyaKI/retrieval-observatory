@@ -6,9 +6,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
-### Changed
+### Fixed
 
-- `examples/` — reorganized into `basic/`, `benchmarks/`, `integrations/`, `tracing/`, `advanced/`, and `ci/`; removed top-level symlink aliases; updated docs, CLI hints, and `http_quickstart` dataset paths to config-relative JSONL files.
+- `tests/unit/test_factory_import.py`, `tests/unit/test_self_correcting_retriever.py` — example `sys.path` roots updated to `examples/advanced/…` after folder reorganization.
 - `integrations/registry.py` — agent snippets use real APIs (`ro.init`, `@observe`, V2 callbacks); removed stale `observe_run` / `push-traces` references.
 - `config/runtime.py` — shared path resolution + `sys.path` setup for MCP/REST parity with `retobs run`.
 - `sdk/run_config.py` — `config_base_dir` param for `adapter.import` and relative dataset paths.

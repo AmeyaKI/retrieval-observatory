@@ -7,7 +7,7 @@ def test_build_import_adapter_from_example_module():
         "type": "adapter.import",
         "retriever_id": "keyword",
         "config": {
-            "factory": "examples.custom_retriever.retriever:build_retriever",
+            "factory": "examples.advanced.custom_retriever.retriever:build_retriever",
             "k": 3,
         },
     }
@@ -16,7 +16,7 @@ def test_build_import_adapter_from_example_module():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    custom_dir = str(root / "examples" / "custom_retriever")
+    custom_dir = str(root / "examples" / "advanced" / "custom_retriever")
     if custom_dir not in sys.path:
         sys.path.insert(0, custom_dir)
 
@@ -31,7 +31,7 @@ def test_build_pipeline_from_config_import():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    custom_dir = str(root / "examples" / "custom_retriever")
+    custom_dir = str(root / "examples" / "advanced" / "custom_retriever")
     if custom_dir not in sys.path:
         sys.path.insert(0, custom_dir)
 

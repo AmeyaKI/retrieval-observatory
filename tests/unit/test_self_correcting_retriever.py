@@ -7,7 +7,7 @@ from retrieval_observatory.pipeline.factory import _build_import_adapter, build_
 from retrieval_observatory.types import Query
 
 _ROOT = Path(__file__).resolve().parents[2]
-_DEMO_DIR = str(_ROOT / "examples" / "self_correcting_rag_demo")
+_DEMO_DIR = str(_ROOT / "examples" / "advanced" / "self_correcting_rag_demo")
 if _DEMO_DIR not in sys.path:
     sys.path.insert(0, _DEMO_DIR)
 
