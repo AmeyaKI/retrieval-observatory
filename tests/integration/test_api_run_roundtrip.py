@@ -48,10 +48,17 @@ def test_trigger_wait_and_read(tmp_path):
 
         diagram = client.get(f"/dbs/{db_id}/runs/{run_id}/diagram")
         assert diagram.status_code == 200
-        pipelines = diagram.json()["pipelines"]
+        body = diagram.json()
+        # Trace-native PipelineGraph contract only -- no heuristic-path provenance marker.
+        assert "topology_source" not in body
+        pipelines = body["pipelines"]
         assert pipelines[0]["pipeline_id"] == "bm25"
         node = pipelines[0]["nodes"][0]
         assert node["metrics"]["recall"]["ci_low"] is not None
+        # depth/branch_id (not stage_index/kind/arms) prove this is build_pipeline_graphs
+        # output, not the deleted heuristic _build_diagram shape.
+        assert "depth" in node
+        assert "branch_id" in node
 
 
 def test_bad_config_rejected(tmp_path):

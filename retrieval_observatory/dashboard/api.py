@@ -127,15 +127,16 @@ class _CompatResult:
 
 
 def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_CompatResult]:
-    """Adapt trace-native spans into legacy StageSnapshot rows for topology display.
+    """Adapt trace-native spans into legacy StageSnapshot rows for the per-query results
+    endpoint (`/runs/{id}/queries/{query_id}`), which still renders a flat per-stage
+    document list.
 
     Stage index must come from position in trace.spans (the pipeline's fixed op
     order), not from enumerating FIRED-only spans -- a gated stage (e.g. EXPAND)
     fires for some queries and not others, so filtering first would shift every
-    later stage's index per-trace and corrupt cross-trace aggregation in
-    _pipeline_topology (different operators would land in the same stage slot).
-    A SKIPPED_BY_GATE span still gets a snapshot; its own outputs (a passthrough
-    of its inputs) honestly reflect that it was a no-op for that query.
+    later stage's index per-trace and corrupt cross-trace alignment. A SKIPPED_BY_GATE
+    span still gets a snapshot; its own outputs (a passthrough of its inputs) honestly
+    reflect that it was a no-op for that query.
     """
     results: List[_CompatResult] = []
     for trace in traces:
@@ -741,8 +742,6 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
         metrics = await engine.aggregate(run_id, store)
         metrics_rows = await store.get_metrics(run_id)
-        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-        results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
@@ -753,8 +752,6 @@ def create_app(
             "manifest": manifest,
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
             "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
-            "pipeline_topology": _pipeline_topology(metrics, results),
-            "topology_source": "trace_native" if traces else "snapshot_heuristic",
         }
 
     @db_router.get("/runs/{run_id}/queries/{query_id}")
@@ -1740,23 +1737,28 @@ def create_app(
 
     @runs_router.get("/runs/{run_id}/diagram")
     async def get_run_diagram(db_id: str, run_id: str) -> Dict[str, Any]:
-        """Diagram-ready pipeline JSON: per-stage nodes with metrics + bootstrap CIs, edges,
-        and (when V2 traces exist) operator-DAG fire-rate/latency. Consumed by the SPA and by
-        the `retobs diagram` HTML export."""
+        """Diagram-ready pipeline JSON: trace-native DAG nodes (PipelineGraph contract) with
+        metrics + bootstrap CIs, plus operator-DAG fire-rate/latency. Consumed by the SPA and
+        by the `retobs diagram` HTML export. Requires V2 traces -- a config-only run with no
+        execution traces yet gets an honest 404, not a topology inferred from stage snapshots."""
+        from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
+
         store = _store_for(db_id)
-        metrics = await engine.aggregate(run_id, store)
-        if not metrics:
+        agg = await engine.aggregate(run_id, store)
+        if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
         traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-        results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
-        operator_dag = None
-        if traces:
-            operator_dag = await get_operator_dag(db_id, run_id)
+        if not traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run '{run_id}' has no execution traces yet -- no diagram to render.",
+            )
+        graphs = build_pipeline_graphs(agg, traces)
+        operator_dag = await get_operator_dag(db_id, run_id)
         return {
             "run_id": run_id,
-            "pipelines": _build_diagram(metrics, results),
+            "pipelines": [g.to_dict() for g in graphs],
             "operator_dag": operator_dag,
-            "topology_source": "trace_native" if traces else "snapshot_heuristic",
         }
 
     @app.get("/config/schema")
@@ -1949,193 +1951,6 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
             + ". Treat means as directional."
         )
     return warnings
-
-
-def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str, Any]:
-    metric_index: Dict[tuple, Dict[str, Any]] = {}
-    for entry in metrics.values():
-        metric_index[
-            (
-                entry.get("pipeline_id"),
-                entry.get("stage_index"),
-                entry.get("metric_name"),
-                entry.get("k"),
-                entry.get("branch_id"),
-            )
-        ] = entry
-
-    candidate_counts: Dict[tuple, List[int]] = defaultdict(list)
-    for result in results:
-        if result.status != "OK":
-            continue
-        for snap in result.snapshots:
-            candidate_counts[(result.pipeline_id, snap.stage_index, None)].append(
-                snap.candidate_count or len(snap.documents)
-            )
-            for arm in snap.arms:
-                candidate_counts[(result.pipeline_id, snap.stage_index, arm.stage_id)].append(
-                    arm.candidate_count or len(arm.documents)
-                )
-
-    stage_templates: Dict[str, Dict[int, Any]] = defaultdict(dict)
-    for result in results:
-        if result.status != "OK":
-            continue
-        for snap in result.snapshots:
-            if snap.stage_index in stage_templates[result.pipeline_id]:
-                continue
-            stage_templates[result.pipeline_id][snap.stage_index] = {
-                "stage_id": snap.stage_id,
-                "op_type": snap.op_type,
-                "arms": [arm.stage_id for arm in snap.arms],
-            }
-
-    topology: Dict[str, Any] = {}
-    for pipeline_id, by_stage in stage_templates.items():
-        stages: List[Dict[str, Any]] = []
-        for stage_index in sorted(by_stage):
-            template = by_stage[stage_index]
-            stage_branch_key = (pipeline_id, stage_index, None)
-            recall_entries = [
-                e for (pid, sidx, mname, _k, branch), e in metric_index.items()
-                if pid == pipeline_id and sidx == stage_index and branch is None and mname == "recall"
-            ]
-            best_recall_entry = max(recall_entries, key=lambda e: e.get("k", 0), default=None)
-            stage = {
-                "stage_index": stage_index,
-                "stage_id": template["stage_id"],
-                "op_type": template.get("op_type"),
-                "kind": "fused" if template["arms"] else ("single" if stage_index == 0 else "rerank"),
-                "candidate_count": _mean(candidate_counts.get(stage_branch_key, [0])),
-                "metrics": {
-                    "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, None)) or {}).get("mean"),
-                    "recall": {
-                        "k": best_recall_entry.get("k") if best_recall_entry else None,
-                        "mean": best_recall_entry.get("mean") if best_recall_entry else None,
-                    },
-                    "latency_p50": (metric_index.get((pipeline_id, stage_index, "latency_p50", 0, None)) or {}).get("mean"),
-                },
-                "arms": [],
-            }
-            for arm_id in template["arms"]:
-                arm_recall_entries = [
-                    e for (pid, sidx, mname, _k, branch), e in metric_index.items()
-                    if pid == pipeline_id and sidx == stage_index and branch == arm_id and mname == "recall"
-                ]
-                arm_best_recall = max(arm_recall_entries, key=lambda e: e.get("k", 0), default=None)
-                arm_branch_key = (pipeline_id, stage_index, arm_id)
-                stage["arms"].append(
-                    {
-                        "arm_id": arm_id,
-                        "candidate_count": _mean(candidate_counts.get(arm_branch_key, [0])),
-                        "metrics": {
-                            "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, arm_id)) or {}).get("mean"),
-                            "recall": {
-                                "k": arm_best_recall.get("k") if arm_best_recall else None,
-                                "mean": arm_best_recall.get("mean") if arm_best_recall else None,
-                            },
-                            "latency_p50": (
-                                metric_index.get((pipeline_id, stage_index, "latency_p50", 0, arm_id)) or {}
-                            ).get("mean"),
-                        },
-                    }
-                )
-            stages.append(stage)
-        topology[pipeline_id] = stages
-    return topology
-
-
-def _metric_with_ci(entry: Dict[str, Any] | None) -> Dict[str, Any] | None:
-    """Reshape an aggregate entry into a {mean, ci_low, ci_high} overlay value."""
-    if not entry:
-        return None
-    return {
-        "mean": entry.get("mean"),
-        "ci_low": entry.get("ci_low"),
-        "ci_high": entry.get("ci_high"),
-    }
-
-
-def _build_diagram(metrics: Dict[str, Any], results: List[Any]) -> List[Dict[str, Any]]:
-    """Diagram-ready per-pipeline nodes (per-stage metrics WITH bootstrap CIs) + linear/fused
-    edges. Unlike _pipeline_topology (which drops CIs for the SPA's existing shape), each node
-    metric here carries {mean, ci_low, ci_high} — the overlay the read-only diagram renders."""
-    # Index aggregate entries by (pipeline_id, stage_index, metric_name, k, branch_id).
-    by_key: Dict[tuple, Dict[str, Any]] = {}
-    for entry in metrics.values():
-        by_key[(
-            entry.get("pipeline_id"),
-            entry.get("stage_index"),
-            entry.get("metric_name"),
-            entry.get("k"),
-            entry.get("branch_id"),
-        )] = entry
-
-    # Stage templates (op_type, arms) from the first OK result per pipeline stage.
-    templates: Dict[str, Dict[int, Any]] = defaultdict(dict)
-    for result in results:
-        if result.status != "OK":
-            continue
-        for snap in result.snapshots:
-            if snap.stage_index in templates[result.pipeline_id]:
-                continue
-            templates[result.pipeline_id][snap.stage_index] = {
-                "stage_id": snap.stage_id,
-                "op_type": snap.op_type,
-                "arms": [arm.stage_id for arm in getattr(snap, "arms", [])],
-            }
-
-    def _best_recall(pipeline_id: str, stage_index: int, branch_id: str | None):
-        recalls = [
-            (k, e) for (pid, sidx, mname, k, br), e in by_key.items()
-            if pid == pipeline_id and sidx == stage_index and br == branch_id and mname == "recall"
-        ]
-        if not recalls:
-            return None
-        k, entry = max(recalls, key=lambda item: item[0] or 0)
-        overlay = _metric_with_ci(entry)
-        overlay["k"] = k
-        return overlay
-
-    def _node_metrics(pipeline_id: str, stage_index: int, branch_id: str | None):
-        return {
-            "ndcg@10": _metric_with_ci(by_key.get((pipeline_id, stage_index, "ndcg", 10, branch_id))),
-            "recall": _best_recall(pipeline_id, stage_index, branch_id),
-            "latency_p50": _metric_with_ci(
-                by_key.get((pipeline_id, stage_index, "latency_p50", 0, branch_id))
-            ),
-        }
-
-    pipelines: List[Dict[str, Any]] = []
-    for pipeline_id, by_stage in templates.items():
-        nodes: List[Dict[str, Any]] = []
-        edges: List[Dict[str, str]] = []
-        prev_node_id: str | None = None
-        for stage_index in sorted(by_stage):
-            template = by_stage[stage_index]
-            node_id = f"stage{stage_index}"
-            arms = []
-            for arm_id in template["arms"]:
-                arms.append({
-                    "arm_id": arm_id,
-                    "metrics": _node_metrics(pipeline_id, stage_index, arm_id),
-                })
-                # A fused arm feeds into its stage node.
-                edges.append({"source": f"{node_id}:{arm_id}", "target": node_id})
-            nodes.append({
-                "node_id": node_id,
-                "stage_index": stage_index,
-                "stage_id": template["stage_id"],
-                "op_type": template.get("op_type"),
-                "kind": "fused" if template["arms"] else ("source" if stage_index == 0 else "rerank"),
-                "metrics": _node_metrics(pipeline_id, stage_index, None),
-                "arms": arms,
-            })
-            if prev_node_id is not None:
-                edges.append({"source": prev_node_id, "target": node_id})
-            prev_node_id = node_id
-        pipelines.append({"pipeline_id": pipeline_id, "nodes": nodes, "edges": edges})
-    return pipelines
 
 
 def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:

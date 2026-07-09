@@ -155,30 +155,6 @@ export interface StageContribution {
   indeterminate?: boolean
 }
 
-export interface TopologyStageMetrics {
-  'ndcg@10': number | null
-  recall: { k: number | null; mean: number | null }
-  latency_p50: number | null
-}
-
-export interface TopologyArm {
-  arm_id: string
-  candidate_count: number
-  metrics: TopologyStageMetrics
-}
-
-export interface TopologyStage {
-  stage_index: number
-  stage_id: string
-  op_type?: string | null
-  kind: 'single' | 'fused' | 'rerank'
-  candidate_count: number
-  metrics: TopologyStageMetrics
-  arms: TopologyArm[]
-}
-
-export type PipelineTopology = Record<string, TopologyStage[]>
-
 // ── PipelineGraph render contract (mirrors dashboard/pipeline_graph.schema.json) ──
 export interface GraphMetricValue {
   mean: number | null
@@ -241,7 +217,6 @@ export interface RunOverview {
   manifest: Record<string, unknown> | null
   warnings: string[]
   stage_contributions: StageContribution[]
-  pipeline_topology?: PipelineTopology
 }
 
 export async function fetchRunOverview(dbId: string, runId: string): Promise<RunOverview> {
