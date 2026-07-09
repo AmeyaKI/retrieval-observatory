@@ -8,7 +8,7 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 
 Retrieval pipelines are modeled as an **operator DAG** (`RetrievalTraceV2`), not a flat list of stages — sources, fusion, expansion, filters, transforms, rerankers, boosts, and gates are each a typed operator span with parent links, so gated/conditional production pipelines (not just linear `bm25 → rerank` chains) can be traced and attributed accurately. Every attribution result carries a **replay tier** (`EXACT` / `OBSERVED_ABLATION` / `NOT_REPLAYABLE`) — retobs never reports a fabricated delta when the counterfactual can't actually be replayed.
 
-![Pareto frontier — quality vs. latency, with the frontier highlighted](results/screenshots/pareto-frontier-fiqa.png)
+Pareto frontier — quality vs. latency, with the frontier highlighted
 
 *The Pareto frontier view: every pipeline plotted by quality against latency, so the best quality-for-cost choices are immediately obvious.*
 
@@ -180,11 +180,11 @@ runtime, that is called out so a result is never trusted past what the engine ac
 ## Four Modes
 
 
-| Mode           | Question                        | What you get                                                        |
-| -------------- | ------------------------------- | ------------------------------------------------------------------- |
-| **Benchmarks** | What happened? Why?             | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs |
-| **Forge**      | What failures haven't we found? | Temporal + alias stress queries from your corpus                    |
-| **TraceLens**  | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth) |
+| Mode           | Question                        | What you get                                                                                                                                          |
+| -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Benchmarks** | What happened? Why?             | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs                                                                                   |
+| **Forge**      | What failures haven't we found? | Temporal + alias stress queries from your corpus                                                                                                      |
+| **TraceLens**  | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth)                                                                                   |
 | **Advisor**    | What should I do next?          | Regression detection, recommendations ranked by estimated quality gain/latency cost/effort, before-you-change-it impact simulation, reliability score |
 
 
@@ -225,11 +225,11 @@ Stage Contribution: bm25 → bm25__rerank
 └───────────────┴──────────┴──────────┴──────────────┴────────────────┘
 ```
 
-![Per-stage attribution — recall/nDCG contribution of each operator with confidence](results/screenshots/stage-attribution-nfcorpus.png)
+Per-stage attribution — recall/nDCG contribution of each operator with confidence
 
 **Recall funnel** — where do relevant documents fall out of the pipeline?
 
-![Recall funnel — relevant documents surviving each stage](results/screenshots/recall-funnel-nfcorpus.png)
+Recall funnel — relevant documents surviving each stage
 
 - **Failure diagnosis** — candidate misses, lexical mismatches, reranker drops — labeled per query.
 - **Latency–quality tradeoff** — Pareto frontier; see whether reranking is worth it at your latency budget.
@@ -412,9 +412,9 @@ Forge detects temporal confusion and alias mismatches and generates queries desi
 
 ---
 
-
-
 ---
+
+
 
 ## Wire retobs into your RAG repo (one agent prompt)
 
@@ -426,6 +426,8 @@ Forge detects temporal confusion and alias mismatches and generates queries desi
 See [docs/integrations/AGENT_QUICKSTART.md](docs/integrations/AGENT_QUICKSTART.md). CLI twin: `retobs wire .`
 
 ---
+
+
 
 ## CLI Reference
 
@@ -446,8 +448,6 @@ retobs classifier train|report|predict ...          Query difficulty classifier
 ```
 
 ---
-
-
 
 ## Going Deeper
 
