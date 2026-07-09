@@ -115,6 +115,24 @@ def test_significant_field_populated_with_bh() -> None:
     )
     populated = [r for r in rows if r.significant is not None]
     assert len(populated) > 0
+    # Every significance-tested row also exposes its raw p_value and BH-corrected q_value.
+    for row in populated:
+        assert row.p_value is not None
+        assert 0.0 <= row.p_value <= 1.0
+        assert row.q_value is not None
+
+
+def test_low_power_rows_have_no_pvalue() -> None:
+    # Below n_power_threshold, no significance test is run, so p_value/q_value stay None.
+    traces = [_trace(f"q{i}", fired=True) for i in range(3)]
+    qrels = {f"q{i}": {"d1": 1, "d2": 1} for i in range(3)}
+    rows = operator_marginal_contribution(
+        traces, op_id="source_a", qrels=qrels, metric="recall", k=1, n_power_threshold=20
+    )
+    for row in rows:
+        if row.low_power:
+            assert row.p_value is None
+            assert row.q_value is None
 
 
 def test_final_op_id_used_not_spans_last() -> None:

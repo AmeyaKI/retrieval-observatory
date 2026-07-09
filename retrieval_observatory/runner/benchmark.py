@@ -30,12 +30,14 @@ class BenchmarkRunner:
         timeout_ms: int = 5000,
         retry_attempts: int = 2,
         caches: Optional[Dict[str, ResultCache]] = None,
+        seed: Optional[int] = None,
     ):
         self.store = store
         self.concurrency = concurrency
         self.timeout_s = timeout_ms / 1000
         self.retry_attempts = retry_attempts
         self.caches = caches or {}
+        self.seed = seed
 
     async def run(
         self,
@@ -50,6 +52,7 @@ class BenchmarkRunner:
         tasks = interleave_tasks(
             pipeline_ids=list(pipeline_map.keys()),
             query_ids=list(query_map.keys()),
+            seed=self.seed,
         )
 
         semaphore = asyncio.Semaphore(self.concurrency)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import asdict, dataclass
@@ -41,6 +42,7 @@ def dataset_fingerprint(name: str, queries: list, qrels: Dict, corpus: Optional[
     missing = sorted(qrel_doc_ids - corpus_ids) if corpus is not None else []
     return {
         "name": name,
+        "content_hash": dataset_content_hash(queries, qrels, corpus),
         "queries": len(queries),
         "qrels": len(qrels),
         "corpus_docs": len(corpus or {}),
@@ -49,6 +51,44 @@ def dataset_fingerprint(name: str, queries: list, qrels: Dict, corpus: Optional[
         "missing_qrel_doc_id_examples": missing[:10],
         "label_sparsity_pct": round((1 - len(qrels) / max(len(queries), 1)) * 100, 2),
     }
+
+
+def _query_id_text(q: object) -> tuple[str, str]:
+    if isinstance(q, dict):
+        return str(q.get("query_id", q.get("id", ""))), str(q.get("text", q.get("query", "")))
+    return str(getattr(q, "query_id", getattr(q, "id", ""))), str(getattr(q, "text", getattr(q, "query", "")))
+
+
+def dataset_content_hash(queries: list, qrels: Dict, corpus: Optional[Dict[str, str]] = None) -> str:
+    """A real content hash of the dataset.
+
+    Unlike descriptive counts, this collides only when the actual queries, relevance
+    judgments, and corpus content are identical — so two datasets with matching counts
+    but different content produce different fingerprints (Pillar 6, Reproducibility).
+    """
+    h = hashlib.sha256()
+    for qid, text in sorted(_query_id_text(q) for q in queries):
+        h.update(b"q\x00")
+        h.update(qid.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(text.encode("utf-8"))
+    for qid in sorted(qrels.keys(), key=str):
+        rels = qrels[qid]
+        h.update(b"r\x00")
+        h.update(str(qid).encode("utf-8"))
+        if isinstance(rels, dict):
+            for doc_id, grade in sorted(rels.items(), key=lambda kv: str(kv[0])):
+                h.update(f"\x00{doc_id}:{grade}".encode("utf-8"))
+        else:
+            for doc_id in sorted(_rel_ids(rels)):
+                h.update(f"\x00{doc_id}:1".encode("utf-8"))
+    if corpus is not None:
+        for doc_id in sorted(corpus.keys(), key=str):
+            h.update(b"c\x00")
+            h.update(str(doc_id).encode("utf-8"))
+            h.update(b"\x00")
+            h.update(hashlib.sha256(str(corpus[doc_id]).encode("utf-8")).digest())
+    return h.hexdigest()
 
 
 def detect_near_duplicate_queries(

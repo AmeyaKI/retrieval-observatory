@@ -8,7 +8,7 @@ OperatorType = Literal["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", 
 OperatorStatus = Literal["FIRED", "SKIPPED_BY_GATE", "ERROR", "TIMEOUT"]
 ReplayPolicy = Literal["EXACT", "OBSERVED_ABLATION", "NOT_REPLAYABLE"]
 AddReason = Literal["retrieved", "expanded", "fused", "transformed", "boosted"]
-DropReason = Literal["filtered", "reranked_out", "gate_blocked", "deduped", "unknown"]
+DropReason = Literal["filtered", "reranked_out", "gate_blocked", "deduped", "truncated", "unknown"]
 
 
 @dataclass

@@ -147,6 +147,7 @@ class ExecutionConfig(BaseModel):
     timeout_seconds: Optional[int] = None  # human-friendly alias; converts to timeout_ms
     retry_attempts: int = 2
     cache_results: bool = True
+    seed: Optional[int] = None  # scheduler shuffle seed; recorded in the run manifest for reproducibility
 
     @model_validator(mode="after")
     def _apply_timeout_seconds(self) -> "ExecutionConfig":

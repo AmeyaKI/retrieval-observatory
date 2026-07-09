@@ -682,6 +682,7 @@ def create_app(
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
             "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
             "pipeline_topology": _pipeline_topology(metrics, results),
+            "topology_source": "trace_native" if traces else "snapshot_heuristic",
         }
 
     @db_router.get("/runs/{run_id}/queries/{query_id}")
@@ -1652,6 +1653,7 @@ def create_app(
             "run_id": run_id,
             "pipelines": _build_diagram(metrics, results),
             "operator_dag": operator_dag,
+            "topology_source": "trace_native" if traces else "snapshot_heuristic",
         }
 
     @app.get("/config/schema")
