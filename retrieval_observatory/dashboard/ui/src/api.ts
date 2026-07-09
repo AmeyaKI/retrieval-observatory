@@ -88,6 +88,7 @@ export async function fetchComparison(
   selections: Array<{ db_id: string; run_id: string }>
   run_ids: string[]
   warnings: string[]
+  comparability?: ComparabilityReport
 }> {
   const res = await fetch(`${BASE}/compare`, {
     method: 'POST',
@@ -290,6 +291,88 @@ export interface OperatorAttributionRow {
   low_power?: boolean
   fire_rate?: number
   significant?: boolean | null
+  p_value?: number | null
+  q_value?: number | null
+}
+
+// ── Candidate Flow Visualization (Pillar 2) ──
+export interface CandidateEvent {
+  op_id: string
+  op_name: string
+  op_type: string
+  status: string
+  event: 'introduced' | 'passed' | 'dropped'
+  input_rank: number | null
+  output_rank: number | null
+  score: number | null
+  score_delta: number | null
+  add_reason: string | null
+  drop_reason: string | null
+  drop_reason_inferred: boolean
+  origin_op_ids: string[]
+  note: string
+}
+
+export interface CandidateHistory {
+  doc_id: string
+  trace_id: string
+  query_id: string
+  introduced_at: string | null
+  introduced_by_arms: string[]
+  dropped_at: string | null
+  dropped_reason: string | null
+  survived: boolean
+  final_rank: number | null
+  events: CandidateEvent[]
+}
+
+export interface ReplayAssumptions {
+  op_id: string
+  op_type: string
+  strategy: string
+  rrf_recomputed: boolean
+  rrf_k: number | null
+  replay_policy: string
+  caveats: string[]
+}
+
+export interface CandidateFlowPipeline {
+  pipeline_id: string
+  trace_id: string
+  history: CandidateHistory
+  drop_replay_assumptions: ReplayAssumptions | null
+}
+
+export interface CandidateFlow {
+  run_id: string
+  query_id: string
+  doc_id: string
+  pipelines: CandidateFlowPipeline[]
+}
+
+export async function fetchCandidateFlow(
+  dbId: string,
+  runId: string,
+  queryId: string,
+  docId: string,
+): Promise<CandidateFlow> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}/candidates/${encodeURIComponent(docId)}`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch candidate flow for ${docId}`)
+  return res.json()
+}
+
+// ── Comparability guard (Pillar 6) ──
+export interface ComparabilityDifference {
+  axis: string
+  severity: 'high' | 'medium' | 'low'
+  detail: string
+}
+
+export interface ComparabilityReport {
+  comparable: boolean
+  differences: ComparabilityDifference[]
 }
 
 export interface OperatorDagNode {

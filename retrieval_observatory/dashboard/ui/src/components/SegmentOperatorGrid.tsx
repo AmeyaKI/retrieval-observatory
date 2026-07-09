@@ -24,11 +24,15 @@ function CellContent({ row }: { row: OperatorAttributionRow | undefined }) {
   const badge = REPLAY_BADGES[row.replay_policy]
   const deltaColor = row.delta > 0 ? 'text-green-700' : row.delta < 0 ? 'text-red-700' : 'text-gray-700 dark:text-slate-200'
   const sigMark = row.significant === true ? '*' : row.significant === false ? '' : ''
+  const stat: string[] = []
+  if (row.p_value != null) stat.push(`p=${row.p_value.toFixed(3)}`)
+  if (row.q_value != null) stat.push(`q=${row.q_value.toFixed(3)} (BH-corrected)`)
+  const statTitle = stat.length ? stat.join(' · ') : undefined
 
   return (
     <div className="flex flex-col items-end gap-0.5">
       <div className="flex items-center gap-1">
-        <span className={`font-medium ${deltaColor}`}>
+        <span className={`font-medium ${deltaColor}`} title={statTitle}>
           {row.delta > 0 ? '+' : ''}{row.delta.toFixed(4)}{sigMark}
         </span>
         {badge && (

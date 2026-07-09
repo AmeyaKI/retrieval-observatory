@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { fetchQueryLabels, QueryLabelRow } from '../api'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import { MetricTooltip } from './MetricTooltip'
+import CandidateFlowPanel from './CandidateFlowPanel'
 
 const AGREEMENT_STYLE: Record<string, string> = {
   match: 'bg-green-100 text-green-800',
@@ -20,6 +21,8 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
   const [items, setItems] = useState<QueryLabelRow[]>([])
   const [filter, setFilter] = useState('')
   const [mismatchOnly, setMismatchOnly] = useState(false)
+  const [flowFor, setFlowFor] = useState<string | null>(null)
+  const [docId, setDocId] = useState('')
 
   useEffect(() => {
     fetchQueryLabels(dbId, runId).then((data) => setItems(data.items)).catch(() => setItems([]))
@@ -80,11 +83,22 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
           </thead>
           <tbody className="divide-y divide-gray-100">
             {visible.map((item) => (
-              <tr key={item.query_id} className="hover:bg-gray-50">
+              <Fragment key={item.query_id}>
+              <tr className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono">
                   <a href={`#/query/${encodeURIComponent(item.query_id)}`} className="text-indigo-600 hover:underline">
                     {item.query_id}
                   </a>
+                  <button
+                    className="ml-2 text-[10px] text-gray-400 hover:text-indigo-600"
+                    title="Trace a document's flow through this query's pipelines"
+                    onClick={() => {
+                      setFlowFor(flowFor === item.query_id ? null : item.query_id)
+                      setDocId('')
+                    }}
+                  >
+                    ⇄ flow
+                  </button>
                 </td>
                 <td className="px-3 py-2 max-w-xs truncate" title={item.query_text}>
                   {item.query_text || '—'}
@@ -108,6 +122,24 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                     : '—'}
                 </td>
               </tr>
+              {flowFor === item.query_id && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-3 bg-gray-50 dark:bg-slate-800/40">
+                    <div className="flex items-center gap-2 mb-3">
+                      <input
+                        className="border border-gray-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-mono"
+                        value={docId}
+                        onChange={(e) => setDocId(e.target.value)}
+                        placeholder="doc_id to trace"
+                      />
+                    </div>
+                    {docId.trim() && (
+                      <CandidateFlowPanel dbId={dbId} runId={runId} queryId={item.query_id} docId={docId.trim()} />
+                    )}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
             ))}
           </tbody>
         </table>
