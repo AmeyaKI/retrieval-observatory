@@ -844,6 +844,14 @@ export interface Recommendation {
   rationale: string
   evidence: string[]
   priority: number
+  estimated_quality_improvement?: number | null
+  quality_metric?: string | null
+  estimated_quality_ci?: [number, number] | null
+  estimated_latency_increase_ms?: number | null
+  implementation_effort?: 'S' | 'M' | 'L' | null
+  confidence?: number | null
+  affected_query_categories?: string[]
+  expected_value?: number | null
 }
 
 export interface RegressionFinding {

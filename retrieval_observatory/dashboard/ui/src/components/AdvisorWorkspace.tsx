@@ -208,6 +208,39 @@ export default function AdvisorWorkspace() {
                         </span>
                       </div>
                       <p className="text-xs text-gray-600 dark:text-slate-300 mt-1">{rec.rationale}</p>
+                      {rec.estimated_quality_improvement != null ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                            +{(rec.estimated_quality_improvement * 100).toFixed(1)}% {rec.quality_metric ?? ''}
+                            {rec.estimated_quality_ci && (
+                              <span className="font-normal text-gray-400 dark:text-slate-500">
+                                {' '}
+                                [{(rec.estimated_quality_ci[0] * 100).toFixed(1)}, {(rec.estimated_quality_ci[1] * 100).toFixed(1)}]
+                              </span>
+                            )}
+                          </span>
+                          {rec.estimated_latency_increase_ms != null && (
+                            <span className="text-gray-500 dark:text-slate-400">
+                              +{rec.estimated_latency_increase_ms.toFixed(0)}ms latency
+                            </span>
+                          )}
+                          {rec.implementation_effort && (
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300">
+                              effort: {rec.implementation_effort}
+                            </span>
+                          )}
+                          {rec.confidence != null && (
+                            <span className="text-gray-500 dark:text-slate-400">confidence {(rec.confidence * 100).toFixed(0)}%</span>
+                          )}
+                          {rec.affected_query_categories && rec.affected_query_categories.length > 0 && (
+                            <span className="text-gray-400 dark:text-slate-500">
+                              on {rec.affected_query_categories.join(', ')} queries
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-[11px] text-gray-400 dark:text-slate-500 italic">not estimated</p>
+                      )}
                       <ul className="mt-2 text-[11px] text-gray-500 dark:text-slate-400 list-disc pl-4">
                         {rec.evidence.map((ev, j) => (
                           <li key={j}>{ev}</li>
