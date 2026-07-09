@@ -722,6 +722,43 @@ def create_app(
             ],
         }
 
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{doc_id}")
+    async def get_candidate_flow(db_id: str, run_id: str, query_id: str, doc_id: str) -> Dict[str, Any]:
+        """Candidate Flow Visualization backend (Pillar 2): one document's full journey
+        through every pipeline that ran this query — where it was introduced, promoted,
+        and (if it disappeared) exactly where and why."""
+        from retrieval_observatory.tracing.candidate_history import candidate_history
+        from retrieval_observatory.tracing.replay import replay_assumptions
+
+        store = _store_for(db_id)
+        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        query_traces = [t for t in traces if t.query_id == query_id]
+        if not query_traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No V2 traces for query '{query_id}' in run '{run_id}' (candidate flow needs trace data)",
+            )
+        pipelines: List[Dict[str, Any]] = []
+        for trace in query_traces:
+            history = candidate_history(trace, doc_id)
+            assumptions = None
+            # If the doc was dropped, expose how a counterfactual replay of the dropping
+            # operator would be constructed, so the drop explanation is inspectable.
+            if history.dropped_at:
+                try:
+                    assumptions = replay_assumptions(trace, history.dropped_at).__dict__
+                except ValueError:
+                    assumptions = None
+            pipelines.append(
+                {
+                    "pipeline_id": trace.pipeline_id,
+                    "trace_id": trace.trace_id,
+                    "history": history.to_dict(),
+                    "drop_replay_assumptions": assumptions,
+                }
+            )
+        return {"run_id": run_id, "query_id": query_id, "doc_id": doc_id, "pipelines": pipelines}
+
     @db_router.get("/runs/{run_id}/stage-matrix")
     async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
