@@ -184,6 +184,74 @@ def _compare_warnings(fingerprints: List[str | None]) -> List[str]:
     return []
 
 
+def _comparability_report(manifests: List[Dict[str, Any] | None]) -> Dict[str, Any]:
+    """Make it hard to accidentally compare incomparable experiments (Pillar 6).
+
+    Inspects each run's manifest for the axes that determine comparability — dataset
+    content hash, scheduler seed, git commit, key package versions — and reports exactly
+    what differs. Never blocks: it warns with evidence so the engineer decides.
+    """
+    def _dataset_content_hash(m: Dict[str, Any] | None) -> Any:
+        return (m or {}).get("dataset", {}).get("content_hash") if m else None
+
+    differences: List[Dict[str, Any]] = []
+
+    hashes = [_dataset_content_hash(m) for m in manifests]
+    known_hashes = {h for h in hashes if h}
+    if len(known_hashes) > 1:
+        differences.append({
+            "axis": "dataset_content",
+            "severity": "high",
+            "detail": "Runs were evaluated on different dataset content (content_hash differs); "
+                      "metric comparisons are not valid.",
+        })
+    elif not known_hashes:
+        differences.append({
+            "axis": "dataset_content",
+            "severity": "low",
+            "detail": "No dataset content_hash recorded; cannot confirm the runs used identical data.",
+        })
+
+    seeds = [(m or {}).get("seed") for m in manifests]
+    if len({s for s in seeds if s is not None}) > 1:
+        differences.append({
+            "axis": "seed",
+            "severity": "low",
+            "detail": f"Runs used different scheduler seeds ({sorted({s for s in seeds if s is not None})}); "
+                      "ordering-sensitive effects may differ.",
+        })
+
+    commits = [(m or {}).get("git_commit") for m in manifests]
+    if len({c for c in commits if c}) > 1:
+        differences.append({
+            "axis": "git_commit",
+            "severity": "medium",
+            "detail": "Runs were produced from different git commits; code changes may confound the comparison.",
+        })
+
+    def _pkgs(m):
+        return (m or {}).get("packages", {}) or {}
+    pkg_diffs = []
+    if len(manifests) >= 2:
+        base = _pkgs(manifests[0])
+        for m in manifests[1:]:
+            other = _pkgs(m)
+            for name in set(base) | set(other):
+                if base.get(name) != other.get(name):
+                    pkg_diffs.append(name)
+    if pkg_diffs:
+        differences.append({
+            "axis": "package_versions",
+            "severity": "medium",
+            "detail": f"Differing package versions: {sorted(set(pkg_diffs))}.",
+        })
+
+    return {
+        "comparable": not any(d["severity"] == "high" for d in differences),
+        "differences": differences,
+    }
+
+
 async def _build_comparison(
     selections: List[tuple],
     registry: DbRegistry,
@@ -195,11 +263,14 @@ async def _build_comparison(
 
     warnings: List[str] = []
     fingerprints: List[str | None] = []
+    manifests: List[Dict[str, Any] | None] = []
     for db_id, run_id in selections:
         store = registry.get_store(db_id)
         manifest = await store.get_run_manifest(run_id)
+        manifests.append(manifest)
         fingerprints.append(_dataset_fingerprint(manifest))
     warnings.extend(_compare_warnings(fingerprints))
+    comparability = _comparability_report(manifests)
 
     keys = [_selection_key(db_id, run_id) for db_id, run_id in selections]
     aggregated: Dict[str, Dict] = {}
@@ -242,6 +313,7 @@ async def _build_comparison(
         "selections": [{"db_id": db_id, "run_id": run_id} for db_id, run_id in selections],
         "run_ids": [run_id for _, run_id in selections],
         "warnings": warnings,
+        "comparability": comparability,
     }
 
 
