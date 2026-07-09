@@ -1,0 +1,21 @@
+# retobs Guides
+
+Start here:
+
+- **[getting-started.md](getting-started.md)** — the beginner journey: install → run →
+  debug a failure → improve → validate, in under an hour.
+
+Advanced topics — each pairs the retrieval-engineering concept with how retobs visualizes and
+diagnoses it:
+
+- [hybrid-retrieval.md](hybrid-retrieval.md) — combining lexical and dense arms
+- [parallel-retrieval.md](parallel-retrieval.md) — multiple lanes, fused
+- [multi-stage-reranking.md](multi-stage-reranking.md) — precision without losing recall
+- [conditional-pipelines.md](conditional-pipelines.md) — gates, routing, skipped branches
+- [counterfactual-replay.md](counterfactual-replay.md) — how attribution actually works
+- [forge.md](forge.md) — corpus-specific stress tests
+- [tracelens.md](tracelens.md) — observing production retrieval
+- [advisor.md](advisor.md) — from diagnostics to a prioritized plan
+
+For the full CLI/config reference see [../USAGE.md](../USAGE.md) and
+[../YAML_GUIDE.md](../YAML_GUIDE.md).

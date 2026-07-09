@@ -8,7 +8,9 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 
 Retrieval pipelines are modeled as an **operator DAG** (`RetrievalTraceV2`), not a flat list of stages — sources, fusion, expansion, filters, transforms, rerankers, boosts, and gates are each a typed operator span with parent links, so gated/conditional production pipelines (not just linear `bm25 → rerank` chains) can be traced and attributed accurately. Every attribution result carries a **replay tier** (`EXACT` / `OBSERVED_ABLATION` / `NOT_REPLAYABLE`) — retobs never reports a fabricated delta when the counterfactual can't actually be replayed.
 
-Pareto frontier view
+![Pareto frontier — quality vs. latency, with the frontier highlighted](results/screenshots/pareto-frontier-fiqa.png)
+
+*The Pareto frontier view: every pipeline plotted by quality against latency, so the best quality-for-cost choices are immediately obvious.*
 
 ---
 
@@ -222,6 +224,12 @@ Stage Contribution: bm25 → bm25__rerank
 │ Latency P50   │ 2ms      │ 4,057ms  │ +4,055ms     │ —             │
 └───────────────┴──────────┴──────────┴──────────────┴────────────────┘
 ```
+
+![Per-stage attribution — recall/nDCG contribution of each operator with confidence](results/screenshots/stage-attribution-nfcorpus.png)
+
+**Recall funnel** — where do relevant documents fall out of the pipeline?
+
+![Recall funnel — relevant documents surviving each stage](results/screenshots/recall-funnel-nfcorpus.png)
 
 - **Failure diagnosis** — candidate misses, lexical mismatches, reranker drops — labeled per query.
 - **Latency–quality tradeoff** — Pareto frontier; see whether reranking is worth it at your latency budget.
@@ -442,6 +450,8 @@ retobs classifier train|report|predict ...          Query difficulty classifier
 
 ## Going Deeper
 
+- [docs/guides/getting-started.md](docs/guides/getting-started.md) — **Start here.** The beginner journey: install → run → debug a failure down to the responsible operator → improve → validate, in under an hour.
+- [docs/guides/](docs/guides/README.md) — Focused guides: hybrid & parallel retrieval, multi-stage reranking, conditional pipelines, counterfactual replay, Forge, TraceLens, and the Advisor.
 - [docs/USAGE.md](docs/USAGE.md) — Full usage guide: every CLI command, the Python SDK, wiring retobs into an existing (including hybrid/multi-stage) RAG pipeline, the dashboard, and metrics reference
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, trace-native model, adapters, metrics, storage, dashboard API
 - [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.2)
