@@ -71,6 +71,63 @@ async def test_recommend_candidate_miss():
     recs = await recommend("r1", store)
     actions = " ".join(r.action for r in recs)
     assert "retriever" in actions.lower() or "first-stage" in actions.lower()
+    # Advisor Evolution: the candidate_miss recommendation carries grounded estimates.
+    cand = next(r for r in recs if "candidate_miss" in r.affected_query_categories)
+    assert cand.estimated_quality_improvement is not None
+    assert cand.quality_metric == "recall@10"
+    assert cand.confidence is not None
+    assert cand.expected_value is not None
+    assert cand.priority == 1  # highest expected value ranks first
+
+
+@pytest.mark.asyncio
+async def test_recommendations_ranked_by_expected_value():
+    from retrieval_observatory.advisor.types import Recommendation
+    from retrieval_observatory.advisor.recommend import _prioritize
+
+    low = Recommendation("a", "r", [], 99, estimated_quality_improvement=0.05, confidence=0.5,
+                         implementation_effort="M")
+    high = Recommendation("b", "r", [], 99, estimated_quality_improvement=0.30, confidence=0.8,
+                          implementation_effort="S")
+    unest = Recommendation("c", "r", [], 99)  # no estimate -> tail
+    ordered = _prioritize([low, unest, high])
+    assert [r.action for r in ordered] == ["b", "a", "c"]
+    assert ordered[0].priority == 1
+    assert ordered[-1].expected_value is None
+
+
+def test_simulate_operator_removal_reranker_hurts():
+    from retrieval_observatory.advisor.simulate import simulate_operator_removal
+    from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+
+    def _trace(qid):
+        # SOURCE surfaces gold d_gold at rank 1; a bad RERANK buries it below the good doc.
+        source = OperatorSpan(
+            op_id="src", op_type="SOURCE", op_name="bm25", parent_ids=[],
+            status="FIRED", deterministic=True, replay_policy="EXACT", latency_ms=1.0,
+            outputs=[
+                Candidate(doc_id="d_gold", score=1.0, rank=1, origin_op_ids=["src"]),
+                Candidate(doc_id="d_bad", score=0.5, rank=2, origin_op_ids=["src"]),
+            ],
+        )
+        rerank = OperatorSpan(
+            op_id="rr", op_type="RERANK", op_name="bad_rerank", parent_ids=["src"],
+            status="FIRED", deterministic=False, replay_policy="OBSERVED_ABLATION", latency_ms=1.0,
+            inputs=source.outputs,
+            outputs=[Candidate(doc_id="d_bad", score=2.0, rank=1, origin_op_ids=["rr"])],
+        )
+        return RetrievalTraceV2(trace_id=f"t{qid}", run_id="r", query_id=qid, query_text="q",
+                                pipeline_id="p", spans=[source, rerank], total_latency_ms=2.0,
+                                final_op_id="rr")
+
+    traces = [_trace(f"q{i}") for i in range(5)]
+    qrels = {f"q{i}": {"d_gold": 1} for i in range(5)}
+    result = simulate_operator_removal(traces, qrels, "rr", metric="recall", k=1)
+    assert result is not None
+    assert result.n_queries == 5
+    # Removing the bad reranker restores the gold doc -> positive delta (removal helps).
+    assert result.delta > 0
+    assert result.assumptions is not None
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,63 @@ _LABEL_ACTIONS = {
 _LABEL_THRESHOLD = 0.15
 _LATENCY_BUDGET_HEADROOM = 0.8
 
+# Per-failure-label estimation profile for Advisor Evolution (Pillar 5). Each entry:
+#   recovery_factor — fraction of the failing queries the fix is expected to recover
+#                     (grounded, conservative; the estimate, not a promise)
+#   latency_ms      — expected added p50 latency of the fix
+#   effort          — coarse implementation effort
+#   category        — affected query category label surfaced to the user
+_LABEL_ESTIMATES = {
+    "candidate_miss": {"recovery_factor": 0.5, "latency_ms": 30.0, "effort": "M", "category": "candidate_miss"},
+    "reranker_drop": {"recovery_factor": 0.6, "latency_ms": 0.0, "effort": "M", "category": "reranker_drop"},
+    "late_stage_drop": {"recovery_factor": 0.5, "latency_ms": 0.0, "effort": "S", "category": "late_stage_drop"},
+    "lexical_mismatch": {"recovery_factor": 0.5, "latency_ms": 40.0, "effort": "M", "category": "lexical_mismatch"},
+    "semantic_mismatch": {"recovery_factor": 0.4, "latency_ms": 10.0, "effort": "S", "category": "semantic_mismatch"},
+}
+
+
+def _estimate_for_label(label: str, rate: float, count: int, n: int) -> Dict[str, Any]:
+    """Grounded, transparent estimate for a label-driven recommendation.
+
+    Returns kwargs for Recommendation. The estimate is derived from the observed
+    failure rate and sample size, not an opaque heuristic — the evidence list cites
+    the basis so the user can judge it.
+    """
+    profile = _LABEL_ESTIMATES.get(label)
+    if not profile:
+        return {}
+    improvement = round(rate * profile["recovery_factor"], 4)
+    # Confidence grows with sample size; capped so we never over-claim certainty.
+    confidence = round(min(0.85, 0.4 + n / 200.0), 3)
+    # A rough symmetric CI on the recovered fraction, wider when n is small.
+    half_width = round(min(improvement, 0.5 / max(n, 1) ** 0.5), 4)
+    return {
+        "estimated_quality_improvement": improvement,
+        "quality_metric": "recall@10",
+        "estimated_quality_ci": [round(max(0.0, improvement - half_width), 4), round(improvement + half_width, 4)],
+        "estimated_latency_increase_ms": profile["latency_ms"],
+        "implementation_effort": profile["effort"],
+        "confidence": confidence,
+        "affected_query_categories": [profile["category"]],
+    }
+
+
+def _prioritize(recommendations: List[Recommendation]) -> List[Recommendation]:
+    """Rank by expected engineering value; unestimated recommendations sort into an
+    explicit tail (they keep their insertion order among themselves)."""
+    for idx, rec in enumerate(recommendations):
+        rec.expected_value = rec.compute_expected_value()
+        rec._tie = idx  # type: ignore[attr-defined]
+    estimated = [r for r in recommendations if r.expected_value is not None]
+    unestimated = [r for r in recommendations if r.expected_value is None]
+    estimated.sort(key=lambda r: r.expected_value, reverse=True)  # type: ignore[arg-type]
+    ordered = estimated + unestimated
+    for rank, rec in enumerate(ordered, start=1):
+        rec.priority = rank
+        if hasattr(rec, "_tie"):
+            delattr(rec, "_tie")
+    return ordered
+
 
 def _final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
     """Group final-stage metrics by pipeline_id."""
@@ -77,14 +134,25 @@ async def recommend(
         if not action_tpl:
             continue
         action, rationale = action_tpl
+        estimate = _estimate_for_label(label, rate, count, n)
         recommendations.append(
             Recommendation(
                 action=action,
                 rationale=rationale,
                 evidence=[
                     f"failure_label={label} appears in {count}/{n} diagnostic rows ({rate:.0%})",
-                ],
+                ]
+                + (
+                    [
+                        f"estimated +{estimate['estimated_quality_improvement']:.1%} recall@10 "
+                        f"on {label} queries (confidence {estimate['confidence']:.0%}, "
+                        f"effort {estimate['implementation_effort']})"
+                    ]
+                    if estimate
+                    else []
+                ),
                 priority=priority,
+                **estimate,
             )
         )
         priority += 1
@@ -147,8 +215,7 @@ async def recommend(
             )
         )
 
-    recommendations.sort(key=lambda r: r.priority)
-    return recommendations
+    return _prioritize(recommendations)
 
 
 async def _forge_scenario_recommendations(

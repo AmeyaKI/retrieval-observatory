@@ -1239,19 +1239,13 @@ def create_app(
     async def advisor_recommendations(run_id: str) -> Dict[str, Any]:
         from retrieval_observatory.advisor.recommend import recommend
 
+        from dataclasses import asdict
+
         store = registry.get_store(registry.default_db_id or "")
         recs = await recommend(run_id, store)
         return {
             "run_id": run_id,
-            "recommendations": [
-                {
-                    "action": r.action,
-                    "rationale": r.rationale,
-                    "evidence": r.evidence,
-                    "priority": r.priority,
-                }
-                for r in recs
-            ],
+            "recommendations": [asdict(r) for r in recs],
         }
 
     @advisor_router.get("/regressions")
