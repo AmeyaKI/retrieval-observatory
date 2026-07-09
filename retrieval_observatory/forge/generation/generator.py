@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
-import uuid
 from typing import Dict, List, Optional
 
 from retrieval_observatory.forge.generation.prompts import (
@@ -11,6 +11,16 @@ from retrieval_observatory.forge.generation.prompts import (
     format_temporal,
 )
 from retrieval_observatory.forge.types import CorpusScenario, SyntheticQuery
+
+
+def _query_id(scenario_id: str, query_type: str, text: str) -> str:
+    """Content-derived query id (not random): identical scenario/type/text produces the
+    same id. LLM-generated text is not itself deterministic across separate calls, but
+    tying the id to the actual generated text (rather than a random uuid) means two
+    genuinely identical queries -- e.g. a low-temperature or cached regeneration -- are
+    recognized as the same query instead of silently aliased under different ids."""
+    digest = hashlib.sha256(f"{scenario_id}|{query_type}|{text}".encode("utf-8")).hexdigest()[:12]
+    return f"forge_{digest}"
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +227,7 @@ class ForgeGenerator:
                     raw_queries = await self._generate_queries(prompt, n_per_type)
                     for text in raw_queries:
                         queries.append(SyntheticQuery(
-                            query_id=f"forge_{uuid.uuid4().hex[:12]}",
+                            query_id=_query_id(scenario.scenario_id, "paraphrase", text),
                             text=text,
                             scenario_id=scenario.scenario_id,
                             query_type="paraphrase",
@@ -237,7 +247,7 @@ class ForgeGenerator:
                     raw_queries = await self._generate_queries(prompt, n_per_type)
                     for text in raw_queries:
                         queries.append(SyntheticQuery(
-                            query_id=f"forge_{uuid.uuid4().hex[:12]}",
+                            query_id=_query_id(scenario.scenario_id, "temporal", text),
                             text=text,
                             scenario_id=scenario.scenario_id,
                             query_type="temporal",
@@ -250,7 +260,7 @@ class ForgeGenerator:
                     raw_queries = await self._generate_queries(prompt, n_per_type)
                     for text in raw_queries:
                         queries.append(SyntheticQuery(
-                            query_id=f"forge_{uuid.uuid4().hex[:12]}",
+                            query_id=_query_id(scenario.scenario_id, "adversarial", text),
                             text=text,
                             scenario_id=scenario.scenario_id,
                             query_type="adversarial",
