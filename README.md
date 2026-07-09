@@ -185,7 +185,7 @@ runtime, that is called out so a result is never trusted past what the engine ac
 | **Benchmarks** | What happened? Why?             | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs |
 | **Forge**      | What failures haven't we found? | Temporal + alias stress queries from your corpus                    |
 | **TraceLens**  | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth) |
-| **Advisor**    | What should I do next?          | Regression detection, rule-based recommendations, reliability score |
+| **Advisor**    | What should I do next?          | Regression detection, recommendations ranked by estimated quality gain/latency cost/effort, before-you-change-it impact simulation, reliability score |
 
 
 **Query lineage** — `#/query/<query_id>` links Forge origin, benchmark runs, and categorical production trace matches.
@@ -338,7 +338,8 @@ Paste this into your LLM to generate a config for your pipeline. Full format: [B
 # Detect regressions (non-zero exit = significant quality drop)
 retobs advisor check --baseline RUN_A --candidate RUN_B --db .retobs/results.db
 
-# Rule-based recommendations for a run
+# Recommendations for a run — each ranked by expected value, with an estimated quality
+# gain (+CI), latency cost, implementation effort, and confidence when it can be computed
 retobs advisor recommend --run RUN_ID --db .retobs/results.db
 
 # Golden set for CI gates

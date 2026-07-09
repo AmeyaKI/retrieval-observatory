@@ -6,6 +6,25 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Added — retobs_finer.md vision (Phases 0, 2 backend, 4, 5, 6, 7, 8)
+
+- `tracing/attribution.py` — `MarginalResult.p_value` / `.q_value` (raw + BH-corrected significance, previously computed but never attached).
+- `tracing/replay.py` — `ReplayAssumptions` dataclass + `replay_assumptions()`: exposes which counterfactual strategy (`fuse_rrf_recompute`, `rerank_passthrough_inputs`, etc.) was used to build a replay, with human-readable caveats. `without_operator()`'s signature is unchanged.
+- `tracing/candidate_history.py` (new) — `candidate_history(trace, doc_id)`: one document's full journey through a trace (introduced/passed/dropped events, per-arm origin, score deltas). `model_v2.DropReason` gains `truncated`.
+- `dashboard/api.py` — `GET /runs/{id}/queries/{qid}/candidates/{doc_id}` (candidate-flow endpoint, backing "Candidate Flow Visualization"); `topology_source` provenance field (`trace_native`/`snapshot_heuristic`) on the diagram/overview endpoints; `_comparability_report()` + `comparability` field on `/compare` (dataset content-hash, seed, git commit, package-version mismatches, never blocking).
+- `datasets/validation.py` — `dataset_content_hash()`: real SHA-256 content fingerprint (queries+qrels+corpus), replacing count-only fingerprinting that could collide across different datasets.
+- `config/schema.py` / `runner/manifest.py` — `execution.seed` threaded through to the run manifest for reproducibility.
+- `advisor/types.py` — `Recommendation` gains `estimated_quality_improvement` (+CI), `quality_metric`, `estimated_latency_increase_ms`, `implementation_effort`, `confidence`, `affected_query_categories`, `expected_value`; all optional, `None` renders as "not estimated" rather than a fabricated number.
+- `advisor/recommend.py` — grounded per-failure-label estimates from observed rate + sample size; `_prioritize()` ranks by expected engineering value with an explicit unestimated tail.
+- `advisor/simulate.py` (new) — `simulate_operator_removal()`: estimates the impact of removing an operator by reusing counterfactual-replay machinery, before the user changes the pipeline.
+- `integrations/verify.py` — `verify_integration()` runs a structured checklist (traces present, query-text/candidate-score metadata completeness, unsupported-operator detection, error/timeout health, sampling signal); `retobs doctor` surfaces the same checks pre-benchmark.
+- `integrations/registry.py` — `describe_integration` guidance entries for `haystack`, `dspy`, `openai_agents` (guidance-level; full callback adapters not yet implemented pending those frameworks' deps).
+- Dashboard UI: `CandidateFlowPanel.tsx` (wired into `QueryExplorer` via a per-query "⇄ flow" document tracer), attribution grid surfaces raw p-value + BH-corrected q-value, `ComparePanel` shows a comparability banner before any metrics, `AdvisorWorkspace` renders the full recommendation estimate row (or "not estimated").
+- `docs/guides/` (new) — beginner journey (`getting-started.md`, full debug loop in under an hour) + 7 advanced guides (hybrid/parallel retrieval, multi-stage reranking, conditional pipelines, counterfactual replay, Forge, TraceLens, Advisor).
+- `CONTRIBUTING.md` (new); README now embeds the existing Pareto/stage-attribution/recall-funnel screenshots (previously zero embedded images) and links the beginner journey.
+
+**Not yet done** from the retobs_finer.md roadmap: Phase 1's ground-up dashboard IA restructure (routed pages, dedicated Overview screen) — new features above were wired into the existing `ModeRail`/`RunDetail` shell instead; Phase 3's unified query timeline, query diff UI, and step-through query replay; Phase 2's full "no naked point estimate" audit and golden-topology regression tests; the heuristic `_build_diagram`/`_pipeline_topology` path (marked with `topology_source` but not yet deleted — see `RETOBS_FINER_PLAN.md` Phase 0.5 deviation note); real Haystack/DSPy/OpenAI-Agents-SDK callback adapters and auto-instrumentation; Phase 6's query-level/topology/attribution diff views in Run Comparison; Phase 8's standalone-runnable example outputs and issue templates. Tracked in `RETOBS_FINER_PLAN.md`.
+
 ### Fixed
 
 - `tests/unit/test_factory_import.py`, `tests/unit/test_self_correcting_retriever.py` — example `sys.path` roots updated to `examples/advanced/…` after folder reorganization.
