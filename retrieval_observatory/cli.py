@@ -467,6 +467,23 @@ def doctor_cmd(
     db_path = Path(db)
     check("database reachable", db_path.is_file() or not db_path.exists(), "missing file is OK until first run")
 
+    # Integration verification checklist (Pillar 4) against the latest run, if any.
+    if db_path.is_file():
+        try:
+            import asyncio as _asyncio
+
+            from retrieval_observatory.integrations.verify import verify_integration
+
+            report = _asyncio.run(verify_integration(db_path=str(db_path)))
+            for c in report.get("checks", []):
+                if c["status"] == "error":
+                    check(f"integration: {c['name']}", False, c["detail"])
+                else:
+                    mark = "[green]✓[/green]" if c["status"] == "ok" else "[yellow]![/yellow]"
+                    console.print(f"{mark} integration: {c['name']} — {c['detail']}")
+        except Exception as e:  # pragma: no cover - doctor should never hard-fail here
+            check("integration checks", False, str(e))
+
     try:
         from retrieval_observatory.mcp.server import build_server
 
