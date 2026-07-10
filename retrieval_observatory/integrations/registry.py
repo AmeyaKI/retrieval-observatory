@@ -89,28 +89,30 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
         "env_vars": [],
         "snippet": (
             "import retrieval_observatory as ro\n"
-            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, start_trace\n\n"
+            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, start_trace\n"
+            "from retrieval_observatory.tracing.integrations.haystack import wrap_haystack_component\n\n"
             "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n\n"
-            "# Wrap each retrieval/rerank component's run() and record a stage per component:\n"
+            "# Wrap each retrieval/rerank component once, in place -- no per-call code needed after this:\n"
+            "wrap_haystack_component(retriever, op_type='SOURCE', op_id='bm25')\n"
+            "wrap_haystack_component(ranker, op_type='RERANK', op_id='ranker')\n\n"
             "start_trace(ObserveContext(run_id='run-1', query_id='q1', query_text=query, pipeline_id='main'))\n"
             "result = pipeline.run({'retriever': {'query': query}})\n"
-            "# For each component output, record: op_type SOURCE/RERANK, docs, latency.\n"
             "trace = finish_trace()\n"
             "# Push: MCP push_traces(run_id='run-1', traces=[trace.to_dict()])"
         ),
-        "verify": "After 1+ traced queries, call verify_integration — expect a span per Haystack component.",
+        "verify": "After 1+ traced queries, call verify_integration — expect a span per wrapped Haystack component.",
     },
     "dspy": {
         "title": "DSPy retrieval module tracing",
         "install_extra": "dspy",
         "env_vars": [],
         "snippet": (
+            "import dspy\n"
             "import retrieval_observatory as ro\n"
-            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace\n\n"
-            "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n\n"
-            "@observe(op_type='SOURCE', op_id='dspy_retrieve')\n"
-            "def retrieve(query: str):\n"
-            "    return dspy.Retrieve(k=20)(query).passages\n\n"
+            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, start_trace\n"
+            "from retrieval_observatory.tracing.integrations.dspy import wrap_retrieve\n\n"
+            "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
+            "retrieve = wrap_retrieve(dspy.Retrieve(k=20), op_id='dspy_retrieve')\n\n"
             "start_trace(ObserveContext(run_id='run-1', query_id='q1', query_text=query, pipeline_id='main'))\n"
             "retrieve(query)\n"
             "trace = finish_trace()\n"
@@ -123,13 +125,14 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
         "install_extra": "openai-agents",
         "env_vars": ["OPENAI_API_KEY"],
         "snippet": (
+            "from agents import function_tool\n"
             "import retrieval_observatory as ro\n"
-            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace\n\n"
+            "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, start_trace\n"
+            "from retrieval_observatory.tracing.integrations.openai_agents import wrap_retrieval_tool\n\n"
             "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n\n"
-            "# Wrap the function tool the agent calls for retrieval:\n"
-            "@observe(op_type='SOURCE', op_id='kb_search')\n"
-            "def kb_search(query: str):\n"
+            "def kb_search(query: str) -> list[dict]:\n"
             "    return my_index.search(query, k=20)\n\n"
+            "kb_search_tool = function_tool(wrap_retrieval_tool(kb_search, op_id='kb_search'))\n\n"
             "start_trace(ObserveContext(run_id='run-1', query_id='q1', query_text=query, pipeline_id='main'))\n"
             "# ... run the agent; its retrieval tool call is traced ...\n"
             "trace = finish_trace()\n"

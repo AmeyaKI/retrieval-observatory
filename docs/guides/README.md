@@ -16,6 +16,7 @@ diagnoses it:
 - [forge.md](forge.md) — corpus-specific stress tests
 - [tracelens.md](tracelens.md) — observing production retrieval
 - [advisor.md](advisor.md) — from diagnostics to a prioritized plan
+- [auto-instrumentation.md](auto-instrumentation.md) — tracing without per-call-site code (LangChain proof of concept)
 
 For the full CLI/config reference see [../USAGE.md](../USAGE.md) and
 [../YAML_GUIDE.md](../YAML_GUIDE.md).

@@ -52,6 +52,13 @@ def start_trace(
     return trace
 
 
+def current_trace() -> RetrievalTraceV2 | None:
+    """The active trace started by `start_trace()`, if any -- used by duck-typed framework
+    wrappers (tracing/integrations/{haystack,dspy,openai_agents}.py) to append spans
+    without each wrapper needing its own context-passing convention."""
+    return _current_trace.get()
+
+
 def finish_trace(status: str = "OK", error_traceback: str | None = None) -> RetrievalTraceV2:
     trace = _current_trace.get()
     if trace is None:
@@ -99,6 +106,12 @@ def _to_candidates(value: Any, op_id: str) -> List[Candidate]:
             elif isinstance(item, str):
                 items.append(Candidate(doc_id=item, score=0.0, rank=idx, origin_op_ids=[op_id]))
     return items
+
+
+# Public alias: framework wrappers outside this module reuse the same duck-typed
+# document->Candidate coercion (objects with .doc_id/.id, dicts, or plain strings) rather
+# than reimplementing it per framework.
+to_candidates = _to_candidates
 
 
 def observe(
