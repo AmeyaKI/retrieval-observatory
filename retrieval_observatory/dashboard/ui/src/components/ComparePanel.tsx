@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import DataQualityWarnings from './DataQualityWarnings'
-import { fetchComparison, ComparabilityReport, ComparisonEntry, RunSelection, selectionKey } from '../api'
+import { fetchComparison, ComparabilityReport, ComparisonEntry, QueryDiffs, RunSelection, selectionKey } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
+import RunComparisonDeepDiffs from './RunComparisonDeepDiffs'
 
 interface Props {
   selections: RunSelection[]
@@ -152,6 +153,7 @@ export default function ComparePanel({ selections }: Props) {
   const [comparison, setComparison] = useState<ComparisonEntry[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [comparability, setComparability] = useState<ComparabilityReport | null>(null)
+  const [queryDiffs, setQueryDiffs] = useState<QueryDiffs | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const runKeys = selections.map((s) => `${s.dbId}/${s.runId}`)
@@ -160,12 +162,14 @@ export default function ComparePanel({ selections }: Props) {
     setComparison(null)
     setWarnings([])
     setComparability(null)
+    setQueryDiffs(null)
     setError(null)
     fetchComparison(selections)
       .then((data) => {
         setComparison(data.comparison)
         setWarnings(data.warnings ?? [])
         setComparability(data.comparability ?? null)
+        setQueryDiffs(data.query_diffs ?? null)
       })
       .catch((e) => setError(e.message))
   }, [selections.map(selectionKey).join(',')])
@@ -321,6 +325,8 @@ export default function ComparePanel({ selections }: Props) {
           </p>
         )}
       </div>
+
+      {twoRuns && <RunComparisonDeepDiffs selections={selections} queryDiffs={queryDiffs} />}
     </div>
   )
 }

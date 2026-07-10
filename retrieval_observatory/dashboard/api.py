@@ -11,13 +11,16 @@ from typing import Any, Dict, List, Optional
 
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
-from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs, parse_metric_key
+from retrieval_observatory.metrics.comparison import _scores_for, paired_scores_by_query, pipeline_pairs, parse_metric_key
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution
 from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.types import Document, StageSnapshot
+from retrieval_observatory.config.diff import diff_configs
+from retrieval_observatory.config.schema import ExperimentConfig
+from dataclasses import asdict as _dataclass_asdict
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
 # Never serve the SPA shell for these — browser would execute HTML as JS/CSS → blank page.
@@ -253,6 +256,62 @@ def _comparability_report(manifests: List[Dict[str, Any] | None]) -> Dict[str, A
     }
 
 
+def _pick_primary_quality_metric(
+    metric_keys: List[str],
+    metrics_a: List[Dict[str, Any]],
+    metrics_b: List[Dict[str, Any]],
+) -> Optional[str]:
+    """Pick the metric_key to drive the query-level winners/losers table: prefer ndcg over
+    recall, prefer the largest k, and require at least one query scored in both runs."""
+    candidates = []
+    for key in metric_keys:
+        try:
+            pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(key)
+        except ValueError:
+            continue
+        if metric_name not in ("ndcg", "recall") or branch_id is not None:
+            continue
+        scores_a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+        scores_b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+        if not (set(scores_a) & set(scores_b)):
+            continue
+        candidates.append((metric_name == "ndcg", k, key))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][2]
+
+
+async def _query_diffs(
+    selections: List[tuple],
+    registry: DbRegistry,
+    all_metric_keys: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Item D.1: per-query outcome deltas for the primary quality metric between exactly two
+    runs, sorted by |delta| descending -- the winners/losers table that anchors Run
+    Comparison's query-level diff section, each row linkable to the Query Diff View."""
+    if len(selections) != 2:
+        return None
+    (db_a, run_a), (db_b, run_b) = selections
+    store_a = registry.get_store(db_a)
+    store_b = registry.get_store(db_b)
+    metrics_a = await store_a.get_metrics(run_a)
+    metrics_b = await store_b.get_metrics(run_b)
+    metric_key = _pick_primary_quality_metric(all_metric_keys, metrics_a, metrics_b)
+    if not metric_key:
+        return None
+    pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(metric_key)
+    scores_a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    scores_b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    common = sorted(set(scores_a) & set(scores_b))
+    rows = [
+        {"query_id": qid, "a": scores_a[qid], "b": scores_b[qid], "delta": scores_a[qid] - scores_b[qid]}
+        for qid in common
+    ]
+    rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
+    return {"metric": metric_key, "run_a": run_a, "run_b": run_b, "rows": rows[:50]}
+
+
 async def _build_comparison(
     selections: List[tuple],
     registry: DbRegistry,
@@ -309,12 +368,15 @@ async def _build_comparison(
                     pass
         comparison.append(entry)
 
+    query_diffs = await _query_diffs(selections, registry, all_metric_keys) if same_dataset else None
+
     return {
         "comparison": comparison,
         "selections": [{"db_id": db_id, "run_id": run_id} for db_id, run_id in selections],
         "run_ids": [run_id for _, run_id in selections],
         "warnings": warnings,
         "comparability": comparability,
+        "query_diffs": query_diffs,
     }
 
 
@@ -413,6 +475,34 @@ def create_app(
         if "run_ids" in body and registry.is_single:
             result["run_ids"] = body["run_ids"]
         return result
+
+    @app.post("/compare/config-diff")
+    async def compare_config_diff(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Item D.5: structural config diff between exactly two runs, wiring the already-
+        built config/diff.py::diff_configs over the runs' stored config_json."""
+        parsed = MultiCompareRequest.model_validate(body)
+        if len(parsed.selections) != 2:
+            raise HTTPException(status_code=400, detail="Config diff requires exactly 2 run selections")
+        configs: List[ExperimentConfig] = []
+        for sel in parsed.selections:
+            store = _store_for(sel.db_id)
+            run_rows = [run for run in await store.list_runs() if run["run_id"] == sel.run_id]
+            if not run_rows:
+                raise HTTPException(status_code=404, detail=f"Run '{sel.run_id}' not found in '{sel.db_id}'")
+            try:
+                configs.append(ExperimentConfig.model_validate_json(run_rows[0]["config_json"]))
+            except Exception as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Run '{sel.run_id}' has a stored config that doesn't parse as an ExperimentConfig: {e}",
+                )
+        diff = diff_configs(configs[0], configs[1])
+        return {
+            "dataset_changed": diff.dataset_changed,
+            "metrics_changed": diff.metrics_changed,
+            "has_changes": diff.has_changes,
+            "pipeline_diffs": [_dataclass_asdict(p) for p in diff.pipeline_diffs],
+        }
 
     @app.post("/experiments/{name}/runs")
     async def create_remote_run(name: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:

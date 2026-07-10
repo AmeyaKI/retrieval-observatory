@@ -81,6 +81,21 @@ export async function fetchMetrics(dbId: string, runId: string, includeBranches 
   return res.json()
 }
 
+// ── Item D: Run Comparison deeper diffs ──
+export interface QueryDiffRow {
+  query_id: string
+  a: number
+  b: number
+  delta: number
+}
+
+export interface QueryDiffs {
+  metric: string
+  run_a: string
+  run_b: string
+  rows: QueryDiffRow[]
+}
+
 export async function fetchComparison(
   selections: RunSelection[],
 ): Promise<{
@@ -89,6 +104,7 @@ export async function fetchComparison(
   run_ids: string[]
   warnings: string[]
   comparability?: ComparabilityReport
+  query_diffs?: QueryDiffs | null
 }> {
   const res = await fetch(`${BASE}/compare`, {
     method: 'POST',
@@ -100,6 +116,41 @@ export async function fetchComparison(
   if (!res.ok) {
     const body = await res.text()
     throw new Error(`Failed to fetch comparison (${res.status}): ${body || res.statusText}`)
+  }
+  return res.json()
+}
+
+export interface StageDiffEntry {
+  index: number
+  change: 'added' | 'removed' | 'changed' | 'unchanged'
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+}
+
+export interface PipelineDiffEntry {
+  pipeline_id: string
+  change: 'added' | 'removed' | 'changed' | 'unchanged'
+  stage_diffs: StageDiffEntry[]
+}
+
+export interface ConfigDiffResult {
+  dataset_changed: boolean
+  metrics_changed: boolean
+  has_changes: boolean
+  pipeline_diffs: PipelineDiffEntry[]
+}
+
+export async function fetchConfigDiff(selections: RunSelection[]): Promise<ConfigDiffResult> {
+  const res = await fetch(`${BASE}/compare/config-diff`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      selections: selections.map((s) => ({ db_id: s.dbId, run_id: s.runId })),
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Failed to fetch config diff (${res.status}): ${body || res.statusText}`)
   }
   return res.json()
 }
