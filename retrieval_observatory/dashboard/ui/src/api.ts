@@ -507,6 +507,43 @@ export async function fetchQueryLabels(dbId: string, runId: string): Promise<{ i
   return res.json()
 }
 
+export interface QueryResultDocument {
+  id: string
+  score: number
+  rank: number
+}
+
+export interface QueryResultStage {
+  stage_index: number
+  stage_id: string
+  latency_ms: number
+  profiling?: unknown
+  candidate_count: number | null
+  documents: QueryResultDocument[]
+}
+
+export interface QueryResultPipeline {
+  pipeline_id: string
+  status: string
+  total_latency_ms: number
+  stages: QueryResultStage[]
+}
+
+export interface QueryResult {
+  run_id: string
+  query_id: string
+  diagnostics: Record<string, unknown>[]
+  results: QueryResultPipeline[]
+}
+
+/** Full per-pipeline/per-stage/per-document result for one query -- the "raw documents"
+ * disclosure level, and the data source for Item C's unified query timeline. */
+export async function fetchQueryResult(dbId: string, runId: string, queryId: string): Promise<QueryResult> {
+  const res = await fetch(`${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch query result for ${queryId}`)
+  return res.json()
+}
+
 export interface ClassifierCalibrationClass {
   class: string
   n: number
