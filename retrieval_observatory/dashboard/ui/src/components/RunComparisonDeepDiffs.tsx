@@ -11,6 +11,7 @@ import {
   Recommendation,
   RunSelection,
 } from '../api'
+import { diffAttribution, diffRecommendations } from '../utils/comparisonDiffs'
 import NoData from './NoData'
 import SectionHeading from './SectionHeading'
 
@@ -167,15 +168,6 @@ function TopologyDiffSection({ runA, runB }: { runA: RunSelection; runB: RunSele
   )
 }
 
-function bestRowsByOp(rows: OperatorAttributionRow[]): Map<string, OperatorAttributionRow> {
-  const m = new Map<string, OperatorAttributionRow>()
-  for (const row of rows) {
-    const existing = m.get(row.op_id)
-    if (!existing || row.n_pairs > existing.n_pairs) m.set(row.op_id, row)
-  }
-  return m
-}
-
 function AttributionDiffSection({ runA, runB }: { runA: RunSelection; runB: RunSelection }) {
   const [rowsA, setRowsA] = useState<OperatorAttributionRow[] | null>(null)
   const [rowsB, setRowsB] = useState<OperatorAttributionRow[] | null>(null)
@@ -196,21 +188,13 @@ function AttributionDiffSection({ runA, runB }: { runA: RunSelection; runB: RunS
   if (error) return <NoData label={error} />
   if (!rowsA || !rowsB) return <div className="text-xs text-ink-faint">Loading attribution diff…</div>
 
-  const byOpA = bestRowsByOp(rowsA)
-  const byOpB = bestRowsByOp(rowsB)
-  const commonOps = Array.from(byOpA.keys()).filter((id) => byOpB.has(id))
-  const flips = commonOps
-    .map((opId) => ({ opId, a: byOpA.get(opId)!, b: byOpB.get(opId)! }))
-    .filter(({ a, b }) => {
-      const signFlip = a.delta != null && b.delta != null && Math.sign(a.delta) !== Math.sign(b.delta) && a.delta !== 0 && b.delta !== 0
-      const sigChange = Boolean(a.significant) !== Boolean(b.significant)
-      return signFlip || sigChange
-    })
+  const commonOps = new Set([...rowsA.map((r) => r.op_id), ...rowsB.map((r) => r.op_id)])
+  const flips = diffAttribution(rowsA, rowsB)
 
   return (
     <div>
       <SectionHeading title="Attribution diff" />
-      {commonOps.length === 0 ? (
+      {commonOps.size === 0 ? (
         <NoData label="No operator present in both runs' attribution results." />
       ) : flips.length === 0 ? (
         <div className="text-xs text-ink-faint">No operator's contribution direction or significance changed.</div>
@@ -225,13 +209,13 @@ function AttributionDiffSection({ runA, runB }: { runA: RunSelection; runB: RunS
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-            {flips.map(({ opId, a, b }) => (
+            {flips.map(({ opId, a, b, reason }) => (
               <tr key={opId}>
                 <td className="px-3 py-1.5 font-mono">{opId}</td>
                 <td className="px-3 py-1.5 text-right font-mono">{a.delta?.toFixed(4) ?? '—'}</td>
                 <td className="px-3 py-1.5 text-right font-mono">{b.delta?.toFixed(4) ?? '—'}</td>
                 <td className="px-3 py-1.5 text-amber-700">
-                  {Math.sign(a.delta ?? 0) !== Math.sign(b.delta ?? 0) ? 'direction flipped' : 'significance changed'}
+                  {reason === 'direction_flipped' ? 'direction flipped' : 'significance changed'}
                 </td>
               </tr>
             ))}
@@ -262,11 +246,7 @@ function RecommendationDiffSection({ runA, runB }: { runA: RunSelection; runB: R
   if (error) return <NoData label={error} />
   if (!recsA || !recsB) return <div className="text-xs text-ink-faint">Loading recommendation diff…</div>
 
-  const actionsA = new Set(recsA.map((r) => r.action))
-  const actionsB = new Set(recsB.map((r) => r.action))
-  const newRecs = recsA.filter((r) => !actionsB.has(r.action))
-  const resolvedRecs = recsB.filter((r) => !actionsA.has(r.action))
-  const persisting = recsA.filter((r) => actionsB.has(r.action))
+  const { newRecs, resolvedRecs, persisting } = diffRecommendations(recsA, recsB)
 
   return (
     <div>
