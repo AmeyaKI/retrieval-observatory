@@ -156,6 +156,27 @@ class TestAliasScenarioDetector:
         assert len(scenarios) <= 1
 
 
+class TestScenarioIdStability:
+    """Item 0: scenario_id must be content-derived, not random, so regenerating the same
+    corpus reproduces the same scenario ids (query identity depends on this)."""
+
+    def test_temporal_scenario_id_stable_across_runs(self):
+        a = TemporalScenarioDetector().detect(TEMPORAL_CORPUS)
+        b = TemporalScenarioDetector().detect(TEMPORAL_CORPUS)
+        assert [s.scenario_id for s in a] == [s.scenario_id for s in b]
+
+    def test_alias_scenario_id_stable_across_runs(self):
+        a = AliasScenarioDetector().detect(ALIAS_CORPUS)
+        b = AliasScenarioDetector().detect(ALIAS_CORPUS)
+        assert [s.scenario_id for s in a] == [s.scenario_id for s in b]
+
+    def test_temporal_scenario_id_no_uuid_randomness(self):
+        # Two fresh detector instances (no shared state) must agree on ids.
+        s1 = TemporalScenarioDetector(max_scenarios=1).detect(TEMPORAL_CORPUS)
+        s2 = TemporalScenarioDetector(max_scenarios=1).detect(TEMPORAL_CORPUS)
+        assert s1[0].scenario_id == s2[0].scenario_id
+
+
 class TestDetectAll:
     def test_combined_detection(self):
         corpus = {**TEMPORAL_CORPUS, **ALIAS_CORPUS}

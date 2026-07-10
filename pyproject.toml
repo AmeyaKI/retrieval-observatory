@@ -44,6 +44,13 @@ hf = ["sentence-transformers>=3.0", "torch"]
 dense = ["sentence-transformers>=3.0", "faiss-cpu>=1.7", "torch"]
 langchain = ["langchain-core>=0.2"]
 llamaindex = ["llama-index-core>=0.10"]
+# Haystack/DSPy/OpenAI-Agents adapters (tracing/integrations/{haystack,dspy,openai_agents}.py)
+# are duck-typed -- they never import these packages, so they're unit-testable without any
+# of these extras installed. The extras exist purely so users following the integration
+# snippets (integrations/registry.py) can `pip install retrieval-observatory[haystack]` etc.
+haystack = ["haystack-ai>=2.0"]
+dspy = ["dspy-ai>=2.4"]
+openai-agents = ["openai-agents>=0.0.3"]
 pgvector = ["asyncpg>=0.29", "pgvector>=0.3"]
 postgres = ["asyncpg>=0.29"]
 dashboard = ["fastapi>=0.111", "uvicorn>=0.29", "python-multipart>=0.0.9"]

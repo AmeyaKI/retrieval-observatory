@@ -2,26 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchPipelineGraphs, GraphMetricValue, PipelineGraph, PipelineGraphNode } from '../api'
 import { layoutPipelineGraph, LaidOutNode } from '../utils/dagLayout'
 import { fmtQuality, fmtLatencyMs } from '../utils/format'
+import { OP_ACCENT, OP_LABEL } from '../utils/opTypeColors'
 import { MetricTooltip } from './MetricTooltip'
 
 interface Props {
   dbId: string
   runId: string
-}
-
-const OP_ACCENT: Record<string, { fill: string; stroke: string; text: string }> = {
-  SOURCE: { fill: 'rgba(37,99,235,0.10)', stroke: 'rgba(37,99,235,0.55)', text: 'rgb(59,130,246)' },
-  FUSE: { fill: 'rgba(139,92,246,0.12)', stroke: 'rgba(139,92,246,0.60)', text: 'rgb(167,139,250)' },
-  RERANK: { fill: 'rgba(217,119,6,0.12)', stroke: 'rgba(217,119,6,0.55)', text: 'rgb(245,158,11)' },
-  BOOST: { fill: 'rgba(5,150,105,0.12)', stroke: 'rgba(5,150,105,0.55)', text: 'rgb(16,185,129)' },
-  EXPAND: { fill: 'rgba(13,148,136,0.12)', stroke: 'rgba(13,148,136,0.55)', text: 'rgb(45,212,191)' },
-  FILTER: { fill: 'rgba(220,38,38,0.12)', stroke: 'rgba(220,38,38,0.55)', text: 'rgb(248,113,113)' },
-  GATE: { fill: 'rgba(202,138,4,0.12)', stroke: 'rgba(202,138,4,0.55)', text: 'rgb(234,179,8)' },
-  TRANSFORM: { fill: 'rgba(79,70,229,0.12)', stroke: 'rgba(79,70,229,0.55)', text: 'rgb(129,140,248)' },
-}
-const OP_LABEL: Record<string, string> = {
-  SOURCE: 'Retrieval', FUSE: 'Fusion', RERANK: 'Reranking', BOOST: 'Boosting',
-  EXPAND: 'Expansion', FILTER: 'Filtering', GATE: 'Gating', TRANSFORM: 'Transform',
 }
 
 function ci(v: GraphMetricValue | null | undefined): string {

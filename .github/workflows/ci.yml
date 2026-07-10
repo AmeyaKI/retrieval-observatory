@@ -48,6 +48,39 @@ jobs:
           python -c "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback"
           python -c "from retrieval_observatory.cli import app"
           python -c "from retrieval_observatory import run_from_config; from retrieval_observatory.mcp.server import build_server; build_server()"
+          # Duck-typed adapters must import cleanly with none of these frameworks installed
+          # (this job installs no haystack/dspy/openai-agents extra) -- see
+          # tracing/integrations/_duck_typed.py.
+          python -c "from retrieval_observatory.tracing.integrations.haystack import wrap_haystack_component"
+          python -c "from retrieval_observatory.tracing.integrations.dspy import wrap_retrieve"
+          python -c "from retrieval_observatory.tracing.integrations.openai_agents import wrap_retrieval_tool"
+
+  framework-adapters-smoke:
+    # Separate, slower tier: installs each framework's real extra and runs its example
+    # end-to-end, catching real API drift the duck-typed unit tests (which use plain stub
+    # objects, no framework installed) can't. Does not block the main `test` job.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: haystack
+            extra: haystack
+            example: examples/integrations/haystack_search/app.py
+          - name: dspy
+            extra: dspy
+            example: examples/integrations/dspy_search/app.py
+          - name: openai-agents
+            extra: openai-agents
+            example: examples/integrations/openai_agents_search/app.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev,${{ matrix.extra }}]"
+      - name: Run example
+        run: python ${{ matrix.example }}
 
   postgres:
     runs-on: ubuntu-latest

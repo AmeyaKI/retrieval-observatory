@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set
 
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
@@ -20,6 +20,103 @@ class MissAttribution:
     op_id: str | None
     confidence: str
     note: str = ""
+
+
+@dataclass
+class ReplayAssumptions:
+    """How a counterfactual `without_operator` trace was constructed.
+
+    Exposes the replay strategy so users can inspect assumptions rather than
+    treating counterfactual replay as a black box (Pillar 2, "Replay Verification").
+    """
+
+    op_id: str
+    op_type: str
+    strategy: str
+    rrf_recomputed: bool = False
+    rrf_k: int | None = None
+    replay_policy: str = "NOT_REPLAYABLE"
+    caveats: List[str] = field(default_factory=list)
+
+
+# Human-readable caveat copy per strategy — written for engineers reading the
+# Replay Verification inspector, not for logs.
+_STRATEGY_CAVEATS: Dict[str, List[str]] = {
+    "boost_restore_pre_boost": [
+        "Restored each candidate's pre-boost score from score_components; candidates "
+        "lacking a recorded pre_boost score were dropped from the counterfactual.",
+    ],
+    "expand_origin_filter": [
+        "Removed candidates introduced solely by this expansion operator; downstream "
+        "scores of surviving candidates were reused, not recomputed.",
+    ],
+    "filter_passthrough_inputs": [
+        "Replaced this filter's output with its input set; downstream operators re-ran "
+        "over the un-filtered candidates using their originally observed outputs where possible.",
+    ],
+    "rerank_passthrough_inputs": [
+        "Replaced this reranker's output with its input ordering; original downstream "
+        "scores were reused, not recomputed by a real model call.",
+    ],
+    "passthrough_outputs": [
+        "Treated this operator as a no-op, passing its outputs through unchanged.",
+    ],
+    "fuse_rrf_recompute": [
+        "Recomputed reciprocal-rank fusion over the remaining retrieval arms with the "
+        "same k constant; per-arm scores were reused, only the fusion was re-run.",
+    ],
+    "remove_outputs": [
+        "Removed this operator's contributed documents from every downstream stage; "
+        "downstream re-ranking was not recomputed.",
+    ],
+}
+
+
+def replay_assumptions(trace: RetrievalTraceV2, op_id: str) -> ReplayAssumptions:
+    """Classify the counterfactual strategy `without_operator` would use for `op_id`.
+
+    Kept as a standalone side-channel so `without_operator`'s signature (used in the
+    attribution hot loop) stays a pure trace->trace function.
+    """
+    target = next((span for span in trace.spans if span.op_id == op_id), None)
+    if target is None:
+        raise ValueError(f"Operator '{op_id}' not found in trace")
+
+    fuse_child = None
+    if target.op_type == "SOURCE":
+        for span in trace.spans:
+            if span.op_type == "FUSE" and op_id in span.parent_ids:
+                fuse_child = span
+                break
+
+    rrf_recomputed = False
+    rrf_k: int | None = None
+    if target.op_type == "SOURCE" and fuse_child is not None:
+        strategy = "fuse_rrf_recompute"
+        rrf_recomputed = True
+        rrf_k = int(fuse_child.params.get("k", 60))
+    elif target.op_type == "BOOST":
+        strategy = "boost_restore_pre_boost"
+    elif target.op_type == "EXPAND":
+        strategy = "expand_origin_filter"
+    elif target.op_type == "FILTER":
+        strategy = "filter_passthrough_inputs"
+    elif target.op_type == "RERANK":
+        strategy = "rerank_passthrough_inputs"
+    elif target.op_type in {"GATE", "TRANSFORM"}:
+        strategy = "passthrough_outputs"
+    else:
+        strategy = "remove_outputs"
+
+    return ReplayAssumptions(
+        op_id=op_id,
+        op_type=str(target.op_type),
+        strategy=strategy,
+        rrf_recomputed=rrf_recomputed,
+        rrf_k=rrf_k,
+        replay_policy=str(target.replay_policy),
+        caveats=list(_STRATEGY_CAVEATS.get(strategy, [])),
+    )
 
 
 def _clone_span(span: OperatorSpan, *, outputs: Sequence[Candidate] | None = None) -> OperatorSpan:

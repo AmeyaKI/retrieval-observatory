@@ -94,6 +94,7 @@ async def execute_benchmark(
             latency_budget_ms=latency_budget_ms,
             forge_dataset_id=forge_dataset_id,
             golden_set=golden_set,
+            seed=getattr(cfg.execution, "seed", None),
         )
         if filter_warnings:
             manifest["run_warnings"] = filter_warnings
@@ -123,6 +124,7 @@ async def execute_benchmark(
         timeout_ms=cfg.execution.timeout_ms,
         retry_attempts=cfg.execution.retry_attempts,
         caches=caches,
+        seed=getattr(cfg.execution, "seed", None),
     )
     results_by_pipeline = await runner.run(
         pipelines=pipelines,

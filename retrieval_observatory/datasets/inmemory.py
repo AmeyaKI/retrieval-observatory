@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from retrieval_observatory.types import Document, Query
@@ -40,24 +41,38 @@ class InMemoryDataset:
         return self._queries, qrels
 
 
+def _content_stable_id(text: str, seen: Dict[str, int]) -> str:
+    """Content-derived query id: same query text -> same id across two separate calls
+    (e.g. two benchmark runs against the same in-memory query list), unlike a positional
+    fallback (`f"q{i}"`) which silently aliases unrelated queries whenever the list is
+    resampled, filtered, or reordered between runs. Ties within one call (duplicate query
+    text) get a numeric suffix so ids stay unique within the batch."""
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:10]
+    base = f"q_{digest}"
+    count = seen.get(base, 0)
+    seen[base] = count + 1
+    return base if count == 0 else f"{base}_{count}"
+
+
 def _normalize_queries(
     queries: Sequence[QueryInput], k: int
 ) -> Tuple[List[Query], Dict[str, Dict[str, int]]]:
     out: List[Query] = []
     qrels: Dict[str, Dict[str, int]] = {}
-    for i, item in enumerate(queries):
+    seen_ids: Dict[str, int] = {}
+    for item in queries:
         if isinstance(item, Query):
             q = item
             if not q.query_id:
-                q.query_id = f"q{i}"
+                q.query_id = _content_stable_id(q.text, seen_ids)
             q.k = k
             out.append(q)
             continue
         if isinstance(item, str):
-            out.append(Query(text=item, k=k, query_id=f"q{i}"))
+            out.append(Query(text=item, k=k, query_id=_content_stable_id(item, seen_ids)))
             continue
         if isinstance(item, dict):
-            query_id = str(item.get("query_id", f"q{i}"))
+            query_id = str(item.get("query_id") or _content_stable_id(item["text"], seen_ids))
             out.append(
                 Query(
                     text=item["text"],

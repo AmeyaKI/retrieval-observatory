@@ -1,7 +1,7 @@
 """Rule-based query templates (no LLM) for Forge stress-test generation."""
 from __future__ import annotations
 
-import uuid
+import hashlib
 from typing import Dict, List
 
 from retrieval_observatory.forge.types import CorpusScenario, SyntheticQuery
@@ -54,9 +54,13 @@ def generate_rule_based_queries(
         if not templates:
             continue
         for i, tmpl in enumerate(templates[:n_per_type]):
+            # Content-derived id: scenario_id + qtype + template index is deterministic,
+            # so regenerating the same scenario reproduces the same query_id instead of a
+            # fresh random one each time.
+            digest = hashlib.sha256(f"{scenario.scenario_id}|{qtype}|{i}".encode("utf-8")).hexdigest()[:10]
             queries.append(
                 SyntheticQuery(
-                    query_id=f"forge_{qtype}_{uuid.uuid4().hex[:10]}",
+                    query_id=f"forge_{qtype}_{digest}",
                     text=tmpl.format(topic=topic),
                     scenario_id=scenario.scenario_id,
                     query_type=qtype,

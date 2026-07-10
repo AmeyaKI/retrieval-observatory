@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import hashlib
 import re
-import uuid
 from typing import Dict, List, Set, Tuple
 
 from retrieval_observatory.forge.types import CorpusScenario
@@ -95,8 +95,12 @@ class TemporalScenarioDetector:
                 else:
                     earlier, later = (id_b, year_b), (id_a, year_a)
 
+                # Content-derived id (not random): regenerating the same corpus produces the
+                # same scenario_id for the same doc pair, so Forge datasets/query ids stay
+                # stable across regenerations instead of aliasing under a fresh uuid each time.
+                pair_digest = hashlib.sha256(f"{pair_key[0]}|{pair_key[1]}".encode("utf-8")).hexdigest()[:8]
                 scenario = CorpusScenario(
-                    scenario_id=f"temporal_{uuid.uuid4().hex[:8]}",
+                    scenario_id=f"temporal_{pair_digest}",
                     scenario_type="temporal",
                     anchor_doc_ids=[earlier[0], later[0]],
                     evidence_summary=(

@@ -1,12 +1,44 @@
 import { useEffect, useState } from 'react'
 import DataQualityWarnings from './DataQualityWarnings'
-import { fetchComparison, ComparisonEntry, RunSelection, selectionKey } from '../api'
+import { fetchComparison, ComparabilityReport, ComparisonEntry, QueryDiffs, RunSelection, selectionKey } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
+import RunComparisonDeepDiffs from './RunComparisonDeepDiffs'
 
 interface Props {
   selections: RunSelection[]
+}
+
+/**
+ * Comparability guard (Pillar 6): make it hard to accidentally compare incomparable
+ * experiments. Surfaces exactly what differs (dataset content, seed, git commit, package
+ * versions) before any metrics. Never blocks — warns with evidence.
+ */
+function ComparabilityBanner({ report }: { report: ComparabilityReport }) {
+  if (report.differences.length === 0) return null
+  const blocking = !report.comparable
+  return (
+    <div
+      className={`mb-3 rounded-lg border p-3 text-sm ${
+        blocking
+          ? 'bg-red-50 border-red-300 text-red-800 dark:bg-red-950/40 dark:border-red-800 dark:text-red-200'
+          : 'bg-amber-50 border-amber-300 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-200'
+      }`}
+    >
+      <div className="font-semibold mb-1">
+        {blocking ? '⚠ These runs may not be comparable' : 'Comparability notes'}
+      </div>
+      <ul className="list-disc pl-5 space-y-0.5">
+        {report.differences.map((d, i) => (
+          <li key={i}>
+            <span className="font-mono text-xs uppercase mr-1">{d.axis}</span>
+            {d.detail}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
 }
 
 function fmt(v: number | null | undefined, decimals = 4): string {
@@ -120,6 +152,8 @@ function SummaryBanner({
 export default function ComparePanel({ selections }: Props) {
   const [comparison, setComparison] = useState<ComparisonEntry[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
+  const [comparability, setComparability] = useState<ComparabilityReport | null>(null)
+  const [queryDiffs, setQueryDiffs] = useState<QueryDiffs | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const runKeys = selections.map((s) => `${s.dbId}/${s.runId}`)
@@ -127,11 +161,15 @@ export default function ComparePanel({ selections }: Props) {
   useEffect(() => {
     setComparison(null)
     setWarnings([])
+    setComparability(null)
+    setQueryDiffs(null)
     setError(null)
     fetchComparison(selections)
       .then((data) => {
         setComparison(data.comparison)
         setWarnings(data.warnings ?? [])
+        setComparability(data.comparability ?? null)
+        setQueryDiffs(data.query_diffs ?? null)
       })
       .catch((e) => setError(e.message))
   }, [selections.map(selectionKey).join(',')])
@@ -223,6 +261,8 @@ export default function ComparePanel({ selections }: Props) {
         ))}
       </div>
 
+      {comparability && <ComparabilityBanner report={comparability} />}
+
       {twoRuns && <SummaryBanner comparison={comparison} runKeys={runKeys} />}
 
       <DataQualityWarnings warnings={warnings} />
@@ -285,6 +325,8 @@ export default function ComparePanel({ selections }: Props) {
           </p>
         )}
       </div>
+
+      {twoRuns && <RunComparisonDeepDiffs selections={selections} queryDiffs={queryDiffs} />}
     </div>
   )
 }

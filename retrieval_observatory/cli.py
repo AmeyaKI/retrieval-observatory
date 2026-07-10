@@ -467,6 +467,23 @@ def doctor_cmd(
     db_path = Path(db)
     check("database reachable", db_path.is_file() or not db_path.exists(), "missing file is OK until first run")
 
+    # Integration verification checklist (Pillar 4) against the latest run, if any.
+    if db_path.is_file():
+        try:
+            import asyncio as _asyncio
+
+            from retrieval_observatory.integrations.verify import verify_integration
+
+            report = _asyncio.run(verify_integration(db_path=str(db_path)))
+            for c in report.get("checks", []):
+                if c["status"] == "error":
+                    check(f"integration: {c['name']}", False, c["detail"])
+                else:
+                    mark = "[green]✓[/green]" if c["status"] == "ok" else "[yellow]![/yellow]"
+                    console.print(f"{mark} integration: {c['name']} — {c['detail']}")
+        except Exception as e:  # pragma: no cover - doctor should never hard-fail here
+            check("integration checks", False, str(e))
+
     try:
         from retrieval_observatory.mcp.server import build_server
 
@@ -495,9 +512,9 @@ def diagram(
 
 
 async def _diagram(run_id: str, output: str, db_path: str) -> None:
-    from retrieval_observatory.dashboard.api import _build_diagram, _pipeline_results_from_traces
-    from retrieval_observatory.diagram.html import render_diagram_html
     from retrieval_observatory.metrics.engine import MetricsEngine
+    from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
+    from retrieval_observatory.diagram.html import render_diagram_html
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
@@ -507,8 +524,13 @@ async def _diagram(run_id: str, output: str, db_path: str) -> None:
         console.print(f"[red]Run '{run_id}' not found or has no metrics in {db_path}.[/red]")
         raise typer.Exit(1)
     traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-    results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
-    pipelines = _build_diagram(metrics, results)
+    if not traces:
+        console.print(
+            f"[red]Run '{run_id}' has no execution traces yet -- no trace-native diagram to render.[/red]"
+        )
+        raise typer.Exit(1)
+    graphs = build_pipeline_graphs(metrics, traces)
+    pipelines = [g.to_dict() for g in graphs]
     html = render_diagram_html(run_id, pipelines)
     with open(output, "w") as f:
         f.write(html)

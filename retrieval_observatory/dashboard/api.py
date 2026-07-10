@@ -11,13 +11,16 @@ from typing import Any, Dict, List, Optional
 
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
-from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs, parse_metric_key
+from retrieval_observatory.metrics.comparison import _scores_for, paired_scores_by_query, pipeline_pairs, parse_metric_key
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution
 from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 from retrieval_observatory.types import Document, StageSnapshot
+from retrieval_observatory.config.diff import diff_configs
+from retrieval_observatory.config.schema import ExperimentConfig
+from dataclasses import asdict as _dataclass_asdict
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
 # Never serve the SPA shell for these — browser would execute HTML as JS/CSS → blank page.
@@ -127,15 +130,16 @@ class _CompatResult:
 
 
 def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_CompatResult]:
-    """Adapt trace-native spans into legacy StageSnapshot rows for topology display.
+    """Adapt trace-native spans into legacy StageSnapshot rows for the per-query results
+    endpoint (`/runs/{id}/queries/{query_id}`), which still renders a flat per-stage
+    document list.
 
     Stage index must come from position in trace.spans (the pipeline's fixed op
     order), not from enumerating FIRED-only spans -- a gated stage (e.g. EXPAND)
     fires for some queries and not others, so filtering first would shift every
-    later stage's index per-trace and corrupt cross-trace aggregation in
-    _pipeline_topology (different operators would land in the same stage slot).
-    A SKIPPED_BY_GATE span still gets a snapshot; its own outputs (a passthrough
-    of its inputs) honestly reflect that it was a no-op for that query.
+    later stage's index per-trace and corrupt cross-trace alignment. A SKIPPED_BY_GATE
+    span still gets a snapshot; its own outputs (a passthrough of its inputs) honestly
+    reflect that it was a no-op for that query.
     """
     results: List[_CompatResult] = []
     for trace in traces:
@@ -184,6 +188,130 @@ def _compare_warnings(fingerprints: List[str | None]) -> List[str]:
     return []
 
 
+def _comparability_report(manifests: List[Dict[str, Any] | None]) -> Dict[str, Any]:
+    """Make it hard to accidentally compare incomparable experiments (Pillar 6).
+
+    Inspects each run's manifest for the axes that determine comparability — dataset
+    content hash, scheduler seed, git commit, key package versions — and reports exactly
+    what differs. Never blocks: it warns with evidence so the engineer decides.
+    """
+    def _dataset_content_hash(m: Dict[str, Any] | None) -> Any:
+        return (m or {}).get("dataset", {}).get("content_hash") if m else None
+
+    differences: List[Dict[str, Any]] = []
+
+    hashes = [_dataset_content_hash(m) for m in manifests]
+    known_hashes = {h for h in hashes if h}
+    if len(known_hashes) > 1:
+        differences.append({
+            "axis": "dataset_content",
+            "severity": "high",
+            "detail": "Runs were evaluated on different dataset content (content_hash differs); "
+                      "metric comparisons are not valid.",
+        })
+    elif not known_hashes:
+        differences.append({
+            "axis": "dataset_content",
+            "severity": "low",
+            "detail": "No dataset content_hash recorded; cannot confirm the runs used identical data.",
+        })
+
+    seeds = [(m or {}).get("seed") for m in manifests]
+    if len({s for s in seeds if s is not None}) > 1:
+        differences.append({
+            "axis": "seed",
+            "severity": "low",
+            "detail": f"Runs used different scheduler seeds ({sorted({s for s in seeds if s is not None})}); "
+                      "ordering-sensitive effects may differ.",
+        })
+
+    commits = [(m or {}).get("git_commit") for m in manifests]
+    if len({c for c in commits if c}) > 1:
+        differences.append({
+            "axis": "git_commit",
+            "severity": "medium",
+            "detail": "Runs were produced from different git commits; code changes may confound the comparison.",
+        })
+
+    def _pkgs(m):
+        return (m or {}).get("packages", {}) or {}
+    pkg_diffs = []
+    if len(manifests) >= 2:
+        base = _pkgs(manifests[0])
+        for m in manifests[1:]:
+            other = _pkgs(m)
+            for name in set(base) | set(other):
+                if base.get(name) != other.get(name):
+                    pkg_diffs.append(name)
+    if pkg_diffs:
+        differences.append({
+            "axis": "package_versions",
+            "severity": "medium",
+            "detail": f"Differing package versions: {sorted(set(pkg_diffs))}.",
+        })
+
+    return {
+        "comparable": not any(d["severity"] == "high" for d in differences),
+        "differences": differences,
+    }
+
+
+def _pick_primary_quality_metric(
+    metric_keys: List[str],
+    metrics_a: List[Dict[str, Any]],
+    metrics_b: List[Dict[str, Any]],
+) -> Optional[str]:
+    """Pick the metric_key to drive the query-level winners/losers table: prefer ndcg over
+    recall, prefer the largest k, and require at least one query scored in both runs."""
+    candidates = []
+    for key in metric_keys:
+        try:
+            pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(key)
+        except ValueError:
+            continue
+        if metric_name not in ("ndcg", "recall") or branch_id is not None:
+            continue
+        scores_a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+        scores_b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+        if not (set(scores_a) & set(scores_b)):
+            continue
+        candidates.append((metric_name == "ndcg", k, key))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][2]
+
+
+async def _query_diffs(
+    selections: List[tuple],
+    registry: DbRegistry,
+    all_metric_keys: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Item D.1: per-query outcome deltas for the primary quality metric between exactly two
+    runs, sorted by |delta| descending -- the winners/losers table that anchors Run
+    Comparison's query-level diff section, each row linkable to the Query Diff View."""
+    if len(selections) != 2:
+        return None
+    (db_a, run_a), (db_b, run_b) = selections
+    store_a = registry.get_store(db_a)
+    store_b = registry.get_store(db_b)
+    metrics_a = await store_a.get_metrics(run_a)
+    metrics_b = await store_b.get_metrics(run_b)
+    metric_key = _pick_primary_quality_metric(all_metric_keys, metrics_a, metrics_b)
+    if not metric_key:
+        return None
+    pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(metric_key)
+    scores_a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    scores_b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    common = sorted(set(scores_a) & set(scores_b))
+    rows = [
+        {"query_id": qid, "a": scores_a[qid], "b": scores_b[qid], "delta": scores_a[qid] - scores_b[qid]}
+        for qid in common
+    ]
+    rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
+    return {"metric": metric_key, "run_a": run_a, "run_b": run_b, "rows": rows[:50]}
+
+
 async def _build_comparison(
     selections: List[tuple],
     registry: DbRegistry,
@@ -195,11 +323,14 @@ async def _build_comparison(
 
     warnings: List[str] = []
     fingerprints: List[str | None] = []
+    manifests: List[Dict[str, Any] | None] = []
     for db_id, run_id in selections:
         store = registry.get_store(db_id)
         manifest = await store.get_run_manifest(run_id)
+        manifests.append(manifest)
         fingerprints.append(_dataset_fingerprint(manifest))
     warnings.extend(_compare_warnings(fingerprints))
+    comparability = _comparability_report(manifests)
 
     keys = [_selection_key(db_id, run_id) for db_id, run_id in selections]
     aggregated: Dict[str, Dict] = {}
@@ -237,11 +368,15 @@ async def _build_comparison(
                     pass
         comparison.append(entry)
 
+    query_diffs = await _query_diffs(selections, registry, all_metric_keys) if same_dataset else None
+
     return {
         "comparison": comparison,
         "selections": [{"db_id": db_id, "run_id": run_id} for db_id, run_id in selections],
         "run_ids": [run_id for _, run_id in selections],
         "warnings": warnings,
+        "comparability": comparability,
+        "query_diffs": query_diffs,
     }
 
 
@@ -340,6 +475,34 @@ def create_app(
         if "run_ids" in body and registry.is_single:
             result["run_ids"] = body["run_ids"]
         return result
+
+    @app.post("/compare/config-diff")
+    async def compare_config_diff(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+        """Item D.5: structural config diff between exactly two runs, wiring the already-
+        built config/diff.py::diff_configs over the runs' stored config_json."""
+        parsed = MultiCompareRequest.model_validate(body)
+        if len(parsed.selections) != 2:
+            raise HTTPException(status_code=400, detail="Config diff requires exactly 2 run selections")
+        configs: List[ExperimentConfig] = []
+        for sel in parsed.selections:
+            store = _store_for(sel.db_id)
+            run_rows = [run for run in await store.list_runs() if run["run_id"] == sel.run_id]
+            if not run_rows:
+                raise HTTPException(status_code=404, detail=f"Run '{sel.run_id}' not found in '{sel.db_id}'")
+            try:
+                configs.append(ExperimentConfig.model_validate_json(run_rows[0]["config_json"]))
+            except Exception as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Run '{sel.run_id}' has a stored config that doesn't parse as an ExperimentConfig: {e}",
+                )
+        diff = diff_configs(configs[0], configs[1])
+        return {
+            "dataset_changed": diff.dataset_changed,
+            "metrics_changed": diff.metrics_changed,
+            "has_changes": diff.has_changes,
+            "pipeline_diffs": [_dataclass_asdict(p) for p in diff.pipeline_diffs],
+        }
 
     @app.post("/experiments/{name}/runs")
     async def create_remote_run(name: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
@@ -669,8 +832,6 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
         metrics = await engine.aggregate(run_id, store)
         metrics_rows = await store.get_metrics(run_id)
-        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-        results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
@@ -681,7 +842,6 @@ def create_app(
             "manifest": manifest,
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
             "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
-            "pipeline_topology": _pipeline_topology(metrics, results),
         }
 
     @db_router.get("/runs/{run_id}/queries/{query_id}")
@@ -720,6 +880,43 @@ def create_app(
                 for result in results
             ],
         }
+
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{doc_id}")
+    async def get_candidate_flow(db_id: str, run_id: str, query_id: str, doc_id: str) -> Dict[str, Any]:
+        """Candidate Flow Visualization backend (Pillar 2): one document's full journey
+        through every pipeline that ran this query — where it was introduced, promoted,
+        and (if it disappeared) exactly where and why."""
+        from retrieval_observatory.tracing.candidate_history import candidate_history
+        from retrieval_observatory.tracing.replay import replay_assumptions
+
+        store = _store_for(db_id)
+        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        query_traces = [t for t in traces if t.query_id == query_id]
+        if not query_traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No V2 traces for query '{query_id}' in run '{run_id}' (candidate flow needs trace data)",
+            )
+        pipelines: List[Dict[str, Any]] = []
+        for trace in query_traces:
+            history = candidate_history(trace, doc_id)
+            assumptions = None
+            # If the doc was dropped, expose how a counterfactual replay of the dropping
+            # operator would be constructed, so the drop explanation is inspectable.
+            if history.dropped_at:
+                try:
+                    assumptions = replay_assumptions(trace, history.dropped_at).__dict__
+                except ValueError:
+                    assumptions = None
+            pipelines.append(
+                {
+                    "pipeline_id": trace.pipeline_id,
+                    "trace_id": trace.trace_id,
+                    "history": history.to_dict(),
+                    "drop_replay_assumptions": assumptions,
+                }
+            )
+        return {"run_id": run_id, "query_id": query_id, "doc_id": doc_id, "pipelines": pipelines}
 
     @db_router.get("/runs/{run_id}/stage-matrix")
     async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
@@ -1201,19 +1398,13 @@ def create_app(
     async def advisor_recommendations(run_id: str) -> Dict[str, Any]:
         from retrieval_observatory.advisor.recommend import recommend
 
+        from dataclasses import asdict
+
         store = registry.get_store(registry.default_db_id or "")
         recs = await recommend(run_id, store)
         return {
             "run_id": run_id,
-            "recommendations": [
-                {
-                    "action": r.action,
-                    "rationale": r.rationale,
-                    "evidence": r.evidence,
-                    "priority": r.priority,
-                }
-                for r in recs
-            ],
+            "recommendations": [asdict(r) for r in recs],
         }
 
     @advisor_router.get("/regressions")
@@ -1636,21 +1827,27 @@ def create_app(
 
     @runs_router.get("/runs/{run_id}/diagram")
     async def get_run_diagram(db_id: str, run_id: str) -> Dict[str, Any]:
-        """Diagram-ready pipeline JSON: per-stage nodes with metrics + bootstrap CIs, edges,
-        and (when V2 traces exist) operator-DAG fire-rate/latency. Consumed by the SPA and by
-        the `retobs diagram` HTML export."""
+        """Diagram-ready pipeline JSON: trace-native DAG nodes (PipelineGraph contract) with
+        metrics + bootstrap CIs, plus operator-DAG fire-rate/latency. Consumed by the SPA and
+        by the `retobs diagram` HTML export. Requires V2 traces -- a config-only run with no
+        execution traces yet gets an honest 404, not a topology inferred from stage snapshots."""
+        from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
+
         store = _store_for(db_id)
-        metrics = await engine.aggregate(run_id, store)
-        if not metrics:
+        agg = await engine.aggregate(run_id, store)
+        if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
         traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-        results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
-        operator_dag = None
-        if traces:
-            operator_dag = await get_operator_dag(db_id, run_id)
+        if not traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Run '{run_id}' has no execution traces yet -- no diagram to render.",
+            )
+        graphs = build_pipeline_graphs(agg, traces)
+        operator_dag = await get_operator_dag(db_id, run_id)
         return {
             "run_id": run_id,
-            "pipelines": _build_diagram(metrics, results),
+            "pipelines": [g.to_dict() for g in graphs],
             "operator_dag": operator_dag,
         }
 
@@ -1844,193 +2041,6 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
             + ". Treat means as directional."
         )
     return warnings
-
-
-def _pipeline_topology(metrics: Dict[str, Any], results: List[Any]) -> Dict[str, Any]:
-    metric_index: Dict[tuple, Dict[str, Any]] = {}
-    for entry in metrics.values():
-        metric_index[
-            (
-                entry.get("pipeline_id"),
-                entry.get("stage_index"),
-                entry.get("metric_name"),
-                entry.get("k"),
-                entry.get("branch_id"),
-            )
-        ] = entry
-
-    candidate_counts: Dict[tuple, List[int]] = defaultdict(list)
-    for result in results:
-        if result.status != "OK":
-            continue
-        for snap in result.snapshots:
-            candidate_counts[(result.pipeline_id, snap.stage_index, None)].append(
-                snap.candidate_count or len(snap.documents)
-            )
-            for arm in snap.arms:
-                candidate_counts[(result.pipeline_id, snap.stage_index, arm.stage_id)].append(
-                    arm.candidate_count or len(arm.documents)
-                )
-
-    stage_templates: Dict[str, Dict[int, Any]] = defaultdict(dict)
-    for result in results:
-        if result.status != "OK":
-            continue
-        for snap in result.snapshots:
-            if snap.stage_index in stage_templates[result.pipeline_id]:
-                continue
-            stage_templates[result.pipeline_id][snap.stage_index] = {
-                "stage_id": snap.stage_id,
-                "op_type": snap.op_type,
-                "arms": [arm.stage_id for arm in snap.arms],
-            }
-
-    topology: Dict[str, Any] = {}
-    for pipeline_id, by_stage in stage_templates.items():
-        stages: List[Dict[str, Any]] = []
-        for stage_index in sorted(by_stage):
-            template = by_stage[stage_index]
-            stage_branch_key = (pipeline_id, stage_index, None)
-            recall_entries = [
-                e for (pid, sidx, mname, _k, branch), e in metric_index.items()
-                if pid == pipeline_id and sidx == stage_index and branch is None and mname == "recall"
-            ]
-            best_recall_entry = max(recall_entries, key=lambda e: e.get("k", 0), default=None)
-            stage = {
-                "stage_index": stage_index,
-                "stage_id": template["stage_id"],
-                "op_type": template.get("op_type"),
-                "kind": "fused" if template["arms"] else ("single" if stage_index == 0 else "rerank"),
-                "candidate_count": _mean(candidate_counts.get(stage_branch_key, [0])),
-                "metrics": {
-                    "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, None)) or {}).get("mean"),
-                    "recall": {
-                        "k": best_recall_entry.get("k") if best_recall_entry else None,
-                        "mean": best_recall_entry.get("mean") if best_recall_entry else None,
-                    },
-                    "latency_p50": (metric_index.get((pipeline_id, stage_index, "latency_p50", 0, None)) or {}).get("mean"),
-                },
-                "arms": [],
-            }
-            for arm_id in template["arms"]:
-                arm_recall_entries = [
-                    e for (pid, sidx, mname, _k, branch), e in metric_index.items()
-                    if pid == pipeline_id and sidx == stage_index and branch == arm_id and mname == "recall"
-                ]
-                arm_best_recall = max(arm_recall_entries, key=lambda e: e.get("k", 0), default=None)
-                arm_branch_key = (pipeline_id, stage_index, arm_id)
-                stage["arms"].append(
-                    {
-                        "arm_id": arm_id,
-                        "candidate_count": _mean(candidate_counts.get(arm_branch_key, [0])),
-                        "metrics": {
-                            "ndcg@10": (metric_index.get((pipeline_id, stage_index, "ndcg", 10, arm_id)) or {}).get("mean"),
-                            "recall": {
-                                "k": arm_best_recall.get("k") if arm_best_recall else None,
-                                "mean": arm_best_recall.get("mean") if arm_best_recall else None,
-                            },
-                            "latency_p50": (
-                                metric_index.get((pipeline_id, stage_index, "latency_p50", 0, arm_id)) or {}
-                            ).get("mean"),
-                        },
-                    }
-                )
-            stages.append(stage)
-        topology[pipeline_id] = stages
-    return topology
-
-
-def _metric_with_ci(entry: Dict[str, Any] | None) -> Dict[str, Any] | None:
-    """Reshape an aggregate entry into a {mean, ci_low, ci_high} overlay value."""
-    if not entry:
-        return None
-    return {
-        "mean": entry.get("mean"),
-        "ci_low": entry.get("ci_low"),
-        "ci_high": entry.get("ci_high"),
-    }
-
-
-def _build_diagram(metrics: Dict[str, Any], results: List[Any]) -> List[Dict[str, Any]]:
-    """Diagram-ready per-pipeline nodes (per-stage metrics WITH bootstrap CIs) + linear/fused
-    edges. Unlike _pipeline_topology (which drops CIs for the SPA's existing shape), each node
-    metric here carries {mean, ci_low, ci_high} — the overlay the read-only diagram renders."""
-    # Index aggregate entries by (pipeline_id, stage_index, metric_name, k, branch_id).
-    by_key: Dict[tuple, Dict[str, Any]] = {}
-    for entry in metrics.values():
-        by_key[(
-            entry.get("pipeline_id"),
-            entry.get("stage_index"),
-            entry.get("metric_name"),
-            entry.get("k"),
-            entry.get("branch_id"),
-        )] = entry
-
-    # Stage templates (op_type, arms) from the first OK result per pipeline stage.
-    templates: Dict[str, Dict[int, Any]] = defaultdict(dict)
-    for result in results:
-        if result.status != "OK":
-            continue
-        for snap in result.snapshots:
-            if snap.stage_index in templates[result.pipeline_id]:
-                continue
-            templates[result.pipeline_id][snap.stage_index] = {
-                "stage_id": snap.stage_id,
-                "op_type": snap.op_type,
-                "arms": [arm.stage_id for arm in getattr(snap, "arms", [])],
-            }
-
-    def _best_recall(pipeline_id: str, stage_index: int, branch_id: str | None):
-        recalls = [
-            (k, e) for (pid, sidx, mname, k, br), e in by_key.items()
-            if pid == pipeline_id and sidx == stage_index and br == branch_id and mname == "recall"
-        ]
-        if not recalls:
-            return None
-        k, entry = max(recalls, key=lambda item: item[0] or 0)
-        overlay = _metric_with_ci(entry)
-        overlay["k"] = k
-        return overlay
-
-    def _node_metrics(pipeline_id: str, stage_index: int, branch_id: str | None):
-        return {
-            "ndcg@10": _metric_with_ci(by_key.get((pipeline_id, stage_index, "ndcg", 10, branch_id))),
-            "recall": _best_recall(pipeline_id, stage_index, branch_id),
-            "latency_p50": _metric_with_ci(
-                by_key.get((pipeline_id, stage_index, "latency_p50", 0, branch_id))
-            ),
-        }
-
-    pipelines: List[Dict[str, Any]] = []
-    for pipeline_id, by_stage in templates.items():
-        nodes: List[Dict[str, Any]] = []
-        edges: List[Dict[str, str]] = []
-        prev_node_id: str | None = None
-        for stage_index in sorted(by_stage):
-            template = by_stage[stage_index]
-            node_id = f"stage{stage_index}"
-            arms = []
-            for arm_id in template["arms"]:
-                arms.append({
-                    "arm_id": arm_id,
-                    "metrics": _node_metrics(pipeline_id, stage_index, arm_id),
-                })
-                # A fused arm feeds into its stage node.
-                edges.append({"source": f"{node_id}:{arm_id}", "target": node_id})
-            nodes.append({
-                "node_id": node_id,
-                "stage_index": stage_index,
-                "stage_id": template["stage_id"],
-                "op_type": template.get("op_type"),
-                "kind": "fused" if template["arms"] else ("source" if stage_index == 0 else "rerank"),
-                "metrics": _node_metrics(pipeline_id, stage_index, None),
-                "arms": arms,
-            })
-            if prev_node_id is not None:
-                edges.append({"source": prev_node_id, "target": node_id})
-            prev_node_id = node_id
-        pipelines.append({"pipeline_id": pipeline_id, "nodes": nodes, "edges": edges})
-    return pipelines
 
 
 def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:

@@ -8,7 +8,9 @@ The fundamental unit is the **query**: Forge origin → benchmark scores → pro
 
 Retrieval pipelines are modeled as an **operator DAG** (`RetrievalTraceV2`), not a flat list of stages — sources, fusion, expansion, filters, transforms, rerankers, boosts, and gates are each a typed operator span with parent links, so gated/conditional production pipelines (not just linear `bm25 → rerank` chains) can be traced and attributed accurately. Every attribution result carries a **replay tier** (`EXACT` / `OBSERVED_ABLATION` / `NOT_REPLAYABLE`) — retobs never reports a fabricated delta when the counterfactual can't actually be replayed.
 
-Pareto frontier view
+Pareto frontier — quality vs. latency, with the frontier highlighted
+
+*The Pareto frontier view: every pipeline plotted by quality against latency, so the best quality-for-cost choices are immediately obvious.*
 
 ---
 
@@ -178,12 +180,12 @@ runtime, that is called out so a result is never trusted past what the engine ac
 ## Four Modes
 
 
-| Mode           | Question                        | What you get                                                        |
-| -------------- | ------------------------------- | ------------------------------------------------------------------- |
-| **Benchmarks** | What happened? Why?             | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs |
-| **Forge**      | What failures haven't we found? | Temporal + alias stress queries from your corpus                    |
-| **TraceLens**  | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth) |
-| **Advisor**    | What should I do next?          | Regression detection, rule-based recommendations, reliability score |
+| Mode           | Question                        | What you get                                                                                                                                          |
+| -------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Benchmarks** | What happened? Why?             | Per-stage metrics, failure labels, query explorer, Pareto tradeoffs                                                                                   |
+| **Forge**      | What failures haven't we found? | Temporal + alias stress queries from your corpus                                                                                                      |
+| **TraceLens**  | What's happening in production? | Live traces, drift, hotspots (suspected failures — no ground truth)                                                                                   |
+| **Advisor**    | What should I do next?          | Regression detection, recommendations ranked by estimated quality gain/latency cost/effort, before-you-change-it impact simulation, reliability score |
 
 
 **Query lineage** — `#/query/<query_id>` links Forge origin, benchmark runs, and categorical production trace matches.
@@ -222,6 +224,12 @@ Stage Contribution: bm25 → bm25__rerank
 │ Latency P50   │ 2ms      │ 4,057ms  │ +4,055ms     │ —             │
 └───────────────┴──────────┴──────────┴──────────────┴────────────────┘
 ```
+
+Per-stage attribution — recall/nDCG contribution of each operator with confidence
+
+**Recall funnel** — where do relevant documents fall out of the pipeline?
+
+Recall funnel — relevant documents surviving each stage
 
 - **Failure diagnosis** — candidate misses, lexical mismatches, reranker drops — labeled per query.
 - **Latency–quality tradeoff** — Pareto frontier; see whether reranking is worth it at your latency budget.
@@ -330,7 +338,8 @@ Paste this into your LLM to generate a config for your pipeline. Full format: [B
 # Detect regressions (non-zero exit = significant quality drop)
 retobs advisor check --baseline RUN_A --candidate RUN_B --db .retobs/results.db
 
-# Rule-based recommendations for a run
+# Recommendations for a run — each ranked by expected value, with an estimated quality
+# gain (+CI), latency cost, implementation effort, and confidence when it can be computed
 retobs advisor recommend --run RUN_ID --db .retobs/results.db
 
 # Golden set for CI gates
@@ -403,9 +412,9 @@ Forge detects temporal confusion and alias mismatches and generates queries desi
 
 ---
 
-
-
 ---
+
+
 
 ## Wire retobs into your RAG repo (one agent prompt)
 
@@ -417,6 +426,8 @@ Forge detects temporal confusion and alias mismatches and generates queries desi
 See [docs/integrations/AGENT_QUICKSTART.md](docs/integrations/AGENT_QUICKSTART.md). CLI twin: `retobs wire .`
 
 ---
+
+
 
 ## CLI Reference
 
@@ -438,10 +449,10 @@ retobs classifier train|report|predict ...          Query difficulty classifier
 
 ---
 
-
-
 ## Going Deeper
 
+- [docs/guides/getting-started.md](docs/guides/getting-started.md) — **Start here.** The beginner journey: install → run → debug a failure down to the responsible operator → improve → validate, in under an hour.
+- [docs/guides/](docs/guides/README.md) — Focused guides: hybrid & parallel retrieval, multi-stage reranking, conditional pipelines, counterfactual replay, Forge, TraceLens, and the Advisor.
 - [docs/USAGE.md](docs/USAGE.md) — Full usage guide: every CLI command, the Python SDK, wiring retobs into an existing (including hybrid/multi-stage) RAG pipeline, the dashboard, and metrics reference
 - [BREAKDOWN.md](BREAKDOWN.md) — Complete architecture reference: subsystems, data flow, trace-native model, adapters, metrics, storage, dashboard API
 - [CHANGELOG.md](CHANGELOG.md) — Full version history (v0.1.0 → v0.4.2)

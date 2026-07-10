@@ -35,6 +35,8 @@ TODO
 !docs/USAGE.md
 !docs/integrations/*.md
 !docs/informative/ci_gating.md
+!docs/guides/*.md
+!CONTRIBUTING.md
 
 # Internal dev-session verification artifacts -- not user-facing docs, never tracked
 docs/verification/

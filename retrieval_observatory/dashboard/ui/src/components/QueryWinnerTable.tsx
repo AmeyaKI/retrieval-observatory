@@ -34,7 +34,14 @@ export default function QueryWinnerTable({ dbId, runId }: Props) {
           <tbody className="divide-y divide-gray-100">
             {items.map((row) => (
               <tr key={row.query_id}>
-                <td className="px-3 py-2 font-mono">{row.query_id}</td>
+                <td className="px-3 py-2 font-mono">
+                  <a
+                    href={`#/benchmarks/run/${encodeURIComponent(runId)}/queries/${encodeURIComponent(row.query_id)}`}
+                    className="text-indigo-600 hover:underline"
+                  >
+                    {row.query_id}
+                  </a>
+                </td>
                 <td className="px-3 py-2">{row.winner_pipeline_id ?? '—'}</td>
                 <td className="px-3 py-2 text-right">{row.score != null ? row.score.toFixed(3) : '—'}</td>
                 <td className="px-3 py-2">{row.status}</td>

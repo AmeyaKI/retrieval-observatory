@@ -6,6 +6,66 @@ from typing import Any, Dict, List, Optional
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_SERVE_PORT = 4000
 
+# The operator vocabulary the platform understands (mirrors model_v2.OperatorType).
+_KNOWN_OP_TYPES = {"SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE"}
+
+
+def _integration_checks(traces: list) -> List[Dict[str, Any]]:
+    """The Integration Verification checklist from the vision doc's Pillar 4 — run against
+    persisted traces so problems surface before the user trusts a benchmark.
+
+    Each check: {name, status: 'ok'|'warn'|'error', detail}.
+    """
+    checks: List[Dict[str, Any]] = []
+    n = len(traces)
+
+    if n == 0:
+        checks.append({"name": "traces_present", "status": "error",
+                       "detail": "No V2 traces found — instrumentation is not delivering traces."})
+        return checks
+    checks.append({"name": "traces_present", "status": "ok", "detail": f"{n} traces recorded."})
+
+    # Metadata completeness: query text + candidate scores should be present to debug.
+    missing_query_text = sum(1 for t in traces if not getattr(t, "query_text", ""))
+    if missing_query_text:
+        checks.append({"name": "query_text_metadata", "status": "warn",
+                       "detail": f"{missing_query_text}/{n} traces have no query_text — query-centric views degrade."})
+    else:
+        checks.append({"name": "query_text_metadata", "status": "ok", "detail": "All traces carry query text."})
+
+    spans = [s for t in traces for s in t.spans]
+    missing_scores = sum(1 for s in spans for c in s.outputs if c.score is None)
+    if missing_scores:
+        checks.append({"name": "candidate_scores", "status": "warn",
+                       "detail": f"{missing_scores} output candidates have no score — attribution/flow degrade."})
+    else:
+        checks.append({"name": "candidate_scores", "status": "ok", "detail": "All candidates carry scores."})
+
+    # Unsupported-operator detection.
+    unknown_ops = sorted({str(s.op_type) for s in spans if str(s.op_type) not in _KNOWN_OP_TYPES})
+    if unknown_ops:
+        checks.append({"name": "supported_operators", "status": "error",
+                       "detail": f"Unsupported operator types: {unknown_ops}. Map them to a known OperatorType."})
+    else:
+        checks.append({"name": "supported_operators", "status": "ok", "detail": "All operator types are supported."})
+
+    # Error / timeout rate.
+    bad = sum(1 for t in traces if getattr(t, "status", "OK") in ("ERROR", "TIMEOUT"))
+    if bad:
+        checks.append({"name": "trace_health", "status": "warn",
+                       "detail": f"{bad}/{n} traces ended in ERROR/TIMEOUT."})
+    else:
+        checks.append({"name": "trace_health", "status": "ok", "detail": "No error/timeout traces."})
+
+    # Sampling signal: if traces advertise a sampling rate in metadata, surface it.
+    rates = {t.metadata.get("sampling_rate") for t in traces if getattr(t, "metadata", None) and "sampling_rate" in t.metadata}
+    rates.discard(None)
+    if rates and any(r < 1.0 for r in rates if isinstance(r, (int, float))):
+        checks.append({"name": "sampling_rate", "status": "warn",
+                       "detail": f"Traces are sampled (rates={sorted(rates)}); metrics reflect a subset of traffic."})
+
+    return checks
+
 
 def dashboard_base_url() -> str:
     port = int(os.environ.get("RETOBS_SERVE_PORT", DEFAULT_SERVE_PORT))
@@ -66,6 +126,13 @@ async def verify_integration(
     if missing_stages:
         instrumentation = "incomplete"
 
+    checks = _integration_checks(traces)
+    if missing_stages:
+        checks.append({"name": "expected_stages", "status": "warn",
+                       "detail": f"Configured stages not observed in traces: {missing_stages}."})
+    check_status = "error" if any(c["status"] == "error" for c in checks) else (
+        "warn" if any(c["status"] == "warn" for c in checks) else "ok")
+
     return {
         "status": "ok",
         "run_id": target,
@@ -75,6 +142,8 @@ async def verify_integration(
         "pipeline_ids": pipeline_ids,
         "has_metrics": bool(metrics),
         "instrumentation": instrumentation,
+        "checks": checks,
+        "check_status": check_status,
         "dashboard_url": dashboard_run_url(target),
         "next": next_steps,
     }

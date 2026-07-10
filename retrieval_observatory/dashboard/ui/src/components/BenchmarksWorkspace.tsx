@@ -9,10 +9,39 @@ import {
   RunSelection,
   selectionKey,
 } from '../api'
+import { buildRoutes } from '../routing'
 import DbTabs from './DbTabs'
 import RunsSidebar from './RunsSidebar'
-import RunDetail from './RunDetail'
+import RunPageLayout from './RunPageLayout'
+import RunOverviewPage from './RunOverviewPage'
+import RunArchitecturePage from './RunArchitecturePage'
+import RunAttributionPage from './RunAttributionPage'
+import RunQualityPage from './RunQualityPage'
+import RunTradeoffsPage from './RunTradeoffsPage'
+import RunQueriesPage from './RunQueriesPage'
+import RunQueryDetailPage from './RunQueryDetailPage'
+import RunCandidateFlowPage from './RunCandidateFlowPage'
+import QueryDiffPage from './QueryDiffPage'
+import RunDocumentsPage from './RunDocumentsPage'
 import ComparePanel from './ComparePanel'
+
+const RUN_ROUTES = buildRoutes([
+  'run/:runId',
+  'run/:runId/architecture',
+  'run/:runId/attribution',
+  'run/:runId/quality',
+  'run/:runId/tradeoffs',
+  'run/:runId/queries',
+  'run/:runId/queries/:queryId',
+  'run/:runId/queries/:queryId/diff',
+  'run/:runId/queries/:queryId/candidates/:docId',
+  'run/:runId/documents',
+])
+
+function pageIdForRoute(routeId: string): string {
+  const parts = routeId.split('/')
+  return parts.length >= 3 ? parts[2] : ''
+}
 
 export default function BenchmarksWorkspace({
   demoContext,
@@ -30,9 +59,16 @@ export default function BenchmarksWorkspace({
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
   const deepLink = useMemo(() => {
-    const parts = route.split('/').filter(Boolean)
-    if (parts[0] !== 'run' || !parts[1]) return null
-    return { runId: decodeURIComponent(parts[1]), section: parts[2] ? decodeURIComponent(parts[2]) : undefined }
+    const match = RUN_ROUTES.match(route)
+    if (!match || !match.params.runId) return null
+    return {
+      runId: match.params.runId,
+      page: pageIdForRoute(match.routeId),
+      queryId: match.params.queryId,
+      docId: match.params.docId,
+      isDiff: match.routeId.endsWith('/diff'),
+      against: match.query.against,
+    }
   }, [route])
 
   useEffect(() => {
@@ -170,12 +206,36 @@ export default function BenchmarksWorkspace({
           </div>
         )}
         {selected.length === 1 && resolvedRun && (
-          <RunDetail
-            run={resolvedRun}
-            dbId={selected[0].dbId}
-            wide={!sidebarOpen}
-            initialSection={deepLink?.section}
-          />
+          <RunPageLayout run={resolvedRun} activePage={deepLink?.page ?? ''} wide={!sidebarOpen}>
+            {(deepLink?.page ?? '') === '' && <RunOverviewPage run={resolvedRun} dbId={selected[0].dbId} />}
+            {deepLink?.page === 'architecture' && <RunArchitecturePage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
+            {deepLink?.page === 'attribution' && <RunAttributionPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
+            {deepLink?.page === 'quality' && <RunQualityPage run={resolvedRun} dbId={selected[0].dbId} />}
+            {deepLink?.page === 'tradeoffs' && <RunTradeoffsPage run={resolvedRun} dbId={selected[0].dbId} />}
+            {deepLink?.page === 'queries' && !deepLink.queryId && (
+              <RunQueriesPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />
+            )}
+            {deepLink?.page === 'queries' && deepLink.queryId && deepLink.isDiff && deepLink.against && (
+              <QueryDiffPage
+                dbId={selected[0].dbId}
+                runId={resolvedRun.run_id}
+                againstRunId={deepLink.against}
+                queryId={deepLink.queryId}
+              />
+            )}
+            {deepLink?.page === 'queries' && deepLink.queryId && !deepLink.docId && !deepLink.isDiff && (
+              <RunQueryDetailPage dbId={selected[0].dbId} runId={resolvedRun.run_id} queryId={deepLink.queryId} />
+            )}
+            {deepLink?.page === 'queries' && deepLink.queryId && deepLink.docId && (
+              <RunCandidateFlowPage
+                dbId={selected[0].dbId}
+                runId={resolvedRun.run_id}
+                queryId={deepLink.queryId}
+                docId={deepLink.docId}
+              />
+            )}
+            {deepLink?.page === 'documents' && <RunDocumentsPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
+          </RunPageLayout>
         )}
         {selected.length === 1 && !resolvedRun && (
           <div className="p-6 text-sm text-gray-400 dark:text-slate-500">Loading run…</div>

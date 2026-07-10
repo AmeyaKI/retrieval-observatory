@@ -370,16 +370,10 @@ async def _get_operator_attribution(
 
 
 async def _get_pipeline_diagram(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
-    """Diagram-ready pipeline JSON: per-stage nodes with metrics + bootstrap CIs, and edges."""
-    from retrieval_observatory.dashboard.api import _build_diagram, _pipeline_results_from_traces
-    from retrieval_observatory.metrics.engine import MetricsEngine
-
-    store = _store(db_path)
-    await store.init_db()
-    metrics = await MetricsEngine().aggregate(run_id, store)
-    traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-    results = _pipeline_results_from_traces(traces) if traces else await store.get_results(run_id)
-    return {"run_id": run_id, "pipelines": _build_diagram(metrics, results)}
+    """Deprecated alias of get_pipeline_graph, kept for agents already calling this tool
+    name. Both now return the same trace-native PipelineGraph projection -- the separate
+    heuristic (snapshot-based) diagram renderer this used to call was deleted."""
+    return await _get_pipeline_graph(run_id, db_path)
 
 
 async def _get_pipeline_graph(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:

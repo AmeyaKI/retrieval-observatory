@@ -43,6 +43,7 @@ def build_run_manifest(
     latency_budget_ms: int | None = None,
     forge_dataset_id: str | None = None,
     golden_set: str | None = None,
+    seed: int | None = None,
 ) -> Dict[str, Any]:
     """Capture enough environment detail to make a run auditable."""
     config_json = config.model_dump_json() if hasattr(config, "model_dump_json") else json.dumps(config)
@@ -64,6 +65,7 @@ def build_run_manifest(
         "packages": packages,
         "git_commit": _git_commit(),
         "cache_results": getattr(getattr(config, "execution", None), "cache_results", None),
+        "seed": seed if seed is not None else getattr(getattr(config, "execution", None), "seed", None),
         **display,
     }
     if latency_budget_ms is not None:

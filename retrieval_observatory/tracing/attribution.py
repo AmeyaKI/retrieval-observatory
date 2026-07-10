@@ -27,6 +27,8 @@ class MarginalResult:
     low_power: bool = False
     fire_rate: float = 0.0
     significant: Optional[bool] = None
+    p_value: Optional[float] = None
+    q_value: Optional[float] = None
 
 
 def _find_final_span(trace: RetrievalTraceV2):
@@ -214,12 +216,14 @@ def operator_marginal_contribution(
                 result_status=result_status,
                 low_power=n_pairs < n_power_threshold,
                 fire_rate=operator_fire_rate(op_id, seg_traces),
+                p_value=p_value,
             )
         )
 
     if all_p_values:
         q_values = benjamini_hochberg(all_p_values)
         for q_idx, result_idx in enumerate(result_p_index):
+            out[result_idx].q_value = q_values[q_idx]
             out[result_idx].significant = q_values[q_idx] < 0.05
 
     return out

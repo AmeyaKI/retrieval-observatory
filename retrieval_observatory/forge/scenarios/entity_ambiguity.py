@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-import uuid
 from collections import defaultdict
 from typing import Dict, List
 
@@ -37,7 +36,10 @@ class EntityAmbiguityDetector:
                 continue
             scenarios.append(
                 CorpusScenario(
-                    scenario_id=f"entity-{token}-{uuid.uuid4().hex[:6]}",
+                    # `token` is unique per corpus scan, so reused directly for a content-
+                    # derived id (not random) -- regenerating the same corpus reproduces
+                    # the same scenario_id.
+                    scenario_id=f"entity-{token}",
                     scenario_type=self.scenario_type,
                     anchor_doc_ids=unique[:3],
                     evidence_summary=f"Ambiguous entity token '{token}' appears across {len(unique)} documents",

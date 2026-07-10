@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import hashlib
 import re
-import uuid
 from typing import Dict, List, Tuple
 
 from retrieval_observatory.forge.types import CorpusScenario
@@ -78,8 +78,11 @@ class AliasScenarioDetector:
                 continue
 
             all_docs = list(set(defining_docs + standalone_only))
+            # Content-derived id: `abbr` is unique per corpus scan, so regenerating the same
+            # corpus reproduces the same scenario_id instead of a fresh random one each time.
+            abbr_digest = hashlib.sha256(abbr.encode("utf-8")).hexdigest()[:8]
             scenario = CorpusScenario(
-                scenario_id=f"alias_{uuid.uuid4().hex[:8]}",
+                scenario_id=f"alias_{abbr_digest}",
                 scenario_type="alias",
                 anchor_doc_ids=all_docs[:10],  # cap at 10 docs per scenario
                 evidence_summary=(
