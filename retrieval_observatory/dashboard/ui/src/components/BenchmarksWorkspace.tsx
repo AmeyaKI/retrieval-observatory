@@ -19,6 +19,9 @@ import RunAttributionPage from './RunAttributionPage'
 import RunQualityPage from './RunQualityPage'
 import RunTradeoffsPage from './RunTradeoffsPage'
 import RunQueriesPage from './RunQueriesPage'
+import RunQueryDetailPage from './RunQueryDetailPage'
+import RunCandidateFlowPage from './RunCandidateFlowPage'
+import QueryDiffPage from './QueryDiffPage'
 import RunDocumentsPage from './RunDocumentsPage'
 import ComparePanel from './ComparePanel'
 
@@ -30,6 +33,8 @@ const RUN_ROUTES = buildRoutes([
   'run/:runId/tradeoffs',
   'run/:runId/queries',
   'run/:runId/queries/:queryId',
+  'run/:runId/queries/:queryId/diff',
+  'run/:runId/queries/:queryId/candidates/:docId',
   'run/:runId/documents',
 ])
 
@@ -60,6 +65,9 @@ export default function BenchmarksWorkspace({
       runId: match.params.runId,
       page: pageIdForRoute(match.routeId),
       queryId: match.params.queryId,
+      docId: match.params.docId,
+      isDiff: match.routeId.endsWith('/diff'),
+      against: match.query.against,
     }
   }, [route])
 
@@ -204,7 +212,28 @@ export default function BenchmarksWorkspace({
             {deepLink?.page === 'attribution' && <RunAttributionPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
             {deepLink?.page === 'quality' && <RunQualityPage run={resolvedRun} dbId={selected[0].dbId} />}
             {deepLink?.page === 'tradeoffs' && <RunTradeoffsPage run={resolvedRun} dbId={selected[0].dbId} />}
-            {deepLink?.page === 'queries' && <RunQueriesPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
+            {deepLink?.page === 'queries' && !deepLink.queryId && (
+              <RunQueriesPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />
+            )}
+            {deepLink?.page === 'queries' && deepLink.queryId && deepLink.isDiff && deepLink.against && (
+              <QueryDiffPage
+                dbId={selected[0].dbId}
+                runId={resolvedRun.run_id}
+                againstRunId={deepLink.against}
+                queryId={deepLink.queryId}
+              />
+            )}
+            {deepLink?.page === 'queries' && deepLink.queryId && !deepLink.docId && !deepLink.isDiff && (
+              <RunQueryDetailPage dbId={selected[0].dbId} runId={resolvedRun.run_id} queryId={deepLink.queryId} />
+            )}
+            {deepLink?.page === 'queries' && deepLink.queryId && deepLink.docId && (
+              <RunCandidateFlowPage
+                dbId={selected[0].dbId}
+                runId={resolvedRun.run_id}
+                queryId={deepLink.queryId}
+                docId={deepLink.docId}
+              />
+            )}
             {deepLink?.page === 'documents' && <RunDocumentsPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
           </RunPageLayout>
         )}

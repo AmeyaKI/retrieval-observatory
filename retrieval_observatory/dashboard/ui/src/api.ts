@@ -396,6 +396,59 @@ export async function fetchOperatorDiff(
   return res.json()
 }
 
+// ── Per-query unified timeline (Item C) ──
+export interface TraceCandidate {
+  doc_id: string
+  score: number
+  rank: number
+  input_rank: number | null
+  output_rank: number | null
+  origin_op_ids: string[]
+  score_components: Record<string, number>
+  add_reason: string
+  drop_reason: string | null
+}
+
+export interface TraceOperatorSpan {
+  op_id: string
+  op_type: string
+  op_name: string
+  parent_ids: string[]
+  status: 'FIRED' | 'SKIPPED_BY_GATE' | 'ERROR' | 'TIMEOUT'
+  deterministic: boolean
+  replay_policy: 'EXACT' | 'OBSERVED_ABLATION' | 'NOT_REPLAYABLE'
+  latency_ms: number
+  inputs: TraceCandidate[]
+  outputs: TraceCandidate[]
+  params: Record<string, unknown>
+  gate_values: Record<string, unknown>
+  input_variant: string
+  error: string | null
+}
+
+export interface RetrievalTraceV2 {
+  trace_id: string
+  run_id: string
+  query_id: string
+  query_text: string
+  pipeline_id: string
+  spans: TraceOperatorSpan[]
+  total_latency_ms: number
+  status: 'OK' | 'TIMEOUT' | 'ERROR'
+  timestamp: string
+  metadata: Record<string, unknown>
+  error_traceback: string | null
+  final_op_id: string | null
+}
+
+/** All V2 traces for a run. Used to build the per-query unified timeline (Item C) --
+ * there is no per-query filter on the backend, so callers filter client-side by query_id. */
+export async function fetchRunTraces(dbId: string, runId: string): Promise<RetrievalTraceV2[]> {
+  const res = await fetch(`${runBase(dbId, runId)}/traces`)
+  if (!res.ok) throw new Error(`Failed to fetch traces for run ${runId}`)
+  return res.json()
+}
+
 export interface MissAttributionRow {
   query_id: string
   doc_id: string

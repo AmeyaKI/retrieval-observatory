@@ -86,8 +86,19 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
               <Fragment key={item.query_id}>
               <tr className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono">
-                  <a href={`#/query/${encodeURIComponent(item.query_id)}`} className="text-indigo-600 hover:underline">
+                  <a
+                    href={`#/benchmarks/run/${encodeURIComponent(runId)}/queries/${encodeURIComponent(item.query_id)}`}
+                    className="text-indigo-600 hover:underline"
+                    title="Operator-level timeline for this query"
+                  >
                     {item.query_id}
+                  </a>
+                  <a
+                    href={`#/query/${encodeURIComponent(item.query_id)}`}
+                    className="ml-1.5 text-[10px] text-gray-400 hover:text-indigo-600"
+                    title="Cross-run lineage for this query"
+                  >
+                    lineage
                   </a>
                   <button
                     className="ml-2 text-[10px] text-gray-400 hover:text-indigo-600"
@@ -132,6 +143,14 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                         onChange={(e) => setDocId(e.target.value)}
                         placeholder="doc_id to trace"
                       />
+                      {docId.trim() && (
+                        <a
+                          href={`#/benchmarks/run/${encodeURIComponent(runId)}/queries/${encodeURIComponent(item.query_id)}/candidates/${encodeURIComponent(docId.trim())}`}
+                          className="text-[10px] text-indigo-600 hover:underline"
+                        >
+                          view as Sankey →
+                        </a>
+                      )}
                     </div>
                     {docId.trim() && (
                       <CandidateFlowPanel dbId={dbId} runId={runId} queryId={item.query_id} docId={docId.trim()} />
