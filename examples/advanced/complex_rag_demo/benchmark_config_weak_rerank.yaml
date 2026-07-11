@@ -1,0 +1,109 @@
+# Complex hybrid, multi-stage RAG benchmark for the internal-KB dataset in this
+# directory (corpus.jsonl / queries.jsonl). Exercises retobs's real BM25 + dense
+# fan-in fusion (adapter.rrf), a real cross-encoder rerank stage, and a custom
+# recency-boost stage (adapter.import) -- five architectures compared in one run:
+#
+#   bm25_only               -- single-stage sparse baseline
+#   dense_only               -- single-stage dense baseline
+#   hybrid                   -- BM25 + dense fused via RRF (2-arm DAG fan-in)
+#   hybrid__rerank            -- + cross-encoder rerank (3-stage)
+#   hybrid__rerank__boost     -- + recency boost (4-stage; the full pipeline)
+#
+# Run (needs the [dense] extra: sentence-transformers + faiss-cpu):
+#   PYTHONPATH=examples/advanced/complex_rag_demo retobs run --config examples/advanced/complex_rag_demo/benchmark_config.yaml
+#   retobs serve --db .retobs/complex_rag_demo_weak_rerank.db
+
+experiment:
+  name: complex-rag-benchmark-demo-weak-rerank
+
+dataset:
+  type: custom
+  name: kb-search-demo
+  queries_path: queries.jsonl
+  corpus_path: corpus.jsonl
+  timestamp_field: timestamp
+
+stages:
+  bm25:
+    type: adapter.bm25
+    retriever_id: bm25
+    config:
+      k: 20
+
+  dense:
+    type: adapter.hf_biencoder
+    retriever_id: dense
+    config:
+      model: sentence-transformers/all-MiniLM-L6-v2
+      k: 20
+
+  hybrid:
+    type: adapter.rrf
+    retriever_id: hybrid_rrf
+    config:
+      rrf_k: 60
+      fetch_k: 20
+      top_k: 20
+      retrievers:
+        - type: adapter.bm25
+          retriever_id: bm25
+          config:
+            k: 20
+        - type: adapter.hf_biencoder
+          retriever_id: dense
+          config:
+            model: sentence-transformers/all-MiniLM-L6-v2
+            k: 20
+
+  rerank:
+    type: adapter.hf_crossencoder
+    retriever_id: cross_rerank
+    config:
+      model: cross-encoder/ms-marco-TinyBERT-L-2-v2
+      k: 10
+
+  boost:
+    type: adapter.import
+    retriever_id: freshness_boost
+    config:
+      factory: custom_adapters:build_recency_boost
+      window_days: 120
+      multiplier: 1.15
+      k: 10
+
+pipelines:
+  - id: bm25_only
+    stages:
+      - type: adapter.bm25
+        retriever_id: bm25
+        config:
+          k: 20
+
+  - id: dense_only
+    stages:
+      - type: adapter.hf_biencoder
+        retriever_id: dense
+        config:
+          model: sentence-transformers/all-MiniLM-L6-v2
+          k: 20
+
+combinations:
+  include:
+    - [hybrid, rerank, boost]
+  ablations: true   # auto-generates [hybrid], [hybrid, rerank], [hybrid, rerank, boost]
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+  latency_percentiles: [50, 95, 99]
+
+execution:
+  concurrency: 4
+  timeout_seconds: 60
+  cache_results: false
+
+output:
+  store: sqlite
+  db_path: .retobs/complex_rag_demo_weak_rerank.db
