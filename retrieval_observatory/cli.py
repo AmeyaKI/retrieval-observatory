@@ -205,8 +205,8 @@ async def _compare(run_id_1: str, run_id_2: str, db_path: str) -> None:
     for key in all_keys:
         a1 = agg1.get(key, {})
         a2 = agg2.get(key, {})
-        mean1 = f"{a1.get('mean', 0):.4f} ± {a1.get('std', 0):.4f}" if a1 else "—"
-        mean2 = f"{a2.get('mean', 0):.4f} ± {a2.get('std', 0):.4f}" if a2 else "—"
+        mean1 = f"{(a1.get('mean') or 0):.4f} ± {(a1.get('std') or 0):.4f}" if a1 else "—"
+        mean2 = f"{(a2.get('mean') or 0):.4f} ± {(a2.get('std') or 0):.4f}" if a2 else "—"
         s1, s2, n_pairs = paired_scores_by_query(metrics1, metrics2, key)
         if s1 and s2:
             p = paired_bootstrap_test(s1, s2)

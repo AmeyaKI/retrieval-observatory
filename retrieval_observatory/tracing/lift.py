@@ -106,7 +106,7 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
 
     if not result.snapshots:
         return RetrievalTraceV2(
-            trace_id=f"{result.query_id}:{result.pipeline_id}",
+            trace_id=f"{run_id or 'unscoped'}:{result.query_id}:{result.pipeline_id}",
             run_id=run_id or "",
             query_id=result.query_id,
             query_text="",
@@ -166,7 +166,7 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
             raise ValueError("Lifted trace final output does not match PipelineResult final stage output")
 
     return RetrievalTraceV2(
-        trace_id=f"{result.query_id}:{result.pipeline_id}",
+        trace_id=f"{run_id or 'unscoped'}:{result.query_id}:{result.pipeline_id}",
         run_id=run_id or "",
         query_id=result.query_id,
         query_text="",

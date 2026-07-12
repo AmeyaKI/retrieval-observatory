@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import traceback
-import uuid
 from typing import Dict, List, Optional, Set, Union
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -127,12 +126,19 @@ class BenchmarkRunner:
 
     async def _persist_trace(self, result: PipelineResult, run_id: str) -> None:
         """Save a real branching trace when the pipeline produced one (DAG), else lift the
-        flattened snapshot list (linear pipelines) — same behaviour as before for those."""
+        flattened snapshot list (linear pipelines) — same behaviour as before for those.
+
+        trace_id is always derived from (run_id, query_id, pipeline_id), never reused as-is
+        from `native.trace_id` even if already set: a cache hit can return a PipelineResult
+        (and its attached trace_v2) that was built and persisted under a *different* run_id,
+        and traces_v2 upserts by trace_id alone (INSERT OR REPLACE, not scoped by run_id in
+        the primary key) — reusing a stale trace_id would silently overwrite that other run's
+        trace instead of creating this run's own row.
+        """
         native = getattr(result, "trace_v2", None)
         if native is not None:
             native.run_id = run_id
-            if not native.trace_id:
-                native.trace_id = uuid.uuid4().hex
+            native.trace_id = f"{run_id}:{native.query_id}:{native.pipeline_id}"
             await self.store.save_trace_v2(native)
         else:
             await self.store.save_trace_v2(lift_pipeline_result(result, run_id=run_id))
