@@ -6,115 +6,41 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
-### Removed
+## [0.5.0] — 2026-07-14 [PyPI]
 
-- `CONTRIBUTING.md` — stop tracking; keep local-only via `*.md` gitignore (no longer allowlisted).
-
-### Fixed
-
-- `.gitignore` — allowlist public docs (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/*.md`) so CI markdown link checks resolve tracked targets.
-- `scripts/check_release.py` — parse `pyproject.toml` without `tomllib` so the release-metadata check runs on Python 3.10.
-- `metrics/comparison.py` — treat `profile_*` like latency for orientation and effect floors so sub-ms profile noise cannot gate `--fail-on regression`.
-
-### Changed
-
-- `sdk/report.py` — route callable and persisted-run output through one deterministic verdict/evidence/provenance report contract; SDK comparisons now use the canonical validity and paired-statistics engine.
-- `dashboard/api.py`, `RunOverviewPage.tsx` — add the canonical run report to the scoped API and lead the run overview with verdict, evidence health, dominant issue, affected query, and next action; remove the blocking guide and dead recommendation self-link.
-- Dashboard shell/routing — replace Benchmarks/Forge/TraceLens/Advisor modes with Home/Runs/Compare/Queries/Production/Test Sets, preserve legacy hashes through context-aware migration, and make the product tour opt-in.
-- `RunQueryDetailPage.tsx`, `utils/queryDebugger.ts` — lead query debugging with text, qrels, provenance, and evidence health; locate each relevant document's measured first-loss operator and distinguish recorded replay from execution.
-- `PipelineDagView.tsx` — switch between run-union and exact-trace PipelineGraphV2 projections, expose status/fire/cache/final-output evidence, and provide a keyboard-readable operator table equivalent.
-- Production findings — bound hotspot/drift scans, attach evidence class, method, sample size, baseline/window, threshold, and supporting trace IDs to every finding.
-- Test Set provenance — persist and export each query's rule/LLM generation method and extractive/judge label method without calling unvalidated generated labels gold.
-- Dashboard performance — lazy-load primary workspaces and run pages; enforce a 250 kB initial JavaScript budget and 500 kB per-chunk budget during production builds.
-- `tests/browser/test_dashboard_workflow.py`, CI — exercise the golden run/compare/query workflow at 390/768/1440 px, legacy redirects, keyboard/semantic checks, and an injected API error state against a deterministic demo.
-- `tests/browser/test_dashboard_workflow.py` — enforce automated WCAG 2 A/AA checks with axe-core across the golden Run, Query, and Compare workflow at every responsive viewport.
-- `dashboard/ui/src/index.css` — map tertiary and status text to semantic WCAG-AA contrast tokens on light and dark surfaces.
-- `dashboard/ui/src/components/StatusPanel.tsx` — render loading, empty, partial, error, invalid, and unavailable states with shared semantic roles and non-color cues on the Run, Compare, and Query workflows.
-- `dashboard/ui/src/components/RunsSidebar.tsx` — make run-selection rows native labeled checkbox controls for keyboard and screen-reader operation.
-- `sdk/report.py`, `retobs compare`, MCP `compare`/`get_report` — use one validity-gated, BH-corrected comparison report with explicit baseline/candidate roles across terminal, JSON, Markdown, and HTML.
-- MCP `evaluate`, `evaluate_file`, and `inspect_query` — expose task-oriented names backed by the canonical evaluation and scoped QueryEvidence contracts.
-- `retobs` CLI — converge top-level help on Evaluate, Compare, Inspect Query, Production, Test Sets, Report, Integrate, Verify, Serve, and Demo; preserve hidden legacy aliases with v1.0 replacement warnings.
-- `retobs demo` — replace the four-module tour with a deterministic Test Set → regression → query cause → post-change validation story and exact workflow links.
-- `README.md`, `docs/{START,WORKFLOW,CONCEPTS,REFERENCE,EVIDENCE_AND_TRUST,INTEGRATIONS,ARCHITECTURE,PRIVACY,MIGRATION}.md` — replace four-product and dated benchmark framing with a callable-first, task-oriented workflow and explicit trust/support/privacy contracts.
-- `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, CI — add governance, exact CI parity commands, Ruff, lockfile installs, and local Markdown link checking.
-- integration CI and `tests/unit/test_integrations_wire.py` — give plain Python, HTTP, FastAPI, LangChain, and LlamaIndex real-framework smoke jobs plus detection/minimal-patch plan fixtures, separate from supported examples.
-- SDK `compare` and `inspect_query` — expose the same task nouns and canonical report/QueryEvidence results as CLI and MCP.
-- `docs/PR_WORKFLOW.md` and `examples/ci/retrieval-ci.yml` — generate canonical Markdown step summaries plus standalone HTML/JSON artifacts with strict regression/no-decision gating.
-- `scripts/generate_demo_assets.py`, `scripts/check_release.py`, `scripts/smoke_wheel.py` — regenerate versioned current media, reject stale release assets/links, and execute the real callable/query-evidence workflow from a clean wheel.
-- `docs/{RELEASE_CHECKLIST,MAINTAINER_TRIAGE}.md` and good-first-issue template — define release, response, triage, and contributor-ready work expectations.
-- dashboard and demo copy — remove residual Forge/TraceLens/Advisor/Benchmarks product labels from Test Set, Production, Findings, glossary, and generated regression-story surfaces.
-- `pipeline/dag.py`, `tracing/model_v2.py` — execute dependency-ready DAG siblings concurrently and record wall-clock, critical-path, and operator-sum latency separately.
-- `pipeline/graph_projection.py`, `dashboard/pipeline_graph.schema.json` — project a versioned run-union or exact-trace `PipelineGraphV2` with topology coverage, statuses, final outputs, conditional edges, cache evidence, and explicit availability.
-- `tracing/replay.py`, `tracing/attribution.py` — classify recorded-output counterfactuals as replayed evidence and return typed indeterminate results when the target or a descendant is not replayable.
-- `runner/manifest.py`, `datasets/validation.py` — persist manifest schema V3 with separate query/corpus/qrel fingerprints, normalized config, model/label/execution/environment metadata, query eligibility counts, and observed cache/timeout evidence.
-- `metrics/comparison.py`, `dashboard/api.py` — gate baseline/candidate decisions on required manifest validity and use one paired, BH-corrected, power- and effect-thresholded statistics contract across Compare and Advisor.
-- `evidence/query.py`, `dashboard/api.py` — add a database/run-scoped, paginated `QueryEvidence` contract joining qrels, diagnostics, bounded V2 traces, lineage, production matches, and Advisor findings.
-- `forge/types.py` — add versioned `TestSetSummary`; dataset, suite, demo, store, API, CLI, and UI now use one summary shape with safe legacy-row adaptation.
-- `integrations/verify.py`, `integrations/registry.py` — derive readiness from required arrival, identity, topology, timing, candidate, ground-truth, and completeness checks; expose capability-specific readiness and explicit framework support levels.
-- `integrations/wire.py`, CLI `integrate --plan` / `verify`, MCP `plan_integration` — add a read-only minimal-patch plan with detection evidence, dependencies, data-flow implications, expected operators, and exact contract checks before apply/verify.
-
-### Fixed
-
-- `MANIFEST.in` — exclude Python bytecode from wheels and source distributions even when building from a test-used worktree.
-- `pipeline/dag.py`, `tracing/lift.py` — preserve partial `RetrievalTraceV2` evidence for operator errors, timeouts, and cancellations instead of dropping the trace.
-- `tracing/candidates.py` — preserve immutable source-lane origins and record per-operator candidate inputs, ranks, scores, additions, and drop reasons across DAG and production traces.
-- `metrics/engine.py` — assign conditional operator metric identities from the run-union graph so branches remain stable across queries.
-- `metrics/diagnostics.py` — replace the ambiguous `id_or_qrel_issue` label with measured `qrel_not_in_corpus`, measured retrieval-miss, and unavailable-corpus-identity evidence records.
-- `store/{sqlite,postgres}.py` — persist structured diagnostic evidence and add query-filtered, paginated V2 trace reads with backend-parity signatures.
-- `store/base.py`, `tests/unit/test_store_contract.py` — enforce one runtime-checkable store protocol and one SQLite/PostgreSQL contract suite for runs, Unicode/large trace metadata, partial traces, pagination, qrels, diagnostics, concurrent writes, and summary migrations.
-- Dashboard evidence clients — require explicit database scope for Query, Advisor, Forge, and TraceLens requests; ambiguous legacy evidence routes now fail when multiple databases are loaded.
-- `integrations/wire.py`, `cli.py` — treat zero observed runs as not verified and required verification failures as non-ready with a nonzero CLI exit.
-
-### Added — retobs_finer.md vision (Phases 0, 2 backend, 4, 5, 6, 7, 8)
-
-- `tracing/attribution.py` — `MarginalResult.p_value` / `.q_value` (raw + BH-corrected significance, previously computed but never attached).
-- `tracing/replay.py` — `ReplayAssumptions` dataclass + `replay_assumptions()`: exposes which counterfactual strategy (`fuse_rrf_recompute`, `rerank_passthrough_inputs`, etc.) was used to build a replay, with human-readable caveats. `without_operator()`'s signature is unchanged.
-- `tracing/candidate_history.py` (new) — `candidate_history(trace, doc_id)`: one document's full journey through a trace (introduced/passed/dropped events, per-arm origin, score deltas). `model_v2.DropReason` gains `truncated`.
-- `dashboard/api.py` — `GET /runs/{id}/queries/{qid}/candidates/{doc_id}` (candidate-flow endpoint, backing "Candidate Flow Visualization"); `topology_source` provenance field (`trace_native`/`snapshot_heuristic`) on the diagram/overview endpoints; `_comparability_report()` + `comparability` field on `/compare` (dataset content-hash, seed, git commit, package-version mismatches, never blocking).
-- `datasets/validation.py` — `dataset_content_hash()`: real SHA-256 content fingerprint (queries+qrels+corpus), replacing count-only fingerprinting that could collide across different datasets.
-- `config/schema.py` / `runner/manifest.py` — `execution.seed` threaded through to the run manifest for reproducibility.
-- `advisor/types.py` — `Recommendation` gains `estimated_quality_improvement` (+CI), `quality_metric`, `estimated_latency_increase_ms`, `implementation_effort`, `confidence`, `affected_query_categories`, `expected_value`; all optional, `None` renders as "not estimated" rather than a fabricated number.
-- `advisor/recommend.py` — grounded per-failure-label estimates from observed rate + sample size; `_prioritize()` ranks by expected engineering value with an explicit unestimated tail.
-- `advisor/simulate.py` (new) — `simulate_operator_removal()`: estimates the impact of removing an operator by reusing counterfactual-replay machinery, before the user changes the pipeline.
-- `integrations/verify.py` — `verify_integration()` runs a structured checklist (traces present, query-text/candidate-score metadata completeness, unsupported-operator detection, error/timeout health, sampling signal); `retobs doctor` surfaces the same checks pre-benchmark.
-- `integrations/registry.py` — `describe_integration` guidance entries for `haystack`, `dspy`, `openai_agents` (guidance-level; full callback adapters not yet implemented pending those frameworks' deps).
-- Dashboard UI: `CandidateFlowPanel.tsx` (wired into `QueryExplorer` via a per-query "⇄ flow" document tracer), attribution grid surfaces raw p-value + BH-corrected q-value, `ComparePanel` shows a comparability banner before any metrics, `AdvisorWorkspace` renders the full recommendation estimate row (or "not estimated").
-- `docs/guides/` (new) — beginner journey (`getting-started.md`, full debug loop in under an hour) + 7 advanced guides (hybrid/parallel retrieval, multi-stage reranking, conditional pipelines, counterfactual replay, Forge, TraceLens, Advisor).
-- `CONTRIBUTING.md` (new); README now embeds the existing Pareto/stage-attribution/recall-funnel screenshots (previously zero embedded images) and links the beginner journey.
-
-**Remediation complete**: `RETOBS_FINER_PLAN_PHASE2.md`'s six items (0, A, B, C, D, E) are now all implemented — see the "RETOBS_FINER_PLAN_PHASE2.md remediation" entry below for what each one shipped. Phase 8's standalone-runnable example outputs and issue templates remain open (not part of that plan).
-
-### Added — RETOBS_FINER_PLAN_PHASE2.md remediation (Items 0, A, B, C, D, E)
-
-- **Item 0 (query-identity stability)**: `query_id`/`scenario_id` are now content-derived instead of positional/`uuid4`-based across `datasets/inmemory.py`, `forge/scenarios/{temporal,alias,entity_ambiguity}.py`, and `forge/generation/{rule_based,generator}.py` — regenerating the same corpus reproduces the same ids, which the unified query timeline's regression-history section and `dataset_content_hash()` both depend on for stability across runs.
-- **Item A (retire heuristic diagram path)**: `diagram/html.py` and `GET /runs/{id}/diagram` rebuilt onto `build_pipeline_graphs` (real depth/branch_id grid + fan-in-aware SVG edges); deleted `_build_diagram`, `_pipeline_topology`, `_metric_with_ci`, and the dead `PipelineTopology` frontend types. `retobs diagram` and the MCP `get_pipeline_diagram` tool repointed onto the same trace-native projection. New `tests/unit/test_golden_topology.py` snapshot-guards node/edge JSON for linear, fan-in, gated, and parallel-lane topologies.
-- **Item B (dashboard IA restructure)**: zero-dependency hash router (`routing.ts`) replaces `RunDetail.tsx`'s single anchor-scroll page (whose nav used to clobber the run-context URL on click) with seven independently-routed pages — Overview, Architecture, Attribution (new — per-stage attribution split out of Queries), Quality, Tradeoffs, Queries, Documents (new — raw per-pipeline/per-stage document browser) — sharing `RunPageLayout.tsx` and a `useRunMetrics` hook. Op-type colors centralized in `utils/opTypeColors.ts`.
-- **Item C (query-centric debugging)**: unified query timeline (`RunQueryDetailPage.tsx` at `#/benchmarks/run/:runId/queries/:queryId`) — per-pipeline operator waterfall, click-to-inspect operator diff, dropped-candidates list, and Origin/Regression-History/Production-Traces/Recommendations sections (reusing the existing cross-run `fetchQueryLineage` endpoint rather than new backend routes). Query Diff View (`QueryDiffPage.tsx`, `.../diff?against=:runId`) compares a query's result across two runs per pipeline, finding the first divergent operator. Query Replay (`QueryReplayScrubber.tsx` + `utils/traceSteps.ts`) steps through a trace's operators grouped by dependency depth, so parallel fusion arms land in the same step. `ProvenanceSankey.tsx` revived as `RunCandidateFlowPage.tsx` (`.../candidates/:docId`).
-- **Item D (Run Comparison deeper diffs)**: `_build_comparison` gains a `query_diffs` field (per-query deltas for the primary quality metric, exactly-two-run comparisons); new `POST /compare/config-diff` wires the already-built `config/diff.py::diff_configs`. `RunComparisonDeepDiffs.tsx` adds five sections to `ComparePanel.tsx` — query-level winners/losers (linking to the Query Diff View), topology diff (client-side node/edge-set diff over `build_pipeline_graphs`), attribution diff (sign-flip/significance-change detection), recommendation diff (new/resolved/persisting by action string), config diff.
-- **Item E (real framework adapters)**: duck-typed, importable adapters (`tracing/integrations/{haystack,dspy,openai_agents}.py` + shared `_duck_typed.py`) replacing the guidance-only registry entries — none import their target framework, so they stay unit-testable without haystack-ai/dspy-ai/openai-agents installed. Plus an opt-in `auto_instrument("langchain")` POC (class-level monkeypatch of `BaseRetriever.invoke`/`ainvoke`, explicit call only) and runnable examples under `examples/integrations/{haystack,dspy,openai_agents}_search/`.
-
-### Fixed
-
-- `tests/unit/test_factory_import.py`, `tests/unit/test_self_correcting_retriever.py` — example `sys.path` roots updated to `examples/advanced/…` after folder reorganization.
-- `integrations/registry.py` — agent snippets use real APIs (`ro.init`, `@observe`, V2 callbacks); removed stale `observe_run` / `push-traces` references.
-- `config/runtime.py` — shared path resolution + `sys.path` setup for MCP/REST parity with `retobs run`.
-- `sdk/run_config.py` — `config_base_dir` param for `adapter.import` and relative dataset paths.
-- `mcp/server.py` — `benchmark_config_file`, `bootstrap_project`, `push_traces`, `get_pipeline_graph`; `verify_integration` uses port 4000 and `expected_stages`.
-- `dashboard/api.py` — REST run trigger accepts `config_base_dir`.
-- `config/discovery.py` — `adapter.import` in `ADAPTER_EXAMPLES`.
-- `docs/integrations/mcp.md`, `AGENT_QUICKSTART.md` — integration tools, Cursor MCP config, external-folder workflow.
-- `examples/integrations/http_quickstart/server.py` — response field `documents` (HTTP adapter contract).
+Major product revamp: one callable-first retrieval debugging loop replaces the old four-module surface (Benchmarks / Forge / TraceLens / Advisor). CLI, SDK, MCP, dashboard, and CI now share the same evaluate → compare → inspect-query vocabulary, evidence contracts, and validity-gated statistics.
 
 ### Added
 
-- `integrations/detect.py`, `integrations/wire.py`, `integrations/verify.py` — project detection, one-step wiring, shared verify.
-- MCP `wire_project` — single orchestration tool for agent wiring (`setup` + `verify` phases).
-- CLI `retobs wire` — twin of `wire_project`; scaffolds `retobs/`, `.retobs/manifest.yaml`, `RETOS.md`, sample eval JSONL.
+- Canonical report + QueryEvidence contracts shared by CLI, SDK, MCP, dashboard, and CI artifacts (verdict, evidence health, provenance, next action).
+- Manifest schema V3 with separate query/corpus/qrel fingerprints, content hashes, execution seed, and environment metadata for reproducible comparisons.
+- PipelineGraphV2 projections (run-union and exact-trace) with concurrent DAG siblings and distinct wall-clock / critical-path / operator-sum latency.
+- Candidate lineage and first-loss debugging: immutable source-lane origins, per-operator additions/drops, candidate-flow views, and recorded-vs-execution replay classification.
+- Production findings and Test Sets as first-class surfaces (versioned summaries, generation/label provenance without calling unvalidated labels gold).
+- Integration wiring path: detect → plan → wire/verify for plain Python, HTTP, FastAPI, LangChain, and LlamaIndex; duck-typed adapters for Haystack, DSPy, and OpenAI Agents.
+- Task-oriented public docs (Start, Workflow, Concepts, Reference, Evidence & trust, Integrations, Architecture, Migration) plus security/conduct policies.
+- Release/CI hardening: Ruff, lockfile UI installs, Markdown link checks, browser WCAG workflow, framework smoke tiers, wheel smoke, versioned demo assets.
 
 ### Changed
 
-- `bootstrap_project` MCP tool — deprecated alias of `wire_project(phase=setup)`.
-- `docs/integrations/AGENT_QUICKSTART.md` — Journey 0 is one-prompt `wire_project` flow.
+- Product IA — Home / Runs / Compare / Queries / Production / Test Sets; legacy Benchmarks/Forge/TraceLens/Advisor routes and labels migrate or alias with v1.0 retirement warnings.
+- `retobs compare` and dashboard Compare — one validity-gated, BH-corrected, power- and effect-thresholded baseline/candidate decision; profile noise no longer gates regressions.
+- Dashboard run/query UX — verdict-led overview, query debugger with qrels/provenance/evidence health, lazy-loaded workspaces, bundle budgets, and shared status semantics.
+- `retobs demo` — deterministic Test Set → regression → query cause → validation story used by CI golden-check and README media.
+- Store + diagnostics — structured diagnostic evidence, paginated V2 traces, and one SQLite/PostgreSQL store contract.
+
+### Fixed
+
+- Partial traces retained on operator error/timeout/cancellation instead of silent drop.
+- Ambiguous multi-db dashboard evidence routes now require explicit database scope.
+- Integration verify fails closed on zero runs or required-check failures.
+- Packaging/CI edge cases: bytecode excluded from wheels; release metadata parseable on Python 3.10.
+
+### Removed
+
+- Four-product framing as the primary UX (engines remain under Test Sets / Production / Findings).
+- Heuristic diagram topology path in favor of trace-native PipelineGraphV2.
+- Local-only contributor notes from the published tree (kept out of the package/docs release surface).
 
 ## [0.4.2] — 2026-07-06
 
@@ -143,7 +69,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 - `StagePipelineFlow.tsx` — superseded by `PipelineDagView`.
 - `OperatorDagView.tsx` — superseded by `PipelineDagView` (benchmark + trace-native graphs share one contract).
-- Root planning clutter (`SHORT_TERM.md`, `LONG_TERM.md`, `BREAKDOWN.md`, `TODO`, `IMPLEMENTATION_PLAN.md`, `RESULTS_v0.1.2.md`) moved to `.archive/`.
+- Root planning clutter moved out of the published tree into local archive.
 
 - `retrieval_observatory.sdk.run_from_config(config: dict)` — run a benchmark from an
 `ExperimentConfig`-shaped dict (adapter specs, not live Python objects); the shared seam REST and
@@ -198,10 +124,9 @@ cross-encoder rerank, custom recency-boost stage) comparing six architectures in
 
 ### Changed
 
-- `docs/` reorganized: `docs/verification/` (dev-session audit artifacts) is no longer tracked in
-git; `docs/informative/` holds maintainer/ops reference docs (`ci_gating.md`, `PYPI_PUBLISH.md`);
+- `docs/` reorganized: maintainer/ops reference lives under `docs/informative/` (`ci_gating.md`, `PYPI_PUBLISH.md`);
 restored `YAML_GUIDE.md`, which had been accidentally left untracked despite being linked from
-README.md and BREAKDOWN.md.
+README.md.
 
 ---
 
@@ -369,25 +294,19 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 
 #### FastAPI live-tracing demo hardened (task 1.4)
 
-- `examples/fastapi_search/app.py` — added `?slow=1` query param (200ms sleep to trigger `latency_over_budget`), `RETOBS_LATENCY_BUDGET_MS` env var (default 50ms), score-filtering so zero-match queries produce `empty_candidates`, expanded corpus from 3 to 5 docs.
-- `docs/verification/fastapi_live_trace_run.md` — literal transcript of the full 10-request verification run: commands, responses, and the resulting trace table showing 3× `empty_candidates`, 2× `latency_over_budget`, 5× no failures.
+- FastAPI live-tracing demo hardened with score-filtering for empty candidates, configurable latency budget, and expanded corpus for end-to-end trace verification.
 
 
 
 #### Error messages and failure modes (task 1.5)
 
-- `retrieval_observatory/cli.py` — bad YAML in `retobs run` and `retobs validate` now prints a friendly one-line message + hint instead of a raw Python traceback.
-- `retrieval_observatory/pipeline/factory.py` — `_build_hf_biencoder_adapter` and `_build_hf_crossencoder_adapter` now check for `sentence-transformers`/`faiss-cpu` at pipeline build time (fail fast) rather than at first `retrieve()` call. Message: `"Install with: pip install retobs[dense]"`.
-- `retrieval_observatory/forge/generation/generator.py` — `_make_generator()` now checks for provider package at `ForgeGenerator.from_provider()` call time. Message: `"Install with: pip install retobs[llm-judge]"`.
-- `retrieval_observatory/cli.py` — `_forge_run` now catches `ImportError` (not just `ValueError`) from `ForgeGenerator.from_provider()`.
-- `docs/verification/error_messages_audit.md` — audit table of every triggered error class with before/after messages.
+- Friendlier CLI/pipeline error messages: fail-fast missing extras at build time, YAML parse hints instead of raw tracebacks.
 
 
 
 #### Docs (honesty pass)
 
-- `README.md` — added "LangChain & LlamaIndex — zero-touch tracing" section under TraceLens; updated `suspected_failures` description to explicitly label all four signals as rule-based/heuristic.
-- `BREAKDOWN.md` — integration table updated: `RetobsLangChainCallback` and `RetobsLlamaIndexCallback` listed as real `BaseCallbackHandler` subclasses (not "manual stage wrapping"); `predicted_difficulty` and `suspected_failures` both labeled **heuristic rule-based**.
+- Docs honesty pass: LangChain/LlamaIndex callbacks labeled as real adapters; suspected-failure and difficulty signals labeled heuristic.
 
 
 
@@ -434,9 +353,7 @@ Adoption release: Python SDK (no YAML), native LangChain/LlamaIndex callbacks, `
 - `examples/demo_phases.py` — walkthrough of SDK Phases 1–3 (single-stage, multi-stage, monolith, synthetic testset)
 - `examples/sdk_quickstart.py` — annotated quickstart with `@ro.retriever` and multi-stage form
 - `docs/ci_gating.md` — pytest fixture usage, golden-run pattern, CLI alternative
-- `README.md` — new "benchmark your pipeline in Python (no YAML)" section; zero-label and pytest-gate snippets added
-- `PLAN.md` — full adoption roadmap (Phases 0–4 committed; Phases 5–7 demand-gated)
-- `FUTURE_EDITS.md` — Phases 5–7 in Problem→Fix→Implementation format
+- README — new "benchmark your pipeline in Python (no YAML)" section; zero-label and pytest-gate snippets added.
 
 
 
@@ -534,10 +451,8 @@ Major milestone: the four-mode **retrieval reliability platform**. Forge, TraceL
 ### Docs & CI
 
 - `README.md` — rewritten as reliability-platform-first; `retobs demo` tour, four-mode table, TraceLens, Advisor, benchmark results table
-- `BREAKDOWN.md` — technical reference (this file's predecessor)
-- `RESULTS.md` — full benchmark results: NFCorpus, SciFact, FiQA (1,271 queries); Pareto analysis
 - `results/BENCHMARK_ANALYSIS.md` — deep-dive Pareto analysis and statistical methodology
-- `YAML_GUIDE.md` — six copy-paste YAML templates + LLM prompt for generating configs
+- `docs/YAML_GUIDE.md` — six copy-paste YAML templates + LLM prompt for generating configs
 - `.github/workflows/retrieval-ci.yml` — golden regression gate on PRs
 - `pyproject.toml` — added `forge`, `tracelens`, `cohere`, `pgvector`, `llm-judge` optional extras
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "retrieval-observatory"
-version = "0.4.2"
+version = "0.5.0"
 description = "Local-first retrieval reliability for evaluating, comparing, and debugging multi-stage RAG retrieval"
 readme = "README.md"
 requires-python = ">=3.10"
