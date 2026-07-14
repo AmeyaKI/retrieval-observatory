@@ -39,7 +39,7 @@ export default function DatasetList({ datasets, activeId, onSelect }: Props) {
     return (
       <div className="flex-1 flex items-center justify-center px-4">
         <p className="text-sm text-gray-400 dark:text-slate-500 text-center">
-          No Forge datasets yet.<br />
+          No Test Sets yet.<br />
           Run <code className="text-amber-700 bg-amber-50 px-1 rounded">retobs forge run</code> to create one.
         </p>
       </div>

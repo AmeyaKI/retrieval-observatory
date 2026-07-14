@@ -1,7 +1,6 @@
 """Golden-run smoke: hybrid fixture run → pipeline-graph + pareto-frontier invariants."""
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -77,5 +76,5 @@ async def test_hybrid_run_pipeline_graph_and_pareto_smoke(tmp_path: Path) -> Non
                 assert m["ndcg@10_ci_low"] <= m["ndcg@10"] <= m["ndcg@10_ci_high"]
 
         manifest = client.get(f"/dbs/{db_id}/runs/{run_id}/overview").json()["manifest"]
-        assert manifest.get("schema_version") == 2
+        assert manifest.get("schema_version") == 3
         assert manifest.get("stage_labels")

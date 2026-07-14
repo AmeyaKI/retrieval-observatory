@@ -2,9 +2,7 @@
 for linear (non-branching) pipelines."""
 from __future__ import annotations
 
-import asyncio
-from collections import defaultdict
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Set
 
 import pytest
 

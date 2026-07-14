@@ -15,7 +15,21 @@ async def _seed_run(db_path: Path, run_id: str, dataset_name: str) -> None:
     store = SQLiteStore(db_path=str(db_path))
     await store.init_db()
     await store.save_run(run_id, f"exp-{run_id}", json.dumps({"dataset": {"name": dataset_name}}))
-    manifest = {"dataset": {"name": dataset_name, "n_queries": 10}}
+    manifest = {
+        "schema_version": 3,
+        "dataset": {
+            "name": dataset_name,
+            "query_hash": f"queries:{dataset_name}",
+            "corpus_hash": f"corpus:{dataset_name}",
+            "qrel_hash": f"qrels:{dataset_name}",
+        },
+        "labeling": {"method": "gold", "judge": None, "model": None, "version": None},
+        "execution": {"seed": 1, "cache_results": False, "timeout_ms": 5000},
+        "git_commit": "commit",
+        "git_dirty": False,
+        "models": [{"model": "bm25"}],
+        "packages": {"retobs": "test"},
+    }
     await store.save_run_manifest(run_id, manifest)
     await store.save_metric(
         run_id=run_id,
@@ -72,7 +86,8 @@ async def test_cross_db_compare_warns_on_different_datasets(two_db_registry: DbR
     assert resp.status_code == 200
     body = resp.json()
     assert body["warnings"]
-    assert "different datasets" in body["warnings"][0].lower()
+    assert body["comparability"]["outcome"] == "invalid"
+    assert body["comparability"]["decision_allowed"] is False
     assert "comparison" in body
     assert body["comparison"]
 

@@ -39,14 +39,14 @@ function orderDifficulty(counts: Record<string, number>): Record<string, number>
   return out
 }
 
-export default function Distribution({ service, since }: { service: string; since?: string }) {
+export default function Distribution({ dbId, service, since }: { dbId: string; service: string; since?: string }) {
   const [dist, setDist] = useState<TraceDistribution | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setDist(null)
-    fetchTraceDistribution(service, since).then(setDist).catch((e) => setError(e.message))
-  }, [service, since])
+    fetchTraceDistribution(dbId, service, since).then(setDist).catch((e) => setError(e.message))
+  }, [dbId, service, since])
 
   if (error) return <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
   if (!dist) return <div className="text-sm text-gray-400 dark:text-slate-500">Loading distribution…</div>

@@ -27,9 +27,9 @@ important conclusion is first:
 
 - **Headline quality** (recall@k, nDCG@k) and **latency** for each pipeline.
 - **Biggest failures** — the queries dragging your score down.
-- **Recommendations** — the Advisor's ranked suggestions (see
+- **Recommended next steps** — evidence-scoped findings (see
   [advisor.md](advisor.md)).
-- **Benchmark health** — dataset fingerprint, seed, and any validation warnings.
+- **Evidence health** — dataset fingerprint, seed, sample size, and validation warnings.
 
 You should not need to open another page to know whether the run is good.
 
@@ -66,15 +66,15 @@ you have found the culprit — with evidence.
 
 ## 6. Improve and validate
 
-Apply the Advisor's recommendation (for example, swap or tune the reranker, increase
+Apply the evidence-backed recommendation (for example, swap or tune the reranker, increase
 first-stage `k`, or add a dense arm — see [hybrid-retrieval.md](hybrid-retrieval.md)). Then
 run again:
 
 ```bash
-retobs run --config your-config.yaml
+retobs evaluate --config your-config.yaml
 ```
 
-Open **Run Comparison**, select the two runs, and read the diff. The **comparability
+Open **Compare**, select the baseline and candidate runs, and read the diff. The **validity
 banner** at the top warns you if the two runs are not actually comparable (different dataset
 content, seed, code version). If they are comparable, confirm the failing query recovered and
 that overall quality improved without a latency regression you can't afford.

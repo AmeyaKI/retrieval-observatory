@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -11,28 +10,206 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-app = typer.Typer(name="retobs", help="Retrieval Observatory — RAG pipeline benchmarking.")
+app = typer.Typer(
+    name="retobs",
+    help="Local-first retrieval reliability: evaluate, compare, debug, and investigate RAG retrieval.",
+    no_args_is_help=True,
+)
 mcp_app = typer.Typer(name="mcp", help="Run the MCP server and bootstrap agent integration.")
 classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
 forge_app = typer.Typer(name="forge", help="Generate corpus-specific stress-test evaluation datasets.")
 tracelens_app = typer.Typer(name="tracelens", help="Production retrieval observability — inspect and monitor live traces.")
 advisor_app = typer.Typer(name="advisor", help="Reliability advisor — regressions, recommendations, golden sets.")
-app.add_typer(mcp_app, name="mcp")
-app.add_typer(classifier_app, name="classifier")
-app.add_typer(forge_app, name="forge")
-app.add_typer(tracelens_app, name="tracelens")
-app.add_typer(advisor_app, name="advisor")
+testsets_app = typer.Typer(name="testsets", help="Generate, inspect, and list retrieval Test Sets.")
+production_app = typer.Typer(name="production", help="Inspect sampled production retrieval traces and findings.")
+app.add_typer(testsets_app, name="testsets")
+app.add_typer(production_app, name="production")
+app.add_typer(mcp_app, name="mcp", hidden=True)
+app.add_typer(classifier_app, name="classifier", hidden=True)
+app.add_typer(forge_app, name="forge", hidden=True, deprecated=True)
+app.add_typer(tracelens_app, name="tracelens", hidden=True, deprecated=True)
+app.add_typer(advisor_app, name="advisor", hidden=True, deprecated=True)
 console = Console()
 
 
-@app.command()
+@forge_app.callback()
+def _forge_deprecated() -> None:
+    console.print("[yellow]Deprecated:[/yellow] use `retobs testsets` (legacy `forge` is removed in v1.0).")
+
+
+@tracelens_app.callback()
+def _tracelens_deprecated() -> None:
+    console.print("[yellow]Deprecated:[/yellow] use `retobs production` (legacy `tracelens` is removed in v1.0).")
+
+
+def _load_evaluate_target(spec: str):
+    """Load module:symbol or /path/file.py:symbol without mutating project files."""
+    import importlib
+    import importlib.util
+
+    if ":" not in spec:
+        raise ValueError("Callable target must use module:symbol or /path/file.py:symbol.")
+    module_ref, symbol = spec.rsplit(":", 1)
+    path = Path(module_ref)
+    if path.suffix == ".py" or path.exists():
+        resolved = path.resolve()
+        module_spec = importlib.util.spec_from_file_location(f"retobs_user_{resolved.stem}", resolved)
+        if module_spec is None or module_spec.loader is None:
+            raise ValueError(f"Cannot import Python file: {resolved}")
+        module = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(module_ref)
+    if not hasattr(module, symbol):
+        raise ValueError(f"Symbol '{symbol}' not found in {module_ref}.")
+    return getattr(module, symbol), module
+
+
+def _read_json_records(path: Path):
+    text = path.read_text(encoding="utf-8").strip()
+    if not text:
+        return []
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def _evaluate_inputs(module, queries_path: Optional[Path], corpus_path: Optional[Path], qrels_path: Optional[Path]):
+    queries = _read_json_records(queries_path) if queries_path else getattr(module, "QUERIES", getattr(module, "queries", None))
+    corpus_raw = _read_json_records(corpus_path) if corpus_path else getattr(module, "CORPUS", getattr(module, "corpus", None))
+    qrels_raw = _read_json_records(qrels_path) if qrels_path else getattr(module, "QRELS", getattr(module, "qrels", None))
+    if isinstance(corpus_raw, list):
+        corpus = {
+            str(row.get("id", row.get("doc_id"))): str(row.get("text", row.get("content", "")))
+            for row in corpus_raw
+        }
+    else:
+        corpus = corpus_raw
+    if isinstance(qrels_raw, list):
+        qrels = {
+            str(row["query_id"]): row.get("relevant_doc_ids", row.get("qrels", {}))
+            for row in qrels_raw
+            if isinstance(row, dict) and row.get("query_id")
+        }
+    else:
+        qrels = qrels_raw
+    if not queries or not corpus:
+        raise ValueError(
+            "Evaluation needs queries and corpus. Pass --queries/--corpus JSON(L), "
+            "or define QUERIES and CORPUS in the target module."
+        )
+    return queries, corpus, qrels
+
+
+@app.command("evaluate")
+def evaluate_cmd(
+    target: Optional[str] = typer.Argument(None, help="Python callable as module:symbol or /path/file.py:symbol."),
+    config: Optional[Path] = typer.Option(None, "--config", "-c", help="Advanced YAML evaluation config."),
+    queries: Optional[Path] = typer.Option(None, "--queries", help="Query JSON/JSONL; optional when module defines QUERIES."),
+    corpus: Optional[Path] = typer.Option(None, "--corpus", help="Corpus JSON/JSONL; optional when module defines CORPUS."),
+    qrels: Optional[Path] = typer.Option(None, "--qrels", help="Qrel JSON/JSONL; optional when queries embed relevant_doc_ids."),
+    k: int = typer.Option(10, "--k", min=1, help="Evaluation cutoff."),
+    name: Optional[str] = typer.Option(None, "--name", help="Run/pipeline display name."),
+    db: Optional[str] = typer.Option(None, "--db", help="SQLite result database; config output is used when omitted."),
+    max_queries: Optional[int] = typer.Option(None, "--max-queries", min=1, help="Bound the query sample."),
+    format: str = typer.Option("terminal", "--format", help="terminal|json|markdown|html"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the report artifact."),
+) -> None:
+    """Evaluate a Python retrieval callable, or an advanced YAML config with --config."""
+    import retrieval_observatory as ro
+
+    try:
+        if bool(target) == bool(config):
+            raise ValueError("Provide exactly one callable target or --config <yaml>.")
+        if config:
+            import yaml
+
+            payload = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+            report = ro.run_from_config(
+                payload,
+                db_path=db,
+                max_queries=max_queries,
+                config_base_dir=str(config.resolve().parent),
+            )
+        else:
+            pipeline, module = _load_evaluate_target(str(target))
+            query_rows, corpus_map, qrel_map = _evaluate_inputs(module, queries, corpus, qrels)
+            report = ro.evaluate(
+                pipeline,
+                queries=query_rows,
+                corpus=corpus_map,
+                qrels=qrel_map,
+                k=k,
+                name=name,
+                db_path=db or ".retobs/results.db",
+                max_queries=max_queries,
+            )
+    except Exception as error:
+        console.print(f"[red]Evaluation failed:[/red] {error}")
+        raise typer.Exit(1)
+
+    selected = format.lower()
+    renderers = {
+        "terminal": report.to_markdown,
+        "json": report.to_json,
+        "markdown": report.to_markdown,
+        "md": report.to_markdown,
+        "html": report.to_html,
+    }
+    if selected not in renderers:
+        console.print("[red]--format must be terminal, json, markdown, or html.[/red]")
+        raise typer.Exit(1)
+    if output:
+        report.write(output, format="md" if selected == "terminal" else selected)
+        console.print(f"[green]Report:[/green] {output.resolve()}")
+        console.print(f"[bold]Verdict:[/bold] {report.report.verdict}")
+        console.print(f"[bold]Next:[/bold] {report.report.next_action}")
+        console.print(f"[bold]Dashboard:[/bold] {report.report.dashboard_url}")
+    else:
+        typer.echo(renderers[selected]())
+
+
+@app.command("report")
+def report_cmd(
+    run_id: str = typer.Argument(..., help="Run ID."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite result database."),
+    format: str = typer.Option("terminal", "--format", help="terminal|json|markdown|html"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write report artifact."),
+) -> None:
+    """Render a persisted run through the canonical report contract."""
+    from retrieval_observatory.sdk.report import _run_sync, load_run_report
+
+    try:
+        report = _run_sync(load_run_report(run_id, db))
+    except Exception as error:
+        console.print(f"[red]Cannot build report:[/red] {error}")
+        raise typer.Exit(1)
+    selected = format.lower()
+    if output:
+        report.write(output, format="md" if selected == "terminal" else selected)
+        console.print(f"[green]Report:[/green] {output.resolve()}")
+        return
+    if selected == "json":
+        typer.echo(report.to_json())
+    elif selected in ("terminal", "markdown", "md"):
+        typer.echo(report.to_markdown())
+    elif selected == "html":
+        typer.echo(report.to_html())
+    else:
+        console.print("[red]--format must be terminal, json, markdown, or html.[/red]")
+        raise typer.Exit(1)
+
+
+@app.command(hidden=True, deprecated=True)
 def run(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
     skip_smoke_test: bool = typer.Option(False, "--skip-smoke-test", help="Skip ID consistency smoke test."),
     no_cache: bool = typer.Option(False, "--no-cache", help="Bypass result cache; re-run all queries."),
     latency_budget_ms: Optional[int] = typer.Option(None, "--latency-budget-ms", help="Latency budget per query in ms. If set, prints a verdict against stage deltas."),
 ) -> None:
-    """Run a benchmark experiment and store results."""
+    """Deprecated alias for `retobs evaluate --config`."""
+    console.print("[yellow]Deprecated:[/yellow] use `retobs evaluate --config <path>` (`run` is removed in v1.0).")
     asyncio.run(_run(config, skip_smoke_test, no_cache, latency_budget_ms))
 
 
@@ -159,7 +336,7 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
 
     # Print diagnostic failure mode summary
     _print_diagnostics_summary(diagnostics)
-    console.print(f"[dim]Tip: retobs inspect {run_id} --query <query_id> to debug individual failures.[/dim]")
+    console.print(f"[dim]Next: retobs inspect-query {run_id} <query_id> --db {cfg.output.db_path}[/dim]")
 
     # Export if requested
     if "json" in cfg.output.export:
@@ -174,73 +351,62 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
 
 @app.command()
 def compare(
-    run_id_1: str = typer.Argument(..., help="First run ID"),
-    run_id_2: str = typer.Argument(..., help="Second run ID"),
+    run_id_1: str = typer.Argument(..., help="Baseline run ID"),
+    run_id_2: str = typer.Argument(..., help="Candidate run ID"),
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path"),
+    format: str = typer.Option("terminal", "--format", help="terminal|json|markdown|html"),
+    output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the comparison artifact."),
+    fail_on: str = typer.Option("never", "--fail-on", help="never|regression|regression-or-no-decision"),
 ) -> None:
-    """Compare two benchmark runs with significance testing."""
-    asyncio.run(_compare(run_id_1, run_id_2, db_path))
+    """Compare an explicit baseline and candidate through the canonical validity/statistics contract."""
+    report = asyncio.run(_compare(run_id_1, run_id_2, db_path, format=format, output=output))
+    allowed = {"never", "regression", "regression-or-no-decision"}
+    if fail_on not in allowed:
+        console.print(f"[red]--fail-on must be one of: {', '.join(sorted(allowed))}.[/red]")
+        raise typer.Exit(2)
+    if fail_on == "regression" and report.verdict == "regression":
+        raise typer.Exit(1)
+    if fail_on == "regression-or-no-decision" and report.verdict in {"regression", "no_decision"}:
+        raise typer.Exit(1)
 
 
-async def _compare(run_id_1: str, run_id_2: str, db_path: str) -> None:
-    from retrieval_observatory.metrics.comparison import paired_scores_by_query
-    from retrieval_observatory.metrics.engine import MetricsEngine
-    from retrieval_observatory.metrics.significance import benjamini_hochberg, paired_bootstrap_test
-    from retrieval_observatory.store.sqlite import SQLiteStore
+async def _compare(
+    run_id_1: str,
+    run_id_2: str,
+    db_path: str,
+    *,
+    format: str = "terminal",
+    output: Optional[Path] = None,
+):
+    from retrieval_observatory.sdk.report import load_comparison_report
 
-    store = SQLiteStore(db_path=db_path)
-
-    engine = MetricsEngine()
-    agg1 = await engine.aggregate(run_id_1, store)
-    agg2 = await engine.aggregate(run_id_2, store)
-
-    all_keys = sorted(set(agg1.keys()) | set(agg2.keys()))
-
-    metrics1 = await store.get_metrics(run_id_1)
-    metrics2 = await store.get_metrics(run_id_2)
-
-    # Compute all p-values first so we can apply BH correction across metrics
-    row_data = []
-    raw_p_values = []
-    for key in all_keys:
-        a1 = agg1.get(key, {})
-        a2 = agg2.get(key, {})
-        mean1 = f"{(a1.get('mean') or 0):.4f} ± {(a1.get('std') or 0):.4f}" if a1 else "—"
-        mean2 = f"{(a2.get('mean') or 0):.4f} ± {(a2.get('std') or 0):.4f}" if a2 else "—"
-        s1, s2, n_pairs = paired_scores_by_query(metrics1, metrics2, key)
-        if s1 and s2:
-            p = paired_bootstrap_test(s1, s2)
-            raw_p_values.append(p)
-            row_data.append((key, mean1, mean2, p, n_pairs))
-        else:
-            row_data.append((key, mean1, mean2, None, 0))
-
-    q_values = benjamini_hochberg(raw_p_values)
-    q_idx = 0
-
-    table = Table(title=f"Run Comparison: {run_id_1} vs {run_id_2}")
-    table.add_column("Metric", style="bold")
-    table.add_column(run_id_1, justify="right")
-    table.add_column(run_id_2, justify="right")
-    table.add_column("p-value", justify="right")
-    table.add_column("q-value (BH)", justify="right")
-
-    for key, mean1, mean2, p, n_pairs in row_data:
-        if p is not None:
-            q = q_values[q_idx]
-            q_idx += 1
-            p_str = f"{p:.3f} ({n_pairs} pairs)"
-            q_str = f"[bold]{q:.3f} *[/bold]" if q < 0.05 else f"{q:.3f}"
-        else:
-            p_str = "—"
-            q_str = "—"
-        table.add_row(key, mean1, mean2, p_str, q_str)
-
-    console.print(table)
-    console.print("[dim]q-value: Benjamini-Hochberg FDR-adjusted p-value. Use q < 0.05 for significance.[/dim]")
+    try:
+        report = await load_comparison_report(run_id_1, run_id_2, db_path)
+    except Exception as error:
+        console.print(f"[red]Comparison failed:[/red] {error}")
+        raise typer.Exit(1)
+    selected = format.lower()
+    renderers = {
+        "terminal": report.to_markdown,
+        "json": report.to_json,
+        "markdown": report.to_markdown,
+        "md": report.to_markdown,
+        "html": report.to_html,
+    }
+    if selected not in renderers:
+        console.print("[red]--format must be terminal, json, markdown, or html.[/red]")
+        raise typer.Exit(2)
+    if output:
+        report.write(output, format="md" if selected == "terminal" else selected)
+        console.print(f"[green]Report:[/green] {output.resolve()}")
+        console.print(f"[bold]Verdict:[/bold] {report.verdict}")
+        console.print(f"[bold]Next:[/bold] {report.next_action}")
+    else:
+        typer.echo(renderers[selected]())
+    return report
 
 
-@app.command("diff-configs")
+@app.command("diff-configs", hidden=True)
 def diff_configs_cmd(
     config_a: Path = typer.Argument(..., help="Path to the 'before' experiment YAML config."),
     config_b: Path = typer.Argument(..., help="Path to the 'after' experiment YAML config."),
@@ -366,10 +532,23 @@ def mcp_init(
 
 @app.command("integrate")
 def integrate_cmd(
-    framework: str = typer.Option(..., "--framework", "-f", help="langchain|llamaindex|fastapi|http|python"),
+    project_root: Path = typer.Argument(Path("."), help="Project root to inspect when --plan is used."),
+    framework: Optional[str] = typer.Option(None, "--framework", "-f", help="langchain|llamaindex|fastapi|http|python"),
     check: bool = typer.Option(False, "--check", help="Print verification steps after the snippet."),
+    plan: bool = typer.Option(False, "--plan", help="Inspect the project and print a read-only integration plan."),
 ) -> None:
-    """Print the wiring snippet for instrumenting an existing pipeline."""
+    """Plan an integration or print one framework's wiring reference."""
+    if plan:
+        from retrieval_observatory.integrations.wire import plan_project
+
+        result = plan_project(project_root, framework=framework)
+        console.print_json(data=result)
+        if result.get("status") == "failed":
+            raise typer.Exit(1)
+        return
+    if not framework:
+        console.print("[red]Pass --framework for a reference snippet, or use --plan for project detection.[/red]")
+        raise typer.Exit(1)
     from retrieval_observatory.integrations.registry import describe_integration
 
     guide = describe_integration(framework)
@@ -390,7 +569,21 @@ def integrate_cmd(
         console.print("Then: retobs doctor && retobs mcp (verify_integration tool)")
 
 
-@app.command("wire")
+@app.command("verify")
+def verify_cmd(
+    project_root: Path = typer.Argument(Path("."), help="Integrated project root."),
+    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite evidence database."),
+) -> None:
+    """Verify integration evidence and capability readiness."""
+    from retrieval_observatory.integrations.wire import verify_project
+
+    result = asyncio.run(verify_project(project_root, db_path=db))
+    console.print_json(data=result)
+    if result.get("status") != "ready":
+        raise typer.Exit(1)
+
+
+@app.command("wire", hidden=True, deprecated=True)
 def wire_cmd(
     project_root: Path = typer.Argument(Path("."), help="Project root to wire retobs into."),
     framework: Optional[str] = typer.Option(None, "--framework", "-f", help="Override auto-detected framework."),
@@ -399,6 +592,10 @@ def wire_cmd(
     verify: bool = typer.Option(False, "--verify", help="Verify wiring after agent patches (phase=verify)."),
     db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB for verify phase."),
 ) -> None:
+    console.print(
+        "[yellow]Deprecated:[/yellow] use `retobs integrate . --plan`, apply its patches, then "
+        "`retobs verify .` (`wire` is removed in v1.0)."
+    )
     """Wire retobs into an external project (setup or verify). Agent twin of MCP wire_project."""
     from retrieval_observatory.integrations.wire import setup_project, verify_project
 
@@ -421,7 +618,7 @@ def wire_cmd(
         for path in result["files_written"]:
             console.print(f"  {path}")
     if result.get("wiring_brief"):
-        console.print("\n[bold]Wiring brief[/bold] — apply patches, then: [cyan]retobs wire . --verify[/cyan]")
+        console.print("\n[bold]Wiring brief[/bold] — apply patches, then: [cyan]retobs verify .[/cyan]")
         for patch in result["wiring_brief"].get("patches", []):
             console.print(f"  - {patch.get('file')}: {patch.get('description')}")
     if result.get("post_wiring_commands"):
@@ -437,9 +634,11 @@ def wire_cmd(
         console.print(f"\n[green]See[/green] {retos} for agent/human next steps.")
     if result.get("agent_instructions"):
         console.print(f"\n[dim]{result['agent_instructions']}[/dim]")
+    if verify and result.get("status") != "ready":
+        raise typer.Exit(1)
 
 
-@app.command("doctor")
+@app.command("doctor", hidden=True, deprecated=True)
 def doctor_cmd(
     db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB to probe."),
 ) -> None:
@@ -501,7 +700,7 @@ def doctor_cmd(
     console.print("[green]All checks passed.[/green]")
 
 
-@app.command()
+@app.command(hidden=True)
 def diagram(
     run_id: str = typer.Argument(..., help="Run ID to render."),
     output: str = typer.Option("diagram.html", "--output", "-o", help="Output HTML file path."),
@@ -563,7 +762,7 @@ def _print_diagnostics_summary(diagnostics: list) -> None:
     table.add_column("Failure Modes", justify="left")
     table.add_column("Difficulty Buckets", justify="left")
 
-    label_order = ["candidate_miss", "reranker_drop", "lexical_mismatch", "semantic_mismatch", "id_or_qrel_issue", "unstable"]
+    label_order = ["candidate_miss", "reranker_drop", "not_retrieved_by_any_pipeline", "qrel_not_in_corpus", "corpus_identity_unknown", "lexical_mismatch", "semantic_mismatch", "unstable"]
     for pid, data in sorted(by_pipeline.items()):
         total = data["total"]
         labels_str = "  ".join(
@@ -757,14 +956,78 @@ def _print_stage_contribution(
                 console.print("  [dim]→ Adjust your latency budget in the dashboard (retobs serve) to explore tradeoffs.[/dim]")
 
 
-@app.command()
+@app.command("inspect-query")
+def inspect_query_cmd(
+    run_id: str = typer.Argument(..., help="Run ID."),
+    query_id: str = typer.Argument(..., help="Query ID."),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
+    format: str = typer.Option("terminal", "--format", help="terminal|json"),
+) -> None:
+    """Inspect one run-scoped query evidence chain."""
+    asyncio.run(_inspect_query_contract(run_id, query_id, db_path, format))
+
+
+async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, format: str) -> None:
+    from retrieval_observatory.evidence import build_query_evidence
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    await store.init_db()
+    try:
+        evidence = await build_query_evidence(
+            store,
+            db_id=Path(db_path).stem,
+            run_id=run_id,
+            query_id=query_id,
+        )
+    except LookupError as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(1)
+    if format == "json":
+        typer.echo(json.dumps(evidence, indent=2, sort_keys=True, default=str))
+        return
+    if format != "terminal":
+        console.print("[red]--format must be terminal or json.[/red]")
+        raise typer.Exit(2)
+
+    console.print(f"[bold]Query:[/bold] {query_id}  [dim](run {run_id})[/dim]")
+    console.print(evidence["query"].get("text") or "[dim]Query text unavailable[/dim]")
+    ground_truth = evidence["ground_truth"]
+    console.print(
+        f"[bold]Ground truth:[/bold] {ground_truth['evidence_class']} · "
+        f"{len(ground_truth['relevant_doc_ids'])} relevant document(s)"
+    )
+    warnings = evidence["evidence_health"]["warnings"]
+    if warnings:
+        console.print("[yellow]Partial evidence:[/yellow] " + "; ".join(warnings))
+    table = Table(title="Operator traces")
+    table.add_column("Pipeline")
+    table.add_column("Status")
+    table.add_column("Operators", justify="right")
+    table.add_column("Wall latency", justify="right")
+    for trace in evidence["traces"]:
+        table.add_row(
+            str(trace.get("pipeline_id")),
+            str(trace.get("status")),
+            str(len(trace.get("spans", []))),
+            f"{float(trace.get('total_latency_ms', 0)):.1f} ms",
+        )
+    console.print(table)
+    console.print(
+        f"[bold]Next:[/bold] retobs serve --db {db_path}  "
+        f"[dim]→ #/runs/{run_id}/queries/{query_id}[/dim]"
+    )
+
+
+@app.command("inspect", hidden=True, deprecated=True)
 def inspect(
     run_id: str = typer.Argument(..., help="Run ID to inspect"),
     query_id: str = typer.Option(..., "--query", "-q", help="Query ID to inspect"),
     pipeline_id: Optional[str] = typer.Option(None, "--pipeline", "-p", help="Pipeline ID (defaults to all)"),
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
 ) -> None:
-    """Inspect retrieved documents for a specific query and pipeline."""
+    """Deprecated alias for `retobs inspect-query`."""
+    console.print("[yellow]Deprecated:[/yellow] use `retobs inspect-query RUN QUERY` (`inspect` is removed in v1.0).")
     asyncio.run(_inspect(run_id, query_id, pipeline_id, db_path))
 
 
@@ -856,7 +1119,7 @@ async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_pa
             console.print()
 
 
-@app.command()
+@app.command(hidden=True)
 def validate(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Optional SQLite DB for saving the report."),
@@ -885,7 +1148,7 @@ def validate(
         raise typer.Exit(1)
 
 
-@app.command()
+@app.command(hidden=True)
 def init(
     output: Path = typer.Option(Path("retobs_experiment.yaml"), "--output", "-o"),
     mode: str = typer.Option("custom-jsonl", "--mode", help="beir, custom-jsonl, http-endpoint, bm25+dense, bm25+reranker, reliability-demo"),
@@ -1353,6 +1616,7 @@ def _load_corpus_from_jsonl(corpus_path: str) -> dict:
     return corpus
 
 
+@testsets_app.command("scan")
 @forge_app.command("scan")
 def forge_scan(
     corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
@@ -1366,7 +1630,7 @@ def forge_scan(
     """
     from retrieval_observatory.forge.scenarios.registry import detect_all
 
-    console.print(f"[bold]Forge Scan:[/bold] {corpus}")
+    console.print(f"[bold]Test Set scan:[/bold] {corpus}")
     corp = _load_corpus_from_jsonl(str(corpus))
     console.print(f"Loaded [bold]{len(corp)}[/bold] documents.")
 
@@ -1396,9 +1660,10 @@ def forge_scan(
     console.print(table)
     for t, count in by_type.items():
         console.print(f"  [green]{t}:[/green] {count} scenario(s)")
-    console.print(f"\n[dim]Run [bold]retobs forge run --corpus {corpus}[/bold] to generate queries from these scenarios.[/dim]")
+    console.print(f"\n[dim]Run [bold]retobs testsets generate --corpus {corpus} --output <dir>[/bold] to generate queries.[/dim]")
 
 
+@testsets_app.command("generate")
 @forge_app.command("run")
 def forge_run(
     corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
@@ -1416,7 +1681,7 @@ def forge_run(
     max_per_type: int = typer.Option(30, "--max-scenarios", help="Max scenarios to detect per scenario type."),
     db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to register the dataset in (so it appears in the dashboard)."),
 ) -> None:
-    """Generate a corpus-specific stress-test evaluation dataset using Forge.
+    """Generate a corpus-specific retrieval Test Set.
 
     Step 1: Scans your corpus for failure patterns (temporal confusion, alias mismatches).
     Step 2: Uses an LLM to generate targeted hard queries for each scenario.
@@ -1463,7 +1728,7 @@ async def _forge_run(
     from retrieval_observatory.forge.generation.generator import ForgeGenerator
     from retrieval_observatory.forge.stress.suite import StressTestSuite
 
-    console.print(f"[bold green]Forge:[/bold green] Loading corpus from {corpus_path}")
+    console.print(f"[bold green]Test Sets:[/bold green] Loading corpus from {corpus_path}")
     corp = _load_corpus_from_jsonl(corpus_path)
     console.print(f"Loaded [bold]{len(corp)}[/bold] documents.")
 
@@ -1533,7 +1798,7 @@ async def _forge_run(
     suite = StressTestSuite(dataset)
     summary = suite.summary()
 
-    table = Table(title="Forge Dataset Summary", show_header=True)
+    table = Table(title="Test Set Summary", show_header=True)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="bold")
     table.add_row("Total queries", str(summary["total_queries"]))
@@ -1581,6 +1846,7 @@ async def _forge_run(
                     "failure_category": q.failure_category,
                     "validated": q.validated,
                     "positive_doc_ids": q.positive_doc_ids,
+                    "metadata": q.metadata,
                 }
                 for q in dataset.queries
             ]),
@@ -1592,10 +1858,11 @@ async def _forge_run(
     console.print(f"\n[green]Dataset saved to:[/green] {output_dir}")
     console.print(f"[dim]LLM calls used: {generator.calls_used} / {generator.budget}[/dim]")
     console.print(
-        "\n[dim]Tip: Use this dataset with retobs run by pointing your config to the exported corpus.jsonl and queries.jsonl.[/dim]"
+        "\n[dim]Next: evaluate this Test Set with `retobs evaluate --config <config.yaml>`.[/dim]"
     )
 
 
+@testsets_app.command("list")
 @forge_app.command("list")
 def forge_list(
     db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite DB to read from."),
@@ -1609,7 +1876,7 @@ async def _forge_list(db_path: str) -> None:
 
     if not Path(db_path).exists():
         console.print(f"[red]Database not found:[/red] {db_path}")
-        console.print("[dim]Run 'retobs demo' to create a demo database, or 'retobs forge run' to generate a dataset.[/dim]")
+        console.print("[dim]Run `retobs demo` or `retobs testsets generate --corpus <file> --output <dir>` first.[/dim]")
         return
 
     store = SQLiteStore(db_path=db_path)
@@ -1617,11 +1884,11 @@ async def _forge_list(db_path: str) -> None:
     datasets = await store.get_forge_datasets()
 
     if not datasets:
-        console.print(f"[yellow]No Forge datasets in {db_path}.[/yellow]")
-        console.print("[dim]Run: retobs forge run --corpus <corpus.jsonl> --output <dir> --db " + db_path + "[/dim]")
+        console.print(f"[yellow]No Test Sets in {db_path}.[/yellow]")
+        console.print("[dim]Run: retobs testsets generate --corpus <corpus.jsonl> --output <dir> --db " + db_path + "[/dim]")
         return
 
-    table = Table(title=f"Forge Datasets — {db_path}", show_header=True)
+    table = Table(title=f"Test Sets — {db_path}", show_header=True)
     table.add_column("Dataset ID", style="bold cyan")
     table.add_column("Created", style="dim")
     table.add_column("Scenarios", justify="right")
@@ -1637,8 +1904,8 @@ async def _forge_list(db_path: str) -> None:
         table.add_row(
             d["dataset_id"],
             created,
-            str(s.get("n_scenarios", "?")),
-            str(s.get("n_queries", "?")),
+            str(s.get("total_scenarios", "?")),
+            str(s.get("total_queries", "?")),
             str(s.get("validated", 0)),
             corpus_short,
         )
@@ -1655,14 +1922,14 @@ async def _forge_list(db_path: str) -> None:
 def demo(
     output_dir: Path = typer.Option(Path(".retobs/demo"), "--output-dir", "-o", help="Directory for all demo outputs."),
     db: str = typer.Option(".retobs/demo/results.db", "--db", "--db-path", help="SQLite DB to write all data into."),
-    service: str = typer.Option("demo", "--service", help="TraceLens service name for synthetic traces."),
-    n_traces: int = typer.Option(300, "--n-traces", help="Synthetic TraceLens traces to seed."),
+    service: str = typer.Option("demo", "--service", help="Production service name for synthetic traces."),
+    n_traces: int = typer.Option(300, "--n-traces", help="Synthetic production traces to seed."),
     keep_db: bool = typer.Option(False, "--keep-db", help="Append to existing DB instead of starting fresh."),
     full: bool = typer.Option(False, "--full", help="Also run multi-stage BM25+rereank ablation benchmark."),
 ) -> None:
-    """Build a full reliability-platform demo: Forge → baseline + degraded benchmarks → TraceLens → Advisor.
+    """Build a temporal regression story: Test Set → compare → query cause → validated fix.
 
-    No API keys required. Seeds flawed/degraded data so all four dashboard modes are worth exploring.
+    No API keys required. Includes sampled production traces and evidence-backed findings.
 
     After completion: retobs serve --db <db>  →  http://localhost:4000
     """
@@ -1698,7 +1965,7 @@ async def _demo(
         console.print(f"[dim]Removed existing demo DB: {db_path}[/dim]")
 
     # ── Step 1: Write synthetic corpus ──────────────────────────────────────
-    console.print("\n[bold cyan]Step 1/8[/bold cyan] Building synthetic RAG-domain corpus...")
+    console.print("\n[bold cyan]Step 1/9[/bold cyan] Building synthetic RAG-domain corpus...")
     corpus_docs = _demo_corpus_docs()
     corpus_path = out / "corpus.jsonl"
     corpus_path.write_text("\n".join(json.dumps(d) for d in corpus_docs), encoding="utf-8")
@@ -1706,7 +1973,7 @@ async def _demo(
     console.print(f"  [green]✓[/green] {len(corpus_docs)} documents → {corpus_path}")
 
     # ── Step 2: Forge scan (real detector, no LLM) ───────────────────────────
-    console.print("\n[bold cyan]Step 2/8[/bold cyan] Scanning corpus for failure scenarios (no LLM)...")
+    console.print("\n[bold cyan]Step 2/9[/bold cyan] Scanning corpus for failure scenarios (no LLM)...")
     scenarios = detect_all(corpus_dict, types=["temporal", "alias"], max_per_type=20)
     temporal = [s for s in scenarios if s.scenario_type == "temporal"]
     alias = [s for s in scenarios if s.scenario_type == "alias"]
@@ -1715,12 +1982,12 @@ async def _demo(
         console.print("[yellow]  No scenarios detected. Check corpus content.[/yellow]")
 
     # ── Step 3: Build synthetic queries (no LLM) ─────────────────────────────
-    console.print("\n[bold cyan]Step 3/8[/bold cyan] Building synthetic queries (hand-crafted, no LLM)...")
+    console.print("\n[bold cyan]Step 3/9[/bold cyan] Building Test Set queries (rule-based, no LLM)...")
     synthetic_queries, qrels = _build_demo_queries(scenarios, corpus_dict)
     console.print(f"  [green]✓[/green] {len(synthetic_queries)} queries ({len(qrels)} with qrels)")
 
     # ── Step 4: Export Forge dataset and register in store ────────────────────
-    console.print("\n[bold cyan]Step 4/8[/bold cyan] Exporting Forge dataset and registering in store...")
+    console.print("\n[bold cyan]Step 4/9[/bold cyan] Exporting and registering the Test Set...")
     forge_dir = out / "forge_dataset"
     dataset = SyntheticDataset(
         dataset_id="demo",
@@ -1757,26 +2024,31 @@ async def _demo(
             {"query_id": q.query_id, "text": q.text, "scenario_id": q.scenario_id,
              "query_type": q.query_type, "difficulty_label": q.difficulty_label,
              "failure_category": q.failure_category, "validated": q.validated,
-             "positive_doc_ids": q.positive_doc_ids}
+             "positive_doc_ids": q.positive_doc_ids, "metadata": q.metadata}
             for q in synthetic_queries
         ]),
     )
-    console.print(f"  [green]✓[/green] Forge dataset 'demo' registered in {db_path}")
-    console.print(f"         {summary['n_scenarios']} scenarios, {summary['n_queries']} queries, "
-                  f"difficulty mix: {summary.get('queries_by_difficulty', {})}")
+    console.print(f"  [green]✓[/green] Test Set 'demo' registered in {db_path}")
+    console.print(f"         {summary['total_scenarios']} scenarios, {summary['total_queries']} queries, "
+                  f"difficulty mix: {summary.get('by_difficulty', {})}")
 
     # ── Step 5: Baseline BM25 benchmark (healthy k) ─────────────────────────
-    console.print("\n[bold cyan]Step 5/8[/bold cyan] Running baseline BM25 benchmark (k=20)...")
+    console.print("\n[bold cyan]Step 5/9[/bold cyan] Evaluating the baseline BM25 configuration (k=20)...")
     baseline_config = out / "benchmark_baseline.yaml"
     degraded_config = out / "benchmark_degraded.yaml"
+    validation_config = out / "benchmark_validation.yaml"
     queries_path = str((forge_dir / "queries.jsonl").resolve())
     corpus_path = str((forge_dir / "corpus.jsonl").resolve())
     baseline_config.write_text(
-        _demo_config_yaml(queries_path, corpus_path, db_path, k=20, experiment_name="forge-stress-baseline"),
+        _demo_config_yaml(queries_path, corpus_path, db_path, k=20, experiment_name="temporal-testset-baseline"),
         encoding="utf-8",
     )
     degraded_config.write_text(
-        _demo_config_yaml(queries_path, corpus_path, db_path, k=1, experiment_name="forge-stress-degraded"),
+        _demo_config_yaml(queries_path, corpus_path, db_path, k=1, experiment_name="temporal-source-regression"),
+        encoding="utf-8",
+    )
+    validation_config.write_text(
+        _demo_config_yaml(queries_path, corpus_path, db_path, k=20, experiment_name="temporal-fix-validation"),
         encoding="utf-8",
     )
     (out / "benchmark_config.yaml").write_text(baseline_config.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1787,12 +2059,19 @@ async def _demo(
     console.print(f"  [green]✓[/green] Baseline run: [bold]{baseline_run_id}[/bold]")
 
     # ── Step 6: Degraded BM25 benchmark (starved k) ───────────────────────────
-    console.print("\n[bold cyan]Step 6/8[/bold cyan] Running degraded BM25 benchmark (k=1) for Advisor regression demo...")
+    console.print("\n[bold cyan]Step 6/9[/bold cyan] Evaluating a regressed candidate with a starved source (k=1)...")
     await _run(degraded_config, skip_smoke_test=True, no_cache=True, latency_budget_ms=800)
 
     runs = await store.list_runs()
     candidate_run_id = runs[0]["run_id"] if runs else "?"
     console.print(f"  [green]✓[/green] Degraded run: [bold]{candidate_run_id}[/bold]")
+
+    # The explicit post-change validation closes the story rather than ending at a recommendation.
+    console.print("\n[bold cyan]Step 7/9[/bold cyan] Validating the source-depth fix on the same Test Set (k=20)...")
+    await _run(validation_config, skip_smoke_test=True, no_cache=True, latency_budget_ms=800)
+    runs = await store.list_runs()
+    validation_run_id = runs[0]["run_id"] if runs else "?"
+    console.print(f"  [green]✓[/green] Validation run: [bold]{validation_run_id}[/bold]")
 
     ablation_run_id: Optional[str] = None
     if full:
@@ -1808,17 +2087,19 @@ async def _demo(
         console.print(f"  [green]✓[/green] Ablation run: [bold]{ablation_run_id}[/bold]")
 
     # ── Step 7: Seed TraceLens with drift + failure hotspots ──────────────────
-    console.print(f"\n[bold cyan]Step 7/8[/bold cyan] Seeding {n_traces} showcase TraceLens traces (drift + hotspots)...")
+    console.print(f"\n[bold cyan]Step 8/9[/bold cyan] Seeding {n_traces} sampled production traces (drift + hotspots)...")
     await _seed_showcase_traces(tracelens_service, n_traces, db_path)
 
     # ── Step 8: Advisor regression check ──────────────────────────────────────
-    console.print("\n[bold cyan]Step 8/8[/bold cyan] Running Advisor regression check...")
+    console.print("\n[bold cyan]Step 9/9[/bold cyan] Building comparison findings and validation evidence...")
     from retrieval_observatory.advisor.regression import detect_regressions
     from retrieval_observatory.advisor.recommend import recommend, compute_reliability
 
     await compute_reliability(baseline_run_id, store)
     await compute_reliability(candidate_run_id, store)
+    await compute_reliability(validation_run_id, store)
     findings = await detect_regressions(baseline_run_id, candidate_run_id, store)
+    validation_findings = await detect_regressions(candidate_run_id, validation_run_id, store)
     recs = await recommend(candidate_run_id, store)
 
     all_fq = await store.get_forge_queries(dataset.dataset_id, limit=500)
@@ -1830,13 +2111,15 @@ async def _demo(
     manifest = {
         "baseline_run_id": baseline_run_id,
         "candidate_run_id": candidate_run_id,
+        "validation_run_id": validation_run_id,
         "sample_query_id": sample_query_id,
         "tracelens_service": tracelens_service,
         "forge_dataset_id": dataset.dataset_id,
         "db_path": str(Path(db_path).resolve()),
         "experiment_names": {
-            "baseline": "forge-stress-baseline",
-            "degraded": "forge-stress-degraded",
+            "baseline": "temporal-testset-baseline",
+            "candidate": "temporal-source-regression",
+            "validation": "temporal-fix-validation",
         },
     }
     if ablation_run_id:
@@ -1851,34 +2134,37 @@ async def _demo(
     console.print("\n[bold]Run IDs[/bold]")
     console.print(f"  Baseline (healthy):  {baseline_run_id}")
     console.print(f"  Degraded (regressed): {candidate_run_id}")
+    console.print(f"  Validation (fixed):   {validation_run_id}")
     console.print(f"  Sample query (lineage): {sample_query_id}")
 
     if findings:
-        console.print(f"\n[bold yellow]Advisor regressions detected ({len(findings)}):[/bold yellow]")
+        console.print(f"\n[bold yellow]Decision-bearing regressions ({len(findings)}):[/bold yellow]")
         for f in findings[:5]:
             console.print(
                 f"  • {f.metric}: {f.before:.3f} → {f.after:.3f} (q={f.q_value:.4f}, {f.severity})"
             )
     else:
-        console.print("\n[yellow]Advisor: no significant regressions (unexpected — check query count).[/yellow]")
+        console.print("\n[yellow]No decision-bearing regression was found; inspect sample size and validity.[/yellow]")
 
     if recs:
-        console.print(f"\n[bold violet]Top recommendations for degraded run ({len(recs)}):[/bold violet]")
+        console.print(f"\n[bold violet]Evidence-backed next actions ({len(recs)}):[/bold violet]")
         for i, rec in enumerate(recs[:3], 1):
             console.print(f"  {i}. {rec.action}")
 
     console.print("\n[bold]Start the dashboard:[/bold]")
     console.print(f"  retobs serve --db {db_path}")
     console.print("  → http://localhost:4000")
-    console.print("\n[bold]Explore all four modes:[/bold]")
-    console.print("  [bold cyan]Benchmarks[/bold cyan]  Compare baseline vs degraded — stage attribution, failure labels, query explorer")
-    console.print("  [bold yellow]Forge[/bold yellow]       #/forge/demo — temporal + alias stress queries, View lineage →")
-    console.print(f"  [bold green]TraceLens[/bold green]   #/tracelens/{tracelens_service} — drift (recent vs baseline window), hotspots")
-    console.print("  [bold magenta]Advisor[/bold magenta]     #/advisor — recommendations + regression center (runs above)")
-    console.print(f"  [dim]Query lineage:[/dim]  #/query/{sample_query_id}")
+    console.print("\n[bold]Follow the debugging loop:[/bold]")
+    console.print("  [bold cyan]1. Compare[/bold cyan]     #/compare — baseline vs regressed candidate, validity first")
+    console.print(f"  [bold cyan]2. Debug query[/bold cyan] #/runs/{candidate_run_id}/queries/{sample_query_id} — locate the first relevant-document loss")
+    console.print(f"  [bold cyan]3. Validate[/bold cyan]    #/runs/{validation_run_id} — inspect the post-change run")
+    console.print("  [bold cyan]4. Test Set[/bold cyan]    #/test-sets/demo — inspect query and label provenance")
+    console.print(f"  [bold cyan]5. Production[/bold cyan]  #/production/{tracelens_service} — supporting traces and drift method")
     console.print("\n[bold]CLI:[/bold]")
-    console.print(f"  retobs advisor check --baseline {baseline_run_id} --candidate {candidate_run_id} --db {db_path}")
-    console.print(f"  retobs advisor recommend --run {candidate_run_id} --db {db_path}")
+    console.print(f"  retobs compare {baseline_run_id} {candidate_run_id} --db {db_path} --format markdown")
+    console.print(f"  retobs inspect-query {candidate_run_id} {sample_query_id} --db {db_path}")
+    if validation_findings:
+        console.print(f"  [yellow]Validation comparison still has {len(validation_findings)} regression finding(s); inspect before promotion.[/yellow]")
     console.print(f"{'─' * 60}\n")
 
 
@@ -2740,6 +3026,7 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
     )
 
 
+@production_app.command("demo")
 @tracelens_app.command("demo")
 def tracelens_demo(
     service: str = typer.Option("demo", "--service", help="Service name to attach the synthetic traces to."),
@@ -2752,9 +3039,10 @@ def tracelens_demo(
 
 async def _tracelens_demo(service: str, n: int, db_path: str) -> None:
     await _seed_showcase_traces(service, n, db_path)
-    console.print("[dim]Open the dashboard (retobs serve) → TraceLens mode to explore them.[/dim]")
+    console.print("[dim]Open `retobs serve` → Production to inspect supporting traces.[/dim]")
 
 
+@production_app.command("stats")
 @tracelens_app.command("stats")
 def tracelens_stats(
     service: str = typer.Option(..., "--service", help="Service name to summarize."),
@@ -2777,7 +3065,7 @@ async def _tracelens_stats(service: str, db_path: str) -> None:
     s = summarize(rows)
     dist = compute_distribution(rows)
 
-    table = Table(title=f"TraceLens — {service}", show_header=True)
+    table = Table(title=f"Production traces — {service}", show_header=True)
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="bold")
     table.add_row("Traces", str(s["trace_count"]))
@@ -2798,6 +3086,7 @@ async def _tracelens_stats(service: str, db_path: str) -> None:
         console.print(ftable)
 
 
+@production_app.command("purge")
 @tracelens_app.command("purge")
 def tracelens_purge(
     service: str = typer.Option(..., "--service", help="Service whose traces to purge."),
@@ -2839,34 +3128,13 @@ def advisor_check(
 
 
 async def _advisor_check(baseline: str, candidate: str, db_path: str) -> None:
-    from retrieval_observatory.advisor.regression import detect_regressions
-
-    store = _open_store(db_path)
-    await store.init_db()
-    findings = await detect_regressions(baseline, candidate, store)
-    if not findings:
-        console.print("[green]No significant regressions detected.[/green]")
-        return
-    table = Table(title="Regressions")
-    table.add_column("Metric")
-    table.add_column("Before")
-    table.add_column("After")
-    table.add_column("Delta")
-    table.add_column("q-value")
-    table.add_column("Severity")
-    table.add_column("n pairs")
-    for f in findings:
-        table.add_row(
-            f.metric,
-            f"{f.before:.4f}",
-            f"{f.after:.4f}",
-            f"{f.delta:+.4f}",
-            f"{f.q_value:.4f}",
-            f.severity,
-            str(f.n_pairs),
-        )
-    console.print(table)
-    raise typer.Exit(1)
+    console.print(
+        "[yellow]Deprecated:[/yellow] use `retobs compare BASELINE CANDIDATE --fail-on regression` "
+        "(`advisor check` is removed in v1.0)."
+    )
+    report = await _compare(baseline, candidate, db_path)
+    if report.verdict == "regression":
+        raise typer.Exit(1)
 
 
 @advisor_app.command("recommend")
@@ -2964,7 +3232,7 @@ async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> Non
     console.print(f"[green]Registered golden set '{set_name}' ({len(data)} queries).[/green]")
 
 
-@app.command()
+@app.command(hidden=True, deprecated=True)
 def quickstart(
     output_dir: Path = typer.Option(Path(".retobs/quickstart"), "--output-dir", "-o", help="Directory for all quickstart outputs."),
     db: str = typer.Option(".retobs/quickstart/results.db", "--db", "--db-path", help="SQLite DB to write results into."),

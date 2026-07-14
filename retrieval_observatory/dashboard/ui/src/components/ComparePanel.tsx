@@ -5,6 +5,7 @@ import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import RunComparisonDeepDiffs from './RunComparisonDeepDiffs'
+import StatusPanel from './StatusPanel'
 
 interface Props {
   selections: RunSelection[]
@@ -13,22 +14,12 @@ interface Props {
 /**
  * Comparability guard (Pillar 6): make it hard to accidentally compare incomparable
  * experiments. Surfaces exactly what differs (dataset content, seed, git commit, package
- * versions) before any metrics. Never blocks — warns with evidence.
+ * versions) before any metrics and blocks decision-bearing labels when invalid.
  */
 function ComparabilityBanner({ report }: { report: ComparabilityReport }) {
   if (report.differences.length === 0) return null
-  const blocking = !report.comparable
-  return (
-    <div
-      className={`mb-3 rounded-lg border p-3 text-sm ${
-        blocking
-          ? 'bg-red-50 border-red-300 text-red-800 dark:bg-red-950/40 dark:border-red-800 dark:text-red-200'
-          : 'bg-amber-50 border-amber-300 text-amber-800 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-200'
-      }`}
-    >
-      <div className="font-semibold mb-1">
-        {blocking ? '⚠ These runs may not be comparable' : 'Comparability notes'}
-      </div>
+  const blocking = !report.decision_allowed
+  const details = (
       <ul className="list-disc pl-5 space-y-0.5">
         {report.differences.map((d, i) => (
           <li key={i}>
@@ -37,8 +28,8 @@ function ComparabilityBanner({ report }: { report: ComparabilityReport }) {
           </li>
         ))}
       </ul>
-    </div>
   )
+  return <div className="mb-3"><StatusPanel kind={blocking ? 'invalid' : 'partial'} title={blocking ? 'No comparison decision — validity requirements failed' : 'Comparability notes'} message={details} /></div>
 }
 
 function fmt(v: number | null | undefined, decimals = 4): string {
@@ -82,17 +73,12 @@ function cellClass(isWinner: boolean, isLoser: boolean): string {
 function determineWinner(
   row: ComparisonEntry,
   runKeys: string[],
-  isLatency: boolean,
+  _isLatency: boolean,
 ): 'left' | 'right' | 'tie' | null {
   if (runKeys.length !== 2) return null
-  const a = (row[runKeys[0]] as { mean: number | null } | undefined)?.mean
-  const b = (row[runKeys[1]] as { mean: number | null } | undefined)?.mean
-  if (a == null || b == null) return null
-  const diff = Math.abs(a - b)
-  if (diff < 1e-5) return 'tie'
-  // For latency: lower is better; for quality: higher is better
-  if (isLatency) return a < b ? 'left' : 'right'
-  return a > b ? 'left' : 'right'
+  if (row.statistics?.decision === 'candidate_better') return 'right'
+  if (row.statistics?.decision === 'candidate_worse') return 'left'
+  return null
 }
 
 function SectionHeader({ title, note }: { title: string; note?: string }) {
@@ -139,11 +125,11 @@ function SummaryBanner({
     }`}>
       <span className="font-semibold">
         {overallWinner
-          ? `Run ${overallWinner} wins overall`
-          : 'Runs are roughly equivalent'}
+        ? `${overallWinner === 'B' ? 'Candidate improves' : 'Candidate regresses'} on the decision-bearing metrics`
+          : 'No decision-bearing metric difference'}
       </span>
       <span className="ml-2 text-xs opacity-75">
-        (A better on {aWins} metrics · B better on {bWins} metrics)
+        (baseline better on {aWins} · candidate better on {bWins}; BH-corrected and effect-thresholded)
       </span>
     </div>
   )
@@ -175,20 +161,15 @@ export default function ComparePanel({ selections }: Props) {
   }, [selections.map(selectionKey).join(',')])
 
   if (error) {
-    return (
-      <div className="p-6">
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
-      </div>
-    )
+    return <div className="p-6"><StatusPanel kind="error" title="Comparison could not be loaded" message={error} /></div>
   }
 
   if (!comparison) {
-    return (
-      <div className="p-6 flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 dark:border-slate-600 border-t-indigo-600" />
-        Loading comparison...
-      </div>
-    )
+    return <div className="p-6"><StatusPanel kind="loading" message="Loading baseline and candidate evidence…" /></div>
+  }
+
+  if (comparison.length === 0) {
+    return <div className="p-6"><StatusPanel kind="empty" title="No comparable measurements" message="The selected runs have no shared metrics." /></div>
   }
 
   const twoRuns = runKeys.length === 2
@@ -201,13 +182,16 @@ export default function ComparePanel({ selections }: Props) {
   const renderRows = (rows: ComparisonEntry[], isLatency: boolean) =>
     rows.map((row) => {
       const winner = twoRuns ? determineWinner(row, runKeys, isLatency) : null
-      const pv = row.p_value as number | undefined
-      const significant = pv !== undefined && pv < 0.05
+      const qv = row.q_value as number | null | undefined
+      const significant = row.statistics?.significant === true && !row.statistics.low_power
       return (
         <tr key={row.metric} className="hover:bg-gray-50 border-b border-gray-100 dark:border-slate-800">
           <td className="px-3 py-2 text-xs text-gray-800 dark:text-slate-100">
             {formatMetricKey(row.metric)}
             {twoRuns && <WinBadge winner={winner} />}
+            {twoRuns && row.statistics?.decision === 'no_decision' && (
+              <span className="ml-1.5 text-[10px] text-gray-500" title={row.statistics.reason}>no decision</span>
+            )}
           </td>
           {runKeys.map((key, i) => {
             const v = row[key] as { mean: number | null; std: number | null; ci_low?: number | null; ci_high?: number | null } | undefined
@@ -233,7 +217,7 @@ export default function ComparePanel({ selections }: Props) {
             )
           })}
           <td className={`px-3 py-2 text-right tabular-nums text-xs ${significant ? 'font-bold text-indigo-700' : 'text-gray-400 dark:text-slate-500'}`}>
-            {pv !== undefined ? `${pv.toFixed(3)}${significant ? ' *' : ''}` : '—'}
+            {qv != null ? `${qv.toFixed(3)}${significant ? ' *' : ''}` : '—'}
           </td>
         </tr>
       )
@@ -242,7 +226,7 @@ export default function ComparePanel({ selections }: Props) {
   // Short run labels (last part of db/runId)
   const runLabels = runKeys.map((k, i) => {
     const parts = k.split('/')
-    return { label: `Run ${String.fromCharCode(65 + i)}: ${parts[parts.length - 1]}`, full: k }
+    return { label: `${i === 0 ? 'Baseline' : i === 1 ? 'Candidate' : `Reference ${i - 1}`}: ${parts[parts.length - 1]}`, full: k }
   })
 
   return (
@@ -279,12 +263,12 @@ export default function ComparePanel({ selections }: Props) {
                     i === 0 ? 'text-green-700' : 'text-blue-700'
                   }`}
                 >
-                  {`Run ${String.fromCharCode(65 + i)}`}
+                  {i === 0 ? 'Baseline' : i === 1 ? 'Candidate' : `Reference ${i - 1}`}
                   <span className="block font-normal font-mono text-gray-400 dark:text-slate-500">{r.full}</span>
                 </th>
               ))}
               <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">
-                p-value
+                q-value
                 <MetricTooltip text={METRIC_GLOSSARY.p_value} alignLeft />
               </th>
             </tr>
@@ -314,10 +298,10 @@ export default function ComparePanel({ selections }: Props) {
 
       <div className="mt-3 space-y-1">
         <p className="text-xs text-gray-400 dark:text-slate-500">
-          * p &lt; 0.05 (paired bootstrap significance test on matched query IDs)
+          * q &lt; 0.05 after Benjamini–Hochberg correction, paired n ≥ 20, and the declared practical effect threshold is exceeded.
         </p>
         <p className="text-xs text-gray-400 dark:text-slate-500">
-          Green cells = winner on that metric. Win counts in summary banner include all metrics regardless of significance.
+          Winner labels appear only for valid, adequately powered, statistically significant, practically meaningful paired effects.
         </p>
         {!twoRuns && (
           <p className="text-xs text-amber-600">

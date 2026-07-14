@@ -20,3 +20,5 @@ diagnoses it:
 
 For the full CLI/config reference see [../USAGE.md](../USAGE.md) and
 [../YAML_GUIDE.md](../YAML_GUIDE.md).
+
+For the current task-oriented entry points, start with [Start](../START.md), [Workflow](../WORKFLOW.md), and [Reference](../REFERENCE.md). Guides that retain Forge, TraceLens, or Advisor in their filename describe the corresponding Test Sets, Production, or embedded Findings engine; those names are no longer peer products in navigation.

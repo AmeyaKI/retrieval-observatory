@@ -7,11 +7,17 @@ import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
-from retrieval_observatory.metrics.comparison import _scores_for, paired_scores_by_query, pipeline_pairs, parse_metric_key
+from retrieval_observatory.metrics.comparison import (
+    _scores_for,
+    compare_paired_metrics,
+    comparison_validity,
+    pipeline_pairs,
+    parse_metric_key,
+)
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.dashboard.registry import DbRegistry
@@ -76,6 +82,7 @@ try:
     class RunSelection(_BaseModel):
         db_id: str
         run_id: str
+        role: Optional[Literal["baseline", "candidate", "reference"]] = None
 
     class MultiCompareRequest(_BaseModel):
         selections: List[RunSelection]
@@ -172,88 +179,8 @@ def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_Compa
     return results
 
 
-def _dataset_fingerprint(manifest: Dict[str, Any] | None) -> str | None:
-    if not manifest:
-        return None
-    dataset = manifest.get("dataset")
-    if not dataset:
-        return None
-    return json.dumps(dataset, sort_keys=True, default=str)
-
-
-def _compare_warnings(fingerprints: List[str | None]) -> List[str]:
-    known = {fp for fp in fingerprints if fp is not None}
-    if len(known) > 1:
-        return ["Runs use different datasets; metrics may not be comparable."]
-    return []
-
-
 def _comparability_report(manifests: List[Dict[str, Any] | None]) -> Dict[str, Any]:
-    """Make it hard to accidentally compare incomparable experiments (Pillar 6).
-
-    Inspects each run's manifest for the axes that determine comparability — dataset
-    content hash, scheduler seed, git commit, key package versions — and reports exactly
-    what differs. Never blocks: it warns with evidence so the engineer decides.
-    """
-    def _dataset_content_hash(m: Dict[str, Any] | None) -> Any:
-        return (m or {}).get("dataset", {}).get("content_hash") if m else None
-
-    differences: List[Dict[str, Any]] = []
-
-    hashes = [_dataset_content_hash(m) for m in manifests]
-    known_hashes = {h for h in hashes if h}
-    if len(known_hashes) > 1:
-        differences.append({
-            "axis": "dataset_content",
-            "severity": "high",
-            "detail": "Runs were evaluated on different dataset content (content_hash differs); "
-                      "metric comparisons are not valid.",
-        })
-    elif not known_hashes:
-        differences.append({
-            "axis": "dataset_content",
-            "severity": "low",
-            "detail": "No dataset content_hash recorded; cannot confirm the runs used identical data.",
-        })
-
-    seeds = [(m or {}).get("seed") for m in manifests]
-    if len({s for s in seeds if s is not None}) > 1:
-        differences.append({
-            "axis": "seed",
-            "severity": "low",
-            "detail": f"Runs used different scheduler seeds ({sorted({s for s in seeds if s is not None})}); "
-                      "ordering-sensitive effects may differ.",
-        })
-
-    commits = [(m or {}).get("git_commit") for m in manifests]
-    if len({c for c in commits if c}) > 1:
-        differences.append({
-            "axis": "git_commit",
-            "severity": "medium",
-            "detail": "Runs were produced from different git commits; code changes may confound the comparison.",
-        })
-
-    def _pkgs(m):
-        return (m or {}).get("packages", {}) or {}
-    pkg_diffs = []
-    if len(manifests) >= 2:
-        base = _pkgs(manifests[0])
-        for m in manifests[1:]:
-            other = _pkgs(m)
-            for name in set(base) | set(other):
-                if base.get(name) != other.get(name):
-                    pkg_diffs.append(name)
-    if pkg_diffs:
-        differences.append({
-            "axis": "package_versions",
-            "severity": "medium",
-            "detail": f"Differing package versions: {sorted(set(pkg_diffs))}.",
-        })
-
-    return {
-        "comparable": not any(d["severity"] == "high" for d in differences),
-        "differences": differences,
-    }
+    return comparison_validity(manifests).to_dict()
 
 
 def _pick_primary_quality_metric(
@@ -322,25 +249,33 @@ async def _build_comparison(
         raise ValueError("Provide at least 2 runs")
 
     warnings: List[str] = []
-    fingerprints: List[str | None] = []
     manifests: List[Dict[str, Any] | None] = []
     for db_id, run_id in selections:
         store = registry.get_store(db_id)
         manifest = await store.get_run_manifest(run_id)
         manifests.append(manifest)
-        fingerprints.append(_dataset_fingerprint(manifest))
-    warnings.extend(_compare_warnings(fingerprints))
-    comparability = _comparability_report(manifests)
+    validity = comparison_validity(manifests)
+    comparability = validity.to_dict()
+    warnings.extend(difference.detail for difference in validity.differences)
 
     keys = [_selection_key(db_id, run_id) for db_id, run_id in selections]
     aggregated: Dict[str, Dict] = {}
+    metric_rows: Dict[str, List[Dict[str, Any]]] = {}
     for (db_id, run_id), key in zip(selections, keys):
         store = registry.get_store(db_id)
         aggregated[key] = await engine.aggregate(run_id, store)
+        metric_rows[key] = await store.get_metrics(run_id)
 
     all_metric_keys = sorted(set().union(*(agg.keys() for agg in aggregated.values())))
     comparison = []
-    same_dataset = len({fp for fp in fingerprints if fp is not None}) <= 1
+    paired_results = {}
+    if len(selections) == 2:
+        paired_results = compare_paired_metrics(
+            metric_rows[keys[0]],
+            metric_rows[keys[1]],
+            all_metric_keys,
+            validity,
+        )
 
     for metric_key in all_metric_keys:
         entry: Dict[str, Any] = {"metric": metric_key}
@@ -352,27 +287,27 @@ async def _build_comparison(
                 "ci_low": agg.get("ci_low"),
                 "ci_high": agg.get("ci_high"),
             }
-        if same_dataset and len(selections) >= 2:
-            db_a, run_a = selections[0]
-            db_b, run_b = selections[1]
-            store_a = registry.get_store(db_a)
-            store_b = registry.get_store(db_b)
-            metrics_1 = await store_a.get_metrics(run_a)
-            metrics_2 = await store_b.get_metrics(run_b)
-            s1, s2, n_pairs = paired_scores_by_query(metrics_1, metrics_2, metric_key)
-            if s1 and s2:
-                try:
-                    entry["p_value"] = paired_bootstrap_test(s1, s2)
-                    entry["paired_n"] = n_pairs
-                except Exception:
-                    pass
+        if metric_key in paired_results:
+            statistics = paired_results[metric_key].to_dict()
+            entry["statistics"] = statistics
+            entry["p_value"] = statistics["p_value"]
+            entry["q_value"] = statistics["q_value"]
+            entry["paired_n"] = statistics["paired_n"]
         comparison.append(entry)
 
-    query_diffs = await _query_diffs(selections, registry, all_metric_keys) if same_dataset else None
+    query_diffs = await _query_diffs(selections, registry, all_metric_keys) if validity.decision_allowed else None
 
     return {
         "comparison": comparison,
-        "selections": [{"db_id": db_id, "run_id": run_id} for db_id, run_id in selections],
+        "selections": [
+            {"db_id": db_id, "run_id": run_id, "role": "baseline" if index == 0 else "candidate" if index == 1 else "reference"}
+            for index, (db_id, run_id) in enumerate(selections)
+        ],
+        "orientation": {
+            "baseline": {"db_id": selections[0][0], "run_id": selections[0][1]},
+            "candidate": {"db_id": selections[1][0], "run_id": selections[1][1]},
+            "effect": "candidate_minus_baseline",
+        } if len(selections) == 2 else None,
         "run_ids": [run_id for _, run_id in selections],
         "warnings": warnings,
         "comparability": comparability,
@@ -412,7 +347,13 @@ def create_app(
         await registry.init_all()
         yield
 
-    app = FastAPI(title="Retrieval Observatory", version="0.1.0", lifespan=lifespan)
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        package_version = version("retrieval-observatory")
+    except PackageNotFoundError:
+        package_version = "0+unknown"
+    app = FastAPI(title="Retrieval Observatory", version=package_version, lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -455,7 +396,17 @@ def create_app(
             parsed = MultiCompareRequest.model_validate(body)
             if len(parsed.selections) < 2:
                 raise HTTPException(status_code=400, detail="Provide at least 2 run selections")
-            selections = [(s.db_id, s.run_id) for s in parsed.selections]
+            roles = [selection.role for selection in parsed.selections if selection.role]
+            if roles:
+                if roles.count("baseline") != 1 or roles.count("candidate") != 1:
+                    raise HTTPException(status_code=400, detail="Comparison roles require exactly one baseline and one candidate")
+                ordered = sorted(
+                    parsed.selections,
+                    key=lambda selection: {"baseline": 0, "candidate": 1}.get(selection.role or "reference", 2),
+                )
+            else:
+                ordered = parsed.selections
+            selections = [(selection.db_id, selection.run_id) for selection in ordered]
         elif "run_ids" in body:
             if not registry.is_single:
                 raise HTTPException(
@@ -826,6 +777,8 @@ def create_app(
 
     @db_router.get("/runs/{run_id}/overview")
     async def get_run_overview(db_id: str, run_id: str) -> Dict[str, Any]:
+        from retrieval_observatory.sdk.report import build_run_report
+
         store = _store_for(db_id)
         runs = [run for run in await store.list_runs() if run["run_id"] == run_id]
         if not runs:
@@ -835,14 +788,29 @@ def create_app(
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
+        report = build_run_report(
+            run_id=run_id,
+            experiment_name=runs[0].get("experiment_name", run_id),
+            db_path=registry.get(db_id).path,
+            metrics=metrics,
+            diagnostics=diagnostics,
+            manifest=manifest,
+        )
         return {
             "run": runs[0],
+            "report": report.to_dict(),
             "headline_winner": best,
             "diagnostics": aggregate_diagnostics(diagnostics),
             "manifest": manifest,
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
             "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
         }
+
+    @db_router.get("/runs/{run_id}/report")
+    async def get_run_report(db_id: str, run_id: str) -> Dict[str, Any]:
+        """Canonical conclusion/evidence/provenance model for UI and agent clients."""
+        overview = await get_run_overview(db_id, run_id)
+        return overview["report"]
 
     @db_router.get("/runs/{run_id}/queries/{query_id}")
     async def get_query_result(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
@@ -1003,10 +971,46 @@ def create_app(
         return {"trace_id": trace.trace_id, "stored": True}
 
     @db_router.get("/runs/{run_id}/traces")
-    async def list_run_traces_v2(db_id: str, run_id: str) -> List[Dict[str, Any]]:
+    async def list_run_traces_v2(
+        db_id: str,
+        run_id: str,
+        query_id: Optional[str] = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
         store = _store_for(db_id)
-        traces = await store.get_traces_v2(run_id)
+        if limit < 1 or limit > 500 or offset < 0:
+            raise HTTPException(status_code=422, detail="limit must be 1..500 and offset must be non-negative")
+        traces = await store.get_traces_v2(run_id, query_id=query_id, limit=limit, offset=offset)
         return [trace.to_dict() for trace in traces]
+
+    @db_router.get("/runs/{run_id}/queries/{query_id}/evidence")
+    async def get_query_evidence(
+        db_id: str,
+        run_id: str,
+        query_id: str,
+        trace_limit: int = 20,
+        trace_offset: int = 0,
+        candidate_limit: int = 100,
+    ) -> Dict[str, Any]:
+        if not 1 <= trace_limit <= 100:
+            raise HTTPException(status_code=422, detail="trace_limit must be 1..100")
+        if trace_offset < 0 or not 1 <= candidate_limit <= 1000:
+            raise HTTPException(status_code=422, detail="trace_offset must be non-negative and candidate_limit must be 1..1000")
+        from retrieval_observatory.evidence.query import build_query_evidence
+
+        try:
+            return await build_query_evidence(
+                _store_for(db_id),
+                db_id=db_id,
+                run_id=run_id,
+                query_id=query_id,
+                trace_limit=trace_limit,
+                trace_offset=trace_offset,
+                candidate_limit=candidate_limit,
+            )
+        except LookupError as error:
+            raise HTTPException(status_code=404, detail=str(error))
 
     @db_router.get("/runs/{run_id}/traces/{trace_id}")
     async def get_run_trace_v2(db_id: str, run_id: str, trace_id: str) -> Dict[str, Any]:
@@ -1034,7 +1038,7 @@ def create_app(
         return out
 
     @db_router.get("/runs/{run_id}/pipeline-graph")
-    async def get_pipeline_graph(db_id: str, run_id: str) -> Dict[str, Any]:
+    async def get_pipeline_graph(db_id: str, run_id: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
         """Canonical PipelineGraph projection (nodes + edges, every metric with its CI or null)
         built from persisted traces + aggregated metrics. Drives the dashboard DAG view, the
         offline HTML diagram, and the MCP get_pipeline_diagram tool from one contract."""
@@ -1043,49 +1047,39 @@ def create_app(
         store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
         traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-        graphs = build_pipeline_graphs(agg, traces)
+        graphs = build_pipeline_graphs(
+            agg,
+            traces,
+            projection_mode="trace" if trace_id else "run_union",
+            trace_id=trace_id,
+        )
+        if trace_id and not graphs:
+            raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found in run '{run_id}'")
         return {"run_id": run_id, "pipelines": [g.to_dict() for g in graphs]}
 
     @db_router.get("/runs/{run_id}/operator-dag")
     async def get_operator_dag(db_id: str, run_id: str) -> Dict[str, Any]:
-        """Aggregated operator DAG topology across all traces in a run."""
-        store = _store_for(db_id)
-        traces = await store.get_traces_v2(run_id)
-        if not traces:
+        """Compatibility view derived only from the canonical PipelineGraphV2 contract."""
+        graph_response = await get_pipeline_graph(db_id, run_id)
+        pipelines = graph_response["pipelines"]
+        if not pipelines:
             raise HTTPException(status_code=404, detail=f"No V2 traces for run '{run_id}'")
-
-        node_stats: Dict[str, Dict[str, Any]] = {}
-        edge_set: set[tuple[str, str]] = set()
-        for trace in traces:
-            for span in trace.spans:
-                if span.op_id not in node_stats:
-                    node_stats[span.op_id] = {
-                        "op_id": span.op_id,
-                        "op_type": span.op_type,
-                        "op_name": span.op_name,
-                        "fire_count": 0,
-                        "total_count": 0,
-                        "latency_ms_sum": 0.0,
-                    }
-                stats = node_stats[span.op_id]
-                stats["total_count"] += 1
-                if span.status == "FIRED":
-                    stats["fire_count"] += 1
-                    stats["latency_ms_sum"] += span.latency_ms
-                for pid in span.parent_ids:
-                    edge_set.add((pid, span.op_id))
-
-        nodes = []
-        for stats in node_stats.values():
-            fire_count = stats["fire_count"]
-            nodes.append({
-                "op_id": stats["op_id"],
-                "op_type": stats["op_type"],
-                "op_name": stats["op_name"],
-                "fire_rate": fire_count / stats["total_count"] if stats["total_count"] > 0 else 0.0,
-                "avg_latency_ms": stats["latency_ms_sum"] / fire_count if fire_count > 0 else 0.0,
-            })
-        edges = [{"source": src, "target": tgt} for src, tgt in sorted(edge_set)]
+        nodes = [
+            {
+                "op_id": node["node_id"],
+                "op_type": node["op_type"],
+                "op_name": node["label"],
+                "fire_rate": node["fire_rate"],
+                "avg_latency_ms": node["latency"]["mean_ms"],
+            }
+            for pipeline in pipelines
+            for node in pipeline["nodes"]
+        ]
+        edges = [
+            {"source": edge["source"], "target": edge["target"]}
+            for pipeline in pipelines
+            for edge in pipeline["edges"]
+        ]
         return {"nodes": nodes, "edges": edges}
 
     @db_router.get("/runs/{run_id}/traces/{trace_id}/operator/{op_id}/diff")
@@ -1093,7 +1087,7 @@ def create_app(
         db_id: str, run_id: str, trace_id: str, op_id: str,
     ) -> Dict[str, Any]:
         """Per-query operator-level candidate diff for OperatorInspector."""
-        from retrieval_observatory.tracing.replay import without_operator as _without_op
+        from retrieval_observatory.tracing.replay import simulate_without_operator
 
         store = _store_for(db_id)
         trace = await store.get_trace_v2(trace_id)
@@ -1102,13 +1096,18 @@ def create_app(
         span = next((s for s in trace.spans if s.op_id == op_id), None)
         if span is None:
             raise HTTPException(status_code=404, detail=f"Operator '{op_id}' not found")
-        cf = _without_op(trace, op_id)
+        replay = simulate_without_operator(trace, op_id)
         from retrieval_observatory.tracing.attribution import _find_final_span
-        cf_final = _find_final_span(cf)
+        cf_final = _find_final_span(replay.trace) if replay.trace else None
         return {
             "op_id": op_id,
             "op_type": span.op_type,
             "replay_policy": span.replay_policy,
+            "result_status": replay.status,
+            "evidence_class": replay.evidence_class,
+            "reason": replay.reason,
+            "unsupported_descendants": replay.unsupported_descendants,
+            "assumptions": replay.assumptions.__dict__,
             "inputs": [{"doc_id": c.doc_id, "score": c.score, "rank": c.rank} for c in span.inputs],
             "outputs": [{"doc_id": c.doc_id, "score": c.score, "rank": c.rank} for c in span.outputs],
             "without_operator": [
@@ -1263,45 +1262,57 @@ def create_app(
 
     app.include_router(db_router)
 
+    def _evidence_store(db_id: str = ""):
+        if db_id:
+            return _store_for(db_id)
+        if not registry.is_single:
+            raise HTTPException(status_code=400, detail="Explicit db_id scope is required when multiple databases are loaded")
+        return _store_for(registry.default_db_id or "")
+
     # ---------------------------------------------------------------------------
     # Forge endpoints — synthetic dataset management
     # ---------------------------------------------------------------------------
     forge_router = APIRouter(prefix="/forge")
 
+    @app.get("/dbs/{db_id}/forge/datasets")
     @forge_router.get("/datasets")
-    async def list_forge_datasets(db_id: str = registry.default_db_id or "") -> List[Dict[str, Any]]:
+    async def list_forge_datasets(db_id: str = "") -> List[Dict[str, Any]]:
         """List all Forge-generated synthetic datasets saved in the store."""
         try:
-            store = registry.get_store(db_id or registry.default_db_id or "")
+            store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_datasets"):
                 return await store.get_forge_datasets()
+        except HTTPException:
+            raise
         except Exception:
             pass
         return []
 
+    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}")
     @forge_router.get("/datasets/{dataset_id}")
-    async def get_forge_dataset(dataset_id: str) -> Dict[str, Any]:
+    async def get_forge_dataset(dataset_id: str, db_id: str = "") -> Dict[str, Any]:
         """Return summary and scenario breakdown for a Forge dataset."""
         try:
-            store = registry.get_store(registry.default_db_id or "")
+            store = _evidence_store(db_id)
             if store:
                 datasets = await store.get_forge_datasets()
                 dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
                 if dataset:
                     scenarios = await store.get_forge_scenarios(dataset_id) if hasattr(store, "get_forge_scenarios") else []
                     summary = dataset.get("summary") or {}
-                    total = summary.get("total_queries") or summary.get("n_queries") or 0
-                    validated = summary.get("validated", 0)
-                    coverage = (validated / total) if total else 0.0
+                    coverage = float(summary.get("validation_coverage", 0.0))
                     return {
                         **dataset,
                         "scenarios": scenarios,
                         "validation_coverage": round(coverage, 4),
                     }
+        except HTTPException:
+            raise
         except Exception:
             pass
         raise HTTPException(status_code=404, detail=f"Forge dataset {dataset_id!r} not found")
 
+    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/queries")
     @forge_router.get("/datasets/{dataset_id}/queries")
     async def get_forge_dataset_queries(
         dataset_id: str,
@@ -1311,10 +1322,11 @@ def create_app(
         validated_only: bool = False,
         limit: int = 200,
         offset: int = 0,
+        db_id: str = "",
     ) -> List[Dict[str, Any]]:
         """Return generated synthetic queries for a Forge dataset, with optional filters."""
         try:
-            store = registry.get_store(registry.default_db_id or "")
+            store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_queries"):
                 return await store.get_forge_queries(
                     dataset_id,
@@ -1325,18 +1337,21 @@ def create_app(
                     limit=limit,
                     offset=offset,
                 )
+        except HTTPException:
+            raise
         except Exception:
             pass
         return []
 
+    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/runs")
     @forge_router.get("/datasets/{dataset_id}/runs")
-    async def get_forge_dataset_runs(dataset_id: str) -> List[Dict[str, Any]]:
+    async def get_forge_dataset_runs(dataset_id: str, db_id: str = "") -> List[Dict[str, Any]]:
         """Return benchmark runs executed against this Forge dataset.
 
         Prefer manifest ``forge_dataset_id``; fall back to output_dir text match for older runs.
         """
         try:
-            store = registry.get_store(registry.default_db_id or "")
+            store = _evidence_store(db_id)
             if not store:
                 return []
             datasets = await store.get_forge_datasets()
@@ -1368,54 +1383,67 @@ def create_app(
                     })
                     seen.add(run_id)
             return matched
+        except HTTPException:
+            raise
         except Exception:
             pass
         return []
 
+    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/scenarios")
     @forge_router.get("/datasets/{dataset_id}/scenarios")
-    async def get_forge_dataset_scenarios(dataset_id: str) -> List[Dict[str, Any]]:
+    async def get_forge_dataset_scenarios(dataset_id: str, db_id: str = "") -> List[Dict[str, Any]]:
         """Return scenarios for a Forge dataset."""
         try:
-            store = registry.get_store(registry.default_db_id or "")
+            store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_scenarios"):
                 return await store.get_forge_scenarios(dataset_id)
+        except HTTPException:
+            raise
         except Exception:
             pass
         return []
 
     app.include_router(forge_router)
 
+    @app.get("/dbs/{db_id}/query/{query_id}/lineage")
     @app.get("/query/{query_id}/lineage")
-    async def get_query_lineage(query_id: str) -> Dict[str, Any]:
-        store = registry.get_store(registry.default_db_id or "")
+    async def get_query_lineage(query_id: str, db_id: str = "") -> Dict[str, Any]:
+        store = _evidence_store(db_id)
         if not store or not hasattr(store, "get_query_lineage"):
             raise HTTPException(status_code=404, detail="Lineage not available")
         return await store.get_query_lineage(query_id)
 
     advisor_router = APIRouter(prefix="/advisor")
 
+    @app.get("/dbs/{db_id}/advisor/recommendations")
     @advisor_router.get("/recommendations")
-    async def advisor_recommendations(run_id: str) -> Dict[str, Any]:
+    async def advisor_recommendations(run_id: str, db_id: str = "") -> Dict[str, Any]:
         from retrieval_observatory.advisor.recommend import recommend
 
         from dataclasses import asdict
 
-        store = registry.get_store(registry.default_db_id or "")
+        store = _evidence_store(db_id)
         recs = await recommend(run_id, store)
         return {
             "run_id": run_id,
             "recommendations": [asdict(r) for r in recs],
         }
 
+    @app.get("/dbs/{db_id}/advisor/regressions")
     @advisor_router.get("/regressions")
-    async def advisor_regressions(baseline: str, candidate: str) -> Dict[str, Any]:
+    async def advisor_regressions(baseline: str, candidate: str, db_id: str = "") -> Dict[str, Any]:
         from retrieval_observatory.advisor.regression import detect_regressions
 
-        store = registry.get_store(registry.default_db_id or "")
+        store = _evidence_store(db_id)
+        validity = comparison_validity([
+            await store.get_run_manifest(baseline),
+            await store.get_run_manifest(candidate),
+        ])
         findings = await detect_regressions(baseline, candidate, store, engine=engine)
         return {
             "baseline": baseline,
             "candidate": candidate,
+            "validity": validity.to_dict(),
             "regressions": [
                 {
                     "metric": f.metric,
@@ -1425,24 +1453,33 @@ def create_app(
                     "q_value": f.q_value,
                     "severity": f.severity,
                     "n_pairs": f.n_pairs,
+                    "p_value": f.p_value,
+                    "effect_threshold": f.effect_threshold,
+                    "decision": f.decision,
                 }
                 for f in findings
             ],
         }
 
+    @app.get("/dbs/{db_id}/advisor/reliability")
     @advisor_router.get("/reliability")
-    async def advisor_reliability(run_id: str) -> Dict[str, Any]:
+    async def advisor_reliability(run_id: str, db_id: str = "") -> Dict[str, Any]:
         from retrieval_observatory.advisor.recommend import compute_reliability
 
-        store = registry.get_store(registry.default_db_id or "")
+        store = _evidence_store(db_id)
         score = await compute_reliability(run_id, store, engine=engine)
         return {"run_id": run_id, **score.as_dict()}
 
+    @app.get("/dbs/{db_id}/advisor/reliability/history")
     @advisor_router.get("/reliability/history")
-    async def advisor_reliability_history(run_id: str | None = None, limit: int = 50) -> Dict[str, Any]:
+    async def advisor_reliability_history(
+        run_id: str | None = None,
+        limit: int = 50,
+        db_id: str = "",
+    ) -> Dict[str, Any]:
         from retrieval_observatory.advisor.trends import get_reliability_trends
 
-        store = registry.get_store(registry.default_db_id or "")
+        store = _evidence_store(db_id)
         history = await get_reliability_trends(store, run_id=run_id, limit=limit)
         return {"history": history}
 
@@ -1451,8 +1488,8 @@ def create_app(
     # ───────────────────────── TraceLens ─────────────────────────
     tracelens_router = APIRouter(prefix="/tracelens")
 
-    def _tl_store():
-        return registry.get_store(registry.default_db_id or "")
+    def _tl_store(db_id: str = ""):
+        return _evidence_store(db_id)
 
     def _parse_trace_v2(payload: Dict[str, Any], *, run_id: str = "") -> RetrievalTraceV2:
         data = dict(payload)
@@ -1505,12 +1542,13 @@ def create_app(
             metadata=payload.get("metadata", {}) or {},
         )
 
+    @app.post("/dbs/{db_id}/tracelens/traces")
     @tracelens_router.post("/traces")
-    async def ingest_traces(payload: Any = Body(...)) -> Dict[str, Any]:
+    async def ingest_traces(payload: Any = Body(...), db_id: str = "") -> Dict[str, Any]:
         """Ingest one trace (object) or many (list). Enriches server-side, then stores."""
         from retrieval_observatory.tracing.enrich import enrich
 
-        store = _tl_store()
+        store = _tl_store(db_id)
         if not store:
             raise HTTPException(status_code=503, detail="No store available for trace ingestion")
         items = payload if isinstance(payload, list) else [payload]
@@ -1526,13 +1564,15 @@ def create_app(
                 await store.save_trace(tr)
         return {"ingested": len(traces)}
 
+    @app.get("/dbs/{db_id}/tracelens/services")
     @tracelens_router.get("/services")
-    async def list_trace_services() -> List[Dict[str, Any]]:
-        store = _tl_store()
+    async def list_trace_services(db_id: str = "") -> List[Dict[str, Any]]:
+        store = _tl_store(db_id)
         if store and hasattr(store, "list_services"):
             return await store.list_services()
         return []
 
+    @app.get("/dbs/{db_id}/tracelens/traces")
     @tracelens_router.get("/traces")
     async def list_traces_ep(
         service: str,
@@ -1543,8 +1583,9 @@ def create_app(
         suspected_only: bool = False,
         limit: int = 200,
         offset: int = 0,
+        db_id: str = "",
     ) -> List[Dict[str, Any]]:
-        store = _tl_store()
+        store = _tl_store(db_id)
         if store and hasattr(store, "list_traces"):
             return await store.list_traces(
                 service, since=since or None, until=until or None, status=status or None,
@@ -1552,61 +1593,72 @@ def create_app(
             )
         return []
 
+    @app.get("/dbs/{db_id}/tracelens/traces/{trace_id}")
     @tracelens_router.get("/traces/{trace_id}")
-    async def get_trace_ep(trace_id: str) -> Dict[str, Any]:
-        store = _tl_store()
+    async def get_trace_ep(trace_id: str, db_id: str = "") -> Dict[str, Any]:
+        store = _tl_store(db_id)
         if store and hasattr(store, "get_trace"):
             t = await store.get_trace(trace_id)
             if t:
                 return t
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
 
+    @app.get("/dbs/{db_id}/tracelens/summary")
     @tracelens_router.get("/summary")
-    async def trace_summary(service: str, since: str = "", until: str = "") -> Dict[str, Any]:
-        store = _tl_store()
+    async def trace_summary(service: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
+        store = _tl_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return {}
         rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
         from retrieval_observatory.tracing.monitor.distribution import summarize
         return summarize(rows)
 
+    @app.get("/dbs/{db_id}/tracelens/distribution")
     @tracelens_router.get("/distribution")
-    async def trace_distribution(service: str, since: str = "", until: str = "") -> Dict[str, Any]:
-        store = _tl_store()
+    async def trace_distribution(service: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
+        store = _tl_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return {}
         rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
         from retrieval_observatory.tracing.monitor.distribution import compute_distribution
         return compute_distribution(rows)
 
+    @app.get("/dbs/{db_id}/tracelens/drift")
     @tracelens_router.get("/drift")
-    async def trace_drift(service: str, baseline: str = "", recent: str = "") -> List[Dict[str, Any]]:
+    async def trace_drift(service: str, baseline: str = "", recent: str = "", db_id: str = "") -> List[Dict[str, Any]]:
         """Compare a baseline window vs a recent window. Defaults: prior 7d vs last 24h."""
         from datetime import datetime, timedelta, timezone
-        store = _tl_store()
+        store = _tl_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
         now = datetime.now(timezone.utc)
         recent_since = recent or (now - timedelta(hours=24)).isoformat()
         baseline_until = recent_since
         baseline_since = baseline or (now - timedelta(days=8)).isoformat()
-        recent_rows = await store.list_traces(service, since=recent_since, limit=100000)
-        baseline_rows = await store.list_traces(service, since=baseline_since, until=baseline_until, limit=100000)
+        recent_rows = await store.list_traces(service, since=recent_since, limit=10000)
+        baseline_rows = await store.list_traces(service, since=baseline_since, until=baseline_until, limit=10000)
         from retrieval_observatory.tracing.monitor.drift import compute_drift
-        return compute_drift(baseline_rows, recent_rows)
+        findings = compute_drift(baseline_rows, recent_rows)
+        for finding in findings:
+            finding["baseline_window"] = {"since": baseline_since, "until": baseline_until}
+            finding["recent_window"] = {"since": recent_since, "until": None}
+            finding["sample_limited"] = len(baseline_rows) == 10000 or len(recent_rows) == 10000
+        return findings
 
+    @app.get("/dbs/{db_id}/tracelens/hotspots")
     @tracelens_router.get("/hotspots")
-    async def trace_hotspots(service: str, since: str = "", until: str = "") -> List[Dict[str, Any]]:
-        store = _tl_store()
+    async def trace_hotspots(service: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
+        store = _tl_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
-        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        rows = await store.list_traces(service, since=since or None, until=until or None, limit=10000)
         from retrieval_observatory.tracing.monitor.hotspots import compute_hotspots
         return compute_hotspots(rows)
 
+    @app.get("/dbs/{db_id}/tracelens/clusters")
     @tracelens_router.get("/clusters")
-    async def trace_clusters(service: str, since: str = "", until: str = "") -> List[Dict[str, Any]]:
-        store = _tl_store()
+    async def trace_clusters(service: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
+        store = _tl_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
         rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
@@ -1983,8 +2035,10 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
             warnings.append(w)
     if any(value.get("metric_name") == "failure_rate" and value.get("mean", 0.0) > 0 and not value.get("branch_id") for value in metrics.values()):
         warnings.append("At least one pipeline had failed or timed-out queries.")
-    if any("id_or_qrel_issue" in row.get("failure_labels", []) for row in diagnostics):
-        warnings.append("Some queries look like possible document ID or qrel mismatches.")
+    if any("qrel_not_in_corpus" in row.get("failure_labels", []) for row in diagnostics):
+        warnings.append("Some positively judged document IDs are absent from the loaded corpus.")
+    if any("corpus_identity_unknown" in row.get("failure_labels", []) for row in diagnostics):
+        warnings.append("Corpus identity was unavailable, so qrel membership could not be verified.")
     if manifest and manifest.get("dataset", {}).get("missing_qrel_doc_ids", 0):
         warnings.append("Some qrel document IDs were missing from the loaded corpus.")
     if manifest and manifest.get("unjudged_query_count", 0):

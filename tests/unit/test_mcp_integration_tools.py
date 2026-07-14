@@ -41,7 +41,7 @@ def test_describe_integration_single_framework():
 async def test_verify_integration_empty_db(tmp_path):
     db = str(tmp_path / "empty.db")
     out = await server._verify_integration(db_path=db)
-    assert out["status"] == "no_runs"
+    assert out["status"] == "not_verified"
     assert ":4000" in out["dashboard_url"]
 
 
@@ -61,7 +61,7 @@ async def test_normalize_descriptor_shape(tmp_path):
     out = await server._benchmark_config(descriptor, max_queries=3, db_path=db)
     assert out["run_id"]
     verify = await server._verify_integration(db_path=db, run_id=out["run_id"])
-    assert verify["status"] == "ok"
+    assert verify["status"] in ("ready", "partially_instrumented")
     assert verify["instrumentation"] in ("benchmark_only", "trace_native")
     assert "bm25" in verify["pipeline_ids"]
 
@@ -143,10 +143,11 @@ async def test_build_server_includes_integration_tools():
     tools = await srv.list_tools()
     names = {t.name for t in tools}
     assert "describe_integration" in names
+    assert "plan_integration" in names
     assert "verify_integration" in names
     assert "bootstrap_project" in names
     assert "wire_project" in names
     assert "push_traces" in names
     assert "benchmark_config_file" in names
     assert "get_pipeline_graph" in names
-
+    assert {"evaluate", "evaluate_file", "compare", "inspect_query", "get_report"} <= names

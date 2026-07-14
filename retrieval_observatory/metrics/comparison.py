@@ -1,9 +1,210 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Literal, Optional, Tuple
+
+from retrieval_observatory.metrics.significance import benjamini_hochberg, paired_bootstrap_test
 
 
 MetricKey = Tuple[str, int, str, int, Optional[str]]
+
+
+@dataclass
+class ComparisonDifference:
+    axis: str
+    severity: Literal["high", "medium", "low"]
+    status: Literal["invalid", "warning", "unknown"]
+    detail: str
+    values: List[Any]
+
+
+@dataclass
+class ComparisonValidity:
+    outcome: Literal["valid", "warning", "invalid"]
+    decision_allowed: bool
+    differences: List[ComparisonDifference]
+    required_axes: List[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "outcome": self.outcome,
+            "comparable": self.decision_allowed,
+            "decision_allowed": self.decision_allowed,
+            "differences": [asdict(difference) for difference in self.differences],
+            "required_axes": list(self.required_axes),
+        }
+
+
+@dataclass
+class StatisticalComparison:
+    metric: str
+    baseline_mean: Optional[float]
+    candidate_mean: Optional[float]
+    effect: Optional[float]
+    effect_threshold: Optional[float]
+    p_value: Optional[float]
+    q_value: Optional[float]
+    paired_n: int
+    low_power: bool
+    significant: Optional[bool]
+    decision: Literal["candidate_better", "candidate_worse", "no_decision"]
+    reason: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+_REQUIRED_COMPARISON_AXES = ("query_hash", "corpus_hash", "qrel_hash", "labeling")
+
+
+def comparison_validity(manifests: List[Dict[str, Any] | None]) -> ComparisonValidity:
+    """Validate whether two or more manifests support a decision-bearing comparison."""
+    differences: List[ComparisonDifference] = []
+
+    def values_for(axis: str) -> List[Any]:
+        if axis == "labeling":
+            return [
+                (
+                    (manifest or {}).get("labeling", {}).get("method"),
+                    (manifest or {}).get("labeling", {}).get("judge"),
+                    (manifest or {}).get("labeling", {}).get("model"),
+                    (manifest or {}).get("labeling", {}).get("version"),
+                )
+                if manifest else None
+                for manifest in manifests
+            ]
+        return [((manifest or {}).get("dataset", {}) or {}).get(axis) for manifest in manifests]
+
+    for axis in _REQUIRED_COMPARISON_AXES:
+        values = values_for(axis)
+        missing = any(value is None or (axis == "labeling" and value[0] is None) for value in values)
+        if missing:
+            differences.append(ComparisonDifference(
+                axis=axis,
+                severity="high",
+                status="unknown",
+                detail=f"Required comparison metadata '{axis}' is missing; equality cannot be established.",
+                values=values,
+            ))
+        elif len({repr(value) for value in values}) > 1:
+            differences.append(ComparisonDifference(
+                axis=axis,
+                severity="high",
+                status="invalid",
+                detail=f"Runs differ on required comparison axis '{axis}'.",
+                values=values,
+            ))
+
+    optional_axes = {
+        "seed": lambda manifest: (manifest or {}).get("execution", {}).get("seed", (manifest or {}).get("seed")),
+        "cache": lambda manifest: (manifest or {}).get("execution", {}).get("cache_results", (manifest or {}).get("cache_results")),
+        "timeout": lambda manifest: (manifest or {}).get("execution", {}).get("timeout_ms"),
+        "git_commit": lambda manifest: (manifest or {}).get("git_commit"),
+        "git_dirty": lambda manifest: (manifest or {}).get("git_dirty"),
+        "models": lambda manifest: (manifest or {}).get("models"),
+        "package_versions": lambda manifest: (manifest or {}).get("packages"),
+    }
+    for axis, getter in optional_axes.items():
+        values = [getter(manifest) for manifest in manifests]
+        known = [value for value in values if value is not None and value != {} and value != []]
+        if len(known) != len(values):
+            differences.append(ComparisonDifference(
+                axis=axis,
+                severity="low",
+                status="unknown",
+                detail=f"Optional comparison metadata '{axis}' is missing for at least one run.",
+                values=values,
+            ))
+        elif len({repr(value) for value in known}) > 1:
+            differences.append(ComparisonDifference(
+                axis=axis,
+                severity="medium" if axis in {"cache", "timeout", "models"} else "low",
+                status="warning",
+                detail=f"Runs differ on optional comparison axis '{axis}'.",
+                values=values,
+            ))
+
+    invalid = any(difference.status in {"invalid", "unknown"} and difference.axis in _REQUIRED_COMPARISON_AXES for difference in differences)
+    outcome: Literal["valid", "warning", "invalid"] = "invalid" if invalid else "warning" if differences else "valid"
+    return ComparisonValidity(
+        outcome=outcome,
+        decision_allowed=not invalid,
+        differences=differences,
+        required_axes=list(_REQUIRED_COMPARISON_AXES),
+    )
+
+
+def compare_paired_metrics(
+    metrics_baseline: List[Dict],
+    metrics_candidate: List[Dict],
+    metric_keys: List[str],
+    validity: ComparisonValidity,
+    *,
+    min_power_n: int = 20,
+    alpha: float = 0.05,
+) -> Dict[str, StatisticalComparison]:
+    """Compute one BH-corrected paired result set with explicit baseline orientation."""
+    results: Dict[str, StatisticalComparison] = {}
+    tested_keys: List[str] = []
+    raw_p_values: List[float] = []
+    for metric_key in metric_keys:
+        baseline, candidate, paired_n = paired_scores_by_query(metrics_baseline, metrics_candidate, metric_key)
+        baseline_mean = sum(baseline) / paired_n if paired_n else None
+        candidate_mean = sum(candidate) / paired_n if paired_n else None
+        effect = candidate_mean - baseline_mean if baseline_mean is not None and candidate_mean is not None else None
+        threshold = _effect_threshold(metric_key, baseline_mean)
+        p_value = paired_bootstrap_test(baseline, candidate) if validity.decision_allowed and paired_n >= 2 else None
+        result = StatisticalComparison(
+            metric=metric_key,
+            baseline_mean=baseline_mean,
+            candidate_mean=candidate_mean,
+            effect=effect,
+            effect_threshold=threshold,
+            p_value=p_value,
+            q_value=None,
+            paired_n=paired_n,
+            low_power=paired_n < min_power_n,
+            significant=None,
+            decision="no_decision",
+            reason=(
+                "comparison validity failed"
+                if not validity.decision_allowed
+                else "insufficient paired samples"
+                if paired_n < min_power_n
+                else "awaiting multiple-testing correction"
+            ),
+        )
+        results[metric_key] = result
+        if p_value is not None:
+            tested_keys.append(metric_key)
+            raw_p_values.append(p_value)
+
+    for metric_key, q_value in zip(tested_keys, benjamini_hochberg(raw_p_values)):
+        result = results[metric_key]
+        result.q_value = q_value
+        result.significant = q_value < alpha
+        if result.low_power:
+            result.reason = "insufficient paired samples"
+        elif not result.significant:
+            result.reason = "effect is not significant after BH correction"
+        elif result.effect is None or result.effect_threshold is None or abs(result.effect) < result.effect_threshold:
+            result.reason = "effect is below the declared practical threshold"
+        else:
+            lower_is_better = "latency" in metric_key or "cost" in metric_key
+            favorable = result.effect < 0 if lower_is_better else result.effect > 0
+            result.decision = "candidate_better" if favorable else "candidate_worse"
+            result.reason = "significant paired effect exceeds the practical threshold"
+    return results
+
+
+def _effect_threshold(metric_key: str, baseline_mean: Optional[float]) -> Optional[float]:
+    if baseline_mean is None:
+        return None
+    if "latency" in metric_key:
+        return max(1.0, abs(baseline_mean) * 0.05)
+    if "cost" in metric_key:
+        return max(0.001, abs(baseline_mean) * 0.05)
+    return 0.01
 
 
 def pipeline_pairs(pipeline_ids: List[str]) -> List[Tuple[str, str]]:
@@ -62,12 +263,15 @@ def _scores_for(
     k: int,
     branch_id: Optional[str] = None,
 ) -> Dict[str, float]:
+    # Percentiles are aggregate render keys over the persisted per-query latency_ms
+    # samples. Pair the underlying samples by query for significance/effect tests.
+    stored_metric_name = "latency_ms" if metric_name in {"latency_p50", "latency_p95", "latency_p99"} else metric_name
     return {
         row["query_id"]: row["value"]
         for row in metrics
         if row["pipeline_id"] == pipeline_id
         and row["stage_index"] == stage_index
-        and row["metric_name"] == metric_name
+        and row["metric_name"] == stored_metric_name
         and row["k"] == k
         and row.get("branch_id") == branch_id
     }

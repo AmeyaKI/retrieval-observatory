@@ -6,11 +6,9 @@ into ``traces_v2`` entries, enabling the eventual deprecation of
 """
 from __future__ import annotations
 
-from typing import List
 
 from retrieval_observatory.store.base import BaseStore
 from retrieval_observatory.tracing.lift import lift_pipeline_result
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
 
 
 async def migrate_run_to_v2(

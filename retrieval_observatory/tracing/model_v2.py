@@ -44,6 +44,54 @@ class OperatorSpan:
 
 
 @dataclass
+class TraceTiming:
+    """Unambiguous latency views for a trace.
+
+    ``wall_clock_ms`` is user-observed elapsed time, ``critical_path_ms`` is the
+    longest parent-to-child path, and ``operator_sum_ms`` is aggregate operator
+    work. They are equal for a simple serial pipeline but intentionally differ
+    for parallel DAGs.
+    """
+
+    wall_clock_ms: float
+    critical_path_ms: float
+    operator_sum_ms: float
+    semantics_version: int = 1
+
+    @classmethod
+    def from_dict(cls, payload: Dict[str, Any]) -> "TraceTiming":
+        return cls(
+            wall_clock_ms=float(payload.get("wall_clock_ms", 0.0)),
+            critical_path_ms=float(payload.get("critical_path_ms", 0.0)),
+            operator_sum_ms=float(payload.get("operator_sum_ms", 0.0)),
+            semantics_version=int(payload.get("semantics_version", 1)),
+        )
+
+
+def critical_path_latency_ms(spans: List[OperatorSpan]) -> float:
+    """Return the longest observed parent path without inventing missing edges."""
+    by_id = {span.op_id: span for span in spans}
+    cache: Dict[str, float] = {}
+
+    def duration(op_id: str, visiting: frozenset[str]) -> float:
+        if op_id in cache:
+            return cache[op_id]
+        if op_id in visiting:
+            return 0.0
+        span = by_id[op_id]
+        parents = [parent for parent in span.parent_ids if parent in by_id]
+        parent_duration = max(
+            (duration(parent, visiting | {op_id}) for parent in parents),
+            default=0.0,
+        )
+        value = parent_duration + max(0.0, float(span.latency_ms))
+        cache[op_id] = value
+        return value
+
+    return max((duration(op_id, frozenset()) for op_id in by_id), default=0.0)
+
+
+@dataclass
 class RetrievalTraceV2:
     trace_id: str
     run_id: str
@@ -52,6 +100,7 @@ class RetrievalTraceV2:
     pipeline_id: str
     spans: List[OperatorSpan]
     total_latency_ms: float
+    timing: TraceTiming | None = None
     status: Literal["OK", "TIMEOUT", "ERROR"] = "OK"
     trace_format_version: int = 2
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -59,6 +108,16 @@ class RetrievalTraceV2:
     error_traceback: str | None = None
     request_id: str | None = None
     final_op_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.timing is None:
+            operator_sum = sum(max(0.0, float(span.latency_ms)) for span in self.spans)
+            critical_path = critical_path_latency_ms(self.spans)
+            self.timing = TraceTiming(
+                wall_clock_ms=float(self.total_latency_ms),
+                critical_path_ms=critical_path or float(self.total_latency_ms),
+                operator_sum_ms=operator_sum or float(self.total_latency_ms),
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         payload = asdict(self)
@@ -99,6 +158,11 @@ class RetrievalTraceV2:
             pipeline_id=payload.get("pipeline_id", ""),
             spans=spans,
             total_latency_ms=float(payload.get("total_latency_ms", 0.0)),
+            timing=(
+                TraceTiming.from_dict(payload["timing"])
+                if isinstance(payload.get("timing"), dict)
+                else None
+            ),
             status=payload.get("status", "OK"),
             trace_format_version=int(payload.get("trace_format_version", 2)),
             timestamp=timestamp,

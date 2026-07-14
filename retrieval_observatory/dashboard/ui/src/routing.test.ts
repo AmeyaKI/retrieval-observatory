@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { buildRoutes, matchPath, parseQuery } from './routing'
+import { buildRoutes, matchPath, migrateLegacyPath, parseQuery } from './routing'
+
+describe('migrateLegacyPath', () => {
+  it('preserves context while renaming product modules', () => {
+    expect(migrateLegacyPath('benchmarks/run/r1/queries/q1')).toBe('runs/r1/queries/q1')
+    expect(migrateLegacyPath('forge/set-1')).toBe('test-sets/set-1')
+    expect(migrateLegacyPath('tracelens/service-a')).toBe('production/service-a')
+    expect(migrateLegacyPath('query/q1')).toBe('queries/q1')
+  })
+
+  it('moves Advisor into embedded Run findings', () => {
+    expect(migrateLegacyPath('advisor')).toBe('runs')
+  })
+})
 
 describe('parseQuery', () => {
   it('parses a plain query string', () => {

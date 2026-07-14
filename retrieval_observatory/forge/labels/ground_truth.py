@@ -15,6 +15,7 @@ def build_extractive_qrels(queries: List[SyntheticQuery]) -> Dict[str, Dict[str,
     """
     qrels: Dict[str, Dict[str, int]] = {}
     for q in queries:
+        q.metadata.setdefault("label_method", "extractive_source_document")
         qrels[q.query_id] = {doc_id: 2 for doc_id in q.positive_doc_ids}
     return qrels
 
@@ -103,5 +104,7 @@ async def validate_qrels_with_llm(
 
         # Mark queries as validated
         query.validated = True
+        query.metadata["label_method"] = "llm_judge_expanded"
+        query.metadata["judge_model"] = getattr(judge, "model", None)
 
     return qrels

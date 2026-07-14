@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
-from retrieval_observatory.sdk.observe import current_trace, to_candidates
+from retrieval_observatory.sdk.observe import current_trace
+from retrieval_observatory.tracing.candidates import build_candidate_transition, clone_candidate
 from retrieval_observatory.tracing.model_v2 import OperatorSpan
 
 # Shared span-building logic for the duck-typed framework wrappers (Haystack, DSPy,
@@ -71,16 +72,33 @@ def wrap_callable(
         if trace is None:
             return
         documents = _extract_documents(result, result_key) if status == "FIRED" else []
+        parent_ids = [trace.spans[-1].op_id] if trace.spans else []
+        input_groups = {parent_ids[0]: trace.spans[-1].outputs} if parent_ids else {}
+        if status == "FIRED":
+            inputs, outputs = build_candidate_transition(
+                input_groups=input_groups,
+                output_items=documents,
+                op_id=resolved_op_id,
+                op_type=op_type,
+            )
+        else:
+            inputs = [
+                clone_candidate(candidate)
+                for candidates in input_groups.values()
+                for candidate in candidates
+            ]
+            outputs = []
         span = OperatorSpan(
             op_id=resolved_op_id,
             op_type=op_type,  # type: ignore[arg-type]
             op_name=resolved_op_name,
-            parent_ids=[trace.spans[-1].op_id] if trace.spans else [],
+            parent_ids=parent_ids,
             status=status,  # type: ignore[arg-type]
             deterministic=deterministic,
             replay_policy=replay_policy,  # type: ignore[arg-type]
             latency_ms=elapsed_ms,
-            outputs=to_candidates(list(documents), resolved_op_id),
+            inputs=inputs,
+            outputs=outputs,
             error=error,
         )
         trace.spans.append(span)

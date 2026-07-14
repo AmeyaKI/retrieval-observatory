@@ -6,6 +6,62 @@ from typing import Any, Dict, List, Literal, Optional
 
 
 @dataclass
+class TestSetSummary:
+    """Versioned summary contract shared by every Test Sets producer and consumer."""
+
+    __test__ = False
+
+    dataset_id: str
+    corpus_size: int
+    total_scenarios: int
+    total_queries: int
+    by_scenario_type: Dict[str, int] = field(default_factory=dict)
+    by_query_type: Dict[str, int] = field(default_factory=dict)
+    by_difficulty: Dict[str, int] = field(default_factory=dict)
+    validated: int = 0
+    validation_coverage: float = 0.0
+    created_at: Optional[str] = None
+    schema_version: int = 1
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "schema_version": self.schema_version,
+            "dataset_id": self.dataset_id,
+            "corpus_size": self.corpus_size,
+            "total_scenarios": self.total_scenarios,
+            "total_queries": self.total_queries,
+            "by_scenario_type": dict(self.by_scenario_type),
+            "by_query_type": dict(self.by_query_type),
+            "by_difficulty": dict(self.by_difficulty),
+            "validated": self.validated,
+            "validation_coverage": self.validation_coverage,
+            "created_at": self.created_at,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: Dict[str, Any], *, dataset_id: str = "") -> "TestSetSummary":
+        """Read canonical, legacy SyntheticDataset, or legacy StressTestSuite rows."""
+        total_queries = int(raw.get("total_queries", raw.get("n_queries", 0)) or 0)
+        validated = int(raw.get("validated", raw.get("validated_queries", 0)) or 0)
+        return cls(
+            dataset_id=str(raw.get("dataset_id") or dataset_id),
+            corpus_size=int(raw.get("corpus_size", 0) or 0),
+            total_scenarios=int(raw.get("total_scenarios", raw.get("n_scenarios", 0)) or 0),
+            total_queries=total_queries,
+            by_scenario_type=dict(raw.get("by_scenario_type", raw.get("scenarios_by_type", {})) or {}),
+            by_query_type=dict(raw.get("by_query_type", raw.get("queries_by_type", {})) or {}),
+            by_difficulty=dict(raw.get("by_difficulty", raw.get("queries_by_difficulty", {})) or {}),
+            validated=validated,
+            validation_coverage=(
+                float(raw["validation_coverage"])
+                if raw.get("validation_coverage") is not None
+                else validated / total_queries if total_queries else 0.0
+            ),
+            created_at=raw.get("created_at"),
+        )
+
+
+@dataclass
 class CorpusScenario:
     """A structural pattern in a corpus that commonly causes retrieval failures."""
     scenario_id: str
@@ -51,14 +107,16 @@ class SyntheticDataset:
             type_counts[q.query_type] = type_counts.get(q.query_type, 0) + 1
             diff_counts[q.difficulty_label] = diff_counts.get(q.difficulty_label, 0) + 1
 
-        return {
-            "dataset_id": self.dataset_id,
-            "corpus_size": len(self.corpus),
-            "n_scenarios": len(self.scenarios),
-            "scenarios_by_type": scenario_counts,
-            "n_queries": len(self.queries),
-            "queries_by_type": type_counts,
-            "queries_by_difficulty": diff_counts,
-            "validated": sum(1 for q in self.queries if q.validated),
-            "created_at": self.created_at.isoformat(),
-        }
+        validated = sum(1 for query in self.queries if query.validated)
+        return TestSetSummary(
+            dataset_id=self.dataset_id,
+            corpus_size=len(self.corpus),
+            total_scenarios=len(self.scenarios),
+            total_queries=len(self.queries),
+            by_scenario_type=scenario_counts,
+            by_query_type=type_counts,
+            by_difficulty=diff_counts,
+            validated=validated,
+            validation_coverage=validated / len(self.queries) if self.queries else 0.0,
+            created_at=self.created_at.isoformat(),
+        ).to_dict()

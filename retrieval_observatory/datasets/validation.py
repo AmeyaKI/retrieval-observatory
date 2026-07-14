@@ -43,6 +43,9 @@ def dataset_fingerprint(name: str, queries: list, qrels: Dict, corpus: Optional[
     return {
         "name": name,
         "content_hash": dataset_content_hash(queries, qrels, corpus),
+        "query_hash": query_content_hash(queries),
+        "qrel_hash": qrel_content_hash(qrels),
+        "corpus_hash": corpus_content_hash(corpus) if corpus is not None else None,
         "queries": len(queries),
         "qrels": len(qrels),
         "corpus_docs": len(corpus or {}),
@@ -51,6 +54,36 @@ def dataset_fingerprint(name: str, queries: list, qrels: Dict, corpus: Optional[
         "missing_qrel_doc_id_examples": missing[:10],
         "label_sparsity_pct": round((1 - len(qrels) / max(len(queries), 1)) * 100, 2),
     }
+
+
+def query_content_hash(queries: list) -> str:
+    h = hashlib.sha256()
+    for query_id, text in sorted(_query_id_text(query) for query in queries):
+        h.update(f"{query_id}\0{text}\n".encode("utf-8"))
+    return h.hexdigest()
+
+
+def qrel_content_hash(qrels: Dict) -> str:
+    h = hashlib.sha256()
+    for query_id in sorted(qrels, key=str):
+        h.update(f"{query_id}\0".encode("utf-8"))
+        relations = qrels[query_id]
+        if isinstance(relations, dict):
+            values = sorted((str(doc_id), int(grade)) for doc_id, grade in relations.items())
+        else:
+            values = [(str(doc_id), 1) for doc_id in sorted(_rel_ids(relations), key=str)]
+        for doc_id, grade in values:
+            h.update(f"{doc_id}:{grade}\0".encode("utf-8"))
+    return h.hexdigest()
+
+
+def corpus_content_hash(corpus: Dict[str, str]) -> str:
+    h = hashlib.sha256()
+    for doc_id in sorted(corpus, key=str):
+        h.update(str(doc_id).encode("utf-8"))
+        h.update(b"\0")
+        h.update(hashlib.sha256(str(corpus[doc_id]).encode("utf-8")).digest())
+    return h.hexdigest()
 
 
 def _query_id_text(q: object) -> tuple[str, str]:

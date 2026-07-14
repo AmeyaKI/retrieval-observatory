@@ -232,6 +232,7 @@ class ForgeGenerator:
                             scenario_id=scenario.scenario_id,
                             query_type="paraphrase",
                             positive_doc_ids=[primary_id],
+                            metadata={"generation_method": "llm", "generation_model": getattr(self._gen, "model", None), "label_method": "extractive_source_document"},
                         ))
 
                 elif query_type == "temporal" and scenario.scenario_type == "temporal" and len(anchor_ids) >= 2:
@@ -253,6 +254,7 @@ class ForgeGenerator:
                             query_type="temporal",
                             positive_doc_ids=[id_b],  # later doc is the "correct" answer
                             failure_category="temporal_confusion",
+                            metadata={"generation_method": "llm", "generation_model": getattr(self._gen, "model", None), "label_method": "extractive_source_document"},
                         ))
 
                 elif query_type == "adversarial":
@@ -266,6 +268,7 @@ class ForgeGenerator:
                             query_type="adversarial",
                             positive_doc_ids=[primary_id],
                             failure_category="adversarial",
+                            metadata={"generation_method": "llm", "generation_model": getattr(self._gen, "model", None), "label_method": "extractive_source_document"},
                         ))
 
             except Exception:

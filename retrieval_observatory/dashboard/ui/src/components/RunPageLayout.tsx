@@ -27,7 +27,7 @@ function RunNav({ runId, activePage }: { runId: string; activePage: string }) {
     >
       <div className="flex gap-1 min-w-max">
         {RUN_PAGES.map((p) => {
-          const href = `#/benchmarks/run/${encodeURIComponent(runId)}${p.id ? `/${p.id}` : ''}`
+          const href = `#/runs/${encodeURIComponent(runId)}${p.id ? `/${p.id}` : ''}`
           const active = p.id === activePage
           return (
             <a
@@ -67,8 +67,8 @@ export default function RunPageLayout({
           <p className="text-sm text-ink-muted font-mono mt-0.5">{run.run_id}</p>
           {run.forge_dataset_id && (
             <p className="text-xs text-amber-800 mt-1">
-              Originating Forge dataset:{' '}
-              <a href={`#/forge/${encodeURIComponent(run.forge_dataset_id)}`} className="underline decoration-amber-400 hover:text-amber-700">
+              Originating Test Set:{' '}
+              <a href={`#/test-sets/${encodeURIComponent(run.forge_dataset_id)}`} className="underline decoration-amber-400 hover:text-amber-700">
                 {run.forge_dataset_id}
               </a>
             </p>

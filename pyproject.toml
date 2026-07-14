@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "retrieval-observatory"
 version = "0.4.2"
-description = "Local-first retrieval reliability platform: benchmarks, Forge stress tests, TraceLens observability, and Advisor regressions"
+description = "Local-first retrieval reliability for evaluating, comparing, and debugging multi-stage RAG retrieval"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -66,7 +66,7 @@ tracelens = ["scikit-learn>=1.4", "joblib>=1.3", "httpx>=0.27"]
 # MCP server for agent integration. Wraps the SDK/REST layer; requires the dashboard extra at
 # runtime for the shared helpers, but the `mcp` package itself is the only net-new dependency.
 mcp = ["mcp>=1.2"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "coverage", "respx>=0.21", "scikit-learn>=1.4", "joblib>=1.3", "ruff>=0.6", "types-PyYAML", "mcp>=1.2", "fastapi>=0.111"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "coverage", "respx>=0.21", "scikit-learn>=1.4", "joblib>=1.3", "ruff>=0.6", "types-PyYAML", "mcp>=1.2", "fastapi>=0.111", "playwright>=1.45"]
 
 [project.scripts]
 retobs = "retrieval_observatory.cli:app"
@@ -94,6 +94,7 @@ testpaths = ["tests"]
 addopts = "-p no:rerunfailures -p no:seleniumbase -p no:xdist -p no:langsmith -p no:html"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "browser: requires RETOBS_E2E_URL and a Playwright browser",
 ]
 
 [tool.ruff]

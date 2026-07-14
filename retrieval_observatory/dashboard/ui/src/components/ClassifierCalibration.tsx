@@ -49,7 +49,7 @@ export default function ClassifierCalibration({ dbId, runId }: { dbId: string; r
       <div className="md:col-span-3 border border-gray-200 dark:border-slate-700 rounded p-3 bg-white dark:bg-slate-900">
         <div className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-1">Classifier Calibration</div>
         <p className="text-xs text-gray-400 dark:text-slate-500">
-          Run a benchmark with a trained difficulty model to see predicted-class Recall@10 validation.
+          Run an evaluation with a trained difficulty model to see predicted-class Recall@10 validation.
         </p>
       </div>
     )
@@ -84,7 +84,7 @@ export default function ClassifierCalibration({ dbId, runId }: { dbId: string; r
 
       {data.all_same_prediction && view === 'predicted' && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
-          Model predicts a single class for all queries — likely undertrained. Train on a larger run with easy queries present, then re-run the benchmark.
+          Model predicts a single class for all queries — likely undertrained. Train on a larger run with easy queries present, then re-run the evaluation.
         </p>
       )}
 

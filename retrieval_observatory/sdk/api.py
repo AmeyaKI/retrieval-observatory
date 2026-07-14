@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-from retrieval_observatory.sdk.report import BenchmarkReport, _run_sync
+from retrieval_observatory.sdk.report import BenchmarkReport, ReportModel, _run_sync
 from retrieval_observatory.sdk.wrappers import as_retriever
 
 # Code-first entry point. Mirrors `retobs run` but takes live Python objects instead of YAML,
@@ -142,6 +142,67 @@ def benchmark(
             cache=cache,
         )
     )
+
+
+def evaluate(
+    pipeline: PipelineInput,
+    dataset: Optional[Any] = None,
+    **kwargs: Any,
+) -> BenchmarkReport:
+    """Evaluate a Python retrieval callable/object and return the canonical run report.
+
+    This is the task-oriented name for :func:`benchmark`; both execute the same
+    runtime and persist the same manifest, traces, metrics, diagnostics, and lineage.
+    """
+    return benchmark(pipeline, dataset=dataset, **kwargs)
+
+
+def compare(
+    baseline: BenchmarkReport | str,
+    candidate: BenchmarkReport | str,
+    *,
+    db_path: Optional[str] = None,
+) -> ReportModel:
+    """Compare explicit baseline/candidate Runs and return the canonical report model."""
+    from retrieval_observatory.sdk.report import load_comparison_report
+
+    baseline_id = baseline.run_id if isinstance(baseline, BenchmarkReport) else str(baseline)
+    candidate_id = candidate.run_id if isinstance(candidate, BenchmarkReport) else str(candidate)
+    resolved_db = db_path
+    if resolved_db is None and isinstance(candidate, BenchmarkReport):
+        resolved_db = candidate.db_path
+    if resolved_db is None and isinstance(baseline, BenchmarkReport):
+        resolved_db = baseline.db_path
+    return _run_sync(load_comparison_report(baseline_id, candidate_id, resolved_db or ".retobs/results.db"))
+
+
+def inspect_query(
+    run_id: str,
+    query_id: str,
+    *,
+    db_path: str = ".retobs/results.db",
+    trace_limit: int = 20,
+    trace_offset: int = 0,
+) -> Dict[str, Any]:
+    """Return the canonical database- and Run-scoped QueryEvidence document."""
+    from pathlib import Path
+
+    from retrieval_observatory.evidence import build_query_evidence
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    async def _load() -> Dict[str, Any]:
+        store = SQLiteStore(db_path=db_path)
+        await store.init_db()
+        return await build_query_evidence(
+            store,
+            db_id=Path(db_path).stem,
+            run_id=run_id,
+            query_id=query_id,
+            trace_limit=min(max(trace_limit, 1), 100),
+            trace_offset=max(trace_offset, 0),
+        )
+
+    return _run_sync(_load())
 
 
 async def _benchmark_async(

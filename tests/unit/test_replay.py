@@ -164,7 +164,8 @@ async def test_attribute_miss_never_retrieved() -> None:
 async def test_attribute_miss_with_edge_store() -> None:
     from retrieval_observatory.store.sqlite import SQLiteStore
     from retrieval_observatory.corpus.graph import EdgeStore
-    import tempfile, os
+    import tempfile
+    import os
 
     with tempfile.TemporaryDirectory() as tmp:
         db_path = os.path.join(tmp, "test.db")

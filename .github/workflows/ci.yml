@@ -27,6 +27,18 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev,dashboard,demo,dense,mcp]"
 
+      - name: Install dashboard dependencies from lockfile
+        run: npm ci --prefix retrieval_observatory/dashboard/ui
+
+      - name: Ruff
+        run: ruff check retrieval_observatory tests scripts
+
+      - name: Markdown links
+        run: python scripts/check_markdown_links.py
+
+      - name: Release metadata and generated assets
+        run: python scripts/check_release.py
+
       - name: Build dashboard UI
         run: make dashboard-build
 
@@ -55,10 +67,57 @@ jobs:
           python -c "from retrieval_observatory.tracing.integrations.dspy import wrap_retrieve"
           python -c "from retrieval_observatory.tracing.integrations.openai_agents import wrap_retrieval_tool"
 
-  framework-adapters-smoke:
-    # Separate, slower tier: installs each framework's real extra and runs its example
-    # end-to-end, catching real API drift the duck-typed unit tests (which use plain stub
-    # objects, no framework installed) can't. Does not block the main `test` job.
+  first-class-framework-smoke:
+    # Claimed first-class paths install and exercise the real framework, separate from
+    # duck-typed contracts in the main test job.
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: python
+            editable: ".[dev]"
+            additional: ""
+            command: python examples/basic/sdk_quickstart.py
+          - name: fastapi
+            editable: ".[dev,dashboard]"
+            additional: ""
+            command: pytest tests/unit/test_tracing_fastapi.py -v --tb=short
+          - name: langchain
+            editable: ".[dev,langchain]"
+            additional: "langchain-community faiss-cpu"
+            command: pytest tests/integration/test_langchain_callback.py -v --tb=short
+          - name: llamaindex
+            editable: ".[dev,llamaindex]"
+            additional: ""
+            command: pytest tests/integration/test_llamaindex_callback.py -v --tb=short
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ${{ matrix.name }}
+        run: pip install -e "${{ matrix.editable }}" ${{ matrix.additional }}
+      - name: Run live ${{ matrix.name }} contract
+        run: ${{ matrix.command }}
+
+  first-class-http-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev,dashboard,demo]"
+      - name: Run live HTTP evaluation
+        run: |
+          python -m uvicorn server:app --app-dir examples/integrations/http_quickstart --port 8000 > /tmp/retobs-http.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/docs > /dev/null && break; sleep 1; done
+          retobs evaluate --config examples/integrations/http_quickstart/config.yaml --max-queries 3
+          python -c "import asyncio; from retrieval_observatory.integrations.verify import verify_integration; report=asyncio.run(verify_integration(db_path='.retobs/http_quickstart.db')); assert report['check_status'] != 'error', report"
+
+  supported-example-framework-smoke:
+    # These broader adapters are maintained as examples, not first-class project wiring claims.
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -125,3 +184,35 @@ jobs:
 
       - name: Postgres integration tests
         run: pytest tests/unit/test_store_postgres.py -v --tb=short
+
+  dashboard-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: retrieval_observatory/dashboard/ui/package-lock.json
+      - name: Install
+        run: |
+          pip install -e ".[dev,dashboard]"
+          npm ci --prefix retrieval_observatory/dashboard/ui
+          python -m playwright install --with-deps chromium
+      - name: Build dashboard and enforce bundle budgets
+        run: npm run build --prefix retrieval_observatory/dashboard/ui
+      - name: Seed deterministic demo
+        run: retobs demo --db .retobs/e2e/results.db --output-dir .retobs/e2e --n-traces 80
+      - name: Start dashboard
+        run: |
+          retobs serve --host 127.0.0.1 --port 4000 --db .retobs/e2e/results.db > /tmp/retobs-dashboard.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4000/dbs && exit 0; sleep 1; done
+          cat /tmp/retobs-dashboard.log
+          exit 1
+      - name: Responsive, state, semantic, and WCAG browser tests
+        env:
+          RETOBS_E2E_URL: http://127.0.0.1:4000
+        run: pytest tests/browser -v --tb=short

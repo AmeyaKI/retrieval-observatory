@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -19,7 +18,7 @@ import yaml
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_MAX_QUERIES = 50
 
-from retrieval_observatory.integrations.verify import dashboard_base_url, verify_integration
+from retrieval_observatory.integrations.verify import verify_integration
 
 
 class _FallbackFastMCP:
@@ -142,6 +141,65 @@ async def _get_run_metrics(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[
     return await MetricsEngine().aggregate(run_id, store)
 
 
+async def _get_report(
+    run_id: str,
+    format: str = "json",
+    db_path: str = DEFAULT_DB_PATH,
+) -> Dict[str, Any] | str:
+    """Render a run through the same report model as CLI and SDK."""
+    from retrieval_observatory.sdk.report import load_run_report
+
+    report = await load_run_report(run_id, db_path)
+    if format == "json":
+        return report.to_dict()
+    if format in {"markdown", "md", "terminal"}:
+        return report.to_markdown()
+    if format == "html":
+        return report.to_html()
+    raise ValueError("format must be json, markdown, or html")
+
+
+async def _compare_runs(
+    baseline_run_id: str,
+    candidate_run_id: str,
+    format: str = "json",
+    db_path: str = DEFAULT_DB_PATH,
+) -> Dict[str, Any] | str:
+    """Validity-gated comparison with explicit baseline/candidate orientation."""
+    from retrieval_observatory.sdk.report import load_comparison_report
+
+    report = await load_comparison_report(baseline_run_id, candidate_run_id, db_path)
+    if format == "json":
+        return report.to_dict()
+    if format in {"markdown", "md", "terminal"}:
+        return report.to_markdown()
+    if format == "html":
+        return report.to_html()
+    raise ValueError("format must be json, markdown, or html")
+
+
+async def _inspect_query(
+    run_id: str,
+    query_id: str,
+    db_path: str = DEFAULT_DB_PATH,
+    trace_limit: int = 20,
+    trace_offset: int = 0,
+) -> Dict[str, Any]:
+    """Return the canonical scoped QueryEvidence document."""
+    from retrieval_observatory.evidence import build_query_evidence
+
+    store = _store(db_path)
+    await store.init_db()
+    return await build_query_evidence(
+        store,
+        db_id=Path(db_path).stem,
+        run_id=run_id,
+        query_id=query_id,
+        trace_limit=min(max(trace_limit, 1), 100),
+        trace_offset=max(trace_offset, 0),
+    )
+
+
 def _normalize_benchmark_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Accept full ExperimentConfig or legacy pipeline-descriptor shape."""
     if config.get("experiment") and config.get("dataset"):
@@ -174,6 +232,17 @@ async def _verify_integration(
 ) -> Dict[str, Any]:
     """Report whether traces/metrics exist and suggest next MCP steps."""
     return await verify_integration(db_path=db_path, run_id=run_id, expected_stages=expected_stages)
+
+
+async def _plan_integration(
+    project_root: str,
+    framework: Optional[str] = None,
+    retriever_entrypoint: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Inspect a project and return the smallest integration patch without writing files."""
+    from retrieval_observatory.integrations.wire import plan_project
+
+    return plan_project(project_root, framework=framework, retriever_entrypoint=retriever_entrypoint)
 
 
 async def _benchmark_config(
@@ -376,7 +445,11 @@ async def _get_pipeline_diagram(run_id: str, db_path: str = DEFAULT_DB_PATH) -> 
     return await _get_pipeline_graph(run_id, db_path)
 
 
-async def _get_pipeline_graph(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
+async def _get_pipeline_graph(
+    run_id: str,
+    db_path: str = DEFAULT_DB_PATH,
+    trace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Canonical PipelineGraph projection (nodes + edges with CIs) from traces + metrics."""
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
@@ -385,7 +458,12 @@ async def _get_pipeline_graph(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Di
     await store.init_db()
     agg = await MetricsEngine().aggregate(run_id, store)
     traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-    graphs = build_pipeline_graphs(agg, traces)
+    graphs = build_pipeline_graphs(
+        agg,
+        traces,
+        projection_mode="trace" if trace_id else "run_union",
+        trace_id=trace_id,
+    )
     return {
         "run_id": run_id,
         "pipelines": [g.to_dict() for g in graphs],
@@ -465,9 +543,16 @@ def build_server(config_path: Optional[str] = None):
         FastMCP = _FallbackFastMCP
 
     server = FastMCP("retrieval-observatory")
+    # Task-oriented public tools. These nouns and result contracts match CLI/SDK/UI.
+    server.tool(name="evaluate")(_with_config_defaults(config_path, _benchmark_config))
+    server.tool(name="evaluate_file")(_with_config_defaults(config_path, _benchmark_config_file))
+    server.tool(name="compare")(_with_config_defaults(config_path, _compare_runs))
+    server.tool(name="inspect_query")(_with_config_defaults(config_path, _inspect_query))
+    server.tool(name="get_report")(_with_config_defaults(config_path, _get_report))
     server.tool(name="describe_config")(_describe_config)
     server.tool(name="validate_config")(_validate_config)
     server.tool(name="describe_integration")(_describe_integration)
+    server.tool(name="plan_integration")(_plan_integration)
     server.tool(name="wire_project")(_with_config_defaults(config_path, _wire_project))
     server.tool(name="verify_integration")(_with_config_defaults(config_path, _verify_integration))
     server.tool(name="bootstrap_project")(_bootstrap_project)

@@ -46,7 +46,8 @@ def build_run_manifest(
     seed: int | None = None,
 ) -> Dict[str, Any]:
     """Capture enough environment detail to make a run auditable."""
-    config_json = config.model_dump_json() if hasattr(config, "model_dump_json") else json.dumps(config)
+    normalized_config = config.model_dump(mode="json") if hasattr(config, "model_dump") else config
+    config_json = json.dumps(normalized_config, sort_keys=True, separators=(",", ":"), default=str)
     packages = {}
     for name in ("retobs", "numpy", "pydantic", "httpx", "rank-bm25", "sentence-transformers", "faiss-cpu"):
         try:
@@ -56,16 +57,33 @@ def build_run_manifest(
 
     display = build_pipeline_display(config)
     manifest = {
-        "schema_version": 2,
+        "schema_version": 3,
         "config_hash": hashlib.sha256(config_json.encode("utf-8")).hexdigest(),
+        "normalized_config": normalized_config,
         "dataset": dataset_fingerprint,
         "python": sys.version,
         "platform": platform.platform(),
         "machine": platform.machine(),
         "packages": packages,
         "git_commit": _git_commit(),
+        "git_dirty": _git_dirty(),
         "cache_results": getattr(getattr(config, "execution", None), "cache_results", None),
         "seed": seed if seed is not None else getattr(getattr(config, "execution", None), "seed", None),
+        "execution": _execution_manifest(config, seed),
+        "labeling": _label_manifest(config),
+        "models": _model_inventory(config),
+        "environment": {
+            "python": sys.version,
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+            "processor": platform.processor() or None,
+        },
+        "counts": {
+            "attempted": None,
+            "completed": None,
+            "labeled": None,
+            "metric_eligible": None,
+        },
         **display,
     }
     if latency_budget_ms is not None:
@@ -130,3 +148,69 @@ def _git_commit() -> str | None:
         return result.stdout.strip()
     except Exception:
         return None
+
+
+def _git_dirty() -> bool | None:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return None
+
+
+def _execution_manifest(config: Any, seed: int | None) -> Dict[str, Any]:
+    execution = getattr(config, "execution", None)
+    configured_seed = seed if seed is not None else getattr(execution, "seed", None)
+    return {
+        "concurrency": getattr(execution, "concurrency", None),
+        "timeout_ms": getattr(execution, "timeout_ms", None),
+        "retry_attempts": getattr(execution, "retry_attempts", None),
+        "cache_results": getattr(execution, "cache_results", None),
+        "seed": configured_seed,
+        "nondeterminism_flags": ["scheduler_seed_missing"] if configured_seed is None else [],
+        "observed": {
+            "cache_hits": None,
+            "cache_misses": None,
+            "timeouts": None,
+            "retries": None,
+        },
+    }
+
+
+def _label_manifest(config: Any) -> Dict[str, Any]:
+    labels = getattr(config, "labels", None)
+    return {
+        "method": getattr(labels, "mode", None),
+        "judge": getattr(labels, "judge", None),
+        "model": getattr(labels, "model", None),
+        "version": None,
+    }
+
+
+def _model_inventory(config: Any) -> List[Dict[str, Any]]:
+    inventory: List[Dict[str, Any]] = []
+    for pipeline in getattr(config, "pipelines", []) or []:
+        for index, stage in enumerate(pipeline.stages):
+            inventory.append({
+                "pipeline_id": pipeline.id,
+                "operator_id": getattr(stage, "retriever_id", None) or f"stage-{index}",
+                "type": getattr(stage, "type", None),
+                "model": getattr(stage, "model", None),
+                "version": (getattr(stage, "config", None) or {}).get("model_version"),
+            })
+    for graph in getattr(config, "graphs", []) or []:
+        for node in graph.nodes:
+            inventory.append({
+                "pipeline_id": graph.id,
+                "operator_id": node.id,
+                "type": node.type or node.op,
+                "model": node.model,
+                "version": node.config.get("model_version"),
+            })
+    return inventory

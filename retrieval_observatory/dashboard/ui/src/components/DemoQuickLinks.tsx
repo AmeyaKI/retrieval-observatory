@@ -7,7 +7,7 @@ interface Props {
 
 export default function DemoQuickLinks({ context, onOpenTour }: Props) {
   const lineageHref = context.sample_query_id
-    ? `#/query/${encodeURIComponent(context.sample_query_id)}`
+    ? `#/queries/${encodeURIComponent(context.sample_query_id)}`
     : null
 
   return (
@@ -24,29 +24,34 @@ export default function DemoQuickLinks({ context, onOpenTour }: Props) {
           onClick={onOpenTour}
           className="text-indigo-700 hover:text-indigo-900 underline decoration-indigo-300"
         >
-          Platform tour
+          Workflow tour
         </button>
-        <a href="#/benchmarks" className="text-indigo-700 hover:text-indigo-900 underline decoration-indigo-300">
+        <a href="#/compare" className="text-indigo-700 hover:text-indigo-900 underline decoration-indigo-300">
           Compare runs
         </a>
+        {context.validation_run_id && (
+          <a href={`#/runs/${encodeURIComponent(context.validation_run_id)}`} className="text-indigo-700 hover:text-indigo-900 underline decoration-indigo-300">
+            Validated fix
+          </a>
+        )}
         {context.forge_dataset_id && (
           <a
-            href={`#/forge/${encodeURIComponent(context.forge_dataset_id)}`}
+            href={`#/test-sets/${encodeURIComponent(context.forge_dataset_id)}`}
             className="text-amber-800 hover:text-amber-900 underline decoration-amber-300"
           >
-            Forge dataset
+            Test Set
           </a>
         )}
         {context.tracelens_service && (
           <a
-            href={`#/tracelens/${encodeURIComponent(context.tracelens_service)}`}
+            href={`#/production/${encodeURIComponent(context.tracelens_service)}`}
             className="text-teal-800 hover:text-teal-900 underline decoration-teal-300"
           >
-            TraceLens
+            Production
           </a>
         )}
-        <a href="#/advisor" className="text-violet-700 hover:text-violet-900 underline decoration-violet-300">
-          Advisor
+        <a href="#/runs" className="text-violet-700 hover:text-violet-900 underline decoration-violet-300">
+          Findings
         </a>
         {lineageHref && (
           <a href={lineageHref} className="text-gray-800 dark:text-slate-100 hover:text-gray-950 underline decoration-gray-400 font-medium">

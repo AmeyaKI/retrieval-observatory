@@ -3,9 +3,8 @@ from __future__ import annotations
 from typing import List
 
 from retrieval_observatory.advisor.types import RegressionFinding
-from retrieval_observatory.metrics.comparison import paired_scores_by_query, parse_metric_key
+from retrieval_observatory.metrics.comparison import compare_paired_metrics, comparison_validity, parse_metric_key
 from retrieval_observatory.metrics.engine import MetricsEngine
-from retrieval_observatory.metrics.significance import benjamini_hochberg, paired_bootstrap_test
 from retrieval_observatory.store.base import BaseStore
 
 _QUALITY_PREFIXES = ("ndcg", "recall", "mrr", "map")
@@ -58,26 +57,38 @@ async def detect_regressions(
     metrics_cand = await store.get_metrics(candidate_run)
 
     shared_keys = sorted(set(agg_base) & set(agg_cand))
+    manifests = [
+        await store.get_run_manifest(baseline_run),
+        await store.get_run_manifest(candidate_run),
+    ]
+    validity = comparison_validity(manifests)
+    if not validity.decision_allowed:
+        return []
+    statistical_results = compare_paired_metrics(
+        metrics_base,
+        metrics_cand,
+        shared_keys,
+        validity,
+    )
     candidates: List[dict] = []
 
     for metric_key in shared_keys:
         if _is_quality_metric(metric_key):
-            s1, s2, n_pairs = paired_scores_by_query(metrics_base, metrics_cand, metric_key)
-            if n_pairs < 2:
-                continue
             before = agg_base[metric_key]["mean"]
             after = agg_cand[metric_key]["mean"]
-            if after >= before:
+            result = statistical_results[metric_key]
+            if result.decision != "candidate_worse":
                 continue
-            p_value = paired_bootstrap_test(s1, s2)
             candidates.append(
                 {
                     "metric": metric_key,
                     "before": before,
                     "after": after,
                     "delta": after - before,
-                    "p_value": p_value,
-                    "n_pairs": n_pairs,
+                    "p_value": result.p_value,
+                    "q_value": result.q_value,
+                    "effect_threshold": result.effect_threshold,
+                    "n_pairs": result.paired_n,
                     "is_quality": True,
                 }
             )
@@ -89,18 +100,19 @@ async def detect_regressions(
             rel_increase = (after - before) / before
             if rel_increase < latency_regression_pct:
                 continue
-            s1, s2, n_pairs = paired_scores_by_query(metrics_base, metrics_cand, metric_key)
-            if n_pairs < 2:
+            result = statistical_results[metric_key]
+            if result.decision != "candidate_worse":
                 continue
-            p_value = paired_bootstrap_test(s1, s2)
             candidates.append(
                 {
                     "metric": metric_key,
                     "before": before,
                     "after": after,
                     "delta": after - before,
-                    "p_value": p_value,
-                    "n_pairs": n_pairs,
+                    "p_value": result.p_value,
+                    "q_value": result.q_value,
+                    "effect_threshold": result.effect_threshold,
+                    "n_pairs": result.paired_n,
                     "is_quality": False,
                 }
             )
@@ -108,11 +120,9 @@ async def detect_regressions(
     if not candidates:
         return []
 
-    q_values = benjamini_hochberg([c["p_value"] for c in candidates])
     findings: List[RegressionFinding] = []
-    for candidate, q_value in zip(candidates, q_values):
-        if q_value >= 0.05:
-            continue
+    for candidate in candidates:
+        q_value = candidate["q_value"]
         findings.append(
             RegressionFinding(
                 metric=candidate["metric"],
@@ -122,6 +132,8 @@ async def detect_regressions(
                 q_value=q_value,
                 severity=_severity(candidate["delta"], candidate["is_quality"]),
                 n_pairs=candidate["n_pairs"],
+                p_value=candidate["p_value"],
+                effect_threshold=candidate["effect_threshold"],
             )
         )
     findings.sort(key=lambda f: f.q_value)

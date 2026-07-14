@@ -33,6 +33,7 @@ TODO
 !CHANGELOG.md
 !YAML_GUIDE.md
 !docs/USAGE.md
+# !docs/PRODUCT_AUDIT_AND_REDESIGN.md
 !docs/integrations/*.md
 !docs/informative/ci_gating.md
 !docs/guides/*.md

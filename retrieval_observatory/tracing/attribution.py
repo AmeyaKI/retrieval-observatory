@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set
 
 from retrieval_observatory.metrics.ranking import average_precision, ndcg_at_k, ndcg_at_k_graded, precision_at_k
 from retrieval_observatory.metrics.recall import recall_at_k
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.tracing.model_v2 import ReplayPolicy, RetrievalTraceV2
-from retrieval_observatory.tracing.replay import without_operator
+from retrieval_observatory.tracing.replay import simulate_without_operator
 
 _SUPPORTED_METRICS = frozenset({"recall", "ndcg", "precision", "mrr", "map"})
 
@@ -29,6 +29,10 @@ class MarginalResult:
     significant: Optional[bool] = None
     p_value: Optional[float] = None
     q_value: Optional[float] = None
+    evidence_class: str = "unavailable"
+    reason: Optional[str] = None
+    unsupported_descendants: List[str] = field(default_factory=list)
+    assumptions: Optional[Dict[str, object]] = None
 
 
 def _find_final_span(trace: RetrievalTraceV2):
@@ -151,6 +155,9 @@ def operator_marginal_contribution(
         with_scores: List[float] = []
         without_scores: List[float] = []
         replay_policy: ReplayPolicy = "NOT_REPLAYABLE"
+        indeterminate_reason: Optional[str] = None
+        unsupported_descendants: Set[str] = set()
+        assumptions: Optional[Dict[str, object]] = None
 
         for trace in seg_traces:
             span = next((s for s in trace.spans if s.op_id == op_id), None)
@@ -161,12 +168,39 @@ def operator_marginal_contribution(
             if not qrel or not _relevant_set(qrel):
                 continue
             final_span = _find_final_span(trace)
+            replay = simulate_without_operator(trace, op_id)
+            assumptions = dict(replay.assumptions.__dict__)
+            if replay.status == "indeterminate" or replay.trace is None:
+                indeterminate_reason = replay.reason or "Replay is unsupported."
+                unsupported_descendants.update(replay.unsupported_descendants)
+                continue
             final = final_span.outputs if final_span else []
             with_scores.append(_metric_at_k([c.doc_id for c in final], qrel, metric, k))
-            cf = without_operator(trace, op_id)
-            cf_final_span = _find_final_span(cf)
+            cf_final_span = _find_final_span(replay.trace)
             cf_final = cf_final_span.outputs if cf_final_span else []
             without_scores.append(_metric_at_k([c.doc_id for c in cf_final], qrel, metric, k))
+
+        if indeterminate_reason is not None:
+            out.append(
+                MarginalResult(
+                    op_id=op_id,
+                    segment=seg_name,
+                    metric=metric,
+                    k=k,
+                    delta=None,
+                    ci_low=None,
+                    ci_high=None,
+                    n_pairs=0,
+                    replay_policy=replay_policy,
+                    result_status="indeterminate",
+                    fire_rate=operator_fire_rate(op_id, seg_traces),
+                    evidence_class="unavailable",
+                    reason=indeterminate_reason,
+                    unsupported_descendants=sorted(unsupported_descendants),
+                    assumptions=assumptions,
+                )
+            )
+            continue
 
         n_pairs = min(len(with_scores), len(without_scores))
         if n_pairs == 0:
@@ -183,6 +217,9 @@ def operator_marginal_contribution(
                     replay_policy=replay_policy,
                     result_status="not_applicable",
                     fire_rate=operator_fire_rate(op_id, seg_traces),
+                    evidence_class="unavailable",
+                    reason="No fired operator trace had usable relevance judgments.",
+                    assumptions=assumptions,
                 )
             )
             continue
@@ -198,25 +235,23 @@ def operator_marginal_contribution(
             result_p_index.append(len(out))
             all_p_values.append(p_value)
 
-        result_status = "measured"
-        if replay_policy == "NOT_REPLAYABLE" and delta is not None:
-            result_status = "indeterminate"
-
         out.append(
             MarginalResult(
                 op_id=op_id,
                 segment=seg_name,
                 metric=metric,
                 k=k,
-                delta=delta if replay_policy != "NOT_REPLAYABLE" else delta,
+                delta=delta,
                 ci_low=ci_low,
                 ci_high=ci_high,
                 n_pairs=n_pairs,
                 replay_policy=replay_policy,
-                result_status=result_status,
+                result_status="replayed",
                 low_power=n_pairs < n_power_threshold,
                 fire_rate=operator_fire_rate(op_id, seg_traces),
                 p_value=p_value,
+                evidence_class="replayed",
+                assumptions=assumptions,
             )
         )
 

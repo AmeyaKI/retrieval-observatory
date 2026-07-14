@@ -1,7 +1,9 @@
-# The Advisor — from diagnostics to a prioritized plan
+# Findings — from diagnostics to a validation plan
 
-The Advisor turns retobs's diagnostics into specific, evidence-backed engineering
-recommendations, ranked by expected value. It is a planning tool, not a list of platitudes.
+`advisor` is the internal rules package and deprecated CLI group. Findings now appear inside Runs, Compare, and Queries; regression gating uses `retobs compare --fail-on`.
+
+The Findings engine turns retobs diagnostics into specific, evidence-backed engineering
+recommendations ranked by expected value. It is a planning aid, not a causal claim.
 
 ## What a recommendation carries
 
@@ -36,9 +38,6 @@ informed decision-making, not perfect prediction.
 
 ## Using it
 
-```bash
-retobs advisor <run_id>
-```
-
-or read the **Recommendations** card on the run overview. Each recommendation links to the
-evidence and the affected queries.
+Open a Run, Compare, or Query page to read its **Recommended next steps**. For CI regression
+decisions, use `retobs compare BASELINE CANDIDATE --fail-on regression`. Each recommendation
+links to its evidence, affected queries, limitations, and a validation step.

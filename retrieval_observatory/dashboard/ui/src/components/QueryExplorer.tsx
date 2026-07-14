@@ -87,14 +87,14 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
               <tr className="hover:bg-gray-50">
                 <td className="px-3 py-2 font-mono">
                   <a
-                    href={`#/benchmarks/run/${encodeURIComponent(runId)}/queries/${encodeURIComponent(item.query_id)}`}
-                    className="text-indigo-600 hover:underline"
+                    href={`#/runs/${encodeURIComponent(runId)}/queries/${encodeURIComponent(item.query_id)}`}
+                    className="text-indigo-700 underline underline-offset-2"
                     title="Operator-level timeline for this query"
                   >
                     {item.query_id}
                   </a>
                   <a
-                    href={`#/query/${encodeURIComponent(item.query_id)}`}
+                    href={`#/queries/${encodeURIComponent(item.query_id)}`}
                     className="ml-1.5 text-[10px] text-gray-400 hover:text-indigo-600"
                     title="Cross-run lineage for this query"
                   >
@@ -145,8 +145,8 @@ export default function QueryExplorer({ dbId, runId }: { dbId: string; runId: st
                       />
                       {docId.trim() && (
                         <a
-                          href={`#/benchmarks/run/${encodeURIComponent(runId)}/queries/${encodeURIComponent(item.query_id)}/candidates/${encodeURIComponent(docId.trim())}`}
-                          className="text-[10px] text-indigo-600 hover:underline"
+                          href={`#/runs/${encodeURIComponent(runId)}/queries/${encodeURIComponent(item.query_id)}/candidates/${encodeURIComponent(docId.trim())}`}
+                          className="text-[10px] text-indigo-700 underline underline-offset-2"
                         >
                           view as Sankey →
                         </a>

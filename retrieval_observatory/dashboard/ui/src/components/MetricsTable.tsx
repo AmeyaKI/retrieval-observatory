@@ -333,7 +333,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
 
                         {/* Per-pipeline diagnostic failure labels */}
                         {diagLabels && diagLabels.n > 0 && (() => {
-                          const labelOrder = ['candidate_miss', 'reranker_drop', 'id_or_qrel_issue', 'lexical_mismatch', 'semantic_mismatch']
+                          const labelOrder = ['candidate_miss', 'reranker_drop', 'not_retrieved_by_any_pipeline', 'qrel_not_in_corpus', 'corpus_identity_unknown', 'lexical_mismatch', 'semantic_mismatch']
                           return labelOrder
                             .filter((l) => (diagLabels.labels[l] ?? 0) > 0)
                             .map((label) => {

@@ -83,7 +83,7 @@ def test_fired_subset_only() -> None:
     qrels = {"q1": {"d1": 1}, "q2": {"d1": 1}}
     rows = operator_marginal_contribution(traces, op_id="source_a", qrels=qrels, metric="recall", k=1)
     assert rows
-    assert any(r.result_status in {"measured", "not_applicable", "indeterminate"} for r in rows)
+    assert any(r.result_status in {"replayed", "not_applicable", "indeterminate"} for r in rows)
 
 
 def test_ndcg_metric_supported() -> None:
@@ -100,10 +100,10 @@ def test_bootstrap_ci_when_enough_pairs() -> None:
     rows = operator_marginal_contribution(
         traces, op_id="source_a", qrels=qrels, metric="recall", k=1, n_power_threshold=20
     )
-    measured = [r for r in rows if r.result_status in {"measured", "indeterminate"}]
-    assert measured
-    assert measured[0].ci_low is not None
-    assert measured[0].ci_high is not None
+    replayed = [r for r in rows if r.result_status == "replayed"]
+    assert replayed
+    assert replayed[0].ci_low is not None
+    assert replayed[0].ci_high is not None
 
 
 def test_significant_field_populated_with_bh() -> None:

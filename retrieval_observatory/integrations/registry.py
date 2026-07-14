@@ -19,8 +19,8 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
             "# Option B — YAML adapter.import (factory next to config.yaml):\n"
             "# stages: [{type: adapter.import, retriever_id: my_retriever,\n"
             "#           config: {factory: retriever.build_retriever, k: 10}}]\n"
-            "# Run: retobs run --config retobs/config.yaml\n"
-            "# Or MCP: benchmark_config_file(config_path='.../retobs/config.yaml')\n\n"
+            "# Run: retobs evaluate --config retobs/config.yaml\n"
+            "# Or MCP: evaluate_file(config_path='.../retobs/config.yaml')\n\n"
             "# Option C — production tracing (V2 operator DAG):\n"
             "from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace\n\n"
             "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n\n"
@@ -157,6 +157,20 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+SUPPORT_LEVELS: Dict[str, Dict[str, Any]] = {
+    "python": {"level": "first_class", "kind": "framework", "owner": "retobs-core"},
+    "http": {"level": "first_class", "kind": "framework", "owner": "retobs-core"},
+    "fastapi": {"level": "first_class", "kind": "framework", "owner": "retobs-core"},
+    "langchain": {"level": "first_class", "kind": "framework", "owner": "retobs-core"},
+    "llamaindex": {"level": "first_class", "kind": "framework", "owner": "retobs-core"},
+    "haystack": {"level": "supported_example", "kind": "framework", "owner": "community"},
+    "dspy": {"level": "supported_example", "kind": "framework", "owner": "community"},
+    "openai_agents": {"level": "supported_example", "kind": "framework", "owner": "community"},
+    "pgvector": {"level": "first_class", "kind": "data_adapter", "owner": "retobs-core"},
+    "qdrant": {"level": "first_class", "kind": "data_adapter", "owner": "retobs-core"},
+    "hybrid_rerank": {"level": "architecture_recipe", "kind": "recipe", "owner": "retobs-core"},
+}
+
 
 def list_integration_frameworks() -> List[str]:
     return sorted(INTEGRATION_GUIDES.keys())
@@ -167,6 +181,7 @@ def describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
         return {
             "frameworks": list_integration_frameworks(),
             "guides": INTEGRATION_GUIDES,
+            "support_levels": SUPPORT_LEVELS,
             "next": "Call describe_integration(framework='...') for one path, then verify_integration after wiring.",
         }
     key = framework.lower().strip()
@@ -177,5 +192,6 @@ def describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
         }
     guide = dict(INTEGRATION_GUIDES[key])
     guide["framework"] = key
+    guide["support"] = SUPPORT_LEVELS[key]
     guide["next"] = "Wire the snippet, run one query, then call verify_integration."
     return guide

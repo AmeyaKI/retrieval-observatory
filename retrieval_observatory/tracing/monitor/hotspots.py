@@ -17,11 +17,15 @@ def compute_hotspots(traces: List[Dict[str, Any]], top_n: int = 12) -> List[Dict
         difficulty_totals[t.get("predicted_difficulty") or "unknown"] += 1
 
     seg_counts: Dict[tuple, int] = defaultdict(int)
+    seg_trace_ids: Dict[tuple, List[str]] = defaultdict(list)
     for t in traces:
         diff = t.get("predicted_difficulty") or "unknown"
         pipeline = t.get("pipeline_id") or "unknown"
         for label in t.get("suspected_failures") or []:
-            seg_counts[(diff, label, pipeline)] += 1
+            key = (diff, label, pipeline)
+            seg_counts[key] += 1
+            if t.get("trace_id") and len(seg_trace_ids[key]) < 50:
+                seg_trace_ids[key].append(str(t["trace_id"]))
 
     hotspots = []
     for (diff, label, pipeline), count in seg_counts.items():
@@ -33,6 +37,13 @@ def compute_hotspots(traces: List[Dict[str, Any]], top_n: int = 12) -> List[Dict
             "pipeline": pipeline,
             "count": count,
             "rate": round(count / denom, 4),
+            "evidence_class": "heuristic",
+            "method": "label_free_proxy_segment_count_v1",
+            "sample_size": len(traces),
+            "denominator": denom,
+            "baseline": "selected_window_difficulty_traffic",
+            "threshold": None,
+            "supporting_trace_ids": seg_trace_ids[(diff, label, pipeline)],
         })
 
     hotspots.sort(key=lambda h: (-h["count"], -h["rate"]))

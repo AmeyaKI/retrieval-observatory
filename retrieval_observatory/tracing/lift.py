@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from typing import List
 
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.candidates import build_candidate_transition
+from retrieval_observatory.tracing.model_v2 import (
+    Candidate,
+    OperatorSpan,
+    RetrievalTraceV2,
+    TraceTiming,
+    critical_path_latency_ms,
+)
 from retrieval_observatory.types import PipelineResult, StageSnapshot
 
 
@@ -11,7 +18,7 @@ def _candidate(doc, op_id: str, *, origin_op_ids: List[str] | None = None) -> Ca
         doc_id=doc.id,
         score=float(doc.score),
         rank=int(doc.rank),
-        input_rank=int(doc.rank),
+        input_rank=None,
         output_rank=int(doc.rank),
         origin_op_ids=list(origin_op_ids or [op_id]),
     )
@@ -82,29 +89,13 @@ def _stage_span(
     )
 
 
-def _fused_outputs(snapshot: StageSnapshot, arm_spans: List[OperatorSpan]) -> List[Candidate]:
-    outputs: List[Candidate] = []
-    by_doc_id = {}
-    for arm_span in arm_spans:
-        for candidate in arm_span.outputs:
-            by_doc_id.setdefault(candidate.doc_id, []).append((arm_span.op_id, candidate.score))
-
-    for doc in snapshot.documents:
-        contributions = by_doc_id.get(doc.id, [])
-        origin_op_ids = [op_id for op_id, _ in contributions]
-        candidate = _candidate(doc, op_id=snapshot.stage_id, origin_op_ids=origin_op_ids or [snapshot.stage_id])
-        candidate.score_components = {op_id: score for op_id, score in contributions}
-        candidate.add_reason = "fused"
-        outputs.append(candidate)
-    return outputs
-
-
 def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> RetrievalTraceV2:
     spans: List[OperatorSpan] = []
     last_op_id: str | None = None
     previous_outputs: List[Candidate] = []
 
     if not result.snapshots:
+        empty_status = "ERROR" if result.status == "OK" else result.status
         return RetrievalTraceV2(
             trace_id=f"{run_id or 'unscoped'}:{result.query_id}:{result.pipeline_id}",
             run_id=run_id or "",
@@ -113,8 +104,15 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
             pipeline_id=result.pipeline_id,
             spans=[],
             total_latency_ms=float(result.total_latency_ms),
-            status="ERROR",
-            error_traceback=result.error_traceback or "PipelineResult had no stage snapshots",
+            timing=TraceTiming(
+                wall_clock_ms=float(result.total_latency_ms),
+                critical_path_ms=0.0,
+                operator_sum_ms=0.0,
+            ),
+            status=empty_status,
+            error_traceback=result.error_traceback or (
+                "PipelineResult had no stage snapshots" if empty_status == "ERROR" else None
+            ),
             final_op_id=None,
         )
 
@@ -130,8 +128,12 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
                 arm_spans.append(arm_span)
                 spans.append(arm_span)
 
-            fused_inputs = [candidate for arm_span in arm_spans for candidate in arm_span.outputs]
-            fused_outputs = _fused_outputs(snapshot, arm_spans)
+            fused_inputs, fused_outputs = build_candidate_transition(
+                input_groups={arm_span.op_id: arm_span.outputs for arm_span in arm_spans},
+                output_items=snapshot.documents,
+                op_id=op_id,
+                op_type="FUSE",
+            )
             span = _stage_span(
                 snapshot,
                 parent_ids=[arm_span.op_id for arm_span in arm_spans],
@@ -142,18 +144,13 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
             )
             spans.append(span)
         else:
-            outputs = []
-            previous_by_doc = {candidate.doc_id: candidate for candidate in previous_outputs}
-            for doc in snapshot.documents:
-                previous = previous_by_doc.get(doc.id)
-                outputs.append(
-                    _candidate(
-                        doc,
-                        op_id=op_id,
-                        origin_op_ids=previous.origin_op_ids if previous else [op_id],
-                    )
-                )
-            span = _stage_span(snapshot, parent_ids=parent_ids, op_id=op_id, inputs=previous_outputs, outputs=outputs)
+            inputs, outputs = build_candidate_transition(
+                input_groups={last_op_id: previous_outputs} if last_op_id else {},
+                output_items=snapshot.documents,
+                op_id=op_id,
+                op_type=_op_type(snapshot.stage_id),
+            )
+            span = _stage_span(snapshot, parent_ids=parent_ids, op_id=op_id, inputs=inputs, outputs=outputs)
             spans.append(span)
 
         last_op_id = op_id
@@ -165,6 +162,7 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
         if expected != actual:
             raise ValueError("Lifted trace final output does not match PipelineResult final stage output")
 
+    operator_sum_ms = sum(max(0.0, span.latency_ms) for span in spans)
     return RetrievalTraceV2(
         trace_id=f"{run_id or 'unscoped'}:{result.query_id}:{result.pipeline_id}",
         run_id=run_id or "",
@@ -173,6 +171,11 @@ def lift_pipeline_result(result: PipelineResult, run_id: str | None = None) -> R
         pipeline_id=result.pipeline_id,
         spans=spans,
         total_latency_ms=float(result.total_latency_ms),
+        timing=TraceTiming(
+            wall_clock_ms=float(result.total_latency_ms),
+            critical_path_ms=critical_path_latency_ms(spans),
+            operator_sum_ms=operator_sum_ms,
+        ),
         status=result.status,
         error_traceback=result.error_traceback,
         final_op_id=spans[-1].op_id if spans else None,

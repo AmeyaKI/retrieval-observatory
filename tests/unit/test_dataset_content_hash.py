@@ -27,6 +27,9 @@ def test_fingerprint_includes_content_hash():
     fp = dataset_fingerprint("ds", _queries(), {"q1": {"d1": 1}}, {"d1": "alpha"})
     assert "content_hash" in fp
     assert len(fp["content_hash"]) == 64  # sha256 hexdigest
+    assert len(fp["query_hash"]) == 64
+    assert len(fp["qrel_hash"]) == 64
+    assert len(fp["corpus_hash"]) == 64
 
 
 def test_content_hash_stable_across_regenerated_forge_dataset():

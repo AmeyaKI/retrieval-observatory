@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # Self-describing config helpers so an agent can discover the ExperimentConfig shape and
 # dry-run-validate a config WITHOUT running a benchmark or reading external docs. Both the REST

@@ -5,6 +5,7 @@ import SuspectedFailureChip from './SuspectedFailureChip'
 import TraceDetail from './TraceDetail'
 
 interface Props {
+  dbId: string
   service: string
   since?: string
   initialFilter?: { difficulty?: string; status?: string; suspected_only?: boolean }
@@ -18,7 +19,7 @@ function fmtTime(iso: string): string {
   }
 }
 
-export default function LiveTraces({ service, since, initialFilter }: Props) {
+export default function LiveTraces({ dbId, service, since, initialFilter }: Props) {
   const [rows, setRows] = useState<TraceRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -28,7 +29,7 @@ export default function LiveTraces({ service, since, initialFilter }: Props) {
 
   useEffect(() => {
     setRows(null)
-    fetchTraces(service, {
+    fetchTraces(dbId, service, {
       since,
       status: statusFilter || undefined,
       difficulty: difficultyFilter || undefined,
@@ -36,7 +37,7 @@ export default function LiveTraces({ service, since, initialFilter }: Props) {
     })
       .then(setRows)
       .catch((e) => setError(e.message))
-  }, [service, since, statusFilter, difficultyFilter, suspectedOnly])
+  }, [dbId, service, since, statusFilter, difficultyFilter, suspectedOnly])
 
   if (error) return <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
 
@@ -109,7 +110,7 @@ export default function LiveTraces({ service, since, initialFilter }: Props) {
         </table>
       </div>
 
-      {openId && <TraceDetail traceId={openId} onClose={() => setOpenId(null)} />}
+          {openId && <TraceDetail dbId={dbId} traceId={openId} onClose={() => setOpenId(null)} />}
     </div>
   )
 }

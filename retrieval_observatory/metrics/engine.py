@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union
 
 from retrieval_observatory.metrics.ranking import (
     dedupe_preserve_rank,
@@ -13,6 +13,9 @@ from retrieval_observatory.metrics.ranking import (
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
+
+if TYPE_CHECKING:
+    from retrieval_observatory.tracing.model_v2 import OperatorSpan
 
 
 def _mean(values: List[float]) -> float:
@@ -308,6 +311,40 @@ class MetricsEngine:
         _sample = next(iter(qrels.values()), None)
         _graded = isinstance(_sample, dict)
 
+        # Stable metric identity comes from the union topology for the whole run, not
+        # from one query's conditional/partial path. Otherwise the same operator can
+        # alternate between branch_id=None and branch_id=op_id across queries.
+        parents_by_pipeline: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
+        for trace in traces:
+            for span in trace.spans:
+                parents_by_pipeline[trace.pipeline_id].setdefault(span.op_id, set())
+                parents_by_pipeline[trace.pipeline_id][span.op_id].update(span.parent_ids)
+
+        union_layout: Dict[str, Dict[str, tuple[int, Optional[str]]]] = {}
+        for pipeline_id, parent_map in parents_by_pipeline.items():
+            cache: Dict[str, int] = {}
+
+            def union_depth(op_id: str, visiting: frozenset[str]) -> int:
+                if op_id in cache:
+                    return cache[op_id]
+                if op_id in visiting:
+                    return 0
+                parents = [parent for parent in parent_map.get(op_id, set()) if parent in parent_map]
+                value = 0 if not parents else 1 + max(
+                    union_depth(parent, visiting | {op_id}) for parent in parents
+                )
+                cache[op_id] = value
+                return value
+
+            depths = {op_id: union_depth(op_id, frozenset()) for op_id in parent_map}
+            counts: Dict[int, int] = defaultdict(int)
+            for depth in depths.values():
+                counts[depth] += 1
+            union_layout[pipeline_id] = {
+                op_id: (depth, None if counts[depth] == 1 else op_id)
+                for op_id, depth in depths.items()
+            }
+
         for trace in traces:
             if trace.status != "OK":
                 continue
@@ -363,14 +400,8 @@ class MetricsEngine:
             # (branch_id=None); parallel nodes sharing a depth each get branch_id=op_id so
             # their per-node metrics stay distinct. A linear chain has one node per depth →
             # branch_id=None and stage_index==position, identical to compute_and_store.
-            depth_by_op = self._span_depths(fired_spans)
-            nodes_at_depth: Dict[int, int] = defaultdict(int)
-            for op_id, depth in depth_by_op.items():
-                nodes_at_depth[depth] += 1
-
             for span in fired_spans:
-                stage_index = depth_by_op[span.op_id]
-                branch_id = None if nodes_at_depth[stage_index] == 1 else span.op_id
+                stage_index, branch_id = union_layout[trace.pipeline_id][span.op_id]
                 metric_rows: List[Dict[str, Any]] = []
                 doc_ids = dedupe_preserve_rank([c.doc_id for c in span.outputs])
 

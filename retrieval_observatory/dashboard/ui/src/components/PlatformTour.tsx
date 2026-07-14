@@ -11,29 +11,29 @@ interface Props {
 
 const STEPS = [
   {
-    title: 'Forge — stress queries',
-    body: 'See temporal and alias failure patterns Forge found in the corpus, and the hard queries generated to expose them.',
-    href: (ctx: DemoContext) => `#/forge/${ctx.forge_dataset_id || 'demo'}`,
+    title: 'Test Sets — stress queries',
+    body: 'See temporal and alias failure patterns found in the corpus, and the hard queries generated to expose them.',
+    href: (ctx: DemoContext) => `#/test-sets/${ctx.forge_dataset_id || 'demo'}`,
   },
   {
-    title: 'Benchmarks — compare runs',
+    title: 'Compare — baseline and candidate',
     body: 'Select baseline (BM25 k=20) and degraded (k=1) runs to see recall drops, failure labels, and per-query forensics.',
-    href: () => '#/benchmarks',
+    href: () => '#/compare',
   },
   {
-    title: 'TraceLens — production drift',
+    title: 'Production — drift evidence',
     body: 'Open the Drift tab to compare recent traffic vs the baseline window. Failures are suspected proxies, not measured Recall.',
-    href: (ctx: DemoContext) => `#/tracelens/${ctx.tracelens_service || 'demo'}`,
+    href: (ctx: DemoContext) => `#/production/${ctx.tracelens_service || 'demo'}`,
   },
   {
-    title: 'Advisor — regressions & fixes',
+    title: 'Run findings — regressions & fixes',
     body: 'Regression center compares baseline vs degraded with significance tests. Recommendations suggest concrete pipeline changes.',
-    href: () => '#/advisor',
+    href: () => '#/runs',
   },
   {
     title: 'Query lineage — the spine',
-    body: 'One query links Forge origin, benchmark scores, and categorical production trace matches.',
-    href: (ctx: DemoContext) => `#/query/${encodeURIComponent(ctx.sample_query_id || '')}`,
+    body: 'One query links Test Set origin, evaluation scores, and categorical production trace matches.',
+    href: (ctx: DemoContext) => `#/queries/${encodeURIComponent(ctx.sample_query_id || '')}`,
   },
 ]
 

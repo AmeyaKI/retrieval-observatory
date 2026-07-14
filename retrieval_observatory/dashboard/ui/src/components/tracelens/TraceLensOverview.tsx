@@ -12,14 +12,14 @@ function Kpi({ label, value, hint, tone }: { label: string; value: string; hint:
   )
 }
 
-export default function TraceLensOverview({ service, since }: { service: string; since?: string }) {
+export default function TraceLensOverview({ dbId, service, since }: { dbId: string; service: string; since?: string }) {
   const [summary, setSummary] = useState<TraceSummary | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setSummary(null)
-    fetchTraceSummary(service, since).then(setSummary).catch((e) => setError(e.message))
-  }, [service, since])
+    fetchTraceSummary(dbId, service, since).then(setSummary).catch((e) => setError(e.message))
+  }, [dbId, service, since])
 
   if (error) return <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
   if (!summary) {

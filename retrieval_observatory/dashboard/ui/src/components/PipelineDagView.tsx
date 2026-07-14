@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchPipelineGraphs, GraphMetricValue, PipelineGraph, PipelineGraphNode } from '../api'
+import { fetchPipelineGraphs, fetchRunTraces, GraphMetricValue, PipelineGraph, PipelineGraphNode, RetrievalTraceV2 } from '../api'
 import { layoutPipelineGraph, LaidOutNode } from '../utils/dagLayout'
 import { fmtQuality, fmtLatencyMs } from '../utils/format'
 import { OP_ACCENT, OP_LABEL } from '../utils/opTypeColors'
@@ -42,6 +42,7 @@ function NodeCard({
 }) {
   const accent = OP_ACCENT[node.op_type] ?? OP_ACCENT.TRANSFORM
   const recallLabel = node.metrics.recall?.k ? `Recall@${node.metrics.recall.k}` : 'Recall'
+  const status = Object.entries(node.status_counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'UNOBSERVED'
   return (
     <foreignObject x={node.x} y={node.y} width={node.w} height={node.h}>
       <button
@@ -66,6 +67,7 @@ function NodeCard({
           )}
         </div>
         <div className="text-xs font-semibold text-ink truncate">{node.label}</div>
+        <div className="text-[9px] text-ink-muted">{status} · fire {(node.fire_rate * 100).toFixed(0)}%{node.cache_hits ? ` · ${node.cache_hits} cache hit(s)` : ''}</div>
         <div className="text-[10px] space-y-0.5 mt-auto">
           <MetricLine label="NDCG@10" v={node.metrics['ndcg@10']} />
           <MetricLine label={recallLabel} v={node.metrics.recall} />
@@ -73,6 +75,33 @@ function NodeCard({
         </div>
       </button>
     </foreignObject>
+  )
+}
+
+function GraphTable({ graph }: { graph: PipelineGraph }) {
+  const parents = new Map<string, string[]>()
+  for (const edge of graph.edges) parents.set(edge.target, [...(parents.get(edge.target) ?? []), edge.source])
+  return (
+    <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+      <table className="w-full text-left text-xs">
+        <caption className="sr-only">Accessible operator table for pipeline {graph.pipeline_id}</caption>
+        <thead className="bg-surface-muted">
+          <tr><th className="p-2">Operator</th><th className="p-2">Parents</th><th className="p-2">Observed status</th><th className="p-2">Coverage / fire</th><th className="p-2">Candidates</th><th className="p-2">Latency</th><th className="p-2">Final</th><th className="p-2">Evidence</th></tr>
+        </thead>
+        <tbody>{graph.nodes.map((node) => (
+          <tr key={node.node_id} className="border-t border-slate-200 dark:border-slate-700">
+            <th scope="row" className="p-2"><span className="font-medium">{node.label}</span><span className="block font-mono text-[10px] text-ink-faint">{node.op_type} · {node.node_id}</span></th>
+            <td className="p-2 font-mono">{(parents.get(node.node_id) ?? []).join(', ') || 'source'}</td>
+            <td className="p-2">{Object.entries(node.status_counts).map(([status, count]) => `${status} ${count}`).join(', ') || 'unobserved'}</td>
+            <td className="p-2">{(node.trace_coverage * 100).toFixed(0)}% / {(node.fire_rate * 100).toFixed(0)}%</td>
+            <td className="p-2">in {node.input_candidate_count} · out {Math.round(node.candidate_count)}</td>
+            <td className="p-2">p50 {node.latency.p50_ms == null ? 'unavailable' : `${fmtLatencyMs(node.latency.p50_ms)} ms`}</td>
+            <td className="p-2">{node.is_final_output ? `yes (${node.final_output_count})` : 'no'}</td>
+            <td className="p-2">{node.source}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
   )
 }
 
@@ -163,15 +192,21 @@ export default function PipelineDagView({ dbId, runId }: Props) {
   const [graphs, setGraphs] = useState<PipelineGraph[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedByPipeline, setSelectedByPipeline] = useState<Record<string, string>>({})
+  const [traceOptions, setTraceOptions] = useState<RetrievalTraceV2[]>([])
+  const [selectedTraceId, setSelectedTraceId] = useState('')
+
+  useEffect(() => {
+    fetchRunTraces(dbId, runId, 50).then(setTraceOptions).catch(() => setTraceOptions([]))
+  }, [dbId, runId])
 
   useEffect(() => {
     setGraphs(null)
     setError(null)
     setSelectedByPipeline({})
-    fetchPipelineGraphs(dbId, runId)
+    fetchPipelineGraphs(dbId, runId, selectedTraceId || undefined)
       .then(setGraphs)
       .catch((e) => setError(e.message))
-  }, [dbId, runId])
+  }, [dbId, runId, selectedTraceId])
 
   if (error) return <p className="text-sm text-ink-faint">Pipeline graph unavailable: {error}</p>
   if (!graphs) return <p className="text-sm text-ink-faint">Loading pipeline graph…</p>
@@ -183,6 +218,15 @@ export default function PipelineDagView({ dbId, runId }: Props) {
 
   return (
     <div className="space-y-5">
+      <div className="flex flex-wrap items-end gap-3 rounded border border-slate-200 dark:border-slate-700 bg-surface-muted p-3">
+        <label className="text-xs text-ink"><span className="mb-1 block font-medium">Projection</span>
+          <select value={selectedTraceId} onChange={(event) => setSelectedTraceId(event.target.value)} className="rounded border border-slate-300 bg-surface px-2 py-1.5 text-xs">
+            <option value="">Run union (aggregate)</option>
+            {traceOptions.map((trace) => <option key={trace.trace_id} value={trace.trace_id}>Exact trace · {trace.query_id} · {trace.pipeline_id} · {trace.status}</option>)}
+          </select>
+        </label>
+        <p className="text-xs text-ink-muted">{selectedTraceId ? 'Exact nodes, edges, statuses, gates, final output, and candidates from one trace.' : 'Union of every observed path with coverage and fire rates.'}</p>
+      </div>
       <p className="text-xs text-ink-muted">
         Directed graph from measured traces: parallel branches <strong>merge</strong> at fusion nodes (dashed edges).
         Flow edges show approximate candidate count (n≈). Click a node for per-operator metrics and CIs.
@@ -204,13 +248,18 @@ export default function PipelineDagView({ dbId, runId }: Props) {
         const selectedNode = g.nodes.find((n) => n.node_id === selectedId) ?? null
         return (
           <div key={g.pipeline_id} className="app-card p-4 space-y-3">
-            <div className="eyebrow">{g.pipeline_id.replace(/_/g, ' ')}</div>
+            <div className="flex flex-wrap items-center gap-2"><div className="eyebrow">{g.pipeline_id.replace(/_/g, ' ')}</div><span className="rounded border px-1.5 py-0.5 text-[10px]">{g.projection_mode === 'trace' ? 'Exact trace' : 'Run union'}</span><span className="text-[10px] text-ink-muted">{g.complete_trace_count}/{g.trace_count} complete</span></div>
+            {g.warnings.length > 0 && <ul className="list-disc pl-5 text-xs text-amber-800 dark:text-amber-300">{g.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
             <GraphSvg
               graph={g}
               selectedId={selectedId}
               onSelect={(id) => setSelectedByPipeline((prev) => ({ ...prev, [g.pipeline_id]: id }))}
             />
             {selectedNode && <NodeInspector node={selectedNode} />}
+            <details>
+              <summary className="cursor-pointer text-xs font-medium text-indigo-700 dark:text-indigo-300">Operator table (accessible equivalent)</summary>
+              <div className="mt-2"><GraphTable graph={g} /></div>
+            </details>
           </div>
         )
       })}

@@ -20,17 +20,17 @@ Register MCP once:
 
 Bootstrap: `pip install 'retrieval-observatory[mcp]'` · `retobs doctor`
 
-CLI twin: `retobs wire .` then `retobs wire . --verify`
+CLI twin: `retobs integrate . --plan`, apply the minimal patches, then `retobs verify .`
 
 ---
 
-## After wiring — benchmark
+## After wiring — evaluate
 
 1. **`validate_config`** — pass config dict or use on-disk YAML
-2. **`benchmark_config_file(config_path="retobs/config.yaml")`** — smoke eval with sample JSONL
-3. **`get_run_metrics`** / **`get_pareto_frontier`** / **`get_pipeline_graph`**
+2. **`evaluate_file(config_path="retobs/config.yaml")`** — smoke evaluation with sample JSONL
+3. **`get_report`** / **`inspect_query`** / **`get_pipeline_graph`**
 
-Human: `retobs run --config retobs/config.yaml` · `retobs serve --db .retobs/results.db`
+Human: `retobs evaluate --config retobs/config.yaml` · `retobs serve --db .retobs/results.db`
 
 ---
 
@@ -49,10 +49,10 @@ Human: `retobs run --config retobs/config.yaml` · `retobs serve --db .retobs/re
 { "status": "setup_complete", "wiring_brief": { "patches": [...] }, "post_wiring_commands": {...} }
 
 > wire_project(project_root="/path/to/my-rag", phase="verify")
-{ "status": "ready", "commands": { "benchmark": "retobs run --config retobs/config.yaml", ... } }
+{ "status": "ready", "commands": { "evaluate": "retobs evaluate --config retobs/config.yaml", ... } }
 
-> benchmark_config_file(config_path="/path/to/my-rag/retobs/config.yaml", max_queries=10)
-{ "run_id": "...", "metrics": {...} }
+> evaluate_file(config_path="/path/to/my-rag/retobs/config.yaml", max_queries=10)
+{ "run_id": "...", "verdict": "...", "affected_queries": [...] }
 ```
 
 See `RETOS.md` and `.retobs/manifest.yaml` in the wired project for persistent state.

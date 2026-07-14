@@ -67,6 +67,10 @@ def generate_rule_based_queries(
                     positive_doc_ids=anchor_ids[:1],
                     difficulty_label="hard" if qtype == "long_tail" else "medium",
                     failure_category=f"{qtype}_stress" if qtype != "comparison" else None,
+                    metadata={
+                        "generation_method": "rule_template_v1",
+                        "label_method": "extractive_source_document",
+                    },
                 )
             )
     return queries

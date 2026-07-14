@@ -36,6 +36,20 @@ def export_dataset(
     # Always write metadata
     meta_path = out / "forge_metadata.json"
     meta_path.write_text(json.dumps(dataset.summary(), indent=2), encoding="utf-8")
+    with open(out / "query_provenance.jsonl", "w", encoding="utf-8") as handle:
+        for query in dataset.queries:
+            handle.write(json.dumps({
+                "query_id": query.query_id,
+                "generation": {
+                    "method": query.metadata.get("generation_method", "unknown"),
+                    "model": query.metadata.get("generation_model"),
+                },
+                "labels": {
+                    "method": query.metadata.get("label_method", "extractive_source_document"),
+                    "judge_model": query.metadata.get("judge_model"),
+                    "validated": query.validated,
+                },
+            }) + "\n")
 
     return out
 

@@ -5,16 +5,31 @@ import functools
 import time
 import uuid
 from asyncio import iscoroutinefunction
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model_v2 import (
+    Candidate,
+    OperatorSpan,
+    RetrievalTraceV2,
+    TraceTiming,
+    critical_path_latency_ms,
+)
+from retrieval_observatory.tracing.candidates import (
+    build_candidate_transition,
+    clone_candidate,
+    to_candidates as _candidate_list,
+)
 
 _current_trace: contextvars.ContextVar[RetrievalTraceV2 | None] = contextvars.ContextVar(
     "retobs_current_trace",
+    default=None,
+)
+_current_trace_started: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "retobs_current_trace_started",
     default=None,
 )
 
@@ -49,6 +64,7 @@ def start_trace(
         request_id=request_id or ctx.request_id,
     )
     _current_trace.set(trace)
+    _current_trace_started.set(time.perf_counter())
     return trace
 
 
@@ -65,47 +81,25 @@ def finish_trace(status: str = "OK", error_traceback: str | None = None) -> Retr
         raise RuntimeError("finish_trace() called without an active trace")
     trace.status = status  # type: ignore[assignment]
     trace.error_traceback = error_traceback
-    trace.total_latency_ms = sum(span.latency_ms for span in trace.spans)
-    if trace.spans:
-        trace.final_op_id = trace.spans[-1].op_id
+    started = _current_trace_started.get()
+    operator_sum_ms = sum(max(0.0, span.latency_ms) for span in trace.spans)
+    wall_clock_ms = (time.perf_counter() - started) * 1000 if started is not None else operator_sum_ms
+    trace.total_latency_ms = wall_clock_ms
+    trace.timing = TraceTiming(
+        wall_clock_ms=wall_clock_ms,
+        critical_path_ms=critical_path_latency_ms(trace.spans),
+        operator_sum_ms=operator_sum_ms,
+    )
+    if trace.final_op_id is None and trace.spans:
+        parent_ids = {parent for span in trace.spans for parent in span.parent_ids}
+        sinks = [span.op_id for span in trace.spans if span.op_id not in parent_ids]
+        trace.final_op_id = sinks[0] if len(sinks) == 1 else None
     return trace
 
 
 def _to_candidates(value: Any, op_id: str) -> List[Candidate]:
-    items: List[Candidate] = []
-    if isinstance(value, list):
-        for idx, item in enumerate(value, start=1):
-            if hasattr(item, "doc_id"):
-                items.append(
-                    Candidate(
-                        doc_id=str(item.doc_id),
-                        score=float(getattr(item, "score", 0.0)),
-                        rank=int(getattr(item, "rank", idx)),
-                        origin_op_ids=[op_id],
-                    )
-                )
-            elif hasattr(item, "id"):
-                items.append(
-                    Candidate(
-                        doc_id=str(item.id),
-                        score=float(getattr(item, "score", 0.0)),
-                        rank=int(getattr(item, "rank", idx)),
-                        origin_op_ids=[op_id],
-                    )
-                )
-            elif isinstance(item, dict):
-                doc_id = str(item.get("doc_id") or item.get("id", idx))
-                items.append(
-                    Candidate(
-                        doc_id=doc_id,
-                        score=float(item.get("score", 0.0)),
-                        rank=int(item.get("rank", idx)),
-                        origin_op_ids=[op_id],
-                    )
-                )
-            elif isinstance(item, str):
-                items.append(Candidate(doc_id=item, score=0.0, rank=idx, origin_op_ids=[op_id]))
-    return items
+    documents = getattr(value, "documents", value)
+    return _candidate_list(documents, op_id)
 
 
 # Public alias: framework wrappers outside this module reuse the same duck-typed
@@ -137,6 +131,29 @@ def observe(
         ) -> None:
             if trace is None:
                 return
+            spans_by_id = {span.op_id: span for span in trace.spans}
+            input_groups = {
+                parent_id: spans_by_id[parent_id].outputs
+                for parent_id in resolved_parent_ids
+                if parent_id in spans_by_id
+            }
+            provided_inputs = kwargs.get("documents") or kwargs.get("docs")
+            if not input_groups and provided_inputs:
+                input_groups = {"provided": _to_candidates(provided_inputs, op_id=resolved_op_id)}
+            if status == "FIRED":
+                inputs, outputs = build_candidate_transition(
+                    input_groups=input_groups,
+                    output_items=getattr(result, "documents", result) or [],
+                    op_id=resolved_op_id,
+                    op_type=op_type,
+                )
+            else:
+                inputs = [
+                    clone_candidate(candidate)
+                    for candidates in input_groups.values()
+                    for candidate in candidates
+                ]
+                outputs = []
             trace.spans.append(
                 OperatorSpan(
                     op_id=resolved_op_id,
@@ -147,8 +164,8 @@ def observe(
                     deterministic=deterministic,
                     replay_policy=replay_policy,  # type: ignore[arg-type]
                     latency_ms=elapsed,
-                    inputs=_to_candidates(kwargs.get("documents") or kwargs.get("docs"), op_id=resolved_op_id),
-                    outputs=_to_candidates(result, op_id=resolved_op_id),
+                    inputs=inputs,
+                    outputs=outputs,
                     params={k: v for k, v in kwargs.items() if k not in {"documents", "docs"}},
                     input_variant=input_variant,
                     error=err,

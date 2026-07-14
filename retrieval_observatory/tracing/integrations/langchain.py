@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
 
+from retrieval_observatory.tracing.candidates import build_candidate_transition
 from retrieval_observatory.tracing.recorder import TraceRecorder, TraceRecorderV2, _TraceContext, _TraceContextV2
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan
 from retrieval_observatory.types import Document
@@ -69,13 +70,12 @@ def _lc_docs_to_retobs(documents: Sequence[Any]) -> List[Document]:
 
 def _lc_docs_to_candidates(documents: Sequence[Any], op_id: str) -> List[Candidate]:
     """Convert LangChain Document objects to V2 Candidate objects."""
-    candidates: List[Candidate] = []
-    for i, doc in enumerate(documents):
-        text = getattr(doc, "page_content", "") or ""
-        metadata = getattr(doc, "metadata", {}) or {}
-        doc_id = metadata.get("id") or metadata.get("doc_id") or str(i)
-        score = float(metadata.get("score", 0) or metadata.get("relevance_score", 0) or 0)
-        candidates.append(Candidate(doc_id=str(doc_id), score=score, rank=i + 1, origin_op_ids=[op_id]))
+    _, candidates = build_candidate_transition(
+        input_groups={},
+        output_items=_lc_docs_to_retobs(documents),
+        op_id=op_id,
+        op_type="SOURCE",
+    )
     return candidates
 
 

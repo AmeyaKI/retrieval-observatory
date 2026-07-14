@@ -72,6 +72,12 @@ _MIGRATE_RAW_RESULTS_BRANCH_ID = (
 _MIGRATE_METRIC_SCORES_BRANCH_ID = (
     "ALTER TABLE metric_scores ADD COLUMN branch_id TEXT"
 )
+_MIGRATE_QUERY_DIAGNOSTIC_EVIDENCE = (
+    "ALTER TABLE query_diagnostics ADD COLUMN diagnostic_evidence_json TEXT NOT NULL DEFAULT '[]'"
+)
+_MIGRATE_FORGE_QUERY_METADATA = (
+    "ALTER TABLE forge_queries ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"
+)
 
 _CREATE_RUN_MANIFESTS = """
 CREATE TABLE IF NOT EXISTS run_manifests (
@@ -106,6 +112,7 @@ CREATE TABLE IF NOT EXISTS query_diagnostics (
     failure_labels_json TEXT NOT NULL,
     missing_relevant_ids_json TEXT NOT NULL,
     stage_hits_json TEXT NOT NULL,
+    diagnostic_evidence_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (run_id, query_id, pipeline_id)
 )
 """
@@ -159,7 +166,8 @@ CREATE TABLE IF NOT EXISTS forge_queries (
     difficulty_label TEXT NOT NULL,
     failure_category TEXT,
     validated INTEGER NOT NULL DEFAULT 0,
-    positive_doc_ids_json TEXT NOT NULL DEFAULT '[]'
+    positive_doc_ids_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}'
 )
 """
 _CREATE_FORGE_QUERIES_IDX = (
@@ -324,6 +332,14 @@ class SQLiteStore:
                 await db.execute(_MIGRATE_METRIC_SCORES_BRANCH_ID)
             except Exception:
                 pass
+            try:
+                await db.execute(_MIGRATE_QUERY_DIAGNOSTIC_EVIDENCE)
+            except Exception:
+                pass
+            try:
+                await db.execute(_MIGRATE_FORGE_QUERY_METADATA)
+            except Exception:
+                pass
             await db.commit()
         self._schema_ready = True
 
@@ -447,13 +463,25 @@ class SQLiteStore:
             return None
         return RetrievalTraceV2.from_dict(json.loads(row[0]))
 
-    async def get_traces_v2(self, run_id: str) -> List[RetrievalTraceV2]:
+    async def get_traces_v2(
+        self,
+        run_id: str,
+        query_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[RetrievalTraceV2]:
         await self._ensure_schema()
+        sql = "SELECT trace_json FROM traces_v2 WHERE run_id = ?"
+        params: list = [run_id]
+        if query_id is not None:
+            sql += " AND query_id = ?"
+            params.append(query_id)
+        sql += " ORDER BY timestamp, trace_id"
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(
-                "SELECT trace_json FROM traces_v2 WHERE run_id = ? ORDER BY timestamp",
-                (run_id,),
-            ) as cursor:
+            async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
         return [RetrievalTraceV2.from_dict(json.loads(row[0])) for row in rows]
 
@@ -731,8 +759,8 @@ class SQLiteStore:
             await db.executemany(
                 """INSERT OR REPLACE INTO query_diagnostics
                    (run_id, query_id, pipeline_id, difficulty_bucket, failure_labels_json,
-                    missing_relevant_ids_json, stage_hits_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    missing_relevant_ids_json, stage_hits_json, diagnostic_evidence_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
                     (
                         row["run_id"],
@@ -742,6 +770,7 @@ class SQLiteStore:
                         json.dumps(row.get("failure_labels", [])),
                         json.dumps(row.get("missing_relevant_ids", [])),
                         json.dumps(row.get("stage_hits", {})),
+                        json.dumps(row.get("diagnostic_evidence", [])),
                     )
                     for row in rows
                 ],
@@ -764,6 +793,7 @@ class SQLiteStore:
             item["failure_labels"] = json.loads(item.pop("failure_labels_json"))
             item["missing_relevant_ids"] = json.loads(item.pop("missing_relevant_ids_json"))
             item["stage_hits"] = json.loads(item.pop("stage_hits_json"))
+            item["diagnostic_evidence"] = json.loads(item.pop("diagnostic_evidence_json", "[]"))
             result.append(item)
         return result
 
@@ -857,9 +887,14 @@ class SQLiteStore:
         for row in rows:
             d = dict(row)
             try:
-                d["summary"] = json.loads(d.pop("summary_json", "{}"))
+                from retrieval_observatory.forge.types import TestSetSummary
+
+                d["summary"] = TestSetSummary.from_dict(
+                    json.loads(d.pop("summary_json", "{}")),
+                    dataset_id=d["dataset_id"],
+                ).to_dict()
             except Exception:
-                d["summary"] = {}
+                d["summary"] = TestSetSummary.from_dict({}, dataset_id=d["dataset_id"]).to_dict()
             result.append(d)
         return result
 
@@ -907,8 +942,8 @@ class SQLiteStore:
             for q in queries:
                 await db.execute(
                     "INSERT INTO forge_queries (dataset_id, query_id, text, scenario_id, query_type, "
-                    "difficulty_label, failure_category, validated, positive_doc_ids_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "difficulty_label, failure_category, validated, positive_doc_ids_json, metadata_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         dataset_id,
                         q.get("query_id", ""),
@@ -919,6 +954,7 @@ class SQLiteStore:
                         q.get("failure_category"),
                         1 if q.get("validated") else 0,
                         json.dumps(q.get("positive_doc_ids", [])),
+                        json.dumps(q.get("metadata", {})),
                     ),
                 )
             await db.commit()
@@ -951,7 +987,7 @@ class SQLiteStore:
             params.append(scenario_type)
         sql = (
             "SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label, "
-            "q.failure_category, q.validated, q.positive_doc_ids_json "
+            "q.failure_category, q.validated, q.positive_doc_ids_json, q.metadata_json "
             f"FROM forge_queries q {join} WHERE " + " AND ".join(where) +
             " ORDER BY q.id LIMIT ? OFFSET ?"
         )
@@ -968,6 +1004,10 @@ class SQLiteStore:
                 d["positive_doc_ids"] = json.loads(d.pop("positive_doc_ids_json", "[]"))
             except Exception:
                 d["positive_doc_ids"] = []
+            try:
+                d["provenance"] = json.loads(d.pop("metadata_json", "{}"))
+            except Exception:
+                d["provenance"] = {}
             result.append(d)
         return result
 

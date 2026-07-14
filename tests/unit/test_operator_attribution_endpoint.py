@@ -65,7 +65,8 @@ async def test_operator_attribution_uses_persisted_qrels(seeded_db: Path) -> Non
     row = filter_rows[0]
 
     # Real ground truth was found (via run_qrels), not the old always-empty qrel_ids path.
-    assert row["result_status"] == "measured"
+    assert row["result_status"] == "replayed"
+    assert row["evidence_class"] == "replayed"
     assert row["n_pairs"] == 20
     # FILTER drops the gold doc in exactly half the traces: with-FILTER recall averages 0.5,
     # without-FILTER (counterfactual restores the dropped doc) recall is 1.0 -> delta = -0.5.

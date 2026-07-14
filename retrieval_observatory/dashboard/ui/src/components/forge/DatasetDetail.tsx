@@ -49,11 +49,11 @@ function LabelTrustBanner({ coverage }: { coverage: number }) {
   const validated = pct > 0
   return (
     <div className={`rounded-lg border p-3 text-xs ${validated ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
-      <p className="font-semibold text-gray-800 dark:text-slate-100 mb-0.5">Ground-truth provenance</p>
+      <p className="font-semibold text-gray-800 dark:text-slate-100 mb-0.5">Label provenance</p>
       <p className="text-gray-700 dark:text-slate-200 leading-relaxed">
-        Relevance labels are <strong>extractive</strong> — each query's source document is graded relevant (grade&nbsp;2).
+        Labels begin as <strong>provisional extractive labels</strong> — each query's source document is assigned grade&nbsp;2.
         {validated
-          ? ` An LLM validation pass expanded/confirmed labels for ${pct}% of queries.`
+          ? ` An LLM judge pass expanded/confirmed labels for ${pct}% of queries; these are judge-validated, not human gold.`
           : ' No LLM validation pass was run, so labels are extractive-only (no expansion to other relevant docs).'}
       </p>
       <p className="text-blue-900 mt-2 font-medium bg-blue-50 border border-blue-200 rounded px-2 py-1">
@@ -67,7 +67,7 @@ const SCENARIO_TYPES = ['', 'temporal', 'alias']
 const QUERY_TYPES = ['', 'paraphrase', 'temporal', 'adversarial']
 const DIFFICULTIES = ['', ...DIFFICULTY_ORDER]
 
-export default function DatasetDetail({ datasetId }: { datasetId: string }) {
+export default function DatasetDetail({ dbId, datasetId }: { dbId: string; datasetId: string }) {
   const [detail, setDetail] = useState<ForgeDatasetDetail | null>(null)
   const [queries, setQueries] = useState<ForgeQuery[]>([])
   const [runs, setRuns] = useState<ForgeRunRef[]>([])
@@ -78,24 +78,30 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
   const [queryTypeFilter, setQueryTypeFilter] = useState('')
   const [validatedOnly, setValidatedOnly] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [queryPage, setQueryPage] = useState(0)
+  const pageSize = 50
 
   useEffect(() => {
     setDetail(null)
     setError(null)
-    fetchForgeDataset(datasetId).then(setDetail).catch((e) => setError(e.message))
-    fetchForgeDatasetRuns(datasetId).then(setRuns).catch(() => setRuns([]))
-  }, [datasetId])
+    fetchForgeDataset(dbId, datasetId).then(setDetail).catch((e) => setError(e.message))
+    fetchForgeDatasetRuns(dbId, datasetId).then(setRuns).catch(() => setRuns([]))
+  }, [dbId, datasetId])
 
   useEffect(() => {
-    fetchForgeQueries(datasetId, {
+    fetchForgeQueries(dbId, datasetId, {
       scenario_type: scenarioFilter || undefined,
       difficulty: difficultyFilter || undefined,
       query_type: queryTypeFilter || undefined,
       validated_only: validatedOnly || undefined,
+      limit: pageSize + 1,
+      offset: queryPage * pageSize,
     })
       .then(setQueries)
       .catch(() => setQueries([]))
-  }, [datasetId, scenarioFilter, difficultyFilter, queryTypeFilter, validatedOnly])
+  }, [dbId, datasetId, scenarioFilter, difficultyFilter, queryTypeFilter, validatedOnly, queryPage])
+
+  useEffect(() => { setQueryPage(0) }, [scenarioFilter, difficultyFilter, queryTypeFilter, validatedOnly])
 
   const scenariosByType = useMemo(() => {
     const m: Record<string, ForgeScenario[]> = {}
@@ -129,7 +135,8 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
         <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">{detail.corpus_path}</p>
       </div>
 
-      <Section title="Overview" subtitle="What Forge generated and how trustworthy its labels are">
+      <Section title="Overview" subtitle="What this Test Set contains and how trustworthy its labels are">
+        <div className="mb-4"><LabelTrustBanner coverage={detail.validation_coverage || 0} /></div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
           {[
             ['Scenarios', s.total_scenarios ?? 0],
@@ -143,7 +150,6 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
             </div>
           ))}
         </div>
-        <div className="mb-4"><LabelTrustBanner coverage={detail.validation_coverage || 0} /></div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div>
             <p className="text-xs font-semibold text-gray-600 dark:text-slate-300 mb-2">By difficulty</p>
@@ -158,7 +164,7 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
 
       <Section
         title="Scenario Explorer"
-        subtitle="Structural weaknesses Forge found in your corpus — the patterns that cause retrieval failures"
+        subtitle="Structural weaknesses found in your corpus — the patterns that can cause retrieval failures"
       >
         {Object.keys(scenariosByType).length === 0 && <p className="text-xs text-gray-400 dark:text-slate-500">No scenarios recorded.</p>}
         {Object.entries(scenariosByType).map(([type, list]) => (
@@ -191,7 +197,7 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
             <input type="checkbox" className="accent-amber-500" checked={validatedOnly} onChange={(e) => setValidatedOnly(e.target.checked)} />
             Validated only
           </label>
-          <span className="text-gray-400 dark:text-slate-500 ml-auto">{queries.length} shown</span>
+          <span className="text-gray-400 dark:text-slate-500 ml-auto">page {queryPage + 1} · {Math.min(queries.length, pageSize)} shown</span>
         </div>
         <div className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
           <table className="w-full text-xs">
@@ -201,11 +207,12 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
                 <th className="text-left font-medium px-3 py-2 w-24">Type</th>
                 <th className="text-left font-medium px-3 py-2 w-24">Difficulty</th>
                 <th className="text-center font-medium px-3 py-2 w-20">Pos. docs</th>
-                <th className="text-center font-medium px-3 py-2 w-20">Validated</th>
+                <th className="text-left font-medium px-3 py-2 w-32">Generation</th>
+                <th className="text-left font-medium px-3 py-2 w-32">Labels</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {queries.map((q) => (
+              {queries.slice(0, pageSize).map((q) => (
                 <>
                   <tr
                     key={q.query_id}
@@ -220,26 +227,28 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-center tabular-nums text-gray-600 dark:text-slate-300">{q.positive_doc_ids.length}</td>
-                    <td className="px-3 py-2 text-center">{q.validated ? '✓' : '—'}</td>
+                    <td className="px-3 py-2 text-[10px]">{q.provenance?.generation_method ?? 'unknown'}{q.provenance?.generation_model ? <span className="block text-ink-faint">{q.provenance.generation_model}</span> : null}</td>
+                    <td className="px-3 py-2 text-[10px]">{q.provenance?.label_method ?? 'extractive_source_document'}<span className="block text-ink-faint">{q.validated ? 'judge validated' : 'not validated'}</span></td>
                   </tr>
                   {expanded === q.query_id && (
                     <tr key={`${q.query_id}-exp`} className="bg-gray-50 dark:bg-slate-800/60">
-                      <td colSpan={5} className="px-3 py-2 text-[11px] text-gray-600 dark:text-slate-300">
+                      <td colSpan={6} className="px-3 py-2 text-[11px] text-gray-600 dark:text-slate-300">
                         <span className="font-medium">Relevant docs:</span> {q.positive_doc_ids.join(', ') || '—'}
                         {q.failure_category && <span className="ml-3"><span className="font-medium">Failure category:</span> {q.failure_category}</span>}
                         <span className="ml-3 font-mono text-gray-400 dark:text-slate-500">scenario {q.scenario_id}</span>
-                        <a href={`#/query/${encodeURIComponent(q.query_id)}`} className="ml-3 text-indigo-600 hover:underline">View lineage →</a>
+                        <a href={`#/queries/${encodeURIComponent(q.query_id)}`} className="ml-3 text-indigo-700 underline underline-offset-2">View lineage →</a>
                       </td>
                     </tr>
                   )}
                 </>
               ))}
               {queries.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400 dark:text-slate-500">No queries match these filters.</td></tr>
+                <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400 dark:text-slate-500">No queries match these filters.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        <div className="mt-3 flex justify-end gap-2"><button type="button" disabled={queryPage === 0} onClick={() => setQueryPage((page) => Math.max(0, page - 1))} className="rounded border px-2 py-1 text-xs disabled:opacity-40">Previous</button><button type="button" disabled={queries.length <= pageSize} onClick={() => setQueryPage((page) => page + 1)} className="rounded border px-2 py-1 text-xs disabled:opacity-40">Next</button></div>
       </Section>
 
       <Section title="Stress Test Results" subtitle="Benchmark runs executed against this dataset">
@@ -249,14 +258,14 @@ export default function DatasetDetail({ datasetId }: { datasetId: string }) {
             <code className="mx-1 px-1 rounded bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">corpus.jsonl</code> /
             <code className="mx-1 px-1 rounded bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">queries.jsonl</code> and run
             <code className="mx-1 px-1 rounded bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700">retobs run</code>. The run's per-scenario
-            and per-difficulty breakdown will appear in the Benchmarks workspace.
+            and per-difficulty breakdown will appear in the linked Run.
           </div>
         ) : (
           <ul className="space-y-1.5">
             {runs.map((r) => (
               <li key={r.run_id}>
                 <a
-                  href={`#/benchmarks`}
+                  href={`#/runs/${encodeURIComponent(r.run_id)}`}
                   className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 hover:border-indigo-300"
                 >
                   <span className="text-sm text-gray-800 dark:text-slate-100">{r.experiment_name}</span>
