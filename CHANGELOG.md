@@ -6,6 +6,10 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Fixed
+
+- `.gitignore` — allowlist public docs (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/*.md`) so CI markdown link checks resolve tracked targets.
+
 ### Changed
 
 - `sdk/report.py` — route callable and persisted-run output through one deterministic verdict/evidence/provenance report contract; SDK comparisons now use the canonical validity and paired-statistics engine.

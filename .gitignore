@@ -32,14 +32,16 @@ TODO
 !results/**/*.md
 !CHANGELOG.md
 !YAML_GUIDE.md
-!docs/USAGE.md
-# !docs/PRODUCT_AUDIT_AND_REDESIGN.md
-!docs/integrations/*.md
-!docs/informative/ci_gating.md
-!docs/guides/*.md
 !CONTRIBUTING.md
+!SECURITY.md
+!CODE_OF_CONDUCT.md
+!docs/*.md
+!docs/integrations/*.md
+!docs/informative/*.md
+!docs/guides/*.md
 
-# Internal dev-session verification artifacts -- not user-facing docs, never tracked
+# Keep internal / work-in-progress docs untracked
+docs/PRODUCT_AUDIT_AND_REDESIGN.md
 docs/verification/
 
 
