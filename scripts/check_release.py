@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    tomllib = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,12 +21,21 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
+def package_version() -> str:
+    raw = (ROOT / "pyproject.toml").read_bytes()
+    if tomllib is not None:
+        return str(tomllib.loads(raw.decode("utf-8"))["project"]["version"])
+    match = re.search(rb'(?m)^version\s*=\s*"([^"]+)"', raw)
+    if not match:
+        fail("could not parse project.version from pyproject.toml")
+    return match.group(1).decode("utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--require-assets", action="store_true")
     args = parser.parse_args()
-    with (ROOT / "pyproject.toml").open("rb") as handle:
-        version = str(tomllib.load(handle)["project"]["version"])
+    version = package_version()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     if "## [Unreleased]" not in changelog:
         fail("CHANGELOG.md has no [Unreleased] section")

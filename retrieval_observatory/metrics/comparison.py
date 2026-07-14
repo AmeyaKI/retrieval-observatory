@@ -190,7 +190,7 @@ def compare_paired_metrics(
         elif result.effect is None or result.effect_threshold is None or abs(result.effect) < result.effect_threshold:
             result.reason = "effect is below the declared practical threshold"
         else:
-            lower_is_better = "latency" in metric_key or "cost" in metric_key
+            lower_is_better = any(token in metric_key for token in ("latency", "cost", "profile"))
             favorable = result.effect < 0 if lower_is_better else result.effect > 0
             result.decision = "candidate_better" if favorable else "candidate_worse"
             result.reason = "significant paired effect exceeds the practical threshold"
@@ -200,7 +200,9 @@ def compare_paired_metrics(
 def _effect_threshold(metric_key: str, baseline_mean: Optional[float]) -> Optional[float]:
     if baseline_mean is None:
         return None
-    if "latency" in metric_key:
+    # Profile counters are wall-clock adjacent noise at sub-ms scale; use the same
+    # relative floor as latency so they do not become flaky decision-bearing gates.
+    if any(token in metric_key for token in ("latency", "profile")):
         return max(1.0, abs(baseline_mean) * 0.05)
     if "cost" in metric_key:
         return max(0.001, abs(baseline_mean) * 0.05)

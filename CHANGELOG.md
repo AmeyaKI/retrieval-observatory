@@ -9,6 +9,8 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ### Fixed
 
 - `.gitignore` — allowlist public docs (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/*.md`) so CI markdown link checks resolve tracked targets.
+- `scripts/check_release.py` — parse `pyproject.toml` without `tomllib` so the release-metadata check runs on Python 3.10.
+- `metrics/comparison.py` — treat `profile_*` like latency for orientation and effect floors so sub-ms profile noise cannot gate `--fail-on regression`.
 
 ### Changed
 

@@ -62,3 +62,36 @@ def test_candidate_orientation_and_bh_decision_are_explicit() -> None:
     assert result.q_value is not None
     assert result.significant is True
     assert result.decision == "candidate_better"
+
+
+def test_profile_metrics_use_latency_like_threshold_and_orientation() -> None:
+    """Sub-ms profile deltas must not gate CI as quality regressions."""
+    profile = "pipeline|stage0|profile_compute_ms@0"
+
+    def _profile_rows(values: list[float]) -> list[dict]:
+        return [
+            {
+                "pipeline_id": "pipeline",
+                "stage_index": 0,
+                "metric_name": "profile_compute_ms",
+                "k": 0,
+                "branch_id": None,
+                "query_id": f"q-{index}",
+                "value": value,
+            }
+            for index, value in enumerate(values)
+        ]
+
+    validity = comparison_validity([_manifest(), _manifest()])
+    # ~0.013 ms mean drop would look "significant" under the 0.01 quality threshold,
+    # but must stay no_decision under the latency-style floor of 1.0.
+    result = compare_paired_metrics(
+        _profile_rows([0.07] * 25),
+        _profile_rows([0.057] * 25),
+        [profile],
+        validity,
+    )[profile]
+
+    assert result.effect_threshold == 1.0
+    assert result.decision == "no_decision"
+    assert result.reason == "effect is below the declared practical threshold"
