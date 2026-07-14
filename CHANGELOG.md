@@ -34,7 +34,7 @@ Major product revamp: one callable-first retrieval debugging loop replaces the o
 - Partial traces retained on operator error/timeout/cancellation instead of silent drop.
 - Ambiguous multi-db dashboard evidence routes now require explicit database scope.
 - Integration verify fails closed on zero runs or required-check failures.
-- Packaging/CI edge cases: bytecode excluded from wheels; release metadata parseable on Python 3.10.
+- Packaging/CI edge cases: bytecode excluded from wheels; release metadata parseable on Python 3.10; publish smoke installs the wheel outside the source checkout so gitignored `ui/dist` cannot shadow site-packages.
 
 ### Removed
 

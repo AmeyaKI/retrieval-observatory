@@ -92,6 +92,7 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
+          skip-existing: true
 
       - name: Verify package appears on TestPyPI
         run: |
@@ -102,20 +103,22 @@ jobs:
 
       - name: Smoke install built wheel
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
+          WHEEL=$(ls "$GITHUB_WORKSPACE"/dist/retrieval_observatory-*.whl)
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip
-          # Do NOT pip install extras from TestPyPI — it hosts typosquats (e.g. fastapi==1.0)
+          # Do NOT pip install extras from TestPyPI — it hosts typosquats (e.g. svelte==1.0)
           # that satisfy our version constraints. Install the exact uploaded wheel + deps from PyPI.
           /tmp/smoke/bin/pip install \
             --index-url https://pypi.org/simple/ \
             --only-binary=:all: \
             "${WHEEL}[dashboard]"
+          # Leave the checkout so site-packages wins over the source tree (ui/dist is gitignored).
+          cd /tmp
           /tmp/smoke/bin/python -c "import retrieval_observatory as ro; assert (ro.EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
           UI_INDEX=$(/tmp/smoke/bin/python -c "import retrieval_observatory as ro; print(ro.PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
           test -f "$UI_INDEX"
           /tmp/smoke/bin/retobs --help
-          /tmp/smoke/bin/python scripts/smoke_wheel.py
+          /tmp/smoke/bin/python "$GITHUB_WORKSPACE/scripts/smoke_wheel.py"
 
   publish-pypi:
     needs: publish-testpypi
