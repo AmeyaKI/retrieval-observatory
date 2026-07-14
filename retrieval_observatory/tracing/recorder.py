@@ -8,8 +8,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from retrieval_observatory.types import Document, StageSnapshot
+from retrieval_observatory.tracing.candidates import build_candidate_transition, to_candidates
 from retrieval_observatory.tracing.types import RetrievalTrace
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model_v2 import (
+    Candidate,
+    OperatorSpan,
+    RetrievalTraceV2,
+    TraceTiming,
+    critical_path_latency_ms,
+)
 
 
 def _coerce_documents(items: Sequence[Any], corpus: Optional[Dict[str, str]] = None) -> List[Document]:
@@ -248,35 +255,9 @@ LegacyTraceRecorder = TraceRecorder
 
 def _docs_to_candidates(items: Sequence[Any], op_id: str) -> List[Candidate]:
     """Normalize bare ids / Document objects / dicts into Candidate list."""
-    candidates: List[Candidate] = []
-    for idx, item in enumerate(items, start=1):
-        if isinstance(item, Candidate):
-            candidates.append(item)
-        elif hasattr(item, "doc_id"):
-            candidates.append(Candidate(
-                doc_id=str(item.doc_id),
-                score=float(getattr(item, "score", 0.0)),
-                rank=int(getattr(item, "rank", idx)),
-                origin_op_ids=[op_id],
-            ))
-        elif hasattr(item, "id"):
-            candidates.append(Candidate(
-                doc_id=str(item.id),
-                score=float(getattr(item, "score", 0.0)),
-                rank=int(getattr(item, "rank", idx)),
-                origin_op_ids=[op_id],
-            ))
-        elif isinstance(item, dict):
-            doc_id = str(item.get("doc_id") or item.get("id", idx))
-            candidates.append(Candidate(
-                doc_id=doc_id,
-                score=float(item.get("score", 0.0)),
-                rank=int(item.get("rank", idx)),
-                origin_op_ids=[op_id],
-            ))
-        elif isinstance(item, str):
-            candidates.append(Candidate(doc_id=item, score=0.0, rank=idx, origin_op_ids=[op_id]))
-    return candidates
+    if all(isinstance(item, Candidate) for item in items):
+        return list(items)  # type: ignore[return-value]
+    return to_candidates(list(items), op_id)
 
 
 class _TraceContextV2:
@@ -294,6 +275,7 @@ class _TraceContextV2:
     ):
         self._recorder = recorder
         self._sampled = sampled
+        self._started = time.perf_counter()
         self.trace = RetrievalTraceV2(
             trace_id=uuid.uuid4().hex,
             run_id=recorder.service,
@@ -315,7 +297,6 @@ class _TraceContextV2:
         if not self._sampled:
             return
         self.trace.spans.append(span)
-        self.trace.total_latency_ms += span.latency_ms
 
     def span(
         self,
@@ -335,6 +316,18 @@ class _TraceContextV2:
             return None
         resolved_id = op_id or f"{op_type.lower()}_{uuid.uuid4().hex[:8]}"
         resolved_parents = parent_ids or ([self.trace.spans[-1].op_id] if self.trace.spans else [])
+        spans_by_id = {span.op_id: span for span in self.trace.spans}
+        input_groups = {
+            parent_id: spans_by_id[parent_id].outputs
+            for parent_id in resolved_parents
+            if parent_id in spans_by_id
+        }
+        inputs, outputs = build_candidate_transition(
+            input_groups=input_groups,
+            output_items=documents,
+            op_id=resolved_id,
+            op_type=op_type,
+        )
         span = OperatorSpan(
             op_id=resolved_id,
             op_type=op_type,  # type: ignore[arg-type]
@@ -344,7 +337,8 @@ class _TraceContextV2:
             deterministic=deterministic,
             replay_policy=replay_policy,  # type: ignore[arg-type]
             latency_ms=latency_ms,
-            outputs=_docs_to_candidates(list(documents), resolved_id),
+            inputs=inputs,
+            outputs=outputs,
             params=params or {},
         )
         self.add_span(span)
@@ -411,8 +405,18 @@ class TraceRecorderV2:
                 t.error_traceback = "".join(traceback.format_exception(exc_type, exc, tb))
             elif error is not None:
                 t.error_traceback = "".join(traceback.format_exception(type(error), error, error.__traceback__))
-        if t.spans:
-            t.final_op_id = t.spans[-1].op_id
+        operator_sum_ms = sum(max(0.0, span.latency_ms) for span in t.spans)
+        wall_clock_ms = (time.perf_counter() - ctx._started) * 1000
+        t.total_latency_ms = wall_clock_ms
+        t.timing = TraceTiming(
+            wall_clock_ms=wall_clock_ms,
+            critical_path_ms=critical_path_latency_ms(t.spans),
+            operator_sum_ms=operator_sum_ms,
+        )
+        if t.final_op_id is None and t.spans:
+            parent_ids = {parent for span in t.spans for parent in span.parent_ids}
+            sinks = [span.op_id for span in t.spans if span.op_id not in parent_ids]
+            t.final_op_id = sinks[0] if len(sinks) == 1 else None
         if ctx.sampled:
             await self._flush(t)
         return t

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import { fetchTraceClusters, QueryClusterRow } from '../../api'
 
-export default function Clusters({ service, since }: { service: string; since?: string }) {
+export default function Clusters({ dbId, service, since }: { dbId: string; service: string; since?: string }) {
   const [clusters, setClusters] = useState<QueryClusterRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setClusters(null)
-    fetchTraceClusters(service, since).then(setClusters).catch((e) => setError(e.message))
-  }, [service, since])
+    fetchTraceClusters(dbId, service, since).then(setClusters).catch((e) => setError(e.message))
+  }, [dbId, service, since])
 
   if (error) return <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
   if (!clusters) return <div className="text-sm text-gray-400 dark:text-slate-500">Clustering traffic…</div>

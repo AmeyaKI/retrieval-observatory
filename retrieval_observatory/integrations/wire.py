@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from retrieval_observatory.integrations.detect import DetectionResult, detect_project
-from retrieval_observatory.integrations.registry import describe_integration
+from retrieval_observatory.integrations.registry import SUPPORT_LEVELS, describe_integration
 from retrieval_observatory.integrations.verify import dashboard_base_url, verify_integration
 
 DEFAULT_DB_PATH = ".retobs/results.db"
@@ -105,10 +105,10 @@ alwaysApply: true
 
 # retobs integration
 
-This project has retobs wired. Read `.retobs/manifest.yaml` and `RETOS.md` before running benchmarks or traces.
+This project has retobs wired. Read `.retobs/manifest.yaml` and `RETOS.md` before running evaluations or traces.
 
 - Initial wiring: MCP `wire_project(project_root)` then `wire_project(phase="verify")`
-- Benchmark: `retobs run --config retobs/config.yaml` or MCP `benchmark_config_file`
+- Evaluate: `retobs evaluate --config retobs/config.yaml` or MCP `evaluate_file`
 - Dashboard: `retobs serve --db .retobs/results.db`
 '''
 
@@ -155,10 +155,10 @@ output:
 def post_wiring_commands(project_root: Path, config_path: Path) -> Dict[str, str]:
     rel_config = config_path.relative_to(project_root) if config_path.is_relative_to(project_root) else config_path
     return {
-        "benchmark": f"retobs run --config {rel_config}",
+        "evaluate": f"retobs evaluate --config {rel_config}",
         "serve": f"retobs serve --db {DEFAULT_DB_PATH}",
-        "doctor": "retobs doctor",
-        "smoke_benchmark_mcp": f"benchmark_config_file(config_path='{config_path}')",
+        "verify_cli": "retobs verify .",
+        "smoke_evaluate_mcp": f"evaluate_file(config_path='{config_path}')",
         "verify": "wire_project(phase='verify')",
     }
 
@@ -268,14 +268,14 @@ def _write_retos_md(project_root: Path, manifest: Dict[str, Any], commands: Dict
         "",
         "## Post-wiring commands (human)",
         "",
-        f"- Benchmark: `{commands['benchmark']}`",
-        f"- Dashboard: `{commands['serve']}`",
-        f"- Health check: `{commands['doctor']}`",
+            f"- Evaluate: `{commands['evaluate']}`",
+            f"- Dashboard: `{commands['serve']}`",
+            f"- Verify: `{commands['verify_cli']}`",
         "",
         "## Agent prompts",
         "",
-        '- "Run a smoke benchmark" → MCP `benchmark_config_file` on `retobs/config.yaml`',
-        '- "Show pareto frontier" → MCP `get_pareto_frontier` after a run',
+            '- "Run a smoke evaluation" → MCP `evaluate_file` on `retobs/config.yaml`',
+        '- "Compare this run to the baseline" → MCP `compare` with explicit baseline/candidate IDs',
         '- "Verify tracing" → MCP `wire_project(phase=\\"verify\\")`',
         "",
         "## Replace sample eval data",
@@ -303,6 +303,69 @@ def load_manifest(project_root: str | Path) -> Optional[Dict[str, Any]]:
         return None
     with path.open("r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
+
+
+def plan_project(
+    project_root: str | Path,
+    framework: Optional[str] = None,
+    retriever_entrypoint: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return a read-only, minimal integration plan with explicit verification criteria."""
+    root = Path(project_root).resolve()
+    detection = detect_project(root, framework=framework)
+    chosen = (framework or detection.framework).lower().strip()
+    guide = describe_integration(chosen)
+    if guide.get("error"):
+        return {"status": "failed", **guide, "project_root": str(root), "files_written": []}
+    brief = build_wiring_brief(
+        root,
+        chosen,
+        detection,
+        retriever_entrypoint=retriever_entrypoint,
+    )
+    scores = detection.framework_scores
+    chosen_score = scores.get(chosen, 0)
+    total_score = sum(max(score, 0) for score in scores.values())
+    confidence = round(chosen_score / total_score, 3) if total_score else 0.0
+    dependencies = []
+    if guide.get("install_extra"):
+        dependencies.append(f"retrieval-observatory[{guide['install_extra']}]")
+    data_flow = {
+        "storage": "local SQLite by default",
+        "outbound": chosen == "http",
+        "detail": (
+            "Evaluation queries are sent to the configured HTTP endpoint."
+            if chosen == "http"
+            else "No retobs-managed outbound transport is required; traces remain in the configured local store."
+        ),
+    }
+    return {
+        "status": "planned",
+        "project_root": str(root),
+        "framework": chosen,
+        "support": SUPPORT_LEVELS[chosen],
+        "detection": {
+            "confidence": confidence,
+            "scores": scores,
+            "entrypoints": brief["entrypoints"],
+            "http_routes": detection.http_routes,
+        },
+        "proposed_patches": brief["patches"],
+        "dependencies": dependencies,
+        "credentials": guide.get("env_vars", []),
+        "data_flow": data_flow,
+        "expected_operators": brief["expected_stages"],
+        "verification_criteria": [
+            "At least one representative V2 trace is observed.",
+            "Stable trace/run/query/pipeline/operator/document identities pass.",
+            "Operator parents form an acyclic graph with an explicit final output.",
+            "Wall-clock, critical-path, and operator-sum timing fields are valid.",
+            "Candidate ranks, scores, origins, and non-source inputs are preserved.",
+            "Required errors block readiness; warnings name limited capabilities.",
+        ],
+        "files_written": [],
+        "next": "Review the proposed patch, then run wire_project(phase='apply') or apply it idiomatically.",
+    }
 
 
 def setup_project(
@@ -423,7 +486,7 @@ async def verify_project(
     )
 
     all_checks_pass = all(c["passed"] for c in checks)
-    integration_ok = verify.get("status") in ("ok", "no_runs")
+    integration_ok = verify.get("status") == "ready"
     ready = all_checks_pass and integration_ok
 
     if ready and manifest:
@@ -433,7 +496,7 @@ async def verify_project(
     commands = post_wiring_commands(root, root / manifest.get("config_path", "retobs/config.yaml"))
 
     return {
-        "status": "ready" if ready else "needs_attention",
+        "status": "ready" if ready else verify.get("status", "needs_attention"),
         "checks": checks,
         "integration": verify,
         "instrumentation": verify.get("instrumentation"),
@@ -441,7 +504,7 @@ async def verify_project(
         "commands": commands,
         "manifest": manifest,
         "agent_instructions": (
-            "Wiring complete. Use post_wiring_commands for benchmark, serve, and trace workflows."
+            "Wiring complete. Use post_wiring_commands for evaluate, serve, and trace workflows."
             if ready
             else "Fix failing checks and apply wiring_brief patches, then call wire_project(phase='verify') again."
         ),
@@ -457,7 +520,13 @@ async def wire_project(
     db_path: Optional[str] = None,
     run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Single orchestration entry for agent wiring: setup or verify."""
+    """Integration orchestration: read-only plan, compatibility apply/setup, or verify."""
+    if phase == "plan":
+        return plan_project(
+            project_root,
+            framework=framework,
+            retriever_entrypoint=retriever_entrypoint,
+        )
     if phase == "verify":
         return await verify_project(project_root, db_path=db_path, run_id=run_id)
     return setup_project(

@@ -34,6 +34,6 @@ ran.
 
 ## Difficulty-based routing
 
-If hard queries fail disproportionately, the Advisor suggests routing them to a stronger
+If hard queries fail disproportionately, Findings may suggest routing them to a stronger
 pipeline. The Query Explorer's predicted-difficulty column and the diagnostics' hard-query
 failure rate are the evidence behind that recommendation.

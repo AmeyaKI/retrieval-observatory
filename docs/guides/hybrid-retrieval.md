@@ -12,7 +12,7 @@ The diagnostics classify failures. Two labels point straight at hybrid retrieval
 - `lexical_mismatch` — dense retrieval succeeds where BM25 fails (add a dense arm).
 - `semantic_mismatch` — BM25 succeeds where dense fails (add a lexical arm).
 
-When either exceeds threshold, the Advisor recommends adding the complementary arm, with an
+When either exceeds threshold, Findings may recommend adding the complementary arm, with an
 estimated recall improvement and confidence (see [advisor.md](advisor.md)).
 
 ## Modeling it as an operator DAG

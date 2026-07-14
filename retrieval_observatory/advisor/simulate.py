@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from retrieval_observatory.tracing.attribution import _find_final_span, _metric_at_k
-from retrieval_observatory.tracing.replay import ReplayAssumptions, replay_assumptions, without_operator
 from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+from retrieval_observatory.tracing.replay import ReplayAssumptions, simulate_without_operator
 
 
 @dataclass
@@ -21,10 +21,14 @@ class SimulationResult:
     op_id: str
     metric: str
     k: int
-    baseline_mean: float
-    simulated_mean: float
-    delta: float
+    baseline_mean: Optional[float]
+    simulated_mean: Optional[float]
+    delta: Optional[float]
     n_queries: int
+    result_status: str = "replayed"
+    evidence_class: str = "replayed"
+    reason: Optional[str] = None
+    unsupported_descendants: List[str] = field(default_factory=list)
     assumptions: Optional[Dict] = None
     caveats: List[str] = field(default_factory=list)
 
@@ -53,12 +57,29 @@ def simulate_operator_removal(
         qrel = qrels.get(trace.query_id)
         if not qrel:
             continue
+        replay = simulate_without_operator(trace, op_id)
         if assumptions is None:
-            assumptions = replay_assumptions(trace, op_id)
+            assumptions = replay.assumptions
+        if replay.status == "indeterminate" or replay.trace is None:
+            return SimulationResult(
+                change=f"remove_operator:{op_id}",
+                op_id=op_id,
+                metric=metric,
+                k=k,
+                baseline_mean=None,
+                simulated_mean=None,
+                delta=None,
+                n_queries=0,
+                result_status="indeterminate",
+                evidence_class="unavailable",
+                reason=replay.reason,
+                unsupported_descendants=replay.unsupported_descendants,
+                assumptions=replay.assumptions.__dict__,
+                caveats=list(replay.assumptions.caveats),
+            )
         final = _find_final_span(trace)
         baseline_scores.append(_metric_at_k([c.doc_id for c in (final.outputs if final else [])], qrel, metric, k))
-        cf = without_operator(trace, op_id)
-        cf_final = _find_final_span(cf)
+        cf_final = _find_final_span(replay.trace)
         simulated_scores.append(_metric_at_k([c.doc_id for c in (cf_final.outputs if cf_final else [])], qrel, metric, k))
 
     n = min(len(baseline_scores), len(simulated_scores))

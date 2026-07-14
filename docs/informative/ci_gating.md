@@ -37,13 +37,13 @@ def test_against_golden(retobs):
 
 ## CLI golden gate (YAML pipelines)
 
-For YAML-defined pipelines, use the Advisor directly — see
-[`examples/ci/retrieval-ci.yml`](../examples/ci/retrieval-ci.yml) for a copy-paste GitHub Action:
+For YAML-defined pipelines, use the canonical comparison gate — see
+[`examples/ci/retrieval-ci.yml`](../../examples/ci/retrieval-ci.yml) for a copy-paste GitHub Action:
 
 ```bash
-retobs run --config bench.yaml --no-cache
-retobs advisor check --baseline "$GOLDEN_RUN" --candidate "$CANDIDATE" --db .retobs/results.db
-# non-zero exit on significant regression
+retobs evaluate --config bench.yaml
+retobs compare "$GOLDEN_RUN" "$CANDIDATE" --db .retobs/results.db --fail-on regression-or-no-decision
+# non-zero exit on a regression or unsupported decision
 ```
 
 ## Where this fits
@@ -51,6 +51,6 @@ retobs advisor check --baseline "$GOLDEN_RUN" --candidate "$CANDIDATE" --db .ret
 This is the value-preserving form: multi-stage runs keep per-stage contribution and
 `candidate_miss` / `reranker_drop` diagnostics. If your production pipeline is a single opaque
 HTTP service, start with the black-box harness in
-[`examples/integrations/http_quickstart/`](../examples/integrations/http_quickstart/) (final top-K only), then graduate to
+[`examples/integrations/http_quickstart/`](../../examples/integrations/http_quickstart/) (final top-K only), then graduate to
 emitting per-stage snapshots (see "multi-snapshot" in the SDK docs) to recover stage-level
 diagnostics.

@@ -12,7 +12,9 @@ function attrRow(overrides: Partial<OperatorAttributionRow> & { op_id: string })
     ci_high: null,
     n_pairs: 10,
     replay_policy: 'EXACT',
-    result_status: 'ok',
+    result_status: 'replayed',
+    evidence_class: 'replayed',
+    unsupported_descendants: [],
     significant: false,
     ...overrides,
   }

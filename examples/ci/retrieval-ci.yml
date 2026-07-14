@@ -1,38 +1,32 @@
-# Example CI workflow — copy into .github/workflows/retrieval-ci.yml
-#
-# Runs a golden benchmark on every PR and fails if Advisor detects regressions
-# against the stored baseline run ID (set RETOBS_GOLDEN_BASELINE in repo secrets).
-
-name: retrieval-ci
+name: retrieval-comparison
 
 on:
   pull_request:
-    branches: [main]
 
 jobs:
-  golden-check:
+  compare:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install
-        run: pip install -e ".[demo,dev]"
-
-      - name: Run golden benchmark
+          python-version: "3.12"
+      - name: Install retobs and project
+        run: pip install "retrieval-observatory[dashboard]" -e .
+      - name: Evaluate candidate
         run: |
-          retobs run -c examples/advanced/dashboard_demo/config.yaml --no-cache
-          echo "CANDIDATE=$(sqlite3 .retobs/results.db 'SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1')" >> $GITHUB_ENV
-
-      - name: Advisor regression check
+          mkdir -p artifacts
+          retobs evaluate project_eval.py:retrieve --db .retobs/results.db --format json --output artifacts/candidate.json
+          echo "CANDIDATE_RUN=$(python -c \"import json; print(json.load(open('artifacts/candidate.json'))['run_id'])\")" >> "$GITHUB_ENV"
+      - name: Compare with repository baseline
         env:
-          BASELINE: ${{ secrets.RETOBS_GOLDEN_BASELINE }}
+          BASELINE_RUN: ${{ vars.RETOBS_BASELINE_RUN }}
         run: |
-          if [ -n "$BASELINE" ]; then
-            retobs advisor check --baseline "$BASELINE" --candidate "$CANDIDATE"
-          else
-            echo "RETOBS_GOLDEN_BASELINE not set — skipping regression gate"
-          fi
+          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --format markdown --output artifacts/retobs-comparison.md --fail-on regression-or-no-decision
+          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --format html --output artifacts/retobs-comparison.html
+          cat artifacts/retobs-comparison.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: retobs-comparison
+          path: artifacts/
+          if-no-files-found: error

@@ -15,14 +15,14 @@ def _trace(qid, *, query_text="q", status="OK"):
     )
     return RetrievalTraceV2(trace_id=f"t{qid}", run_id="r", query_id=qid, query_text=query_text,
                             pipeline_id="p", spans=[src], total_latency_ms=1.0, status=status,
-                            final_op_id="src")
+                            final_op_id="src", metadata={"label_method": "human"})
 
 
 def test_checks_all_green_on_healthy_traces():
     checks = _integration_checks([_trace(f"q{i}") for i in range(3)])
-    assert {c["name"] for c in checks} >= {"traces_present", "query_text_metadata", "candidate_scores",
+    assert {c["name"] for c in checks} >= {"traces_present", "query_text_metadata", "candidate_identity",
                                            "supported_operators", "trace_health"}
-    assert all(c["status"] == "ok" for c in checks)
+    assert not any(c["status"] == "error" for c in checks)
 
 
 def test_no_traces_is_error():
@@ -52,4 +52,20 @@ async def test_verify_integration_reports_check_status(tmp_path):
     await store.save_trace_v2(_trace("q0"))
     report = await verify_integration(db_path=str(db), run_id="r")
     assert "checks" in report
-    assert report["check_status"] == "ok"
+    assert report["status"] == "partially_instrumented"
+    assert report["check_status"] == "warn"
+    assert report["capabilities"]["basic_tracing"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_verify_integration_required_error_is_failed(tmp_path):
+    db = tmp_path / "invalid.db"
+    store = SQLiteStore(db_path=str(db))
+    await store.init_db()
+    await store.save_run("r", "exp", "{}")
+    trace = _trace("q0")
+    trace.final_op_id = None
+    await store.save_trace_v2(trace)
+    report = await verify_integration(db_path=str(db), run_id="r")
+    assert report["status"] == "failed"
+    assert report["capabilities"]["pipeline_graph"]["status"] == "unavailable"

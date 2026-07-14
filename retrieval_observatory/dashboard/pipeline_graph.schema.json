@@ -1,17 +1,37 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://retrieval-observatory/pipeline_graph.schema.json",
-  "title": "PipelineGraph",
-  "description": "Render-only projection of a benchmarked pipeline as a directed graph. Every quality metric carries its bootstrap CI or is null.",
+  "title": "PipelineGraphV2",
+  "description": "Versioned measured run-union or exact-trace projection with coverage, status, timing, candidate, and metric availability evidence.",
   "type": "object",
-  "required": ["pipeline_id", "nodes", "edges"],
+  "required": [
+    "pipeline_id", "contract_version", "projection_mode", "trace_count",
+    "complete_trace_count", "status_counts", "final_output_ids",
+    "timing_semantics", "warnings", "nodes", "edges"
+  ],
   "additionalProperties": false,
   "properties": {
     "pipeline_id": { "type": "string" },
+    "contract_version": { "const": 2 },
+    "projection_mode": { "type": "string", "enum": ["run_union", "trace"] },
+    "trace_count": { "type": "integer", "minimum": 0 },
+    "complete_trace_count": { "type": "integer", "minimum": 0 },
+    "status_counts": { "$ref": "#/definitions/countMap" },
+    "final_output_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "timing_semantics": { "type": "object", "additionalProperties": { "type": "string" } },
+    "warnings": { "type": "array", "items": { "type": "string" } },
     "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
     "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } }
   },
   "definitions": {
+    "countMap": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "evidenceClass": {
+      "type": "string",
+      "enum": ["measured", "statistical", "replayed", "heuristic", "inferred", "unavailable"]
+    },
     "metricValue": {
       "type": ["object", "null"],
       "required": ["mean", "ci_low", "ci_high"],
@@ -23,22 +43,53 @@
         "k": { "type": ["integer", "null"] }
       }
     },
+    "latency": {
+      "type": "object",
+      "required": ["count", "mean_ms", "p50_ms", "p95_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 0 },
+        "mean_ms": { "type": ["number", "null"] },
+        "p50_ms": { "type": ["number", "null"] },
+        "p95_ms": { "type": ["number", "null"] }
+      }
+    },
     "node": {
       "type": "object",
-      "required": ["node_id", "label", "op_type", "depth", "branch_id", "candidate_count", "metrics", "is_merge", "source"],
+      "required": [
+        "node_id", "label", "op_type", "depth", "branch_id",
+        "candidate_count", "input_candidate_count", "metrics", "is_merge",
+        "source", "observed_count", "trace_coverage", "fire_rate",
+        "status_counts", "cache_hits", "latency", "is_final_output",
+        "final_output_count", "configured", "availability"
+      ],
       "additionalProperties": false,
       "properties": {
         "node_id": { "type": "string" },
         "label": { "type": "string" },
         "op_type": {
           "type": "string",
-          "enum": ["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM"]
+          "enum": ["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE"]
         },
         "depth": { "type": "integer", "minimum": 0 },
         "branch_id": { "type": ["string", "null"] },
-        "candidate_count": { "type": "number" },
+        "candidate_count": { "type": "number", "minimum": 0 },
+        "input_candidate_count": { "type": "number", "minimum": 0 },
         "is_merge": { "type": "boolean" },
-        "source": { "type": "string", "enum": ["measured"] },
+        "source": { "$ref": "#/definitions/evidenceClass" },
+        "observed_count": { "type": "integer", "minimum": 0 },
+        "trace_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fire_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "status_counts": { "$ref": "#/definitions/countMap" },
+        "cache_hits": { "type": "integer", "minimum": 0 },
+        "latency": { "$ref": "#/definitions/latency" },
+        "is_final_output": { "type": "boolean" },
+        "final_output_count": { "type": "integer", "minimum": 0 },
+        "configured": { "type": ["boolean", "null"] },
+        "availability": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/evidenceClass" }
+        },
         "metrics": {
           "type": "object",
           "required": ["ndcg@10", "recall", "latency_p50"],
@@ -53,12 +104,16 @@
     },
     "edge": {
       "type": "object",
-      "required": ["source", "target", "kind"],
+      "required": ["source", "target", "kind", "observed_count", "trace_coverage", "conditional", "source_evidence"],
       "additionalProperties": false,
       "properties": {
         "source": { "type": "string" },
         "target": { "type": "string" },
-        "kind": { "type": "string", "enum": ["flow", "fan_in"] }
+        "kind": { "type": "string", "enum": ["flow", "fan_in"] },
+        "observed_count": { "type": "integer", "minimum": 0 },
+        "trace_coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "conditional": { "type": "boolean" },
+        "source_evidence": { "$ref": "#/definitions/evidenceClass" }
       }
     }
   }

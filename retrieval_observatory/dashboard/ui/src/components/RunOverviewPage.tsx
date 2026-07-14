@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { fetchAdvisorRecommendations, Recommendation, Run } from '../api'
 import { useRunMetrics } from '../hooks/useRunMetrics'
-import DashboardGuide from './DashboardGuide'
 import RunManifestPanel from './RunManifestPanel'
 import VerdictCard from './VerdictCard'
 import DataQualityWarnings from './DataQualityWarnings'
 import ExperimentOverview from './ExperimentOverview'
 import { MetricTooltip } from './MetricTooltip'
+import StatusPanel from './StatusPanel'
 
 // The executive-summary landing page (RETOBS_FINER_PLAN_PHASE2.md / retobs_finer.md
 // Pillar 1): overall quality, latency, biggest failures, recommendations, and benchmark
@@ -22,10 +22,10 @@ export default function RunOverviewPage({ run, dbId }: { run: Run; dbId: string 
   const [recommendations, setRecommendations] = useState<Recommendation[] | null>(null)
 
   useEffect(() => {
-    fetchAdvisorRecommendations(run.run_id)
+    fetchAdvisorRecommendations(dbId, run.run_id)
       .then((r) => setRecommendations(r.recommendations))
       .catch(() => setRecommendations([]))
-  }, [run.run_id])
+  }, [dbId, run.run_id])
 
   const stageContributions = overview?.stage_contributions ?? []
   const pipelineCount = metrics
@@ -35,24 +35,50 @@ export default function RunOverviewPage({ run, dbId }: { run: Run; dbId: string 
   const worstFailure = Object.entries(failureLabels).sort((a, b) => b[1] - a[1])[0]
 
   if (error) {
-    return (
-      <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
-    )
+    return <StatusPanel kind="error" title="Run evidence could not be loaded" message={error} />
   }
   if (!metrics) {
-    return (
-      <div className="flex items-center gap-2 text-ink-faint text-sm">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 dark:border-slate-600 border-t-indigo-600" />
-        Loading overview...
-      </div>
-    )
+    return <StatusPanel kind="loading" message="Loading run conclusion and evidence…" />
+  }
+  if (Object.keys(metrics).length === 0) {
+    return <StatusPanel kind="empty" title="No run metrics" message="This run has no persisted measurements to summarize." />
   }
 
-  const runHref = (page: string) => `#/benchmarks/run/${encodeURIComponent(run.run_id)}${page ? `/${page}` : ''}`
+  const runHref = (page: string) => `#/runs/${encodeURIComponent(run.run_id)}${page ? `/${page}` : ''}`
+  const report = overview?.report
 
   return (
     <div className="space-y-6">
-      <DashboardGuide />
+      {report && (
+        <section aria-labelledby="run-conclusion" className="rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-5">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <h2 id="run-conclusion" className="text-lg font-semibold text-ink">Run conclusion</h2>
+            <span className="rounded-full border border-slate-300 dark:border-slate-600 px-2 py-0.5 text-xs font-medium text-ink">
+              Verdict: {report.verdict.replace(/_/g, ' ')}
+            </span>
+            <span className="rounded-full border border-slate-300 dark:border-slate-600 px-2 py-0.5 text-xs font-medium text-ink">
+              Evidence: {report.evidence_health}
+            </span>
+          </div>
+          <p className="text-sm text-ink mb-3">{report.conclusion}</p>
+          {report.evidence_reasons.length > 0 && (
+            <ul className="mb-3 list-disc pl-5 text-xs text-amber-800 dark:text-amber-300">
+              {report.evidence_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+            </ul>
+          )}
+          <div className="text-xs text-ink-muted">
+            <strong className="text-ink">Next action:</strong> {report.next_action}
+          </div>
+          {report.affected_queries[0] && (
+            <a
+              className="mt-3 inline-flex text-sm font-medium text-indigo-700 dark:text-indigo-300 hover:underline"
+              href={`${runHref('queries')}/${encodeURIComponent(report.affected_queries[0].query_id)}`}
+            >
+              Inspect first affected query →
+            </a>
+          )}
+        </section>
+      )}
       <RunManifestPanel overview={overview} />
 
       {pipelineCount >= 2 && (
@@ -98,7 +124,7 @@ export default function RunOverviewPage({ run, dbId }: { run: Run; dbId: string 
           )}
         </a>
 
-        <a href={runHref('')} onClick={(e) => e.preventDefault()} className="block p-4 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+        <a href={runHref('queries')} className="block p-4 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-300 transition-colors">
           <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">Recommendations</div>
           {recommendations === null ? (
             <div className="text-sm text-ink-muted">Loading…</div>
@@ -111,10 +137,11 @@ export default function RunOverviewPage({ run, dbId }: { run: Run; dbId: string 
               ))}
             </ul>
           )}
+          <div className="text-xs text-ink-muted mt-1">Open supporting query evidence →</div>
         </a>
 
         <a href={runHref('architecture')} className="block p-4 rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-300 transition-colors">
-          <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">Benchmark health</div>
+          <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">Evidence health</div>
           <div className="text-sm text-ink">{overview?.warnings?.length ?? 0} warning(s)</div>
           <div className="text-xs text-ink-muted mt-0.5">Inspect architecture & manifest →</div>
         </a>

@@ -70,8 +70,8 @@ function QueryDiffsSection({ queryDiffs, runA }: { queryDiffs: QueryDiffs | null
                   </td>
                   <td className="px-3 py-1.5 text-right">
                     <a
-                      href={`#/benchmarks/run/${encodeURIComponent(runA.runId)}/queries/${encodeURIComponent(row.query_id)}/diff?against=${encodeURIComponent(queryDiffs.run_b)}`}
-                      className="text-indigo-600 hover:underline"
+                      href={`#/runs/${encodeURIComponent(runA.runId)}/queries/${encodeURIComponent(row.query_id)}/diff?against=${encodeURIComponent(queryDiffs.run_b)}`}
+                      className="text-indigo-700 underline underline-offset-2"
                     >
                       diff →
                     </a>
@@ -235,13 +235,16 @@ function RecommendationDiffSection({ runA, runB }: { runA: RunSelection; runB: R
     setRecsA(null)
     setRecsB(null)
     setError(null)
-    Promise.all([fetchAdvisorRecommendations(runA.runId), fetchAdvisorRecommendations(runB.runId)])
+    Promise.all([
+      fetchAdvisorRecommendations(runA.dbId, runA.runId),
+      fetchAdvisorRecommendations(runB.dbId, runB.runId),
+    ])
       .then(([a, b]) => {
         setRecsA(a.recommendations)
         setRecsB(b.recommendations)
       })
       .catch((e) => setError(e.message))
-  }, [runA.runId, runB.runId])
+  }, [runA.dbId, runA.runId, runB.dbId, runB.runId])
 
   if (error) return <NoData label={error} />
   if (!recsA || !recsB) return <div className="text-xs text-ink-faint">Loading recommendation diff…</div>
@@ -252,7 +255,7 @@ function RecommendationDiffSection({ runA, runB }: { runA: RunSelection; runB: R
     <div>
       <SectionHeading title="Recommendation diff" />
       {newRecs.length === 0 && resolvedRecs.length === 0 && persisting.length === 0 ? (
-        <NoData label="Neither run has any Advisor recommendations." />
+        <NoData label="Neither run has any evidence-backed recommendations." />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
           <RecList title="New (A only)" items={newRecs} className="text-amber-700" />

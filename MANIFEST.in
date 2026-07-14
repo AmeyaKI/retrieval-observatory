@@ -2,5 +2,6 @@ graft retrieval_observatory
 prune retrieval_observatory/dashboard/ui/node_modules
 global-exclude *.db
 global-exclude __pycache__
+global-exclude *.pyc *.pyo
 global-exclude .retobs
 recursive-exclude results *

@@ -27,8 +27,14 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install dashboard dependencies from lockfile
+        run: npm ci --prefix retrieval_observatory/dashboard/ui
+
       - name: Build dashboard UI
         run: make dashboard-build
+
+      - name: Verify release links, metadata, and generated media
+        run: python scripts/check_release.py --require-assets
 
       - name: Remove bytecode caches
         run: find retrieval_observatory -type d -name __pycache__ -print0 | xargs -0 rm -rf
@@ -60,6 +66,8 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: dist
@@ -107,6 +115,7 @@ jobs:
           UI_INDEX=$(/tmp/smoke/bin/python -c "import retrieval_observatory as ro; print(ro.PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
           test -f "$UI_INDEX"
           /tmp/smoke/bin/retobs --help
+          /tmp/smoke/bin/python scripts/smoke_wheel.py
 
   publish-pypi:
     needs: publish-testpypi

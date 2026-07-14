@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from statistics import mean, pstdev
-from typing import Any, Dict, Iterable, List, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from retrieval_observatory.metrics.ranking import dedupe_preserve_rank
 from retrieval_observatory.types import CandidateLineage
@@ -60,6 +60,7 @@ def build_query_diagnostics(
     run_id: str,
     results: List[Any],
     qrels: Dict,
+    corpus_doc_ids: Optional[Set[str]] = None,
 ) -> List[Dict]:
     """Create per-query, per-pipeline diagnostic labels from stored stage outputs."""
     by_query: Dict[str, List[Any]] = defaultdict(list)
@@ -69,6 +70,7 @@ def build_query_diagnostics(
     recall_by_query: Dict[str, List[float]] = defaultdict(list)
     final_sets: Dict[tuple, Set[str]] = {}
     first_sets: Dict[tuple, Set[str]] = {}
+    any_stage_sets: Dict[tuple, Set[str]] = {}
 
     for result in results:
         relevant = _relevant_set(qrels.get(result.query_id))
@@ -79,6 +81,9 @@ def build_query_diagnostics(
         final = set(d.id for d in result.snapshots[-1].documents)
         first_sets[(result.query_id, result.pipeline_id)] = first
         final_sets[(result.query_id, result.pipeline_id)] = final
+        any_stage_sets[(result.query_id, result.pipeline_id)] = {
+            document.id for snapshot in result.snapshots for document in snapshot.documents
+        }
         recall_by_query[result.query_id].append(len(final & relevant) / len(relevant))
 
     buckets = {
@@ -89,6 +94,8 @@ def build_query_diagnostics(
     rows: List[Dict] = []
     for result in results:
         relevant = _relevant_set(qrels.get(result.query_id))
+        absent_qrel_ids = sorted(relevant - corpus_doc_ids) if corpus_doc_ids is not None else []
+        diagnostic_relevant = relevant - set(absent_qrel_ids)
         stage_hits = {}
         labels = []
         if result.status != "OK":
@@ -96,7 +103,7 @@ def build_query_diagnostics(
 
         for snap in result.snapshots:
             ids = set(dedupe_preserve_rank([d.id for d in snap.documents]))
-            stage_hits[str(snap.stage_index)] = sorted(ids & relevant)
+            stage_hits[str(snap.stage_index)] = sorted(ids & diagnostic_relevant)
 
         final_ids = final_sets.get((result.query_id, result.pipeline_id), set())
         first_ids = first_sets.get((result.query_id, result.pipeline_id), set())
@@ -110,48 +117,53 @@ def build_query_diagnostics(
         for snap in result.snapshots:
             any_stage_ids |= {d.id for d in snap.documents}
 
-        if relevant and not any_stage_ids & relevant:
+        if diagnostic_relevant and not any_stage_ids & diagnostic_relevant:
             labels.append("candidate_miss")
-        elif relevant and not first_ids & relevant and final_ids & relevant:
+        elif diagnostic_relevant and not first_ids & diagnostic_relevant and final_ids & diagnostic_relevant:
             # Surfaced only by a later / parallel stage and carried through to the final
             # results — an accurate, non-failure signal (not the inverted candidate_miss).
             labels.append("late_stage_recovery")
 
-        if len(result.snapshots) > 1 and first_ids & relevant and not final_ids & relevant:
+        if len(result.snapshots) > 1 and first_ids & diagnostic_relevant and not final_ids & diagnostic_relevant:
             labels.append("reranker_drop")
 
         # Late-stage drop: relevant doc survived to penultimate stage but absent from final
         if len(result.snapshots) > 2:
             penultimate_ids = {d.id for d in result.snapshots[-2].documents}
-            if penultimate_ids & relevant and not final_ids & relevant:
+            if penultimate_ids & diagnostic_relevant and not final_ids & diagnostic_relevant:
                 if "reranker_drop" not in labels:
                     labels.append("late_stage_drop")
 
         # Ranking failure: relevant doc present in final candidates but ranked below K
-        if relevant and final_ids & relevant:
+        if diagnostic_relevant and final_ids & diagnostic_relevant:
             max_k = len(result.snapshots[-1].documents)
             top_k_ids = {d.id for d in result.snapshots[-1].documents if d.rank <= max_k}
-            if not top_k_ids & relevant:
+            if not top_k_ids & diagnostic_relevant:
                 labels.append("ranking_failure")
 
-        any_stage_hit = any(row_hits for row_hits in stage_hits.values())
-        if relevant and not any_stage_hit and not any(
-            final_sets.get((result.query_id, pid), set()) & relevant
-            for pid in _pipeline_ids(by_query[result.query_id])
-        ):
-            labels.append("id_or_qrel_issue")
+        pipeline_ids = _pipeline_ids(by_query[result.query_id])
+        retrieved_by_any_pipeline = any(
+            any_stage_sets.get((result.query_id, pipeline_id), set()) & diagnostic_relevant
+            for pipeline_id in pipeline_ids
+        )
+        if absent_qrel_ids:
+            labels.append("qrel_not_in_corpus")
+        if diagnostic_relevant and not retrieved_by_any_pipeline:
+            labels.append("not_retrieved_by_any_pipeline")
+        if relevant and corpus_doc_ids is None and not retrieved_by_any_pipeline:
+            labels.append("corpus_identity_unknown")
 
         # Cross-pipeline lexical/semantic hints via adapter name as lightweight signal
-        if result.pipeline_id.lower().find("bm25") >= 0 and not final_ids & relevant:
+        if result.pipeline_id.lower().find("bm25") >= 0 and not final_ids & diagnostic_relevant:
             if any(
-                "dense" in pid.lower() and final_sets.get((result.query_id, pid), set()) & relevant
-                for pid in _pipeline_ids(by_query[result.query_id])
+                "dense" in pid.lower() and final_sets.get((result.query_id, pid), set()) & diagnostic_relevant
+                for pid in pipeline_ids
             ):
                 labels.append("lexical_mismatch")
-        if "dense" in result.pipeline_id.lower() and not final_ids & relevant:
+        if "dense" in result.pipeline_id.lower() and not final_ids & diagnostic_relevant:
             if any(
-                "bm25" in pid.lower() and final_sets.get((result.query_id, pid), set()) & relevant
-                for pid in _pipeline_ids(by_query[result.query_id])
+                "bm25" in pid.lower() and final_sets.get((result.query_id, pid), set()) & diagnostic_relevant
+                for pid in pipeline_ids
             ):
                 labels.append("semantic_mismatch")
 
@@ -163,6 +175,7 @@ def build_query_diagnostics(
         lineages = compute_candidate_lineage(result) if result.status == "OK" else []
         churn = compute_churn_rate(lineages)
         has_expansion = any(lin.is_expansion for lin in lineages)
+        evidence = [_diagnostic_evidence(label, absent_qrel_ids) for label in sorted(set(labels))]
 
         rows.append(
             {
@@ -171,6 +184,7 @@ def build_query_diagnostics(
                 "pipeline_id": result.pipeline_id,
                 "difficulty_bucket": bucket,
                 "failure_labels": sorted(set(labels)),
+                "diagnostic_evidence": evidence,
                 "missing_relevant_ids": missing,
                 "stage_hits": stage_hits,
                 "churn_rate": round(churn, 4),
@@ -208,6 +222,62 @@ def aggregate_diagnostics(rows: List[Dict]) -> Dict:
             for pid, data in by_pipeline.items()
         },
         "n": len(rows),
+    }
+
+
+def _diagnostic_evidence(label: str, absent_qrel_ids: List[str]) -> Dict[str, object]:
+    if label == "qrel_not_in_corpus":
+        return {
+            "label": label,
+            "evidence_class": "measured",
+            "method": "qrel_corpus_membership_v1",
+            "reason": "One or more positively judged document IDs are absent from the loaded corpus.",
+            "doc_ids": list(absent_qrel_ids),
+            "threshold": None,
+        }
+    if label == "not_retrieved_by_any_pipeline":
+        return {
+            "label": label,
+            "evidence_class": "measured",
+            "method": "observed_candidate_union_v1",
+            "reason": "No observed pipeline stage surfaced a corpus-valid relevant document.",
+            "doc_ids": [],
+            "threshold": None,
+        }
+    if label == "corpus_identity_unknown":
+        return {
+            "label": label,
+            "evidence_class": "unavailable",
+            "method": "qrel_corpus_membership_v1",
+            "reason": "Corpus document identity was not supplied, so qrel membership could not be checked.",
+            "doc_ids": [],
+            "threshold": None,
+        }
+    if label in {"lexical_mismatch", "semantic_mismatch"}:
+        return {
+            "label": label,
+            "evidence_class": "heuristic",
+            "method": "pipeline_name_cross_retrieval_v1",
+            "reason": "Inferred from lexical/dense pipeline naming and their observed result difference.",
+            "doc_ids": [],
+            "threshold": "at least one counterpart pipeline retrieves a relevant document",
+        }
+    if label == "unstable":
+        return {
+            "label": label,
+            "evidence_class": "statistical",
+            "method": "cross_pipeline_recall_spread_v1",
+            "reason": "Observed execution failure or cross-pipeline recall spread met the instability rule.",
+            "doc_ids": [],
+            "threshold": "population standard deviation >= 0.25",
+        }
+    return {
+        "label": label,
+        "evidence_class": "measured",
+        "method": "observed_stage_transition_v1",
+        "reason": "Derived from recorded candidate membership and rank transitions.",
+        "doc_ids": [],
+        "threshold": None,
     }
 
 

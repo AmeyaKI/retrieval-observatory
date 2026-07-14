@@ -1,70 +1,48 @@
-# Contributing to Retrieval Observatory
+# Contributing to retobs
 
-Thanks for helping improve retobs. This guide covers local setup, tests, and conventions.
-
-## Development setup
+## Setup
 
 ```bash
-git clone https://github.com/<your-fork>/retrieval-observatory
+git clone https://github.com/AmeyaKI/retrieval-observatory
 cd retrieval-observatory
-pip install -e ".[demo,dashboard,dense,mcp]"
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev,dashboard,demo,dense,mcp]"
+npm ci --prefix retrieval_observatory/dashboard/ui
 ```
 
-Verify your install:
+## CI parity
+
+Run these before opening a pull request:
 
 ```bash
-retobs doctor
+.venv/bin/ruff check retrieval_observatory tests scripts
+.venv/bin/pytest tests/unit -v --tb=short
+.venv/bin/pytest tests/integration -v --tb=short -m "not slow"
+npm run test --prefix retrieval_observatory/dashboard/ui
+npm run build --prefix retrieval_observatory/dashboard/ui
+.venv/bin/python scripts/check_markdown_links.py
 ```
 
-## Running the tests
-
-The Python test suite is the source of truth for backend correctness:
+Browser tests require Chromium and a running deterministic demo:
 
 ```bash
-pytest -q
+.venv/bin/retobs demo --db .retobs/e2e/results.db --output-dir .retobs/e2e --n-traces 80
+.venv/bin/retobs serve --host 127.0.0.1 --port 4000 --db .retobs/e2e/results.db
+RETOBS_E2E_URL=http://127.0.0.1:4000 .venv/bin/pytest tests/browser -v
 ```
 
-Run a focused subset while iterating, e.g.:
+PostgreSQL parity requires `RETOBS_POSTGRES_DSN` and runs `tests/unit/test_store_postgres.py`.
 
-```bash
-pytest tests/unit/test_attribution_segments.py -v
-```
+## Engineering rules
 
-## Building the dashboard UI
+- Preserve uncertainty: unsupported evidence is `None`/unavailable, never fabricated precision.
+- Derive topology and attribution from V2 traces and recorded candidate transitions.
+- Keep database/Run/query scope explicit.
+- Add behavior tests for success, partial, and failure paths.
+- Update `[Unreleased]` in `CHANGELOG.md` for user-visible behavior.
+- Keep changes focused and retain read compatibility when removing a public surface.
 
-The dashboard is a Vite + React + TypeScript SPA under
-`retrieval_observatory/dashboard/ui/`:
+## Pull requests and issues
 
-```bash
-cd retrieval_observatory/dashboard/ui
-npm install
-npm run build      # tsc + vite build; must pass with no type errors
-npm run dev        # local dev server
-```
-
-A UI change is not done until `npm run build` is clean.
-
-## Conventions
-
-- **Correctness over cleverness.** retobs's value is that its numbers are trustworthy. Never
-  fabricate a metric, attribution, or topology when it can't be determined — surface the
-  uncertainty instead (`None`, "not estimated", "inferred", `NOT_REPLAYABLE`). New features
-  should preserve this.
-- **Trace-native.** Topology and attribution come from real execution traces
-  (`RetrievalTraceV2`), not heuristics, whenever traces exist.
-- **Tests with behavior.** Backend changes land with unit tests that assert the actual
-  behavior, including the uncertain/edge cases.
-- **Small, reviewable commits**, each leaving the suite green.
-
-## Pull requests
-
-1. Branch from `main`.
-2. Keep the diff focused; note any deviations from the plan in the PR description.
-3. Confirm `pytest -q` and (for UI changes) `npm run build` both pass.
-4. Describe what you verified, not just what you changed.
-
-## Reporting issues
-
-Include: retobs version, how you ran it (CLI/SDK/dashboard), the config or dataset shape, and
-what you expected vs. observed. For diagnostic questions, the run manifest (dataset
-fingerprint, seed, versions) makes issues reproducible.
+Describe the user-visible delta, evidence/compatibility impact, and exact verification commands. Include a Run manifest for reproducibility, but redact sensitive query/document data. Use the issue templates for bugs and features, the [security policy](SECURITY.md) for vulnerabilities, and the [Code of Conduct](CODE_OF_CONDUCT.md) for participation expectations.

@@ -1,0 +1,17 @@
+{
+  "demo_context": {
+    "baseline_run_id": "269a07d5",
+    "candidate_run_id": "68f46c6e",
+    "sample_query_id": "temporal-0-0",
+    "validation_run_id": "2052f11e"
+  },
+  "files": {
+    "comparison.png": "a2386d57742af8a738fe813e8e3e27d9bbb1a29a42b175aa2bcbb80fd785b823",
+    "query-debugger.png": "df963344f8385779e803ae265de3b482b1c95f15d1fef30795813fe56e4b3b89",
+    "retrieval-debugging-loop.webm": "d12eafad3fc5b47746096294d39cc7035220d3a3b8ca84edc12f93426ff610c0",
+    "validated-fix.png": "dc6dc43c4402dc3e5aceb99c7739b6e0e3120d8ac5ab204c528a506ff39e295c"
+  },
+  "retobs_version": "0.4.2",
+  "schema_version": 1,
+  "source": "scripts/generate_demo_assets.py"
+}

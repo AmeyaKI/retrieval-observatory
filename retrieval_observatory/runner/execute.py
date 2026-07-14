@@ -96,6 +96,9 @@ async def execute_benchmark(
             golden_set=golden_set,
             seed=getattr(cfg.execution, "seed", None),
         )
+        effective_cache = bool(cfg.execution.cache_results and not no_cache)
+        manifest["cache_results"] = effective_cache
+        manifest["execution"]["cache_results"] = effective_cache
         if filter_warnings:
             manifest["run_warnings"] = filter_warnings
         await store.save_run_manifest(run_id, manifest)
@@ -201,12 +204,43 @@ async def execute_benchmark(
                 existing["unjudged_query_count"] = n_unjudged
                 await store.save_run_manifest(run_id, existing)
 
-    diagnostics = build_query_diagnostics(run_id, all_results, qrels)
+    corpus_documents = getattr(dataset, "corpus_documents", None)
+    corpus_doc_ids = set(corpus_documents) if corpus_documents is not None else None
+    diagnostics = build_query_diagnostics(run_id, all_results, qrels, corpus_doc_ids=corpus_doc_ids)
     if hasattr(store, "save_query_diagnostics"):
         await store.save_query_diagnostics(diagnostics)
 
     aggregated = await engine.aggregate(run_id=run_id, store=store)
     metrics_rows = await store.get_metrics(run_id)
+    if hasattr(store, "save_run_manifest"):
+        manifest = await store.get_run_manifest(run_id) or {}
+        completed_query_ids = {result.query_id for result in all_results if result.status == "OK"}
+        labeled_query_ids = {query.query_id for query in queries if qrels.get(query.query_id)}
+        traces = [result.trace_v2 for result in all_results if getattr(result, "trace_v2", None) is not None]
+        cache_hits = sum(
+            bool(span.params.get("cache_hit"))
+            for trace in traces
+            for span in trace.spans
+        )
+        observed = manifest.setdefault("execution", {}).setdefault("observed", {})
+        observed.update({
+            "cache_hits": cache_hits,
+            "cache_misses": None,
+            "timeouts": sum(result.status == "TIMEOUT" for result in all_results),
+            "retries": None,
+        })
+        manifest["counts"] = {
+            "attempted": len(queries),
+            "completed": len(completed_query_ids),
+            "labeled": len(labeled_query_ids),
+            "metric_eligible": len(completed_query_ids & labeled_query_ids),
+        }
+        manifest["duration_semantics"] = {
+            "total_latency_ms": "query wall clock",
+            "critical_path_ms": "longest observed dependency path",
+            "operator_sum_ms": "sum of observed operator durations",
+        }
+        await store.save_run_manifest(run_id, manifest)
     await store.finish_run(run_id)
 
     return BenchmarkArtifacts(

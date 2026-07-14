@@ -10,6 +10,7 @@ import Clusters from './tracelens/Clusters'
 
 interface Props {
   route: string // service name, if any
+  dbId: string
 }
 
 type View = 'overview' | 'traces' | 'distribution' | 'drift' | 'hotspots' | 'clusters'
@@ -30,15 +31,15 @@ const WINDOWS: { label: string; hours: number | null }[] = [
   { label: 'All time', hours: null },
 ]
 
-export default function TraceLensWorkspace({ route }: Props) {
+export default function TraceLensWorkspace({ route, dbId }: Props) {
   const [services, setServices] = useState<TraceService[]>([])
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<View>('overview')
   const [windowIdx, setWindowIdx] = useState(1) // default Last 7d
 
   useEffect(() => {
-    fetchTraceServices().then(setServices).catch((e) => setError(e.message))
-  }, [])
+    fetchTraceServices(dbId).then(setServices).catch((e) => setError(e.message))
+  }, [dbId])
 
   const activeService = route || services[0]?.service || null
 
@@ -49,7 +50,7 @@ export default function TraceLensWorkspace({ route }: Props) {
   }, [windowIdx])
 
   const selectService = (svc: string) => {
-    window.location.hash = `#/tracelens/${svc}`
+    window.location.hash = `#/production/${svc}`
   }
 
   if (error) {
@@ -64,10 +65,10 @@ export default function TraceLensWorkspace({ route }: Props) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center max-w-md px-6">
-          <div className="text-4xl mb-4 select-none" role="img" aria-label="TraceLens module icon" title="TraceLens module icon">📡</div>
+          <div className="text-4xl mb-4 select-none" role="img" aria-label="Production icon" title="Production icon">⌁</div>
           <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">No traces yet</p>
           <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
-            TraceLens captures production retrieval requests as structured traces so you can inspect any
+            Production captures retrieval requests as structured traces so you can inspect any
             request and watch how traffic and retriever behavior drift over time.
           </p>
           <p className="text-sm text-gray-400 dark:text-slate-500 mt-3 leading-relaxed">
@@ -87,7 +88,7 @@ export default function TraceLensWorkspace({ route }: Props) {
       <aside className="shrink-0 w-60 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col overflow-hidden">
         <div className="px-4 py-4 border-b border-gray-200 dark:border-slate-700">
           <div className="flex items-center justify-between gap-2">
-            <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">TraceLens</h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">Production</h1>
             <WorkspaceGlossaryLink className="text-[11px] text-teal-700 underline decoration-teal-300" />
           </div>
           <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Production observability</p>
@@ -132,10 +133,10 @@ export default function TraceLensWorkspace({ route }: Props) {
           </p>
           <p className="mt-1">
             Proxy signals: <span className="font-mono">empty_candidates</span>, <span className="font-mono">latency_over_budget</span>, <span className="font-mono">high_churn</span>, <span className="font-mono">low_confidence</span>.
-            Measured quality lives in Benchmarks and Forge.
+            Measured quality is shown only when an evaluation or explicit ground-truth join exists.
           </p>
           <p className="mt-1">
-            To reproduce hotspots with labels, generate a stress dataset in <a href="#/forge" className="underline decoration-teal-400 hover:text-teal-700">Forge</a>.
+            To reproduce hotspots with labels, generate a stress dataset in <a href="#/test-sets" className="underline decoration-teal-400 hover:text-teal-700">Test Sets</a>.
           </p>
         </div>
 
@@ -161,12 +162,12 @@ export default function TraceLensWorkspace({ route }: Props) {
             </div>
           </div>
 
-          {view === 'overview' && <TraceLensOverview service={activeService} since={since} />}
-          {view === 'traces' && <LiveTraces service={activeService} since={since} />}
-          {view === 'distribution' && <Distribution service={activeService} since={since} />}
-          {view === 'drift' && <DriftExplorer service={activeService} />}
-          {view === 'hotspots' && <Hotspots service={activeService} since={since} />}
-          {view === 'clusters' && <Clusters service={activeService} since={since} />}
+          {view === 'overview' && <TraceLensOverview dbId={dbId} service={activeService} since={since} />}
+          {view === 'traces' && <LiveTraces dbId={dbId} service={activeService} since={since} />}
+          {view === 'distribution' && <Distribution dbId={dbId} service={activeService} since={since} />}
+          {view === 'drift' && <DriftExplorer dbId={dbId} service={activeService} />}
+          {view === 'hotspots' && <Hotspots dbId={dbId} service={activeService} since={since} />}
+          {view === 'clusters' && <Clusters dbId={dbId} service={activeService} since={since} />}
         </div>
       </main>
     </div>

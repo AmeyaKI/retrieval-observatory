@@ -31,6 +31,10 @@ function runBase(dbId: string, runId: string): string {
   return `${BASE}/dbs/${encodeURIComponent(dbId)}/runs/${encodeURIComponent(runId)}`
 }
 
+function dbBase(dbId: string): string {
+  return `${BASE}/dbs/${encodeURIComponent(dbId)}`
+}
+
 export interface MetricEntry {
   pipeline_id: string
   stage_index: number
@@ -57,9 +61,23 @@ export interface RunMetricValues {
 
 export interface ComparisonEntry {
   metric: string
-  p_value?: number
+  p_value?: number | null
+  q_value?: number | null
   paired_n?: number
-  [runKey: string]: RunMetricValues | string | number | undefined
+  statistics?: {
+    baseline_mean: number | null
+    candidate_mean: number | null
+    effect: number | null
+    effect_threshold: number | null
+    p_value: number | null
+    q_value: number | null
+    paired_n: number
+    low_power: boolean
+    significant: boolean | null
+    decision: 'candidate_better' | 'candidate_worse' | 'no_decision'
+    reason: string
+  }
+  [runKey: string]: RunMetricValues | ComparisonEntry['statistics'] | string | number | null | undefined
 }
 
 export async function fetchDbs(): Promise<DbSource[]> {
@@ -110,7 +128,11 @@ export async function fetchComparison(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      selections: selections.map((s) => ({ db_id: s.dbId, run_id: s.runId })),
+      selections: selections.map((s, index) => ({
+        db_id: s.dbId,
+        run_id: s.runId,
+        role: index === 0 ? 'baseline' : index === 1 ? 'candidate' : 'reference',
+      })),
     }),
   })
   if (!res.ok) {
@@ -220,6 +242,15 @@ export interface PipelineGraphNodeMetrics {
   latency_p50: GraphMetricValue | null
 }
 
+export type EvidenceClass = 'measured' | 'statistical' | 'replayed' | 'heuristic' | 'inferred' | 'unavailable'
+
+export interface GraphLatencyStats {
+  count: number
+  mean_ms: number | null
+  p50_ms: number | null
+  p95_ms: number | null
+}
+
 export interface PipelineGraphNode {
   node_id: string
   label: string
@@ -229,23 +260,47 @@ export interface PipelineGraphNode {
   candidate_count: number
   metrics: PipelineGraphNodeMetrics
   is_merge: boolean
-  source: 'measured'
+  source: EvidenceClass
+  input_candidate_count: number
+  observed_count: number
+  trace_coverage: number
+  fire_rate: number
+  status_counts: Record<string, number>
+  cache_hits: number
+  latency: GraphLatencyStats
+  is_final_output: boolean
+  final_output_count: number
+  configured: boolean | null
+  availability: Record<string, EvidenceClass>
 }
 
 export interface PipelineGraphEdge {
   source: string
   target: string
   kind: 'flow' | 'fan_in'
+  observed_count: number
+  trace_coverage: number
+  conditional: boolean
+  source_evidence: EvidenceClass
 }
 
 export interface PipelineGraph {
   pipeline_id: string
+  contract_version: 2
+  projection_mode: 'run_union' | 'trace'
+  trace_count: number
+  complete_trace_count: number
+  status_counts: Record<string, number>
+  final_output_ids: string[]
+  timing_semantics: Record<string, string>
+  warnings: string[]
   nodes: PipelineGraphNode[]
   edges: PipelineGraphEdge[]
 }
 
-export async function fetchPipelineGraphs(dbId: string, runId: string): Promise<PipelineGraph[]> {
-  const res = await fetch(`${runBase(dbId, runId)}/pipeline-graph`)
+export async function fetchPipelineGraphs(dbId: string, runId: string, traceId?: string): Promise<PipelineGraph[]> {
+  const query = traceId ? `?trace_id=${encodeURIComponent(traceId)}` : ''
+  const res = await fetch(`${runBase(dbId, runId)}/pipeline-graph${query}`)
   if (!res.ok) throw new Error(`Failed to fetch pipeline graph for run ${runId}`)
   const body = await res.json()
   return body.pipelines ?? []
@@ -258,6 +313,7 @@ export interface PipelineDiagnostics {
 }
 
 export interface RunOverview {
+  report: RunReport
   headline_winner: null | (MetricEntry & { metric: string })
   diagnostics: {
     difficulty_buckets: Record<string, number>
@@ -270,9 +326,31 @@ export interface RunOverview {
   stage_contributions: StageContribution[]
 }
 
+export interface RunReport {
+  schema_version: number
+  kind: 'run' | 'comparison'
+  run_id: string
+  title: string
+  verdict: 'needs_attention' | 'no_diagnosed_failures' | 'partial' | string
+  conclusion: string
+  evidence_health: 'ready' | 'limited' | string
+  evidence_reasons: string[]
+  dominant_issue: { label: string; query_count: number } | null
+  affected_queries: Array<{ query_id: string; pipeline_id: string; failure_labels: string[] }>
+  next_action: string
+  reproduce: string
+  dashboard_url: string
+}
+
 export async function fetchRunOverview(dbId: string, runId: string): Promise<RunOverview> {
   const res = await fetch(`${runBase(dbId, runId)}/overview`)
   if (!res.ok) throw new Error(`Failed to fetch overview for run ${runId}`)
+  return res.json()
+}
+
+export async function fetchRunReport(dbId: string, runId: string): Promise<RunReport> {
+  const res = await fetch(`${runBase(dbId, runId)}/report`)
+  if (!res.ok) throw new Error(`Failed to fetch report for run ${runId}`)
   return res.json()
 }
 
@@ -281,6 +359,14 @@ export interface QueryDiagnostic {
   pipeline_id: string
   difficulty_bucket: string
   failure_labels: string[]
+  diagnostic_evidence: Array<{
+    label: string
+    evidence_class: EvidenceClass
+    method: string
+    reason: string
+    doc_ids: string[]
+    threshold: string | null
+  }>
   missing_relevant_ids: string[]
   stage_hits: Record<string, string[]>
 }
@@ -319,6 +405,10 @@ export interface OperatorAttributionRow {
   significant?: boolean | null
   p_value?: number | null
   q_value?: number | null
+  evidence_class: EvidenceClass
+  reason?: string | null
+  unsupported_descendants: string[]
+  assumptions?: Record<string, unknown> | null
 }
 
 // ── Candidate Flow Visualization (Pillar 2) ──
@@ -393,12 +483,17 @@ export async function fetchCandidateFlow(
 export interface ComparabilityDifference {
   axis: string
   severity: 'high' | 'medium' | 'low'
+  status: 'invalid' | 'warning' | 'unknown'
   detail: string
+  values: unknown[]
 }
 
 export interface ComparabilityReport {
+  outcome: 'valid' | 'warning' | 'invalid'
   comparable: boolean
+  decision_allowed: boolean
   differences: ComparabilityDifference[]
+  required_axes: string[]
 }
 
 export interface OperatorDagNode {
@@ -429,6 +524,11 @@ export interface OperatorDiff {
   op_id: string
   op_type: string
   replay_policy: string
+  result_status: 'replayed' | 'indeterminate'
+  evidence_class: EvidenceClass
+  reason: string | null
+  unsupported_descendants: string[]
+  assumptions: ReplayAssumptions
   inputs: Array<{ doc_id: string; score: number; rank: number }>
   outputs: Array<{ doc_id: string; score: number; rank: number }>
   without_operator: Array<{ doc_id: string; score: number; rank: number }>
@@ -475,6 +575,10 @@ export interface TraceOperatorSpan {
   gate_values: Record<string, unknown>
   input_variant: string
   error: string | null
+  inputs_total?: number
+  inputs_truncated?: boolean
+  outputs_total?: number
+  outputs_truncated?: boolean
 }
 
 export interface RetrievalTraceV2 {
@@ -494,9 +598,48 @@ export interface RetrievalTraceV2 {
 
 /** All V2 traces for a run. Used to build the per-query unified timeline (Item C) --
  * there is no per-query filter on the backend, so callers filter client-side by query_id. */
-export async function fetchRunTraces(dbId: string, runId: string): Promise<RetrievalTraceV2[]> {
-  const res = await fetch(`${runBase(dbId, runId)}/traces`)
+export async function fetchRunTraces(dbId: string, runId: string, limit = 50): Promise<RetrievalTraceV2[]> {
+  const res = await fetch(`${runBase(dbId, runId)}/traces?limit=${limit}`)
   if (!res.ok) throw new Error(`Failed to fetch traces for run ${runId}`)
+  return res.json()
+}
+
+export interface QueryEvidence {
+  schema_version: 1
+  scope: { db_id: string; run_id: string; query_id: string }
+  query: { query_id: string; text: string | null; dataset_name: string | null }
+  ground_truth: { relevant_doc_ids: string[]; grades: Record<string, number>; evidence_class: EvidenceClass }
+  diagnostics: QueryDiagnostic[]
+  traces: RetrievalTraceV2[]
+  trace_pagination: {
+    limit: number
+    offset: number
+    returned: number
+    has_more: boolean
+    next_offset: number | null
+  }
+  origin: QueryLineage['origin'] | null
+  regression_history: QueryLineage['evaluations']
+  production_matches: QueryLineage['production_matches'] | null
+  findings: Recommendation[]
+  availability: Record<string, EvidenceClass>
+  evidence_health: {
+    status: 'ok' | 'warning'
+    complete_trace_count: number
+    partial_trace_count: number
+    warnings: string[]
+  }
+}
+
+export async function fetchQueryEvidence(
+  dbId: string,
+  runId: string,
+  queryId: string,
+  traceOffset = 0,
+): Promise<QueryEvidence> {
+  const params = new URLSearchParams({ trace_limit: '20', trace_offset: String(traceOffset), candidate_limit: '100' })
+  const res = await fetch(`${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}/evidence?${params.toString()}`)
+  if (!res.ok) throw new Error(`Failed to fetch query evidence for ${queryId}`)
   return res.json()
 }
 
@@ -677,13 +820,17 @@ export async function fetchClassifierCalibration(
 // ───────────────────────── Forge ─────────────────────────
 
 export interface ForgeDatasetSummary {
-  total_queries?: number
-  total_scenarios?: number
-  corpus_size?: number
-  validated?: number
-  by_difficulty?: Record<string, number>
-  by_query_type?: Record<string, number>
-  by_scenario_type?: Record<string, number>
+  schema_version: 1
+  dataset_id: string
+  total_queries: number
+  total_scenarios: number
+  corpus_size: number
+  validated: number
+  validation_coverage: number
+  by_difficulty: Record<string, number>
+  by_query_type: Record<string, number>
+  by_scenario_type: Record<string, number>
+  created_at: string | null
 }
 
 export interface ForgeDataset {
@@ -715,6 +862,12 @@ export interface ForgeQuery {
   failure_category: string | null
   validated: boolean
   positive_doc_ids: string[]
+  provenance: {
+    generation_method?: string
+    generation_model?: string | null
+    label_method?: string
+    judge_model?: string | null
+  }
 }
 
 export interface ForgeRunRef {
@@ -723,36 +876,39 @@ export interface ForgeRunRef {
   started_at: string
 }
 
-export async function fetchForgeDatasets(): Promise<ForgeDataset[]> {
-  const res = await fetch(`${BASE}/forge/datasets`)
-  if (!res.ok) throw new Error('Failed to fetch Forge datasets')
+export async function fetchForgeDatasets(dbId: string): Promise<ForgeDataset[]> {
+  const res = await fetch(`${dbBase(dbId)}/forge/datasets`)
+  if (!res.ok) throw new Error('Failed to fetch Test Sets')
   return res.json()
 }
 
-export async function fetchForgeDataset(datasetId: string): Promise<ForgeDatasetDetail> {
-  const res = await fetch(`${BASE}/forge/datasets/${encodeURIComponent(datasetId)}`)
-  if (!res.ok) throw new Error(`Failed to fetch Forge dataset ${datasetId}`)
+export async function fetchForgeDataset(dbId: string, datasetId: string): Promise<ForgeDatasetDetail> {
+  const res = await fetch(`${dbBase(dbId)}/forge/datasets/${encodeURIComponent(datasetId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch Test Set ${datasetId}`)
   return res.json()
 }
 
 export async function fetchForgeQueries(
+  dbId: string,
   datasetId: string,
-  filters: { scenario_type?: string; difficulty?: string; query_type?: string; validated_only?: boolean } = {},
+  filters: { scenario_type?: string; difficulty?: string; query_type?: string; validated_only?: boolean; limit?: number; offset?: number } = {},
 ): Promise<ForgeQuery[]> {
   const params = new URLSearchParams()
   if (filters.scenario_type) params.set('scenario_type', filters.scenario_type)
   if (filters.difficulty) params.set('difficulty', filters.difficulty)
   if (filters.query_type) params.set('query_type', filters.query_type)
   if (filters.validated_only) params.set('validated_only', 'true')
+  if (filters.limit) params.set('limit', String(filters.limit))
+  if (filters.offset) params.set('offset', String(filters.offset))
   const qs = params.toString()
-  const res = await fetch(`${BASE}/forge/datasets/${encodeURIComponent(datasetId)}/queries${qs ? `?${qs}` : ''}`)
-  if (!res.ok) throw new Error(`Failed to fetch queries for Forge dataset ${datasetId}`)
+  const res = await fetch(`${dbBase(dbId)}/forge/datasets/${encodeURIComponent(datasetId)}/queries${qs ? `?${qs}` : ''}`)
+  if (!res.ok) throw new Error(`Failed to fetch queries for Test Set ${datasetId}`)
   return res.json()
 }
 
-export async function fetchForgeDatasetRuns(datasetId: string): Promise<ForgeRunRef[]> {
-  const res = await fetch(`${BASE}/forge/datasets/${encodeURIComponent(datasetId)}/runs`)
-  if (!res.ok) throw new Error(`Failed to fetch runs for Forge dataset ${datasetId}`)
+export async function fetchForgeDatasetRuns(dbId: string, datasetId: string): Promise<ForgeRunRef[]> {
+  const res = await fetch(`${dbBase(dbId)}/forge/datasets/${encodeURIComponent(datasetId)}/runs`)
+  if (!res.ok) throw new Error(`Failed to fetch runs for Test Set ${datasetId}`)
   return res.json()
 }
 
@@ -816,6 +972,14 @@ export interface DriftFinding {
   severity: string
   baseline: Record<string, number>
   recent: Record<string, number>
+  threshold: number
+  baseline_n: number
+  recent_n: number
+  evidence_class: 'statistical'
+  supporting_trace_ids: string[]
+  baseline_window: { since: string; until: string }
+  recent_window: { since: string; until: string | null }
+  sample_limited: boolean
 }
 
 export interface FailureHotspot {
@@ -825,6 +989,13 @@ export interface FailureHotspot {
   pipeline: string
   count: number
   rate: number
+  evidence_class: 'heuristic'
+  method: string
+  sample_size: number
+  denominator: number
+  baseline: string
+  threshold: null
+  supporting_trace_ids: string[]
 }
 
 export interface QueryClusterRow {
@@ -842,19 +1013,20 @@ function windowParams(service: string, since?: string): string {
   return p.toString()
 }
 
-export async function fetchTraceServices(): Promise<TraceService[]> {
-  const res = await fetch(`${BASE}/tracelens/services`)
+export async function fetchTraceServices(dbId: string): Promise<TraceService[]> {
+  const res = await fetch(`${dbBase(dbId)}/tracelens/services`)
   if (!res.ok) throw new Error('Failed to fetch trace services')
   return res.json()
 }
 
-export async function fetchTraceSummary(service: string, since?: string): Promise<TraceSummary> {
-  const res = await fetch(`${BASE}/tracelens/summary?${windowParams(service, since)}`)
+export async function fetchTraceSummary(dbId: string, service: string, since?: string): Promise<TraceSummary> {
+  const res = await fetch(`${dbBase(dbId)}/tracelens/summary?${windowParams(service, since)}`)
   if (!res.ok) throw new Error('Failed to fetch trace summary')
   return res.json()
 }
 
 export async function fetchTraces(
+  dbId: string,
   service: string,
   filters: { since?: string; status?: string; difficulty?: string; suspected_only?: boolean } = {},
 ): Promise<TraceRow[]> {
@@ -863,40 +1035,40 @@ export async function fetchTraces(
   if (filters.status) p.set('status', filters.status)
   if (filters.difficulty) p.set('difficulty', filters.difficulty)
   if (filters.suspected_only) p.set('suspected_only', 'true')
-  const res = await fetch(`${BASE}/tracelens/traces?${p.toString()}`)
+  const res = await fetch(`${dbBase(dbId)}/tracelens/traces?${p.toString()}`)
   if (!res.ok) throw new Error('Failed to fetch traces')
   return res.json()
 }
 
-export async function fetchTraceDetail(traceId: string): Promise<TraceDetail> {
-  const res = await fetch(`${BASE}/tracelens/traces/${encodeURIComponent(traceId)}`)
+export async function fetchTraceDetail(dbId: string, traceId: string): Promise<TraceDetail> {
+  const res = await fetch(`${dbBase(dbId)}/tracelens/traces/${encodeURIComponent(traceId)}`)
   if (!res.ok) throw new Error(`Failed to fetch trace ${traceId}`)
   return res.json()
 }
 
-export async function fetchTraceDistribution(service: string, since?: string): Promise<TraceDistribution> {
-  const res = await fetch(`${BASE}/tracelens/distribution?${windowParams(service, since)}`)
+export async function fetchTraceDistribution(dbId: string, service: string, since?: string): Promise<TraceDistribution> {
+  const res = await fetch(`${dbBase(dbId)}/tracelens/distribution?${windowParams(service, since)}`)
   if (!res.ok) throw new Error('Failed to fetch trace distribution')
   return res.json()
 }
 
-export async function fetchTraceDrift(service: string, baseline?: string, recent?: string): Promise<DriftFinding[]> {
+export async function fetchTraceDrift(dbId: string, service: string, baseline?: string, recent?: string): Promise<DriftFinding[]> {
   const p = new URLSearchParams({ service })
   if (baseline) p.set('baseline', baseline)
   if (recent) p.set('recent', recent)
-  const res = await fetch(`${BASE}/tracelens/drift?${p.toString()}`)
+  const res = await fetch(`${dbBase(dbId)}/tracelens/drift?${p.toString()}`)
   if (!res.ok) throw new Error('Failed to fetch drift findings')
   return res.json()
 }
 
-export async function fetchTraceHotspots(service: string, since?: string): Promise<FailureHotspot[]> {
-  const res = await fetch(`${BASE}/tracelens/hotspots?${windowParams(service, since)}`)
+export async function fetchTraceHotspots(dbId: string, service: string, since?: string): Promise<FailureHotspot[]> {
+  const res = await fetch(`${dbBase(dbId)}/tracelens/hotspots?${windowParams(service, since)}`)
   if (!res.ok) throw new Error('Failed to fetch failure hotspots')
   return res.json()
 }
 
-export async function fetchTraceClusters(service: string, since?: string): Promise<QueryClusterRow[]> {
-  const res = await fetch(`${BASE}/tracelens/clusters?${windowParams(service, since)}`)
+export async function fetchTraceClusters(dbId: string, service: string, since?: string): Promise<QueryClusterRow[]> {
+  const res = await fetch(`${dbBase(dbId)}/tracelens/clusters?${windowParams(service, since)}`)
   if (!res.ok) throw new Error('Failed to fetch query clusters')
   return res.json()
 }
@@ -949,8 +1121,8 @@ export interface QueryLineage {
   }
 }
 
-export async function fetchQueryLineage(queryId: string): Promise<QueryLineage> {
-  const res = await fetch(`${BASE}/query/${encodeURIComponent(queryId)}/lineage`)
+export async function fetchQueryLineage(dbId: string, queryId: string): Promise<QueryLineage> {
+  const res = await fetch(`${dbBase(dbId)}/query/${encodeURIComponent(queryId)}/lineage`)
   if (!res.ok) throw new Error(`Failed to fetch lineage for ${queryId}`)
   return res.json()
 }
@@ -989,6 +1161,7 @@ export interface ReliabilityScore {
 export interface DemoContext {
   baseline_run_id?: string
   candidate_run_id?: string
+  validation_run_id?: string
   ablation_run_id?: string
   sample_query_id?: string
   tracelens_service?: string
@@ -1003,21 +1176,21 @@ export async function fetchDemoContext(): Promise<DemoContext> {
   return res.json()
 }
 
-export async function fetchAdvisorRecommendations(runId: string): Promise<{ run_id: string; recommendations: Recommendation[] }> {
-  const res = await fetch(`${BASE}/advisor/recommendations?run_id=${encodeURIComponent(runId)}`)
+export async function fetchAdvisorRecommendations(dbId: string, runId: string): Promise<{ run_id: string; recommendations: Recommendation[] }> {
+  const res = await fetch(`${dbBase(dbId)}/advisor/recommendations?run_id=${encodeURIComponent(runId)}`)
   if (!res.ok) throw new Error('Failed to fetch recommendations')
   return res.json()
 }
 
-export async function fetchAdvisorRegressions(baseline: string, candidate: string): Promise<{ regressions: RegressionFinding[] }> {
+export async function fetchAdvisorRegressions(dbId: string, baseline: string, candidate: string): Promise<{ regressions: RegressionFinding[] }> {
   const p = new URLSearchParams({ baseline, candidate })
-  const res = await fetch(`${BASE}/advisor/regressions?${p.toString()}`)
+  const res = await fetch(`${dbBase(dbId)}/advisor/regressions?${p.toString()}`)
   if (!res.ok) throw new Error('Failed to fetch regressions')
   return res.json()
 }
 
-export async function fetchAdvisorReliability(runId: string): Promise<ReliabilityScore & { run_id: string }> {
-  const res = await fetch(`${BASE}/advisor/reliability?run_id=${encodeURIComponent(runId)}`)
+export async function fetchAdvisorReliability(dbId: string, runId: string): Promise<ReliabilityScore & { run_id: string }> {
+  const res = await fetch(`${dbBase(dbId)}/advisor/reliability?run_id=${encodeURIComponent(runId)}`)
   if (!res.ok) throw new Error('Failed to fetch reliability score')
   return res.json()
 }
@@ -1029,10 +1202,10 @@ export interface ReliabilityHistoryPoint {
   components: Record<string, number>
 }
 
-export async function fetchAdvisorReliabilityHistory(runId?: string): Promise<{ history: ReliabilityHistoryPoint[] }> {
+export async function fetchAdvisorReliabilityHistory(dbId: string, runId?: string): Promise<{ history: ReliabilityHistoryPoint[] }> {
   const p = new URLSearchParams()
   if (runId) p.set('run_id', runId)
-  const res = await fetch(`${BASE}/advisor/reliability/history?${p.toString()}`)
+  const res = await fetch(`${dbBase(dbId)}/advisor/reliability/history?${p.toString()}`)
   if (!res.ok) throw new Error('Failed to fetch reliability history')
   return res.json()
 }

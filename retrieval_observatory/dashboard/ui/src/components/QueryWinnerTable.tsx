@@ -36,8 +36,8 @@ export default function QueryWinnerTable({ dbId, runId }: Props) {
               <tr key={row.query_id}>
                 <td className="px-3 py-2 font-mono">
                   <a
-                    href={`#/benchmarks/run/${encodeURIComponent(runId)}/queries/${encodeURIComponent(row.query_id)}`}
-                    className="text-indigo-600 hover:underline"
+                    href={`#/runs/${encodeURIComponent(runId)}/queries/${encodeURIComponent(row.query_id)}`}
+                    className="text-indigo-700 underline underline-offset-2"
                   >
                     {row.query_id}
                   </a>

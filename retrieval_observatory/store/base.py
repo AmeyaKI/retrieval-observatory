@@ -26,7 +26,13 @@ class BaseStore(Protocol):
     async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
         ...
 
-    async def get_traces_v2(self, run_id: str) -> List[RetrievalTraceV2]:
+    async def get_traces_v2(
+        self,
+        run_id: str,
+        query_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[RetrievalTraceV2]:
         ...
 
     async def save_doc_edge(self, src_doc_id: str, dst_doc_id: str, edge_type: str, weight: float = 1.0) -> None:

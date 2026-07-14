@@ -13,15 +13,15 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   )
 }
 
-export default function QueryLineagePanel({ queryId }: { queryId: string }) {
+export default function QueryLineagePanel({ dbId, queryId }: { dbId: string; queryId: string }) {
   const [lineage, setLineage] = useState<QueryLineage | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchQueryLineage(queryId)
+    fetchQueryLineage(dbId, queryId)
       .then(setLineage)
       .catch((e) => setError(String(e)))
-  }, [queryId])
+  }, [dbId, queryId])
 
   if (error) {
     return <div className="p-6 text-sm text-red-600">{error}</div>
@@ -42,15 +42,15 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
             <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">{origin.query_text}</p>
           )}
           <div className="mt-3 flex flex-wrap gap-3 text-xs">
-            <a href="#/benchmarks" className="text-indigo-700 underline decoration-indigo-300">
-              ← Benchmarks
+            <a href="#/runs" className="text-indigo-700 underline decoration-indigo-300">
+              ← Runs
             </a>
             {origin.forge?.dataset_id && (
               <a
-                href={`#/forge/${encodeURIComponent(origin.forge.dataset_id)}`}
+                href={`#/test-sets/${encodeURIComponent(origin.forge.dataset_id)}`}
                 className="text-amber-800 underline decoration-amber-300"
               >
-                Forge origin
+                Test Set origin
               </a>
             )}
             <a href="#/glossary" className="text-gray-600 dark:text-slate-300 underline decoration-gray-300">
@@ -59,7 +59,7 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
           </div>
         </header>
 
-        <Section title="Origin" subtitle={origin.source === 'forge' ? 'Forge-generated stress query' : 'Dataset-native query'}>
+        <Section title="Origin" subtitle={origin.source === 'forge' ? 'Generated Test Set query' : 'Dataset-native query'}>
           {origin.forge ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs space-y-1">
               <p><span className="font-medium">Dataset:</span> {origin.forge.dataset_id}</p>
@@ -76,7 +76,7 @@ export default function QueryLineagePanel({ queryId }: { queryId: string }) {
 
         <Section title="Benchmark evaluations" subtitle="Runs that scored this query">
           {lineage.evaluations.length === 0 ? (
-            <p className="text-xs text-gray-400 dark:text-slate-500">No benchmark evaluations found.</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500">No offline evaluations found.</p>
           ) : (
             <div className="space-y-2">
               {lineage.evaluations.map((ev) => (

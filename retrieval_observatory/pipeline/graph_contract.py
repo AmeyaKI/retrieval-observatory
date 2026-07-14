@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 # The PipelineGraph render contract — the single canonical shape the dashboard DAG view,
@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 # JSON schema both the Python producer and the TypeScript consumer validate against.
 
 # Operator taxonomy shared with tracing.model_v2.OperatorType.
-OP_TYPES = ("SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM")
+OP_TYPES = ("SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE")
 
 
 @dataclass
@@ -44,6 +44,22 @@ class GraphNodeMetrics:
 
 
 @dataclass
+class GraphLatencyStats:
+    count: int = 0
+    mean_ms: Optional[float] = None
+    p50_ms: Optional[float] = None
+    p95_ms: Optional[float] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "count": self.count,
+            "mean_ms": self.mean_ms,
+            "p50_ms": self.p50_ms,
+            "p95_ms": self.p95_ms,
+        }
+
+
+@dataclass
 class PipelineGraphNode:
     node_id: str
     label: str
@@ -53,7 +69,18 @@ class PipelineGraphNode:
     candidate_count: float
     metrics: GraphNodeMetrics
     is_merge: bool = False
-    source: str = "measured"  # always "measured"; the contract has no inferred tier
+    source: str = "measured"
+    input_candidate_count: float = 0.0
+    observed_count: int = 0
+    trace_coverage: float = 0.0
+    fire_rate: float = 0.0
+    status_counts: Dict[str, int] = field(default_factory=dict)
+    cache_hits: int = 0
+    latency: GraphLatencyStats = field(default_factory=GraphLatencyStats)
+    is_final_output: bool = False
+    final_output_count: int = 0
+    configured: Optional[bool] = None
+    availability: Dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -66,6 +93,17 @@ class PipelineGraphNode:
             "metrics": self.metrics.to_dict(),
             "is_merge": self.is_merge,
             "source": self.source,
+            "input_candidate_count": self.input_candidate_count,
+            "observed_count": self.observed_count,
+            "trace_coverage": self.trace_coverage,
+            "fire_rate": self.fire_rate,
+            "status_counts": dict(self.status_counts),
+            "cache_hits": self.cache_hits,
+            "latency": self.latency.to_dict(),
+            "is_final_output": self.is_final_output,
+            "final_output_count": self.final_output_count,
+            "configured": self.configured,
+            "availability": dict(self.availability),
         }
 
 
@@ -74,9 +112,21 @@ class PipelineGraphEdge:
     source: str
     target: str
     kind: str = "flow"  # "flow" | "fan_in"
+    observed_count: int = 0
+    trace_coverage: float = 0.0
+    conditional: bool = False
+    source_evidence: str = "measured"
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"source": self.source, "target": self.target, "kind": self.kind}
+        return {
+            "source": self.source,
+            "target": self.target,
+            "kind": self.kind,
+            "observed_count": self.observed_count,
+            "trace_coverage": self.trace_coverage,
+            "conditional": self.conditional,
+            "source_evidence": self.source_evidence,
+        }
 
 
 @dataclass
@@ -84,10 +134,30 @@ class PipelineGraph:
     pipeline_id: str
     nodes: List[PipelineGraphNode] = field(default_factory=list)
     edges: List[PipelineGraphEdge] = field(default_factory=list)
+    contract_version: int = 2
+    projection_mode: str = "run_union"
+    trace_count: int = 0
+    complete_trace_count: int = 0
+    status_counts: Dict[str, int] = field(default_factory=dict)
+    final_output_ids: List[str] = field(default_factory=list)
+    timing_semantics: Dict[str, str] = field(default_factory=lambda: {
+        "total_latency_ms": "wall_clock_ms",
+        "critical_path_ms": "longest_observed_parent_path",
+        "operator_sum_ms": "sum_of_observed_operator_durations",
+    })
+    warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "pipeline_id": self.pipeline_id,
+            "contract_version": self.contract_version,
+            "projection_mode": self.projection_mode,
+            "trace_count": self.trace_count,
+            "complete_trace_count": self.complete_trace_count,
+            "status_counts": dict(self.status_counts),
+            "final_output_ids": list(self.final_output_ids),
+            "timing_semantics": dict(self.timing_semantics),
+            "warnings": list(self.warnings),
             "nodes": [n.to_dict() for n in self.nodes],
             "edges": [e.to_dict() for e in self.edges],
         }

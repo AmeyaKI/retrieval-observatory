@@ -76,18 +76,19 @@ export default function AdvisorWorkspace() {
   useEffect(() => {
     if (!baseline || !candidate) return
     setError(null)
-    fetchAdvisorRegressions(baseline, candidate)
+    if (!dbId) return
+    fetchAdvisorRegressions(dbId, baseline, candidate)
       .then((res) => setRegressions(res.regressions))
       .catch((e) => setError(String(e)))
-  }, [baseline, candidate])
+  }, [baseline, candidate, dbId])
 
   useEffect(() => {
-    if (!selectedRun) return
+    if (!selectedRun || !dbId) return
     setError(null)
     Promise.all([
-      fetchAdvisorRecommendations(selectedRun),
-      fetchAdvisorReliability(selectedRun),
-      fetchAdvisorReliabilityHistory(selectedRun),
+      fetchAdvisorRecommendations(dbId, selectedRun),
+      fetchAdvisorReliability(dbId, selectedRun),
+      fetchAdvisorReliabilityHistory(dbId, selectedRun),
     ])
       .then(([recRes, relRes, histRes]) => {
         setRecommendations(recRes.recommendations)
@@ -95,12 +96,12 @@ export default function AdvisorWorkspace() {
         setHistory(histRes.history)
       })
       .catch((e) => setError(String(e)))
-  }, [selectedRun])
+  }, [dbId, selectedRun])
 
   const loadRegressions = () => {
-    if (!baseline || !candidate) return
+    if (!baseline || !candidate || !dbId) return
     setError(null)
-    fetchAdvisorRegressions(baseline, candidate)
+    fetchAdvisorRegressions(dbId, baseline, candidate)
       .then((res) => setRegressions(res.regressions))
       .catch((e) => setError(String(e)))
   }

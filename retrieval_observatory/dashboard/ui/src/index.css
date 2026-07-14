@@ -13,7 +13,9 @@
   --hairline: 226 229 234;      /* borders / dividers      */
   --ink: 17 24 39;              /* primary text            */
   --ink-muted: 82 91 107;       /* secondary text          */
-  --ink-faint: 128 137 153;     /* tertiary text / labels  */
+  --ink-faint: 90 100 116;      /* tertiary text / labels, WCAG AA on muted surface */
+  --status-positive: 6 95 70;   /* positive text on emerald-50 */
+  --status-warning: 146 64 14;  /* warning text on amber-50   */
   color-scheme: light;
 }
 
@@ -24,7 +26,9 @@
   --hairline: 45 53 64;
   --ink: 233 237 243;
   --ink-muted: 165 174 188;
-  --ink-faint: 120 130 145;
+  --ink-faint: 174 184 198;
+  --status-positive: 110 231 183;
+  --status-warning: 253 186 116;
   color-scheme: dark;
 }
 
@@ -68,3 +72,21 @@ body {
   transition-duration: 120ms;
 }
 svg, svg * { transition: none; }
+
+/* Retire low-contrast legacy palette utilities while components move to the
+   semantic ink/status vocabulary. These mappings keep every existing state
+   WCAG AA without changing its meaning or relying on hue alone. */
+@layer utilities {
+  .text-gray-400,
+  .dark .dark\:text-slate-500 {
+    color: rgb(var(--ink-faint));
+  }
+  .text-emerald-600,
+  .text-emerald-700 {
+    color: rgb(var(--status-positive));
+  }
+  .text-amber-600,
+  .text-amber-700 {
+    color: rgb(var(--status-warning));
+  }
+}

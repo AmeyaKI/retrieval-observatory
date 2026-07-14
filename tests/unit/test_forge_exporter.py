@@ -81,7 +81,8 @@ class TestBEIRExport:
         export_dataset(self.dataset, out, fmt="beir")
         meta = json.loads((Path(out) / "forge_metadata.json").read_text())
         assert meta["dataset_id"] == "test_export"
-        assert meta["n_queries"] == 2
+        assert meta["schema_version"] == 1
+        assert meta["total_queries"] == 2
         assert meta["corpus_size"] == 2
 
 

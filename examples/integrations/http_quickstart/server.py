@@ -5,7 +5,7 @@ Run with:
     uvicorn server:app --port 8000
 
 Then benchmark it:
-    retobs run --config config.yaml
+    retobs evaluate --config config.yaml
 """
 from __future__ import annotations
 

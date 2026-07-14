@@ -9,11 +9,9 @@ from __future__ import annotations
 import pytest
 
 from retrieval_observatory.tracing.attribution import (
-    MarginalResult,
     _find_final_span,
     operator_marginal_contribution,
     segment_key,
-    segments,
 )
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
 from retrieval_observatory.tracing.replay import attribute_miss, without_operator
@@ -232,8 +230,11 @@ class TestReferenceArchitecture:
             traces, op_id="dense", qrels=qrels, metric="recall", k=5,
         )
         for r in results:
-            if r.replay_policy == "NOT_REPLAYABLE" and r.n_pairs > 0:
+            if r.replay_policy == "NOT_REPLAYABLE":
                 assert r.result_status == "indeterminate"
+                assert r.delta is None
+                assert r.ci_low is None
+                assert r.p_value is None
 
     def test_final_op_id_used(self) -> None:
         trace = _build_reference_trace()

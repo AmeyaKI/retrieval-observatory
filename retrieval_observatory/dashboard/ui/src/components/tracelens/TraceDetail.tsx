@@ -21,13 +21,13 @@ function lineage(stages: TraceDetailT['stages']) {
   })
 }
 
-export default function TraceDetail({ traceId, onClose }: { traceId: string; onClose: () => void }) {
+export default function TraceDetail({ dbId, traceId, onClose }: { dbId: string; traceId: string; onClose: () => void }) {
   const [trace, setTrace] = useState<TraceDetailT | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchTraceDetail(traceId).then(setTrace).catch((e) => setError(e.message))
-  }, [traceId])
+    fetchTraceDetail(dbId, traceId).then(setTrace).catch((e) => setError(e.message))
+  }, [dbId, traceId])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>

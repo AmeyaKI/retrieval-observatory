@@ -40,7 +40,7 @@ export default function StressTestResults({ dbId, runId }: Props) {
         <span className="text-amber-600">🜂</span>
         <h2 className="text-base font-semibold text-gray-800 dark:text-slate-100">Stress Test Results</h2>
         <span className="text-[10px] font-medium uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-          Forge dataset
+          Test Set
         </span>
       </div>
       <p className="text-xs text-gray-400 dark:text-slate-500 mb-4">

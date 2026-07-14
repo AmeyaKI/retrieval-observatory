@@ -1,70 +1,282 @@
 from __future__ import annotations
 
 import os
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_SERVE_PORT = 4000
 
-# The operator vocabulary the platform understands (mirrors model_v2.OperatorType).
-_KNOWN_OP_TYPES = {"SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE"}
+_KNOWN_OP_TYPES = {
+    "SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE",
+    "TRANSFORM", "GENERATE",
+}
+_CAPABILITIES = (
+    "basic_tracing", "pipeline_graph", "stage_metrics", "candidate_lineage",
+    "replay", "attribution", "drift",
+)
+
+
+def _check(
+    name: str,
+    category: str,
+    status: str,
+    detail: str,
+    *,
+    required: bool = False,
+    affects: tuple[str, ...] = (),
+    fix: str | None = None,
+) -> Dict[str, Any]:
+    return {
+        "name": name,
+        "category": category,
+        "status": status,
+        "required": required,
+        "detail": detail,
+        "affects": list(affects),
+        "fix": fix,
+    }
+
+
+def _has_cycle(spans: list) -> bool:
+    parents = {span.op_id: list(span.parent_ids) for span in spans}
+    state: Dict[str, int] = {}
+
+    def visit(op_id: str) -> bool:
+        if state.get(op_id) == 1:
+            return True
+        if state.get(op_id) == 2:
+            return False
+        state[op_id] = 1
+        if any(parent in parents and visit(parent) for parent in parents.get(op_id, [])):
+            return True
+        state[op_id] = 2
+        return False
+
+    return any(visit(op_id) for op_id in parents)
 
 
 def _integration_checks(traces: list) -> List[Dict[str, Any]]:
-    """The Integration Verification checklist from the vision doc's Pillar 4 — run against
-    persisted traces so problems surface before the user trusts a benchmark.
-
-    Each check: {name, status: 'ok'|'warn'|'error', detail}.
-    """
+    """Validate the persisted evidence needed by each product capability."""
     checks: List[Dict[str, Any]] = []
     n = len(traces)
-
     if n == 0:
-        checks.append({"name": "traces_present", "status": "error",
-                       "detail": "No V2 traces found — instrumentation is not delivering traces."})
-        return checks
-    checks.append({"name": "traces_present", "status": "ok", "detail": f"{n} traces recorded."})
+        return [
+            _check(
+                "traces_present", "arrival", "error",
+                "No V2 traces found; instrumentation has not been observed.",
+                required=True, affects=_CAPABILITIES,
+                fix="Run at least one representative query and push/persist its V2 trace.",
+            )
+        ]
 
-    # Metadata completeness: query text + candidate scores should be present to debug.
-    missing_query_text = sum(1 for t in traces if not getattr(t, "query_text", ""))
-    if missing_query_text:
-        checks.append({"name": "query_text_metadata", "status": "warn",
-                       "detail": f"{missing_query_text}/{n} traces have no query_text — query-centric views degrade."})
+    checks.append(_check("traces_present", "arrival", "ok", f"{n} V2 traces recorded.", required=True))
+
+    now = datetime.now(timezone.utc)
+    timestamps = []
+    for trace in traces:
+        timestamp = getattr(trace, "timestamp", None)
+        if isinstance(timestamp, datetime):
+            timestamps.append(timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc))
+    future = sum(timestamp > now + timedelta(minutes=5) for timestamp in timestamps)
+    if future:
+        checks.append(_check(
+            "clock_skew", "arrival", "error", f"{future}/{n} traces are more than five minutes in the future.",
+            required=True, affects=("drift",), fix="Synchronize producer clocks before collecting traces.",
+        ))
     else:
-        checks.append({"name": "query_text_metadata", "status": "ok", "detail": "All traces carry query text."})
+        checks.append(_check("clock_skew", "arrival", "ok", "No material producer clock skew detected.", required=True))
 
-    spans = [s for t in traces for s in t.spans]
-    missing_scores = sum(1 for s in spans for c in s.outputs if c.score is None)
-    if missing_scores:
-        checks.append({"name": "candidate_scores", "status": "warn",
-                       "detail": f"{missing_scores} output candidates have no score — attribution/flow degrade."})
+    latest = max(timestamps, default=None)
+    if latest is not None and latest < now - timedelta(hours=24):
+        checks.append(_check(
+            "recent_arrival", "arrival", "warn", f"Latest trace is {latest.isoformat()}, more than 24 hours old.",
+            affects=("drift",), fix="Send a current representative trace before relying on production health.",
+        ))
     else:
-        checks.append({"name": "candidate_scores", "status": "ok", "detail": "All candidates carry scores."})
+        checks.append(_check("recent_arrival", "arrival", "ok", "Recent trace arrival confirmed."))
 
-    # Unsupported-operator detection.
-    unknown_ops = sorted({str(s.op_type) for s in spans if str(s.op_type) not in _KNOWN_OP_TYPES})
-    if unknown_ops:
-        checks.append({"name": "supported_operators", "status": "error",
-                       "detail": f"Unsupported operator types: {unknown_ops}. Map them to a known OperatorType."})
+    ingestion_failures = sum(bool(getattr(t, "metadata", {}).get("ingestion_failure")) for t in traces)
+    checks.append(_check(
+        "ingestion_failures", "arrival", "error" if ingestion_failures else "ok",
+        f"{ingestion_failures} ingestion failures declared." if ingestion_failures else "No ingestion failures declared.",
+        required=True, affects=_CAPABILITIES,
+        fix="Fix producer serialization or sink delivery errors, then resend representative traces." if ingestion_failures else None,
+    ))
+
+    rates = {
+        t.metadata.get("sampling_rate")
+        for t in traces
+        if getattr(t, "metadata", None) and "sampling_rate" in t.metadata
+    }
+    invalid_rates = [rate for rate in rates if not isinstance(rate, (int, float)) or not 0 < float(rate) <= 1]
+    if invalid_rates:
+        checks.append(_check(
+            "sampling_rate", "arrival", "error", f"Invalid sampling rates: {invalid_rates}.",
+            required=True, affects=("stage_metrics", "attribution", "drift"),
+            fix="Record sampling_rate as a number greater than 0 and at most 1.",
+        ))
+    elif rates and any(float(rate) < 1 for rate in rates):
+        checks.append(_check(
+            "sampling_rate", "arrival", "warn", f"Sampled traffic declared (rates={sorted(rates)}).",
+            affects=("stage_metrics", "attribution", "drift"),
+            fix="Use representative sampling and interpret aggregate findings using the declared rate.",
+        ))
     else:
-        checks.append({"name": "supported_operators", "status": "ok", "detail": "All operator types are supported."})
+        checks.append(_check("sampling_rate", "arrival", "ok", "Full or default trace sampling recorded."))
 
-    # Error / timeout rate.
-    bad = sum(1 for t in traces if getattr(t, "status", "OK") in ("ERROR", "TIMEOUT"))
-    if bad:
-        checks.append({"name": "trace_health", "status": "warn",
-                       "detail": f"{bad}/{n} traces ended in ERROR/TIMEOUT."})
-    else:
-        checks.append({"name": "trace_health", "status": "ok", "detail": "No error/timeout traces."})
+    blank_identity = sum(
+        not getattr(t, "trace_id", "") or not getattr(t, "run_id", "")
+        or not getattr(t, "query_id", "") or not getattr(t, "pipeline_id", "")
+        for t in traces
+    )
+    duplicate_trace_ids = [key for key, count in Counter(t.trace_id for t in traces).items() if key and count > 1]
+    query_texts: Dict[str, set[str]] = {}
+    for trace in traces:
+        query_texts.setdefault(trace.query_id, set()).add(trace.query_text)
+    query_collisions = [query_id for query_id, texts in query_texts.items() if query_id and len(texts) > 1]
+    identity_error = blank_identity or duplicate_trace_ids or query_collisions
+    identity_detail = (
+        f"blank={blank_identity}, duplicate_trace_ids={len(duplicate_trace_ids)}, "
+        f"query_id_collisions={len(query_collisions)}."
+    )
+    checks.append(_check(
+        "stable_identity", "identity", "error" if identity_error else "ok",
+        identity_detail if identity_error else "Trace, run, query, and pipeline identities are stable.",
+        required=True, affects=_CAPABILITIES,
+        fix="Emit non-empty stable IDs; a query_id must always identify the same query text." if identity_error else None,
+    ))
 
-    # Sampling signal: if traces advertise a sampling rate in metadata, surface it.
-    rates = {t.metadata.get("sampling_rate") for t in traces if getattr(t, "metadata", None) and "sampling_rate" in t.metadata}
-    rates.discard(None)
-    if rates and any(r < 1.0 for r in rates if isinstance(r, (int, float))):
-        checks.append({"name": "sampling_rate", "status": "warn",
-                       "detail": f"Traces are sampled (rates={sorted(rates)}); metrics reflect a subset of traffic."})
+    spans = [span for trace in traces for span in trace.spans]
+    duplicate_ops = sum(len(span_ids) != len(set(span_ids)) for span_ids in ([s.op_id for s in t.spans] for t in traces))
+    blank_ops = sum(not span.op_id for span in spans)
+    missing_parents = sum(
+        parent not in {span.op_id for span in trace.spans}
+        for trace in traces for span in trace.spans for parent in span.parent_ids
+    )
+    cycles = sum(_has_cycle(trace.spans) for trace in traces)
+    topology_error = duplicate_ops or blank_ops or missing_parents or cycles
+    checks.append(_check(
+        "valid_topology", "topology", "error" if topology_error else "ok",
+        (
+            f"duplicate_operator_sets={duplicate_ops}, blank_operator_ids={blank_ops}, "
+            f"missing_parents={missing_parents}, cyclic_traces={cycles}."
+            if topology_error else "All parent graphs are acyclic and reference observed operators."
+        ),
+        required=True, affects=("pipeline_graph", "stage_metrics", "candidate_lineage", "replay", "attribution"),
+        fix="Emit unique operator IDs per trace, valid parent IDs, and an acyclic graph." if topology_error else None,
+    ))
 
+    missing_final = sum(
+        trace.status == "OK" and (
+            not trace.final_op_id or trace.final_op_id not in {span.op_id for span in trace.spans}
+        )
+        for trace in traces
+    )
+    checks.append(_check(
+        "final_output", "topology", "error" if missing_final else "ok",
+        f"{missing_final}/{n} successful traces lack an observed final operator." if missing_final else "Successful traces identify an observed final operator.",
+        required=True, affects=("pipeline_graph", "candidate_lineage", "replay", "attribution"),
+        fix="Set final_op_id to the actual terminal operator for every successful trace." if missing_final else None,
+    ))
+
+    unknown_ops = sorted({str(span.op_type) for span in spans if str(span.op_type) not in _KNOWN_OP_TYPES})
+    checks.append(_check(
+        "supported_operators", "completeness", "error" if unknown_ops else "ok",
+        f"Unsupported operator types: {unknown_ops}." if unknown_ops else "All operator types use the canonical vocabulary.",
+        required=True, affects=("pipeline_graph", "stage_metrics", "candidate_lineage", "replay", "attribution"),
+        fix="Map each custom operation to a canonical OperatorType." if unknown_ops else None,
+    ))
+
+    invalid_durations = sum(span.latency_ms < 0 for span in spans)
+    invalid_timing = 0
+    for trace in traces:
+        timing = getattr(trace, "timing", None)
+        if timing is None or min(timing.wall_clock_ms, timing.critical_path_ms, timing.operator_sum_ms) < 0:
+            invalid_timing += 1
+        elif timing.critical_path_ms > timing.operator_sum_ms + 1e-6:
+            invalid_timing += 1
+    timing_error = invalid_durations or invalid_timing
+    checks.append(_check(
+        "timing_semantics", "timing", "error" if timing_error else "ok",
+        (
+            f"negative_operator_durations={invalid_durations}, invalid_trace_timing={invalid_timing}."
+            if timing_error else "Wall-clock, critical-path, and operator-sum timing fields are valid."
+        ),
+        required=True, affects=("stage_metrics", "drift"),
+        fix="Record non-negative durations with critical_path_ms no greater than operator_sum_ms." if timing_error else None,
+    ))
+    cache_declared = sum("cache_hit" in span.params for span in spans)
+    checks.append(_check(
+        "cache_indicators", "timing", "ok" if cache_declared else "warn",
+        f"Cache state declared on {cache_declared}/{len(spans)} spans." if cache_declared else "No operator declares cache_hit; cold and cached latency cannot be separated.",
+        affects=("stage_metrics",),
+        fix="Record params.cache_hit on cacheable operators." if not cache_declared else None,
+    ))
+
+    candidates = [candidate for span in spans for candidate in [*span.inputs, *span.outputs]]
+    blank_docs = sum(not candidate.doc_id for candidate in candidates)
+    missing_scores = sum(candidate.score is None for candidate in candidates)
+    invalid_ranks = sum((candidate.output_rank or candidate.rank) < 1 for candidate in candidates)
+    missing_origins = sum(not candidate.origin_op_ids for candidate in candidates)
+    candidate_error = blank_docs or invalid_ranks
+    candidate_status = "error" if candidate_error else ("warn" if missing_scores or missing_origins else "ok")
+    checks.append(_check(
+        "candidate_identity", "candidates", candidate_status,
+        (
+            f"blank_doc_ids={blank_docs}, missing_scores={missing_scores}, "
+            f"invalid_ranks={invalid_ranks}, missing_origins={missing_origins}."
+            if candidate_status != "ok" else "Candidate IDs, scores, ranks, and source origins are available."
+        ),
+        required=bool(candidate_error), affects=("candidate_lineage", "replay", "attribution"),
+        fix="Emit stable doc IDs, positive ranks, scores, and immutable origin_op_ids." if candidate_status != "ok" else None,
+    ))
+    missing_inputs = sum(span.op_type != "SOURCE" and span.status == "FIRED" and not span.inputs for span in spans)
+    checks.append(_check(
+        "candidate_transitions", "candidates", "warn" if missing_inputs else "ok",
+        f"{missing_inputs} fired non-source operators omit input candidates." if missing_inputs else "Non-source operators preserve candidate inputs and outputs.",
+        affects=("candidate_lineage", "replay", "attribution"),
+        fix="Record the actual input candidate list before every non-source operator." if missing_inputs else None,
+    ))
+
+    has_ground_truth = any(
+        any(key in getattr(trace, "metadata", {}) for key in ("qrel_ids", "relevant_doc_ids", "label_method"))
+        for trace in traces
+    )
+    checks.append(_check(
+        "ground_truth", "ground_truth", "ok" if has_ground_truth else "warn",
+        "Ground-truth provenance is declared." if has_ground_truth else "No trace-level qrel or label provenance is available; production quality is unavailable.",
+        affects=("attribution",),
+        fix="Join qrels/corpus identity and record label_method before using quality attribution." if not has_ground_truth else None,
+    ))
+
+    missing_query_text = sum(not getattr(trace, "query_text", "") for trace in traces)
+    checks.append(_check(
+        "query_text_metadata", "completeness", "warn" if missing_query_text else "ok",
+        f"{missing_query_text}/{n} traces have no query_text." if missing_query_text else "All traces carry query text.",
+        affects=("candidate_lineage", "attribution"),
+        fix="Record the normalized query text on every trace." if missing_query_text else None,
+    ))
+    partial = sum(trace.status in ("ERROR", "TIMEOUT") for trace in traces)
+    checks.append(_check(
+        "trace_health", "completeness", "warn" if partial else "ok",
+        f"{partial}/{n} traces are terminal partial ERROR/TIMEOUT traces." if partial else "No error or timeout traces in this sample.",
+        affects=("stage_metrics", "attribution", "drift"),
+        fix="Inspect partial traces and verify whether the observed failure rate is expected." if partial else None,
+    ))
     return checks
+
+
+def _capability_matrix(checks: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    matrix: Dict[str, Dict[str, Any]] = {}
+    for capability in _CAPABILITIES:
+        relevant = [check for check in checks if capability in check.get("affects", [])]
+        errors = [check["name"] for check in relevant if check["status"] == "error"]
+        warnings = [check["name"] for check in relevant if check["status"] == "warn"]
+        state = "unavailable" if errors else ("limited" if warnings else "ready")
+        matrix[capability] = {"status": state, "errors": errors, "warnings": warnings}
+    return matrix
 
 
 def dashboard_base_url() -> str:
@@ -74,7 +286,7 @@ def dashboard_base_url() -> str:
 
 
 def dashboard_run_url(run_id: str, section: str = "overview") -> str:
-    return f"{dashboard_base_url()}/#/benchmarks/run/{run_id}/{section}"
+    return f"{dashboard_base_url()}/#/runs/{run_id}/{section}"
 
 
 def _store(db_path: str):
@@ -88,62 +300,67 @@ async def verify_integration(
     run_id: Optional[str] = None,
     expected_stages: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Report whether traces/metrics exist and suggest next MCP steps."""
+    """Verify evidence contracts and return capability-specific readiness."""
     store = _store(db_path)
     await store.init_db()
     runs = await store.list_runs()
     if not runs:
+        checks = _integration_checks([])
         return {
-            "status": "no_runs",
-            "message": "No runs in database yet.",
-            "next": "benchmark_config or push_traces, then call verify_integration again.",
+            "status": "not_verified",
+            "message": "No runs or observed traces exist in this database.",
+            "checks": checks,
+            "check_status": "error",
+            "capabilities": _capability_matrix(checks),
+            "next": "Run a representative evaluation or push traces, then verify again.",
             "dashboard_url": dashboard_base_url(),
         }
 
     target = run_id or runs[0]["run_id"]
-    traces = await store.get_traces_v2(target) if hasattr(store, "get_traces_v2") else []
+    traces = await store.get_traces_v2(target)
     from retrieval_observatory.metrics.engine import MetricsEngine
 
     metrics = await MetricsEngine().aggregate(target, store)
     stages_seen = sorted({span.op_id for trace in traces for span in trace.spans})
-    pipeline_ids = sorted({v["pipeline_id"] for v in metrics.values() if v.get("stage_index", -1) >= 0})
+    pipeline_ids = sorted({value["pipeline_id"] for value in metrics.values() if value.get("stage_index", -1) >= 0})
+    missing_stages = sorted(set(expected_stages or []) - set(stages_seen))
+    checks = _integration_checks(traces)
+    if missing_stages:
+        checks.append(_check(
+            "expected_stages", "topology", "error",
+            f"Expected operators were not observed: {missing_stages}.",
+            required=True, affects=("pipeline_graph", "stage_metrics", "candidate_lineage", "replay", "attribution"),
+            fix=f"Instrument and exercise these operators: {', '.join(missing_stages)}.",
+        ))
 
-    missing_stages: List[str] = []
-    if expected_stages:
-        missing_stages = sorted(set(expected_stages) - set(stages_seen))
+    required_errors = [check for check in checks if check["status"] == "error" and check.get("required")]
+    warnings = [check for check in checks if check["status"] == "warn"]
+    if required_errors:
+        status = "failed"
+        check_status = "error"
+    elif warnings:
+        status = "partially_instrumented"
+        check_status = "warn"
+    else:
+        status = "ready"
+        check_status = "ok"
 
     next_steps = ["get_run_metrics"]
     if pipeline_ids:
-        next_steps.append("get_pareto_frontier")
-        next_steps.append("get_pipeline_graph")
-    if not traces:
-        next_steps.insert(0, "describe_integration(framework='...') to wire tracing")
-        next_steps.insert(1, "push_traces after instrumenting your pipeline")
-    elif missing_stages:
-        next_steps.insert(0, f"wire missing stages: {missing_stages}")
-
-    instrumentation = "trace_native" if traces else "benchmark_only"
-    if missing_stages:
-        instrumentation = "incomplete"
-
-    checks = _integration_checks(traces)
-    if missing_stages:
-        checks.append({"name": "expected_stages", "status": "warn",
-                       "detail": f"Configured stages not observed in traces: {missing_stages}."})
-    check_status = "error" if any(c["status"] == "error" for c in checks) else (
-        "warn" if any(c["status"] == "warn" for c in checks) else "ok")
-
+        next_steps.extend(["get_pareto_frontier", "get_pipeline_graph"])
+    next_steps[:0] = [check["fix"] for check in checks if check.get("fix")]
     return {
-        "status": "ok",
+        "status": status,
         "run_id": target,
         "trace_count": len(traces),
         "stages_seen": stages_seen,
         "missing_stages": missing_stages,
         "pipeline_ids": pipeline_ids,
         "has_metrics": bool(metrics),
-        "instrumentation": instrumentation,
+        "instrumentation": "trace_native" if traces else "benchmark_only",
         "checks": checks,
         "check_status": check_status,
+        "capabilities": _capability_matrix(checks),
         "dashboard_url": dashboard_run_url(target),
         "next": next_steps,
     }

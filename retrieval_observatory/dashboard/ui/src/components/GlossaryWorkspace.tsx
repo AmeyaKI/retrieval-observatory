@@ -32,7 +32,9 @@ const SECTIONS: { title: string; keys: (keyof typeof METRIC_GLOSSARY)[] }[] = [
       'reranker_drop',
       'lexical_mismatch',
       'semantic_mismatch',
-      'id_or_qrel_issue',
+      'not_retrieved_by_any_pipeline',
+      'qrel_not_in_corpus',
+      'corpus_identity_unknown',
       'unstable',
     ],
   },
@@ -41,7 +43,7 @@ const SECTIONS: { title: string; keys: (keyof typeof METRIC_GLOSSARY)[] }[] = [
     keys: ['actual_difficulty', 'predicted_difficulty', 'difficulty_diagnostic', 'difficulty_predicted'],
   },
   {
-    title: 'TraceLens & drift',
+    title: 'Production drift',
     keys: [
       'tracelens_high_churn_threshold',
       'tracelens_error_rate_threshold',
@@ -53,7 +55,7 @@ const SECTIONS: { title: string; keys: (keyof typeof METRIC_GLOSSARY)[] }[] = [
     ],
   },
   {
-    title: 'Advisor',
+    title: 'Findings',
     keys: ['reliability_components'],
   },
 ]
@@ -72,7 +74,7 @@ export default function GlossaryWorkspace() {
           <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Reference</p>
           <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Glossary</h1>
           <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">
-            How to read metrics, labels, and dashboard badges across Benchmarks, Forge, TraceLens, and Advisor.
+            How to read metrics, labels, evidence classes, and status badges across Runs, Compare, Queries, Production, and Test Sets.
           </p>
         </header>
 
@@ -84,7 +86,7 @@ export default function GlossaryWorkspace() {
           </p>
           <p className="mt-2">
             Diagnostic buckets are post-hoc benchmark outcomes; predicted difficulty is pre-retrieval from query text.
-            Suspected TraceLens failures are label-free proxy signals — not measured Recall.
+            Suspected production failures are label-free proxy signals — not measured Recall.
           </p>
         </section>
 

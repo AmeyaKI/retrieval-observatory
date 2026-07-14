@@ -41,7 +41,7 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
           <p className="text-xs text-gray-400 dark:text-slate-500">Click a run to explore it · Check two to compare</p>
         )}
         {selectedCount === 1 && (
-          <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">1 run selected — viewing details</p>
+          <p className="text-xs text-ink-muted font-medium">1 run selected — viewing details</p>
         )}
         {selectedCount >= 2 && (
           <div className="flex items-center gap-2">
@@ -60,17 +60,15 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
           return (
             <li
               key={key}
-              onClick={() => onToggle(dbId, run.run_id)}
-              className={`px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors ${
+              className={`hover:bg-gray-50 transition-colors ${
                 selected ? 'bg-indigo-50 border-l-2 border-indigo-500' : ''
               }`}
             >
-              <div className="flex items-start gap-2">
+              <label className="flex cursor-pointer items-start gap-2 px-4 py-3">
                 <input
                   type="checkbox"
                   checked={selected}
                   onChange={() => onToggle(dbId, run.run_id)}
-                  onClick={(e) => e.stopPropagation()}
                   className="accent-indigo-600 mt-0.5 shrink-0"
                 />
                 <div className="min-w-0">
@@ -82,10 +80,10 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
                       </span>
                     )}
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-slate-400 font-mono truncate">{run.run_id}</p>
+                  <p className="text-xs text-ink-muted font-mono truncate">{run.run_id}</p>
                   <p className="text-xs text-gray-400 dark:text-slate-500">{formatDate(run.started_at)}</p>
                 </div>
-              </div>
+              </label>
             </li>
           )
         })}

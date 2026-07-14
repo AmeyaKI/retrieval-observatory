@@ -1,27 +1,28 @@
-import { useEffect, useState } from 'react'
-import ModeRail, { Mode, ShellMode } from './ModeRail'
-import BenchmarksWorkspace from './BenchmarksWorkspace'
-import ForgeWorkspace from './ForgeWorkspace'
-import TraceLensWorkspace from './TraceLensWorkspace'
-import AdvisorWorkspace from './AdvisorWorkspace'
-import QueryLineagePanel from './QueryLineagePanel'
-import GlossaryWorkspace from './GlossaryWorkspace'
-import PlatformTour, { PLATFORM_TOUR_STORAGE_KEY } from './PlatformTour'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { DemoContext, fetchDbs, fetchDemoContext } from '../api'
+import { migrateLegacyPath } from '../routing'
 import DemoQuickLinks from './DemoQuickLinks'
-import { DemoContext, fetchDemoContext } from '../api'
+import HomeWorkspace from './HomeWorkspace'
+import ModeRail, { Mode, ShellMode } from './ModeRail'
+import PlatformTour from './PlatformTour'
 
-const VALID_MODES: Mode[] = ['benchmarks', 'forge', 'tracelens', 'advisor']
+const BenchmarksWorkspace = lazy(() => import('./BenchmarksWorkspace'))
+const ForgeWorkspace = lazy(() => import('./ForgeWorkspace'))
+const GlossaryWorkspace = lazy(() => import('./GlossaryWorkspace'))
+const QueryLineagePanel = lazy(() => import('./QueryLineagePanel'))
+const TraceLensWorkspace = lazy(() => import('./TraceLensWorkspace'))
+
+const VALID_MODES: Mode[] = ['home', 'runs', 'compare', 'queries', 'production', 'test-sets']
 
 function parseHash(): { mode: ShellMode; rest: string } {
   const raw = window.location.hash.replace(/^#\/?/, '')
-  const [modePart, ...rest] = raw.split('/')
-  if (modePart === 'query') {
-    return { mode: 'query', rest: rest.join('/') }
+  const migrated = migrateLegacyPath(raw)
+  if (migrated !== raw) {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/${migrated}`)
   }
-  if (modePart === 'glossary') {
-    return { mode: 'glossary', rest: '' }
-  }
-  const mode = (VALID_MODES as string[]).includes(modePart) ? (modePart as Mode) : 'benchmarks'
+  const [modePart, ...rest] = migrated.split('/')
+  if (modePart === 'glossary') return { mode: 'glossary', rest: '' }
+  const mode = (VALID_MODES as string[]).includes(modePart) ? (modePart as Mode) : 'home'
   return { mode, rest: rest.join('/') }
 }
 
@@ -29,6 +30,7 @@ export default function AppShell() {
   const [{ mode, rest }, setRoute] = useState(parseHash)
   const [demoContext, setDemoContext] = useState<DemoContext | null>(null)
   const [tourOpen, setTourOpen] = useState(false)
+  const [dbId, setDbId] = useState<string | null>(null)
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash())
@@ -37,53 +39,30 @@ export default function AppShell() {
   }, [])
 
   useEffect(() => {
-    fetchDemoContext()
-      .then((ctx) => {
-        if (ctx.baseline_run_id) {
-          setDemoContext(ctx)
-          if (localStorage.getItem(PLATFORM_TOUR_STORAGE_KEY) !== '1') {
-            setTourOpen(true)
-          }
-        }
-      })
-      .catch(() => setDemoContext(null))
+    fetchDbs().then((databases) => setDbId(databases[0]?.db_id ?? null)).catch(() => setDbId(null))
+    fetchDemoContext().then(setDemoContext).catch(() => setDemoContext(null))
   }, [])
 
-  const selectMode = (next: Mode) => {
-    window.location.hash = `#/${next}`
-  }
-
-  const showDemoBar = demoContext?.baseline_run_id && mode !== 'glossary'
+  const selectMode = (next: Mode) => { window.location.hash = `#/${next}` }
+  const showDemoBar = Boolean(demoContext?.baseline_run_id) && mode !== 'glossary'
 
   return (
     <div className="flex h-screen bg-canvas text-ink font-sans">
-      <ModeRail
-        mode={mode}
-        onSelect={selectMode}
-        lineageQueryId={demoContext?.sample_query_id}
-        onOpenTour={() => setTourOpen(true)}
-        showTourLink={Boolean(demoContext?.baseline_run_id)}
-      />
-      <div className="flex flex-1 flex-col min-w-0">
-        {showDemoBar && demoContext && (
-          <DemoQuickLinks context={demoContext} onOpenTour={() => setTourOpen(true)} />
-        )}
-        {mode === 'query' && rest ? (
-          <QueryLineagePanel queryId={rest} />
-        ) : mode === 'glossary' ? (
-          <GlossaryWorkspace />
-        ) : (
-          <>
-            {mode === 'benchmarks' && <BenchmarksWorkspace demoContext={demoContext} route={rest} />}
-            {mode === 'forge' && <ForgeWorkspace route={rest} />}
-            {mode === 'tracelens' && <TraceLensWorkspace route={rest} />}
-            {mode === 'advisor' && <AdvisorWorkspace />}
-          </>
-        )}
+      <ModeRail mode={mode} onSelect={selectMode} onOpenTour={() => setTourOpen(true)} showTourLink={Boolean(demoContext?.baseline_run_id)} />
+      <div className="flex flex-1 flex-col min-w-0 pb-16 sm:pb-0">
+        {showDemoBar && demoContext && <DemoQuickLinks context={demoContext} onOpenTour={() => setTourOpen(true)} />}
+        <Suspense fallback={<div className="p-6 text-sm text-ink-muted" role="status">Loading workspace…</div>}>
+          {mode === 'home' && <HomeWorkspace context={demoContext} />}
+          {mode === 'runs' && <BenchmarksWorkspace demoContext={demoContext} route={rest} view="runs" />}
+          {mode === 'compare' && <BenchmarksWorkspace demoContext={demoContext} view="compare" />}
+          {mode === 'queries' && rest && dbId && <QueryLineagePanel dbId={dbId} queryId={rest} />}
+          {mode === 'queries' && !rest && <BenchmarksWorkspace demoContext={demoContext} view="queries" />}
+          {mode === 'production' && dbId && <TraceLensWorkspace dbId={dbId} route={rest} />}
+          {mode === 'test-sets' && dbId && <ForgeWorkspace dbId={dbId} route={rest} />}
+          {mode === 'glossary' && <GlossaryWorkspace />}
+        </Suspense>
       </div>
-      {demoContext && (
-        <PlatformTour context={demoContext} open={tourOpen} onClose={() => setTourOpen(false)} />
-      )}
+      {demoContext && <PlatformTour context={demoContext} open={tourOpen} onClose={() => setTourOpen(false)} />}
     </div>
   )
 }

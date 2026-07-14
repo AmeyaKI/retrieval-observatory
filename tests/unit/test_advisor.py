@@ -15,6 +15,18 @@ def _snap(docs, idx=0):
     return StageSnapshot(stage_index=idx, stage_id=f"s{idx}", documents=docs, latency_ms=10.0)
 
 
+def _comparison_manifest():
+    return {
+        "dataset": {"query_hash": "q", "corpus_hash": "c", "qrel_hash": "r"},
+        "labeling": {"method": "gold", "judge": None, "model": None, "version": None},
+        "execution": {"seed": 1, "cache_results": False, "timeout_ms": 5000},
+        "git_commit": "test",
+        "git_dirty": False,
+        "models": [{"model": "bm25"}],
+        "packages": {"retobs": "test"},
+    }
+
+
 @pytest.mark.asyncio
 async def test_regression_detects_quality_drop():
     d = tempfile.mkdtemp()
@@ -23,6 +35,8 @@ async def test_regression_detects_quality_drop():
 
     await store.save_run("base", "exp", "{}")
     await store.save_run("cand", "exp", "{}")
+    await store.save_run_manifest("base", _comparison_manifest())
+    await store.save_run_manifest("cand", _comparison_manifest())
 
     for i in range(20):
         qid = f"q{i}"
@@ -46,6 +60,7 @@ async def test_regression_quiet_on_identical_runs():
     result = PipelineResult("q1", "bm25", [_snap([Document("d1", "", 0.9, 1)])], 10.0, "OK")
     for rid in ("base", "cand"):
         await store.save_run(rid, "exp", "{}")
+        await store.save_run_manifest(rid, _comparison_manifest())
         await store.save_result(rid, result)
         await store.save_metric(rid, "bm25", "q1", 0, "recall", 10, 0.8)
     findings = await detect_regressions("base", "cand", store)

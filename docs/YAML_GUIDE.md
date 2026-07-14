@@ -81,7 +81,7 @@ output:
   db_path: .retobs/results.db
 ```
 
-Run: `retobs run --config config.yaml` — stage attribution table prints automatically showing what reranking added in NDCG, recall, and latency.
+Run: `retobs evaluate --config config.yaml` — the report includes the conclusion, evidence health, affected queries, and per-stage quality/latency evidence.
 
 ---
 

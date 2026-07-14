@@ -4,7 +4,6 @@ from retrieval_observatory.dashboard.api import (
 )
 from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
-from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 
 def test_overview_warnings_cache_and_zero_rate():

@@ -13,6 +13,9 @@ class RegressionFinding:
     q_value: float
     severity: Literal["high", "medium", "low"]
     n_pairs: int
+    p_value: Optional[float] = None
+    effect_threshold: Optional[float] = None
+    decision: str = "candidate_worse"
 
 
 EffortLevel = Literal["S", "M", "L"]

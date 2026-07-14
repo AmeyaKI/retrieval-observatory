@@ -56,6 +56,12 @@ CREATE TABLE IF NOT EXISTS metric_scores (
 )
 """
 _MIGRATE_METRIC_SCORES_BRANCH_ID = "ALTER TABLE metric_scores ADD COLUMN branch_id TEXT"
+_MIGRATE_QUERY_DIAGNOSTIC_EVIDENCE = (
+    "ALTER TABLE query_diagnostics ADD COLUMN diagnostic_evidence_json TEXT NOT NULL DEFAULT '[]'"
+)
+_MIGRATE_FORGE_QUERY_METADATA = (
+    "ALTER TABLE forge_queries ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'"
+)
 
 _CREATE_CACHE = """
 CREATE TABLE IF NOT EXISTS result_cache (
@@ -97,6 +103,7 @@ CREATE TABLE IF NOT EXISTS query_diagnostics (
     failure_labels_json TEXT NOT NULL,
     missing_relevant_ids_json TEXT NOT NULL,
     stage_hits_json TEXT NOT NULL,
+    diagnostic_evidence_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (run_id, query_id, pipeline_id)
 )
 """
@@ -143,7 +150,8 @@ CREATE TABLE IF NOT EXISTS forge_queries (
     difficulty_label TEXT NOT NULL,
     failure_category TEXT,
     validated INT NOT NULL DEFAULT 0,
-    positive_doc_ids_json TEXT NOT NULL DEFAULT '[]'
+    positive_doc_ids_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}'
 )
 """
 
@@ -293,6 +301,14 @@ class PostgresStore:
                 await conn.execute(_MIGRATE_METRIC_SCORES_BRANCH_ID)
             except Exception:
                 pass
+            try:
+                await conn.execute(_MIGRATE_QUERY_DIAGNOSTIC_EVIDENCE)
+            except Exception:
+                pass
+            try:
+                await conn.execute(_MIGRATE_FORGE_QUERY_METADATA)
+            except Exception:
+                pass
 
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
         pool = await self._get_pool()
@@ -414,10 +430,25 @@ class PostgresStore:
             return None
         return RetrievalTraceV2.from_dict(json.loads(row["trace_json"]))
 
-    async def get_traces_v2(self, run_id: str) -> List[RetrievalTraceV2]:
+    async def get_traces_v2(
+        self,
+        run_id: str,
+        query_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[RetrievalTraceV2]:
         pool = await self._get_pool()
+        query = "SELECT trace_json FROM traces_v2 WHERE run_id = $1"
+        params: list = [run_id]
+        if query_id is not None:
+            params.append(query_id)
+            query += f" AND query_id = ${len(params)}"
+        query += " ORDER BY timestamp, trace_id"
+        if limit is not None:
+            params.extend([limit, offset])
+            query += f" LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         async with pool.acquire() as conn:
-            rows = await conn.fetch("SELECT trace_json FROM traces_v2 WHERE run_id = $1 ORDER BY timestamp", run_id)
+            rows = await conn.fetch(query, *params)
         return [RetrievalTraceV2.from_dict(json.loads(row["trace_json"])) for row in rows]
 
     async def save_doc_edge(
@@ -696,13 +727,14 @@ class PostgresStore:
             await conn.executemany(
                 """INSERT INTO query_diagnostics
                    (run_id, query_id, pipeline_id, difficulty_bucket, failure_labels_json,
-                    missing_relevant_ids_json, stage_hits_json)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    missing_relevant_ids_json, stage_hits_json, diagnostic_evidence_json)
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                    ON CONFLICT (run_id, query_id, pipeline_id) DO UPDATE SET
                        difficulty_bucket = EXCLUDED.difficulty_bucket,
                        failure_labels_json = EXCLUDED.failure_labels_json,
                        missing_relevant_ids_json = EXCLUDED.missing_relevant_ids_json,
-                       stage_hits_json = EXCLUDED.stage_hits_json""",
+                       stage_hits_json = EXCLUDED.stage_hits_json,
+                       diagnostic_evidence_json = EXCLUDED.diagnostic_evidence_json""",
                 [
                     (
                         row["run_id"],
@@ -712,6 +744,7 @@ class PostgresStore:
                         json.dumps(row.get("failure_labels", [])),
                         json.dumps(row.get("missing_relevant_ids", [])),
                         json.dumps(row.get("stage_hits", {})),
+                        json.dumps(row.get("diagnostic_evidence", [])),
                     )
                     for row in rows
                 ],
@@ -732,6 +765,7 @@ class PostgresStore:
             item["failure_labels"] = json.loads(item.pop("failure_labels_json"))
             item["missing_relevant_ids"] = json.loads(item.pop("missing_relevant_ids_json"))
             item["stage_hits"] = json.loads(item.pop("stage_hits_json"))
+            item["diagnostic_evidence"] = json.loads(item.pop("diagnostic_evidence_json", "[]"))
             result.append(item)
         return result
 
@@ -830,9 +864,14 @@ class PostgresStore:
         for row in rows:
             d = dict(row)
             try:
-                d["summary"] = json.loads(d.pop("summary_json", "{}"))
+                from retrieval_observatory.forge.types import TestSetSummary
+
+                d["summary"] = TestSetSummary.from_dict(
+                    json.loads(d.pop("summary_json", "{}")),
+                    dataset_id=d["dataset_id"],
+                ).to_dict()
             except Exception:
-                d["summary"] = {}
+                d["summary"] = TestSetSummary.from_dict({}, dataset_id=d["dataset_id"]).to_dict()
             result.append(d)
         return result
 
@@ -880,8 +919,8 @@ class PostgresStore:
                 await conn.execute(
                     """INSERT INTO forge_queries
                        (dataset_id, query_id, text, scenario_id, query_type, difficulty_label,
-                        failure_category, validated, positive_doc_ids_json)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                        failure_category, validated, positive_doc_ids_json, metadata_json)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)""",
                     dataset_id,
                     q.get("query_id", ""),
                     q.get("text", ""),
@@ -891,6 +930,7 @@ class PostgresStore:
                     q.get("failure_category"),
                     1 if q.get("validated") else 0,
                     json.dumps(q.get("positive_doc_ids", [])),
+                    json.dumps(q.get("metadata", {})),
                 )
 
     async def get_forge_queries(
@@ -924,7 +964,7 @@ class PostgresStore:
             idx += 1
         sql = (
             "SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label, "
-            "q.failure_category, q.validated, q.positive_doc_ids_json "
+            "q.failure_category, q.validated, q.positive_doc_ids_json, q.metadata_json "
             f"FROM forge_queries q {join} WHERE " + " AND ".join(where) +
             f" ORDER BY q.id LIMIT ${idx} OFFSET ${idx + 1}"
         )
@@ -940,6 +980,10 @@ class PostgresStore:
                 d["positive_doc_ids"] = json.loads(d.pop("positive_doc_ids_json", "[]"))
             except Exception:
                 d["positive_doc_ids"] = []
+            try:
+                d["provenance"] = json.loads(d.pop("metadata_json", "{}"))
+            except Exception:
+                d["provenance"] = {}
             result.append(d)
         return result
 

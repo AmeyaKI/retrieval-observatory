@@ -76,6 +76,34 @@ def test_benchmark_inmemory_metrics(tmp_path):
     assert recall["mean"] == pytest.approx(0.75)  # q1 finds 1/2 rel, q2 finds 1/1 -> mean 0.75
 
 
+def test_evaluate_report_contract_and_artifacts(tmp_path):
+    db = str(tmp_path / "sdk.db")
+    rep = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
+    payload = rep.to_dict()
+    assert payload["schema_version"] == 1
+    assert payload["run_id"] == rep.run_id
+    assert payload["verdict"] in {"needs_attention", "no_diagnosed_failures", "partial"}
+    assert payload["dashboard_url"].endswith(f"#/runs/{rep.run_id}/overview")
+    assert "Evidence" in rep.to_markdown()
+    assert "<!doctype html>" in rep.to_html()
+    assert rep.write(tmp_path / "report.json").exists()
+    assert rep.write(tmp_path / "report.md").exists()
+    assert rep.write(tmp_path / "report.html").exists()
+    config_path = rep.export_config(tmp_path / "effective.yaml")
+    assert "experiment:" in config_path.read_text(encoding="utf-8")
+
+
+def test_sdk_compare_uses_validity_gate(tmp_path):
+    db = str(tmp_path / "sdk.db")
+    baseline = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db, name="same")
+    candidate = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db, name="same")
+    comparison = candidate.compare(baseline)
+    assert comparison["baseline_run_id"] == baseline.run_id
+    assert comparison["candidate_run_id"] == candidate.run_id
+    assert comparison["validity"]["decision_allowed"] is True
+    assert all(result["decision"] == "no_decision" for result in comparison["results"].values())
+
+
 def test_benchmark_multistage_per_stage_snapshots(tmp_path):
     db = str(tmp_path / "sdk.db")
 

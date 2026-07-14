@@ -1,8 +1,9 @@
-# TraceLens — observing production retrieval
+# Production — observing retrieval traces
 
-Benchmarks tell you how your pipeline does on a fixed eval set. TraceLens tells you how it is
-doing **in production**, on real traffic — and links production behavior back to the same
-query-centric debugging tools.
+`tracelens` is the internal package and deprecated CLI alias. The public task is `retobs production` and the dashboard page is Production.
+
+Runs show how your pipeline behaves on a fixed evaluation set. Production shows how it is
+behaving on real traffic and links those observations back to the same query debugger.
 
 ## How it works
 
@@ -15,10 +16,10 @@ production data too.
 ## What you get
 
 - **Hotspots** — clusters of production queries sharing a failure pattern.
-- **Query lineage** — a production query matched back to its Forge origin and benchmark
+- **Query lineage** — a production query matched back to its Test Set origin and evaluation
   results, so a live failure is debugged with the full history.
-- **Advisor correlation** — production hotspots feed the Advisor, which flags when a live
-  failure pattern matches a benchmark diagnostic.
+- **Findings correlation** — production hotspots become evidence-scoped findings when a live
+  failure pattern matches an evaluation diagnostic.
 
 ## Verifying the integration
 
@@ -35,6 +36,6 @@ operators, error/timeout rate, sampling signal — so you know instrumentation i
 
 ## Monitoring as the end of the loop
 
-TraceLens is the final step of the retobs workflow: run → understand → debug → improve →
-validate → **monitor**. Production traces close the loop by telling you whether a fix that
-worked on the benchmark is actually working live.
+Production is the final step of the retobs workflow: evaluate → understand → debug → improve →
+validate → **monitor**. Production traces close the loop by showing whether a fix validated
+offline is also behaving as expected on live traffic.

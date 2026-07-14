@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
 
 DEFAULT_CONFIG = """db_path: .retobs/results.db
 max_queries: 50

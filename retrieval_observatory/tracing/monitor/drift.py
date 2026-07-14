@@ -100,6 +100,11 @@ def compute_drift(baseline: List[Dict[str, Any]], recent: List[Dict[str, Any]]) 
             "severity": severity,
             "baseline": _normalize(b),
             "recent": _normalize(r),
+            "threshold": _PSI_MODERATE,
+            "baseline_n": len(baseline),
+            "recent_n": len(recent),
+            "evidence_class": "statistical",
+            "supporting_trace_ids": [str(t["trace_id"]) for t in recent[:50] if t.get("trace_id")],
         })
 
     # Suspected-failure rate → PSI on failed/ok split
@@ -116,6 +121,11 @@ def compute_drift(baseline: List[Dict[str, Any]], recent: List[Dict[str, Any]]) 
         "severity": "significant" if psi >= _PSI_SIGNIFICANT else ("moderate" if psi >= _PSI_MODERATE else "none"),
         "baseline": _normalize(b),
         "recent": _normalize(r),
+        "threshold": _PSI_MODERATE,
+        "baseline_n": len(baseline),
+        "recent_n": len(recent),
+        "evidence_class": "statistical",
+        "supporting_trace_ids": [str(t["trace_id"]) for t in recent[:50] if t.get("trace_id")],
     })
 
     # Continuous latency → KS
@@ -131,6 +141,11 @@ def compute_drift(baseline: List[Dict[str, Any]], recent: List[Dict[str, Any]]) 
         "severity": "significant" if ks > crit else "none",
         "baseline": {"p50": round(_pct(b_lat, 0.5), 1), "p95": round(_pct(b_lat, 0.95), 1)},
         "recent": {"p50": round(_pct(r_lat, 0.5), 1), "p95": round(_pct(r_lat, 0.95), 1)},
+        "threshold": round(crit, 4),
+        "baseline_n": len(baseline),
+        "recent_n": len(recent),
+        "evidence_class": "statistical",
+        "supporting_trace_ids": [str(t["trace_id"]) for t in recent[:50] if t.get("trace_id")],
     })
 
     # Rank: drifted first, then by statistic.

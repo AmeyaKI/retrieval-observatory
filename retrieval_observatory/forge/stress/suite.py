@@ -75,24 +75,5 @@ class StressTestSuite:
         return retobs_queries, qrels
 
     def summary(self) -> Dict[str, Any]:
-        """Return a structured summary suitable for CLI display."""
-        by_difficulty: Dict[str, int] = {}
-        by_type: Dict[str, int] = {}
-        by_scenario: Dict[str, int] = {}
-
-        for q in self.dataset.queries:
-            by_difficulty[q.difficulty_label] = by_difficulty.get(q.difficulty_label, 0) + 1
-            by_type[q.query_type] = by_type.get(q.query_type, 0) + 1
-
-        for s in self.dataset.scenarios:
-            by_scenario[s.scenario_type] = by_scenario.get(s.scenario_type, 0) + 1
-
-        return {
-            "total_queries": len(self.dataset.queries),
-            "total_scenarios": len(self.dataset.scenarios),
-            "corpus_size": len(self.dataset.corpus),
-            "by_difficulty": by_difficulty,
-            "by_query_type": by_type,
-            "by_scenario_type": by_scenario,
-            "validated": sum(1 for q in self.dataset.queries if q.validated),
-        }
+        """Return the same versioned TestSetSummary as SyntheticDataset.summary()."""
+        return self.dataset.summary()

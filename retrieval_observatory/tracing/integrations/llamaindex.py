@@ -5,6 +5,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+from retrieval_observatory.tracing.candidates import build_candidate_transition
 from retrieval_observatory.tracing.recorder import TraceRecorder, TraceRecorderV2, _TraceContext, _TraceContextV2
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan
 from retrieval_observatory.types import Document
@@ -71,12 +72,12 @@ def _li_nodes_to_retobs(nodes: List[Any]) -> List[Document]:
 
 def _li_nodes_to_candidates(nodes: List[Any], op_id: str) -> List[Candidate]:
     """Convert LlamaIndex NodeWithScore / TextNode objects to V2 Candidates."""
-    candidates: List[Candidate] = []
-    for i, node in enumerate(nodes):
-        score = float(getattr(node, "score", 0) or 0)
-        inner = getattr(node, "node", node)
-        node_id = getattr(inner, "node_id", None) or getattr(inner, "id_", str(i))
-        candidates.append(Candidate(doc_id=str(node_id), score=score, rank=i + 1, origin_op_ids=[op_id]))
+    _, candidates = build_candidate_transition(
+        input_groups={},
+        output_items=_li_nodes_to_retobs(nodes),
+        op_id=op_id,
+        op_type="SOURCE",
+    )
     return candidates
 
 
@@ -254,8 +255,16 @@ class RetobsLlamaIndexCallbackV2(BaseCallbackHandler):  # type: ignore[misc]
             nodes = (payload or {}).get(EventPayload.NODES, [])
             if self._ctx is not None:
                 op_id = f"rerank_{uuid.uuid4().hex[:8]}"
-                candidates = _li_nodes_to_candidates(nodes, op_id)
                 parent_ids = [self._ctx.trace.spans[-1].op_id] if self._ctx.trace.spans else []
+                input_groups = {
+                    parent_ids[0]: self._ctx.trace.spans[-1].outputs
+                } if parent_ids else {}
+                inputs, candidates = build_candidate_transition(
+                    input_groups=input_groups,
+                    output_items=_li_nodes_to_retobs(nodes),
+                    op_id=op_id,
+                    op_type="RERANK",
+                )
                 span = OperatorSpan(
                     op_id=op_id,
                     op_type="RERANK",
@@ -265,6 +274,7 @@ class RetobsLlamaIndexCallbackV2(BaseCallbackHandler):  # type: ignore[misc]
                     deterministic=False,
                     replay_policy="NOT_REPLAYABLE",
                     latency_ms=latency_ms,
+                    inputs=inputs,
                     outputs=candidates,
                 )
                 self._ctx.add_span(span)

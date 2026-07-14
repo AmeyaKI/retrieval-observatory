@@ -1,10 +1,10 @@
 # HTTP adapter quickstart — benchmark a live retrieval endpoint.
 #
 # 1. Start the server: uvicorn server:app --port 8000 --app-dir examples/integrations/http_quickstart
-# 2. Run the benchmark: retobs run --config examples/integrations/http_quickstart/config.yaml
+# 2. Evaluate: retobs evaluate --config examples/integrations/http_quickstart/config.yaml
 #
 # The HTTP adapter POSTs {"query": str, "k": int} and expects:
-#   {"results": [{"id": str, "text": str, "score": float}]}
+#   {"documents": [{"id": str, "text": str, "score": float}]}
 
 experiment:
   name: http-quickstart

@@ -47,6 +47,6 @@ explained, so you always know how the counterfactual was made.
 
 - **Per-stage attribution** grid — contributions with CI, p-value, BH-corrected q-value.
 - **Candidate flow** — per-document, the replay assumptions behind a drop.
-- **Advisor simulation** — `simulate_operator_removal`
+- **Finding simulation** — `simulate_operator_removal`
   (`retrieval_observatory/advisor/simulate.py`) reuses the exact same machinery to
   *estimate the impact of a change before you make it*.

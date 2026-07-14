@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Set
+from typing import Dict, List, Literal, Optional, Sequence, Set
 
 from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
 
@@ -37,6 +37,24 @@ class ReplayAssumptions:
     rrf_k: int | None = None
     replay_policy: str = "NOT_REPLAYABLE"
     caveats: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ReplayResult:
+    """Typed result for a recorded-output counterfactual projection.
+
+    A projection is only returned when the target and every fired descendant declare
+    replay support. This is not operator re-execution and is therefore classified as
+    replayed evidence, never measured causal evidence.
+    """
+
+    op_id: str
+    status: Literal["replayed", "indeterminate"]
+    evidence_class: Literal["replayed", "unavailable"]
+    trace: Optional[RetrievalTraceV2]
+    assumptions: ReplayAssumptions
+    reason: Optional[str] = None
+    unsupported_descendants: List[str] = field(default_factory=list)
 
 
 # Human-readable caveat copy per strategy — written for engineers reading the
@@ -119,12 +137,34 @@ def replay_assumptions(trace: RetrievalTraceV2, op_id: str) -> ReplayAssumptions
     )
 
 
-def _clone_span(span: OperatorSpan, *, outputs: Sequence[Candidate] | None = None) -> OperatorSpan:
+def _descendant_spans(trace: RetrievalTraceV2, op_id: str) -> List[OperatorSpan]:
+    children: Dict[str, Set[str]] = {}
+    by_id = {span.op_id: span for span in trace.spans}
+    for span in trace.spans:
+        for parent_id in span.parent_ids:
+            children.setdefault(parent_id, set()).add(span.op_id)
+    descendant_ids: Set[str] = set()
+    frontier = list(children.get(op_id, set()))
+    while frontier:
+        current = frontier.pop()
+        if current in descendant_ids:
+            continue
+        descendant_ids.add(current)
+        frontier.extend(children.get(current, set()))
+    return [by_id[descendant_id] for descendant_id in sorted(descendant_ids) if descendant_id in by_id]
+
+
+def _clone_span(
+    span: OperatorSpan,
+    *,
+    outputs: Sequence[Candidate] | None = None,
+    parent_ids: Sequence[str] | None = None,
+) -> OperatorSpan:
     return OperatorSpan(
         op_id=span.op_id,
         op_type=span.op_type,
         op_name=span.op_name,
-        parent_ids=list(span.parent_ids),
+        parent_ids=list(parent_ids if parent_ids is not None else span.parent_ids),
         status=span.status,
         deterministic=span.deterministic,
         replay_policy=span.replay_policy,
@@ -273,9 +313,16 @@ def without_operator(trace: RetrievalTraceV2, op_id: str) -> RetrievalTraceV2:
     for span in trace.spans:
         if span.op_id == op_id:
             continue
+        projected_parents: List[str] = []
+        for parent_id in span.parent_ids:
+            if parent_id == op_id:
+                projected_parents.extend(target.parent_ids)
+            else:
+                projected_parents.append(parent_id)
+        projected_parents = list(dict.fromkeys(projected_parents))
         if span.op_id in counterfactual_outputs:
             cf_out = counterfactual_outputs[span.op_id]
-            spans.append(_clone_span(span, outputs=cf_out))
+            spans.append(_clone_span(span, outputs=cf_out, parent_ids=projected_parents))
             cf_doc_ids = {c.doc_id for c in cf_out}
             for downstream_id in children_of.get(span.op_id, set()):
                 if downstream_id not in counterfactual_outputs:
@@ -285,9 +332,18 @@ def without_operator(trace: RetrievalTraceV2, op_id: str) -> RetrievalTraceV2:
                         counterfactual_outputs[downstream_id] = filtered
         elif removed_output_doc_ids:
             outputs = [c for c in span.outputs if c.doc_id not in removed_output_doc_ids]
-            spans.append(_clone_span(span, outputs=outputs))
+            spans.append(_clone_span(span, outputs=outputs, parent_ids=projected_parents))
         else:
-            spans.append(_clone_span(span))
+            spans.append(_clone_span(span, parent_ids=projected_parents))
+
+    remaining_ids = {span.op_id for span in spans}
+    final_op_id = trace.final_op_id if trace.final_op_id in remaining_ids else None
+    if final_op_id is None and spans:
+        parent_ids = {parent_id for span in spans for parent_id in span.parent_ids}
+        sinks = [span.op_id for span in spans if span.op_id not in parent_ids]
+        final_op_id = sinks[0] if len(sinks) == 1 else None
+    metadata = dict(trace.metadata)
+    metadata["replay_timing"] = "unavailable: recorded operators were not re-executed"
 
     return RetrievalTraceV2(
         trace_id=f"{trace.trace_id}:without:{op_id}",
@@ -296,13 +352,56 @@ def without_operator(trace: RetrievalTraceV2, op_id: str) -> RetrievalTraceV2:
         query_text=trace.query_text,
         pipeline_id=trace.pipeline_id,
         spans=spans,
-        total_latency_ms=trace.total_latency_ms,
+        total_latency_ms=0.0,
         status=trace.status,
         trace_format_version=trace.trace_format_version,
         timestamp=trace.timestamp,
-        metadata=dict(trace.metadata),
+        metadata=metadata,
         error_traceback=trace.error_traceback,
-        final_op_id=trace.final_op_id,
+        final_op_id=final_op_id,
+    )
+
+
+def simulate_without_operator(trace: RetrievalTraceV2, op_id: str) -> ReplayResult:
+    """Return an honest recorded-output replay result for removing ``op_id``.
+
+    ``NOT_REPLAYABLE`` on the target or any fired descendant makes the result
+    indeterminate. Callers must not compute deltas, intervals, or significance from
+    an indeterminate result.
+    """
+    assumptions = replay_assumptions(trace, op_id)
+    target = next(span for span in trace.spans if span.op_id == op_id)
+    unsupported_descendants = [
+        span.op_id
+        for span in _descendant_spans(trace, op_id)
+        if span.status == "FIRED" and span.replay_policy == "NOT_REPLAYABLE"
+    ]
+    if target.replay_policy == "NOT_REPLAYABLE":
+        return ReplayResult(
+            op_id=op_id,
+            status="indeterminate",
+            evidence_class="unavailable",
+            trace=None,
+            assumptions=assumptions,
+            reason=f"Operator '{op_id}' declares replay_policy=NOT_REPLAYABLE.",
+            unsupported_descendants=unsupported_descendants,
+        )
+    if unsupported_descendants:
+        return ReplayResult(
+            op_id=op_id,
+            status="indeterminate",
+            evidence_class="unavailable",
+            trace=None,
+            assumptions=assumptions,
+            reason="Removing the operator would change descendants that cannot be replayed.",
+            unsupported_descendants=unsupported_descendants,
+        )
+    return ReplayResult(
+        op_id=op_id,
+        status="replayed",
+        evidence_class="replayed",
+        trace=without_operator(trace, op_id),
+        assumptions=assumptions,
     )
 
 

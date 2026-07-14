@@ -17,15 +17,21 @@ jobs:
       - name: Install
         run: pip install -e ".[demo,dashboard,dense,dev]"
 
-      - name: Run demo benchmark
+      - name: Generate deterministic regression story
         run: |
           retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
           echo "BASELINE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])")" >> $GITHUB_ENV
+          echo "CANDIDATE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['validation_run_id'])")" >> $GITHUB_ENV
 
-      - name: Run healthy candidate benchmark
-        run: retobs run -c .retobs/ci/benchmark_baseline.yaml --no-cache
-
-      - name: Advisor regression check
+      - name: Compare baseline with validated change
         run: |
-          CANDIDATE=$(python -c "import sqlite3; print(sqlite3.connect('.retobs/ci/results.db').execute('SELECT run_id FROM runs ORDER BY started_at DESC LIMIT 1').fetchone()[0])")
-          retobs advisor check --baseline "$BASELINE" --candidate "$CANDIDATE" --db .retobs/ci/results.db
+          mkdir -p artifacts
+          retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format markdown --output artifacts/comparison.md --fail-on regression
+          retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format html --output artifacts/comparison.html --fail-on regression
+          cat artifacts/comparison.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload reviewable comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: retrieval-comparison
+          path: artifacts/
