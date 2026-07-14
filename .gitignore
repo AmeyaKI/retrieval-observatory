@@ -32,7 +32,6 @@ TODO
 !results/**/*.md
 !CHANGELOG.md
 !YAML_GUIDE.md
-!CONTRIBUTING.md
 !SECURITY.md
 !CODE_OF_CONDUCT.md
 !docs/*.md

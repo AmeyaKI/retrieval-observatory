@@ -142,6 +142,6 @@ SQLite and PostgreSQL stores are supported. The dashboard is single-tenant and h
 - [Advanced YAML guide](https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/YAML_GUIDE.md)
 - [Architecture](https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/ARCHITECTURE.md)
 - [Migration and deprecations](https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/MIGRATION.md)
-- [Contributing](https://github.com/AmeyaKI/retrieval-observatory/blob/main/CONTRIBUTING.md) and [releases](https://github.com/AmeyaKI/retrieval-observatory/releases)
+- [Releases](https://github.com/AmeyaKI/retrieval-observatory/releases)
 
 License: [MIT](https://github.com/AmeyaKI/retrieval-observatory/blob/main/LICENSE).

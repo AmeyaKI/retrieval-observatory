@@ -12,7 +12,7 @@ SKIP_PARTS = {".git", ".venv", "node_modules", ".archive", "superpowers"}
 
 
 def markdown_files() -> list[Path]:
-    roots = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md", ROOT / "CODE_OF_CONDUCT.md"]
+    roots = [ROOT / "README.md", ROOT / "SECURITY.md", ROOT / "CODE_OF_CONDUCT.md"]
     roots.extend((ROOT / "docs").rglob("*.md"))
     return sorted(path for path in roots if path.is_file() and not SKIP_PARTS.intersection(path.parts))
 

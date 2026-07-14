@@ -6,6 +6,10 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Removed
+
+- `CONTRIBUTING.md` — stop tracking; keep local-only via `*.md` gitignore (no longer allowlisted).
+
 ### Fixed
 
 - `.gitignore` — allowlist public docs (`SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/*.md`) so CI markdown link checks resolve tracked targets.
