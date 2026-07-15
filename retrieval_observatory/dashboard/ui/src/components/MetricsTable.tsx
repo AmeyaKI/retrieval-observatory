@@ -35,7 +35,7 @@ function ciLabel(entry: MetricEntry, isLatencyPercentileRow: boolean): string {
 function latencySummaryHint(): JSX.Element {
   return (
     <span
-      className="ml-1 text-[9px] text-gray-400 dark:text-slate-500 cursor-help"
+      className="ml-1 text-[9px] text-ink-faint cursor-help"
       title={METRIC_GLOSSARY.latency_percentile_summary}
     >
       (pct)
@@ -46,19 +46,19 @@ function latencySummaryHint(): JSX.Element {
 function CIBadge({ entry }: { entry: MetricEntry }) {
   if (isLatencyPercentile(entry.metric_name)) return null
   if (entry.n < 30) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-medium cursor-help" title={`n=${entry.n} (<30). ${METRIC_GLOSSARY.underpowered}`}>underpowered</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-status-neutral/10 text-status-neutral font-medium cursor-help" title={`n=${entry.n} (<30). ${METRIC_GLOSSARY.underpowered}`}>underpowered</span>
   }
   if (entry.ci_low == null || entry.ci_high == null) return null
   const ciWidth = entry.ci_high - entry.ci_low
   const meanAbs = Math.abs(entry.mean)
   const relWidth = ciWidth / Math.max(meanAbs, 0.001)
   if (relWidth >= 0.35) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help" title={`Relative CI width ${(relWidth * 100).toFixed(0)}% (threshold 35%). ${METRIC_GLOSSARY.wide_ci}`}>wide CI</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-status-warning/10 text-status-warning font-medium cursor-help" title={`Relative CI width ${(relWidth * 100).toFixed(0)}% (threshold 35%). ${METRIC_GLOSSARY.wide_ci}`}>wide CI</span>
   }
   if (ciWidth >= 0.05 && meanAbs < 0.2) {
     return (
       <span
-        className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium cursor-help"
+        className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-status-warning/10 text-status-warning font-medium cursor-help"
         title={`CI width ${ciWidth.toFixed(3)} (threshold 0.05) and |mean| ${meanAbs.toFixed(3)} (<0.2). ${METRIC_GLOSSARY.wide_ci_abs}`}
       >
         sparse CI
@@ -66,7 +66,7 @@ function CIBadge({ entry }: { entry: MetricEntry }) {
     )
   }
   if (relWidth < 0.15) {
-    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-green-50 text-green-700 font-medium cursor-help" title={`Relative CI width ${(relWidth * 100).toFixed(0)}% (<15%). ${METRIC_GLOSSARY.stable}`}>stable</span>
+    return <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-status-positive/10 text-status-positive font-medium cursor-help" title={`Relative CI width ${(relWidth * 100).toFixed(0)}% (<15%). ${METRIC_GLOSSARY.stable}`}>stable</span>
   }
   return null
 }
@@ -77,7 +77,7 @@ function ZeroRateBadge({ zeroPct }: { zeroPct: number }) {
   return (
     <span
       className={`ml-1.5 text-[9px] px-1 py-0.5 rounded font-medium cursor-help ${
-        high ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'
+        high ? 'bg-status-negative/10 text-status-negative' : 'bg-status-warning/10 text-status-warning'
       }`}
       title={`Zero-score rate ${zeroPct.toFixed(1)}% (warn >20%, high >40%). ${METRIC_GLOSSARY.high_zero_pct}`}
     >
@@ -203,7 +203,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
   }
 
   if (pipelineOrder.length === 0) {
-    return <p className="text-sm text-gray-400 dark:text-slate-500">No metrics available.</p>
+    return <p className="text-sm text-ink-faint">No metrics available.</p>
   }
 
   const toPipelineLabel = (pid: string) =>
@@ -219,36 +219,36 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
 
   return (
     <div className="overflow-x-auto">
-      <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
+      <p className="text-xs text-ink-muted mb-2">
         Stability badges use explicit thresholds (underpowered n&lt;30, wide CI relative width &ge;35%, sparse CI width &ge;0.05 with low mean, stable relative width &lt;15%, high zeros &gt;40%).
         <MetricTooltip text={`${METRIC_GLOSSARY.underpowered}\n\n${METRIC_GLOSSARY.wide_ci}\n\n${METRIC_GLOSSARY.wide_ci_abs}\n\n${METRIC_GLOSSARY.stable}\n\n${METRIC_GLOSSARY.high_zero_pct}`} />
       </p>
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="bg-gray-100 dark:bg-slate-800 text-left">
-            <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200">
+          <tr className="bg-surface-muted text-left">
+            <th className="px-3 py-2 font-semibold text-ink-muted">
               Metric
               <MetricTooltip text={METRIC_GLOSSARY.stage} />
             </th>
-            <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">Mean</th>
-            <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">Std</th>
-            <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">
+            <th className="px-3 py-2 font-semibold text-ink-muted text-right">Mean</th>
+            <th className="px-3 py-2 font-semibold text-ink-muted text-right">Std</th>
+            <th className="px-3 py-2 font-semibold text-ink-muted text-right">
               95% CI
               <MetricTooltip text={METRIC_GLOSSARY.ci} alignLeft />
             </th>
-            <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">N</th>
-            <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">
+            <th className="px-3 py-2 font-semibold text-ink-muted text-right">N</th>
+            <th className="px-3 py-2 font-semibold text-ink-muted text-right">
               Zero%
               <MetricTooltip text={METRIC_GLOSSARY.zero_pct} alignLeft />
             </th>
             {hasBaselines && (
-              <th className="px-3 py-2 font-semibold text-gray-500 dark:text-slate-400 text-right text-xs">
+              <th className="px-3 py-2 font-semibold text-ink-faint text-right text-xs">
                 Ref (BM25)
                 <MetricTooltip text={METRIC_GLOSSARY.ref_bm25} alignLeft />
               </th>
             )}
             {pValues && (
-              <th className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-200 text-right">
+              <th className="px-3 py-2 font-semibold text-ink-muted text-right">
                 p-value
                 <MetricTooltip text={METRIC_GLOSSARY.p_value} alignLeft />
               </th>
@@ -276,10 +276,10 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
             return (
               <>
                 {/* Pipeline group header */}
-                <tr key={`header-${pid}`} className={pidIdx > 0 ? 'border-t-2 border-gray-300 dark:border-slate-600' : ''}>
+                <tr key={`header-${pid}`} className={pidIdx > 0 ? 'border-t-2 border-hairline' : ''}>
                   <td
                     colSpan={colCount}
-                    className="px-3 py-2 bg-gray-50 dark:bg-slate-800/60 text-xs font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wide"
+                    className="px-3 py-2 bg-surface-muted text-xs font-bold text-ink-muted uppercase tracking-wide"
                   >
                     {toPipelineLabel(pid)}
                   </td>
@@ -288,14 +288,14 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                 {/* Pipeline Health Strip */}
                 {(hasHealth || coverage || diagLabels) && (
                   <tr key={`health-${pid}`}>
-                    <td colSpan={colCount} className="px-3 py-1.5 bg-gray-50 dark:bg-slate-800/60 border-t border-gray-100 dark:border-slate-800">
+                    <td colSpan={colCount} className="px-3 py-1.5 bg-surface-muted border-t border-hairline">
                       <div className="flex flex-wrap gap-1.5 items-center">
                         {/* Scored coverage */}
                         {coverage && (
                           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                             coverageLow
-                              ? 'bg-red-50 text-red-700'
-                              : 'bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-slate-300'
+                              ? 'bg-status-negative/10 text-status-negative'
+                              : 'bg-surface text-ink-muted'
                           }`}>
                             Scored {coverage.scored}/{coverage.attempted}
                             {coverageLow ? ' ⚠' : ''}
@@ -307,24 +307,24 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                           <>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                               failureRate > 0.05
-                                ? 'bg-red-50 text-red-700'
+                                ? 'bg-status-negative/10 text-status-negative'
                                 : failureRate > 0.01
-                                ? 'bg-amber-50 text-amber-700'
-                                : 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400'
+                                ? 'bg-status-warning/10 text-status-warning'
+                                : 'bg-surface text-ink-faint'
                             }`}>
                               Failure {fmtPct(failureRate)}
                             </span>
                             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                               timeoutRate > 0.02
-                                ? 'bg-red-50 text-red-700'
+                                ? 'bg-status-negative/10 text-status-negative'
                                 : timeoutRate > 0.005
-                                ? 'bg-amber-50 text-amber-700'
-                                : 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400'
+                                ? 'bg-status-warning/10 text-status-warning'
+                                : 'bg-surface text-ink-faint'
                             }`}>
                               Timeout {fmtPct(timeoutRate)}
                             </span>
                             {dropoutCount > 0 && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 font-medium">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface text-ink-faint font-medium">
                                 Dropped {dropoutCount.toFixed(0)}
                               </span>
                             )}
@@ -342,7 +342,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                               const isHigh = diagLabels.labels[label] / diagLabels.n > 0.3
                               return (
                                 <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                                  isHigh ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400'
+                                  isHigh ? 'bg-status-warning/10 text-status-warning' : 'bg-surface text-ink-faint'
                                 }`}>
                                   {display} {pct}%
                                 </span>
@@ -366,7 +366,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                         <tr key={`stage-${pid}-${stage}`}>
                           <td
                             colSpan={colCount}
-                            className="px-3 py-1 bg-gray-50 dark:bg-slate-800/60 text-[11px] font-semibold text-indigo-600 border-t border-gray-100 dark:border-slate-800"
+                            className="px-3 py-1 bg-surface-muted text-[11px] font-semibold text-accent border-t border-hairline"
                           >
                             {stageLabel}
                           </td>
@@ -390,9 +390,9 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                         const withinBudget = isP50 && latencyBudgetMs != null && entry.mean <= latencyBudgetMs
                         const overBudget = isP50 && latencyBudgetMs != null && entry.mean > latencyBudgetMs
                         const meanCellClass = withinBudget
-                          ? 'bg-green-50 text-green-700'
+                          ? 'bg-status-positive/10 text-status-positive'
                           : overBudget
-                          ? 'bg-red-50 text-red-600'
+                          ? 'bg-status-negative/10 text-status-negative'
                           : ''
 
                         // Q-value delta pill for last-stage quality metrics
@@ -400,11 +400,11 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                         const delta = !isLatency ? pipelineDeltas?.get(deltaKey) : undefined
 
                         return (
-                          <tr key={key} className="hover:bg-gray-50 border-t border-gray-100 dark:border-slate-800">
-                            <td className="px-3 pl-6 py-2 text-gray-700 dark:text-slate-200">
+                          <tr key={key} className="hover:bg-surface-muted border-t border-hairline">
+                            <td className="px-3 pl-6 py-2 text-ink-muted">
                               {formatMetricKey(key, multiStagePipelines, true)}
                               {entry.metric_name === 'temporal_recall' && (
-                                <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 font-medium">time-aware</span>
+                                <span className="ml-1.5 text-[9px] px-1 py-0.5 rounded bg-accent/10 text-accent font-medium">time-aware</span>
                               )}
                               {lookupGlossary(entry.metric_name) && (
                                 <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
@@ -420,9 +420,9 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                                   className={`ml-1.5 text-[9px] px-1 py-0.5 rounded font-medium ${
                                     delta.significant
                                       ? delta.absolute >= 0
-                                        ? 'bg-green-50 text-green-700'
-                                        : 'bg-red-50 text-red-600'
-                                      : 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-slate-500'
+                                        ? 'bg-status-positive/10 text-status-positive'
+                                        : 'bg-status-negative/10 text-status-negative'
+                                      : 'bg-surface-muted text-ink-faint'
                                   }`}
                                   title={delta.q_value != null ? `q=${delta.q_value.toFixed(3)} (BH-corrected)` : 'ns'}
                                 >
@@ -431,26 +431,26 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                                 </span>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-500 dark:text-slate-400">
+                            <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
                               {isLatencyPct || entry.std == null ? (
-                                <span className="text-gray-400 dark:text-slate-500" title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
+                                <span className="text-ink-faint" title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
                               ) : (
                                 fmtCell(entry.std, isLatency)
                               )}
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums text-gray-600 dark:text-slate-300 text-xs">
+                            <td className="px-3 py-2 text-right tabular-nums text-ink-muted text-xs">
                               {ciLabel(entry, isLatencyPct)}
                             </td>
-                            <td className="px-3 py-2 text-right text-gray-500 dark:text-slate-400">
+                            <td className="px-3 py-2 text-right text-ink-muted">
                               {isP99 && entry.n < 100
-                                ? <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>
+                                ? <span className="text-[9px] px-1 py-0.5 rounded bg-status-warning/10 text-status-warning font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>
                                 : entry.n
                               }
                             </td>
                             <td className={`px-3 py-2 text-right text-xs tabular-nums font-medium ${
-                              zeroPctHigh ? 'text-red-600 bg-red-50' :
-                              zeroPctMed ? 'text-amber-600 bg-amber-50' :
-                              'text-gray-400 dark:text-slate-500'
+                              zeroPctHigh ? 'text-status-negative bg-status-negative/10' :
+                              zeroPctMed ? 'text-status-warning bg-status-warning/10' :
+                              'text-ink-faint'
                             }`}>
                               {isLatencyPct || isProfileMetric(entry.metric_name) ? (
                                 isProfileMetric(entry.metric_name) && entry.zero_pct >= 99 ? (
@@ -464,12 +464,12 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                               ) : `${entry.zero_pct}% (${entry.zero_count}/${entry.n})`}
                             </td>
                             {hasBaselines && (
-                              <td className="px-3 py-2 text-right text-gray-400 dark:text-slate-500 text-xs tabular-nums">
+                              <td className="px-3 py-2 text-right text-ink-faint text-xs tabular-nums">
                                 {baselineVal !== undefined ? fmtQuality(baselineVal) : '—'}
                               </td>
                             )}
                             {pValues && (
-                              <td className={`px-3 py-2 text-right tabular-nums ${significant ? 'font-bold text-indigo-700' : 'text-gray-500 dark:text-slate-400'}`}>
+                              <td className={`px-3 py-2 text-right tabular-nums ${significant ? 'font-bold text-accent' : 'text-ink-muted'}`}>
                                 {pv !== undefined ? `${pv.toFixed(3)}${significant ? ' *' : ''}` : '—'}
                               </td>
                             )}
@@ -486,7 +486,7 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                     <tr key={`e2e-header-${pid}`}>
                       <td
                         colSpan={colCount}
-                        className="px-3 py-1 bg-indigo-50 text-[11px] font-semibold text-indigo-700 border-t border-indigo-100"
+                        className="px-3 py-1 bg-accent/10 text-[11px] font-semibold text-accent border-t border-accent/30"
                       >
                         E2E Total Latency
                       </td>
@@ -497,9 +497,9 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                       const withinBudget = isP50 && latencyBudgetMs != null && entry.mean <= latencyBudgetMs
                       const overBudget = isP50 && latencyBudgetMs != null && entry.mean > latencyBudgetMs
                       const meanCellClass = withinBudget
-                        ? 'bg-green-50 text-green-700'
+                        ? 'bg-status-positive/10 text-status-positive'
                         : overBudget
-                        ? 'bg-red-50 text-red-600'
+                        ? 'bg-status-negative/10 text-status-negative'
                         : ''
                       const label = entry.metric_name === 'latency_p50'
                         ? 'E2E P50'
@@ -507,8 +507,8 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                         ? 'E2E P95'
                         : 'E2E P99'
                       return (
-                        <tr key={`e2e-${pid}-${entry.metric_name}`} className="hover:bg-gray-50 border-t border-gray-100 dark:border-slate-800">
-                          <td className="px-3 pl-6 py-2 text-gray-700 dark:text-slate-200 font-semibold">
+                        <tr key={`e2e-${pid}-${entry.metric_name}`} className="hover:bg-surface-muted border-t border-hairline">
+                          <td className="px-3 pl-6 py-2 text-ink-muted font-semibold">
                             {label}
                             {lookupGlossary(entry.metric_name) && (
                               <MetricTooltip text={lookupGlossary(entry.metric_name)!} />
@@ -518,21 +518,21 @@ export default function MetricsTable({ metrics, pValues, baselines = {}, latency
                             {fmtLatencyMs(entry.mean)}
                             {latencySummaryHint()}
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-gray-500 dark:text-slate-400">
+                          <td className="px-3 py-2 text-right tabular-nums text-ink-muted">
                             <span title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
                           </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-gray-600 dark:text-slate-300 text-xs">
+                          <td className="px-3 py-2 text-right tabular-nums text-ink-muted text-xs">
                             <span title={METRIC_GLOSSARY.latency_percentile_summary}>—</span>
                           </td>
-                          <td className="px-3 py-2 text-right text-gray-500 dark:text-slate-400">
+                          <td className="px-3 py-2 text-right text-ink-muted">
                             {isP99 && entry.n < 100
-                              ? <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-700 font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>
+                              ? <span className="text-[9px] px-1 py-0.5 rounded bg-status-warning/10 text-status-warning font-medium" title="P99 on fewer than 100 queries is unreliable">{entry.n} low N</span>
                               : entry.n
                             }
                           </td>
-                          <td className="px-3 py-2 text-right text-gray-400 dark:text-slate-500">—</td>
-                          {hasBaselines && <td className="px-3 py-2 text-right text-gray-400 dark:text-slate-500">—</td>}
-                          {pValues && <td className="px-3 py-2 text-right text-gray-400 dark:text-slate-500">—</td>}
+                          <td className="px-3 py-2 text-right text-ink-faint">—</td>
+                          {hasBaselines && <td className="px-3 py-2 text-right text-ink-faint">—</td>}
+                          {pValues && <td className="px-3 py-2 text-right text-ink-faint">—</td>}
                         </tr>
                       )
                     })}

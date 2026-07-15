@@ -3,12 +3,12 @@ import type { ReactNode } from 'react'
 export type StatusKind = 'loading' | 'empty' | 'partial' | 'error' | 'invalid' | 'unavailable'
 
 const PRESENTATION: Record<StatusKind, { icon: string; label: string; classes: string }> = {
-  loading: { icon: '…', label: 'Loading', classes: 'border-slate-200 bg-slate-50 text-slate-700' },
-  empty: { icon: '∅', label: 'Empty', classes: 'border-slate-200 bg-slate-50 text-slate-700' },
-  partial: { icon: '◐', label: 'Partial evidence', classes: 'border-amber-300 bg-amber-50 text-amber-900' },
-  error: { icon: '!', label: 'Error', classes: 'border-red-300 bg-red-50 text-red-900' },
-  invalid: { icon: '×', label: 'Invalid', classes: 'border-red-300 bg-red-50 text-red-900' },
-  unavailable: { icon: '?', label: 'Unavailable', classes: 'border-slate-300 bg-slate-50 text-slate-700' },
+  loading: { icon: '…', label: 'Loading', classes: 'border-status-neutral/30 bg-status-neutral/10 text-status-neutral' },
+  empty: { icon: '∅', label: 'Empty', classes: 'border-status-neutral/30 bg-status-neutral/10 text-status-neutral' },
+  partial: { icon: '◐', label: 'Partial evidence', classes: 'border-status-warning/40 bg-status-warning/10 text-status-warning' },
+  error: { icon: '!', label: 'Error', classes: 'border-status-negative/40 bg-status-negative/10 text-status-negative' },
+  invalid: { icon: '×', label: 'Invalid', classes: 'border-status-negative/40 bg-status-negative/10 text-status-negative' },
+  unavailable: { icon: '?', label: 'Unavailable', classes: 'border-status-neutral/30 bg-status-neutral/10 text-status-neutral' },
 }
 
 export default function StatusPanel({
@@ -24,7 +24,7 @@ export default function StatusPanel({
   const urgent = kind === 'error' || kind === 'invalid'
   return (
     <div
-      className={`rounded-lg border p-3 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 ${presentation.classes}`}
+      className={`rounded-lg border p-3 text-sm ${presentation.classes}`}
       data-state={kind}
       role={urgent ? 'alert' : 'status'}
       aria-live={urgent ? 'assertive' : 'polite'}

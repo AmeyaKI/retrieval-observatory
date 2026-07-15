@@ -39,75 +39,77 @@ export default function LiveTraces({ dbId, service, since, initialFilter }: Prop
       .catch((e) => setError(e.message))
   }, [dbId, service, since, statusFilter, difficultyFilter, suspectedOnly])
 
-  if (error) return <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
+  if (error) return <div className="p-3 bg-status-negative/10 border border-status-negative/30 rounded text-sm text-status-negative">{error}</div>
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-3 text-xs">
-        <label className="flex items-center gap-1 text-gray-600 dark:text-slate-300">
+        <label className="flex items-center gap-1 text-ink-muted">
           Status:
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-gray-200 dark:border-slate-700 rounded px-1.5 py-1 bg-white dark:bg-slate-900">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border border-hairline rounded px-1.5 py-1 bg-surface">
             <option value="">all</option><option value="OK">OK</option><option value="ERROR">ERROR</option><option value="TIMEOUT">TIMEOUT</option>
           </select>
         </label>
-        <label className="flex items-center gap-1 text-gray-600 dark:text-slate-300">
+        <label className="flex items-center gap-1 text-ink-muted">
           Difficulty:
-          <select value={difficultyFilter} onChange={(e) => setDifficultyFilter(e.target.value)} className="border border-gray-200 dark:border-slate-700 rounded px-1.5 py-1 bg-white dark:bg-slate-900">
+          <select value={difficultyFilter} onChange={(e) => setDifficultyFilter(e.target.value)} className="border border-hairline rounded px-1.5 py-1 bg-surface">
             <option value="">all</option><option value="easy">easy</option><option value="medium">medium</option><option value="hard">hard</option><option value="extreme">extreme</option>
           </select>
         </label>
-        <label className="flex items-center gap-1.5 text-gray-600 dark:text-slate-300">
-          <input type="checkbox" className="accent-teal-500" checked={suspectedOnly} onChange={(e) => setSuspectedOnly(e.target.checked)} />
+        <label className="flex items-center gap-1.5 text-ink-muted">
+          <input type="checkbox" className="accent-accent" checked={suspectedOnly} onChange={(e) => setSuspectedOnly(e.target.checked)} />
           Suspected failures only
         </label>
-        <span className="text-gray-400 dark:text-slate-500 ml-auto">{rows?.length ?? '…'} traces</span>
+        <span className="text-ink-faint ml-auto">{rows?.length ?? '…'} traces</span>
       </div>
 
-      <div className="border border-gray-200 dark:border-slate-700 rounded-lg overflow-hidden">
-        <table className="w-full text-xs">
-          <thead className="bg-gray-50 dark:bg-slate-800/60 text-gray-500 dark:text-slate-400">
-            <tr>
-              <th className="text-left font-medium px-3 py-2 w-40">Time</th>
-              <th className="text-left font-medium px-3 py-2">Query</th>
-              <th className="text-left font-medium px-3 py-2 w-28">Pipeline</th>
-              <th className="text-left font-medium px-3 py-2 w-20">Status</th>
-              <th className="text-right font-medium px-3 py-2 w-20">Latency</th>
-              <th className="text-left font-medium px-3 py-2 w-24">Difficulty</th>
-              <th className="text-left font-medium px-3 py-2 w-56">Suspected</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {rows?.map((r) => (
-              <tr key={r.trace_id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setOpenId(r.trace_id)}>
-                <td className="px-3 py-2 text-gray-500 dark:text-slate-400 whitespace-nowrap">{fmtTime(r.timestamp)}</td>
-                <td className="px-3 py-2 text-gray-800 dark:text-slate-100 truncate max-w-0">{r.query_text}</td>
-                <td className="px-3 py-2 text-gray-600 dark:text-slate-300 font-mono">{r.pipeline_id}</td>
-                <td className="px-3 py-2">
-                  <span className={r.status === 'OK' ? 'text-green-600' : 'text-rose-600 font-medium'}>{r.status}</span>
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-600 dark:text-slate-300">{r.total_latency_ms.toFixed(0)} ms</td>
-                <td className="px-3 py-2">
-                  {r.predicted_difficulty && (
-                    <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium capitalize ${difficultyChipClass(r.predicted_difficulty)}`}>
-                      {r.predicted_difficulty}
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    {r.suspected_failures.map((s) => <SuspectedFailureChip key={s} signal={s} />)}
-                  </div>
-                </td>
+      <div className="border border-hairline rounded-lg overflow-hidden">
+        <div className="max-h-[32rem] overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 z-10 bg-surface-muted/95 backdrop-blur-sm text-ink-muted">
+              <tr>
+                <th className="text-left font-medium px-3 py-1.5 w-40">Time</th>
+                <th className="text-left font-medium px-3 py-1.5">Query</th>
+                <th className="text-left font-medium px-3 py-1.5 w-28">Pipeline</th>
+                <th className="text-left font-medium px-3 py-1.5 w-20">Status</th>
+                <th className="text-right font-medium px-3 py-1.5 w-20">Latency</th>
+                <th className="text-left font-medium px-3 py-1.5 w-24">Difficulty</th>
+                <th className="text-left font-medium px-3 py-1.5 w-56">Suspected</th>
               </tr>
-            ))}
-            {rows && rows.length === 0 && (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 dark:text-slate-500">No traces match these filters.</td></tr>
-            )}
-            {!rows && (
-              <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 dark:text-slate-500">Loading traces…</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-hairline">
+              {rows?.map((r) => (
+                <tr key={r.trace_id} className="hover:bg-surface-muted cursor-pointer" onClick={() => setOpenId(r.trace_id)}>
+                  <td className="px-3 py-1 text-ink-muted font-mono tabular-nums whitespace-nowrap">{fmtTime(r.timestamp)}</td>
+                  <td className="px-3 py-1 text-ink truncate max-w-0">{r.query_text}</td>
+                  <td className="px-3 py-1 text-ink-muted font-mono">{r.pipeline_id}</td>
+                  <td className="px-3 py-1">
+                    <span className={r.status === 'OK' ? 'text-status-positive' : 'text-status-negative font-medium'}>{r.status}</span>
+                  </td>
+                  <td className="px-3 py-1 text-right tabular-nums font-mono text-ink-muted">{r.total_latency_ms.toFixed(0)} ms</td>
+                  <td className="px-3 py-1">
+                    {r.predicted_difficulty && (
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] font-medium capitalize ${difficultyChipClass(r.predicted_difficulty)}`}>
+                        {r.predicted_difficulty}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1">
+                    <div className="flex flex-wrap gap-1">
+                      {r.suspected_failures.map((s) => <SuspectedFailureChip key={s} signal={s} />)}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {rows && rows.length === 0 && (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-ink-faint">No traces match these filters.</td></tr>
+              )}
+              {!rows && (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-ink-faint">Loading traces…</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
           {openId && <TraceDetail dbId={dbId} traceId={openId} onClose={() => setOpenId(null)} />}

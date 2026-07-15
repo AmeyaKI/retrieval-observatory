@@ -16,19 +16,31 @@
   --ink-faint: 90 100 116;      /* tertiary text / labels, WCAG AA on muted surface */
   --status-positive: 6 95 70;   /* positive text on emerald-50 */
   --status-warning: 146 64 14;  /* warning text on amber-50   */
+  --status-negative: 185 28 28; /* negative text on red-50    */
+  --status-neutral: 71 85 105;  /* neutral/info text on slate-50 */
+  --accent: 79 70 229;          /* primary accent (was ad hoc indigo-600) */
+  --accent-muted: 224 226 255;  /* accent tint background */
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --shadow-elevated: 0 4px 12px rgba(16, 24, 40, 0.08), 0 2px 4px rgba(16, 24, 40, 0.06);
   color-scheme: light;
 }
 
 :root.dark {
-  --canvas: 13 17 23;
-  --surface: 22 27 34;
-  --surface-muted: 30 37 46;
+  --canvas: 8 10 15;
+  --surface: 17 21 29;
+  --surface-muted: 25 30 40;
   --hairline: 45 53 64;
   --ink: 233 237 243;
   --ink-muted: 165 174 188;
   --ink-faint: 174 184 198;
   --status-positive: 110 231 183;
   --status-warning: 253 186 116;
+  --status-negative: 252 165 165;
+  --status-neutral: 148 163 184;
+  --accent: 129 140 248;
+  --accent-muted: 49 46 92;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(129, 140, 248, 0.08);
   color-scheme: dark;
 }
 
@@ -54,6 +66,12 @@ body {
     background-color: rgb(var(--surface-muted));
     border: 1px solid rgb(var(--hairline));
     border-radius: 0.5rem;
+  }
+  .app-card-elevated {
+    background-color: rgb(var(--surface));
+    border: 1px solid rgb(var(--hairline));
+    border-radius: 0.75rem;
+    box-shadow: var(--shadow-elevated);
   }
   .hairline-b { border-bottom: 1px solid rgb(var(--hairline)); }
   .hairline-r { border-right: 1px solid rgb(var(--hairline)); }
@@ -88,5 +106,15 @@ svg, svg * { transition: none; }
   .text-amber-600,
   .text-amber-700 {
     color: rgb(var(--status-warning));
+  }
+  .text-red-600,
+  .text-red-700,
+  .text-rose-600,
+  .text-rose-700 {
+    color: rgb(var(--status-negative));
+  }
+  .text-indigo-600,
+  .text-indigo-700 {
+    color: rgb(var(--accent));
   }
 }

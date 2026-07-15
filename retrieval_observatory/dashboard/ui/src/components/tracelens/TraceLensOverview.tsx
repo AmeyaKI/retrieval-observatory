@@ -3,10 +3,10 @@ import { fetchTraceSummary, TraceSummary } from '../../api'
 import { METRIC_GLOSSARY } from '../../utils/metricGlossary'
 
 function Kpi({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: 'bad' | 'warn' | 'ok' }) {
-  const valueColor = tone === 'bad' ? 'text-rose-600' : tone === 'warn' ? 'text-amber-600' : 'text-gray-900 dark:text-slate-100'
+  const valueColor = tone === 'bad' ? 'text-status-negative' : tone === 'warn' ? 'text-status-warning' : 'text-ink'
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4" title={hint}>
-      <p className="text-xs text-gray-500 dark:text-slate-400">{label}</p>
+    <div className="rounded-lg border border-hairline bg-surface p-4" title={hint}>
+      <p className="text-xs text-ink-muted">{label}</p>
       <p className={`text-2xl font-bold tabular-nums ${valueColor}`}>{value}</p>
     </div>
   )
@@ -21,11 +21,11 @@ export default function TraceLensOverview({ dbId, service, since }: { dbId: stri
     fetchTraceSummary(dbId, service, since).then(setSummary).catch((e) => setError(e.message))
   }, [dbId, service, since])
 
-  if (error) return <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
+  if (error) return <div className="p-3 bg-status-negative/10 border border-status-negative/30 rounded text-sm text-status-negative">{error}</div>
   if (!summary) {
     return (
-      <div className="flex items-center gap-2 text-gray-400 dark:text-slate-500 text-sm">
-        <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 dark:border-slate-600 border-t-teal-500" />
+      <div className="flex items-center gap-2 text-ink-faint text-sm">
+        <div className="animate-spin rounded-full h-4 w-4 border-2 border-hairline border-t-accent" />
         Loading summary…
       </div>
     )

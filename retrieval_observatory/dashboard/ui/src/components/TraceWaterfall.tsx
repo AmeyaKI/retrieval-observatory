@@ -17,10 +17,10 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  FIRED: 'bg-blue-400',
-  SKIPPED_BY_GATE: 'bg-gray-300',
-  ERROR: 'bg-red-400',
-  TIMEOUT: 'bg-amber-400',
+  FIRED: 'bg-accent',
+  SKIPPED_BY_GATE: 'bg-ink-faint/40',
+  ERROR: 'bg-status-negative',
+  TIMEOUT: 'bg-status-warning',
 }
 
 export default function TraceWaterfall({ spans, onSelectOp }: Props) {
@@ -44,49 +44,49 @@ export default function TraceWaterfall({ spans, onSelectOp }: Props) {
   return (
     <div>
       <SectionHeading title="Trace waterfall" />
-      <div className="border border-gray-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 p-3">
-        <div className="text-[10px] text-gray-400 dark:text-slate-500 mb-2 text-right">
+      <div className="border border-hairline rounded bg-surface p-3">
+        <div className="text-[10px] text-ink-faint mb-2 text-right">
           Total: {totalMs.toFixed(1)}ms
         </div>
         <div className="space-y-1">
           {bars.map((bar) => (
             <div
               key={bar.op_id}
-              className="flex items-center gap-2 text-xs cursor-pointer hover:bg-blue-50 rounded px-1 py-0.5"
+              className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/10 hover:shadow-card rounded px-1 py-0.5 transition-shadow"
               onClick={() => onSelectOp?.(bar.op_id)}
             >
               <div className="w-32 truncate font-mono text-[11px]" title={bar.op_id}>
                 {bar.op_name}
               </div>
-              <div className="flex-1 relative h-5 bg-gray-50 dark:bg-slate-800/60 rounded overflow-hidden">
+              <div className="flex-1 relative h-5 bg-surface-muted rounded overflow-hidden">
                 <div
-                  className={`absolute top-0 h-full rounded ${STATUS_COLORS[bar.status] || 'bg-blue-400'}`}
+                  className={`absolute top-0 h-full rounded ${STATUS_COLORS[bar.status] || 'bg-accent'}`}
                   style={{ left: `${bar.startPct}%`, width: `${Math.max(bar.widthPct, 0.5)}%` }}
                   title={`${bar.op_type} · ${bar.latency_ms.toFixed(1)}ms · ${bar.status}`}
                 />
               </div>
-              <div className="w-16 text-right text-gray-500 dark:text-slate-400 text-[10px]">
+              <div className="w-16 text-right text-ink-muted text-[10px]">
                 {bar.latency_ms.toFixed(1)}ms
               </div>
               <div className="w-6">
                 {bar.status === 'SKIPPED_BY_GATE' && (
-                  <span className="text-gray-400 dark:text-slate-500 text-[10px]" title="Skipped by gate">⏭</span>
+                  <span className="text-ink-faint text-[10px]" title="Skipped by gate">⏭</span>
                 )}
                 {bar.status === 'ERROR' && (
-                  <span className="text-red-500 text-[10px]" title="Error">✕</span>
+                  <span className="text-status-negative text-[10px]" title="Error">✕</span>
                 )}
                 {bar.status === 'TIMEOUT' && (
-                  <span className="text-amber-500 text-[10px]" title="Timeout">⏱</span>
+                  <span className="text-status-warning text-[10px]" title="Timeout">⏱</span>
                 )}
               </div>
             </div>
           ))}
         </div>
-        <div className="flex gap-3 text-[10px] text-gray-400 dark:text-slate-500 mt-2 border-t border-gray-100 dark:border-slate-800 pt-1">
-          <span><span className="inline-block w-3 h-2 bg-blue-400 rounded mr-1" />Fired</span>
-          <span><span className="inline-block w-3 h-2 bg-gray-300 rounded mr-1" />Skipped</span>
-          <span><span className="inline-block w-3 h-2 bg-red-400 rounded mr-1" />Error</span>
-          <span><span className="inline-block w-3 h-2 bg-amber-400 rounded mr-1" />Timeout</span>
+        <div className="flex gap-3 text-[10px] text-ink-faint mt-2 border-t border-hairline pt-1">
+          <span><span className="inline-block w-3 h-2 bg-accent rounded mr-1" />Fired</span>
+          <span><span className="inline-block w-3 h-2 bg-ink-faint/40 rounded mr-1" />Skipped</span>
+          <span><span className="inline-block w-3 h-2 bg-status-negative rounded mr-1" />Error</span>
+          <span><span className="inline-block w-3 h-2 bg-status-warning rounded mr-1" />Timeout</span>
         </div>
       </div>
     </div>
