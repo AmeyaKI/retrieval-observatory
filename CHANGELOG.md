@@ -6,6 +6,17 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Added
+
+- `tracing/model.py` — define one service-scoped trace identity for production and evaluation with parent-grouped candidate evidence.
+- `integrations/model.py` — add deterministic plan, manifest, phase-specific result, check, patch, and verification contracts.
+- `diagnostics/model.py` — add versioned evidence contracts for supported, limited, unavailable, and not-observed retrieval findings.
+- `contracts/public_surface.json` and `scripts/check_public_surface.py` — make supported CLI, MCP, SDK, documentation, extras, and integration tiers release-gated contracts.
+
+### Changed
+
+- `config/operators.py` — replace generic DAG nodes with validated operator-specific graph specifications.
+
 ## [0.5.0] — 2026-07-14 [PyPI]
 
 Major product revamp: one callable-first retrieval debugging loop replaces the old four-module surface (Benchmarks / Forge / TraceLens / Advisor). CLI, SDK, MCP, dashboard, and CI now share the same evaluate → compare → inspect-query vocabulary, evidence contracts, and validity-gated statistics.
