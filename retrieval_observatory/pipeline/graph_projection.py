@@ -188,6 +188,16 @@ def build_pipeline_graphs(
                 latency_p50=_metric_value(metric_index.get((pipeline_id, depth, "latency_p50", 0, branch_id))),
             )
             metric_available = any(value is not None for value in (metrics.ndcg10, metrics.recall, metrics.latency_p50))
+            grouped_inputs = [getattr(span, "input_groups", {}) for span in sample_spans]
+            parent_ids = set().union(*(set(groups) for groups in grouped_inputs))
+            parent_candidate_counts = {
+                parent_id: mean(len(groups.get(parent_id, ())) for groups in grouped_inputs)
+                for parent_id in sorted(parent_ids)
+            }
+            input_counts = [
+                sum(len(candidates) for candidates in groups.values()) if groups else len(span.inputs)
+                for span, groups in zip(sample_spans, grouped_inputs)
+            ]
             nodes.append(PipelineGraphNode(
                 node_id=op_id,
                 label=_node_label(representative.op_name),
@@ -197,7 +207,8 @@ def build_pipeline_graphs(
                 candidate_count=mean(len(span.outputs) for span in sample_spans),
                 metrics=metrics,
                 is_merge=len(parents_by_op[op_id]) >= 2,
-                input_candidate_count=mean(len(span.inputs) for span in sample_spans),
+                input_candidate_count=mean(input_counts),
+                parent_candidate_counts=parent_candidate_counts,
                 observed_count=observed_count,
                 trace_coverage=observed_count / trace_count if trace_count else 0.0,
                 fire_rate=status_counts.get("FIRED", 0) / trace_count if trace_count else 0.0,
@@ -215,7 +226,7 @@ def build_pipeline_graphs(
                 availability={
                     "topology": "measured",
                     "metrics": "measured" if metric_available else "unavailable",
-                    "candidate_inputs": "measured" if any(span.inputs for span in sample_spans) else "unavailable",
+                    "candidate_inputs": "measured" if any(input_counts) else "unavailable",
                 },
             ))
 

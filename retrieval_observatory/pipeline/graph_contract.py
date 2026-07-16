@@ -71,6 +71,7 @@ class PipelineGraphNode:
     is_merge: bool = False
     source: str = "measured"
     input_candidate_count: float = 0.0
+    parent_candidate_counts: Dict[str, float] = field(default_factory=dict)
     observed_count: int = 0
     trace_coverage: float = 0.0
     fire_rate: float = 0.0
@@ -94,6 +95,7 @@ class PipelineGraphNode:
             "is_merge": self.is_merge,
             "source": self.source,
             "input_candidate_count": self.input_candidate_count,
+            "parent_candidate_counts": dict(self.parent_candidate_counts),
             "observed_count": self.observed_count,
             "trace_coverage": self.trace_coverage,
             "fire_rate": self.fire_rate,
