@@ -13,6 +13,9 @@ def test_publish_workflow_does_not_rebuild() -> None:
     assert "release-dist" in raw
     assert "release-evidence" in raw
     assert raw.count("verify_release_artifact.py") >= 2
+    assert "packages-dir: packages/" in raw
+    assert "packages-dir: dist/" not in raw
+    assert "cp dist/*.whl dist/*.tar.gz packages/" in raw
 
 
 def test_publish_workflow_has_ordered_environments() -> None:

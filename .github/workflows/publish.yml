@@ -45,10 +45,14 @@ jobs:
           WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           PACKAGE=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Name'])")
           test "$PACKAGE" = "retrieval-observatory"
+      - name: Stage PyPI packages only
+        run: |
+          mkdir -p packages
+          cp dist/*.whl dist/*.tar.gz packages/
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          packages-dir: dist/
+          packages-dir: packages/
           skip-existing: true
       - name: Smoke the exact uploaded TestPyPI version
         run: |
@@ -85,9 +89,13 @@ jobs:
           WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           PACKAGE=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Name'])")
           test "$PACKAGE" = "retrieval-observatory"
+      - name: Stage PyPI packages only
+        run: |
+          mkdir -p packages
+          cp dist/*.whl dist/*.tar.gz packages/
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist/
+          packages-dir: packages/
       - name: Verify published PyPI metadata matches tested digests
         run: |
           WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)

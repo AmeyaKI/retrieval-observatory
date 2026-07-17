@@ -68,6 +68,7 @@ Dashboard single-run diagnosis polish, Production API client fix, `evaluate --co
 
 ### Fixed
 
+- `.github/workflows/publish.yml` — stage only wheel/sdist into `packages/` so `SHA256SUMS` is not uploaded as a distribution.
 - `cli.py` `evaluate --config` — import `run_from_config` from `sdk` (was `ro.run_from_config`, missing on package root).
 - `dashboard/ui/src/api.ts` — Production TraceLens clients call `/production/*` with `service_id` (was `/tracelens/*` → SPA HTML → JSON parse error).
 - `store/postgres.py` — deserialize JSONB trace payloads returned as strings before reconstructing traces.
