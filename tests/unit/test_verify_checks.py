@@ -4,7 +4,7 @@ import pytest
 
 from retrieval_observatory.integrations.verify import _integration_checks, verify_integration
 from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
 def _trace(qid, *, query_text="q", status="OK"):
@@ -13,9 +13,9 @@ def _trace(qid, *, query_text="q", status="OK"):
         status="FIRED", deterministic=True, replay_policy="EXACT", latency_ms=1.0,
         outputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["src"])],
     )
-    return RetrievalTraceV2(trace_id=f"t{qid}", run_id="r", query_id=qid, query_text=query_text,
-                            pipeline_id="p", spans=[src], total_latency_ms=1.0, status=status,
-                            final_op_id="src", metadata={"label_method": "human"})
+    return RetrievalTrace(trace_id=f"t{qid}", service_id="svc", run_id="r", query_id=qid, query_text=query_text,
+                            pipeline_id="p", spans=[src], timing=TraceTiming(1.0, 1.0, 1.0), status=status,
+                            final_op_ids=("src",), metadata={"label_method": "human"})
 
 
 def test_checks_all_green_on_healthy_traces():
@@ -49,7 +49,7 @@ async def test_verify_integration_reports_check_status(tmp_path):
     store = SQLiteStore(db_path=str(db))
     await store.init_db()
     await store.save_run("r", "exp", "{}")
-    await store.save_trace_v2(_trace("q0"))
+    await store.save_trace(_trace("q0"))
     report = await verify_integration(db_path=str(db), run_id="r")
     assert "checks" in report
     assert report["status"] == "partially_instrumented"
@@ -64,8 +64,8 @@ async def test_verify_integration_required_error_is_failed(tmp_path):
     await store.init_db()
     await store.save_run("r", "exp", "{}")
     trace = _trace("q0")
-    trace.final_op_id = None
-    await store.save_trace_v2(trace)
+    trace.final_op_ids = ()
+    await store.save_trace(trace)
     report = await verify_integration(db_path=str(db), run_id="r")
     assert report["status"] == "failed"
     assert report["capabilities"]["pipeline_graph"]["status"] == "unavailable"

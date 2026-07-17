@@ -1,0 +1,3 @@
+export type AnalysisStateName = 'ready'|'partial'|'unavailable'
+export type EvidenceClass = 'measured'|'statistical'|'replayed'|'heuristic'|'inferred'|'unavailable'
+export interface AnalysisResult<T> { state:AnalysisStateName; scope:{db_id:string;service_id:string|null;run_id:string|null;since:string|null;until:string|null;cohort_id:string|null}; evidence:{evidence_class:EvidenceClass;method_id:string;method_version:string;sample_size:number;population_size:number;coverage:number;thresholds:Record<string,string|number>;limitations:string[];supporting_trace_ids:string[];supporting_query_ids:string[]};data:T|null;unavailable_reason:string|null }

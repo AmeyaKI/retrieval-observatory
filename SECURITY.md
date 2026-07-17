@@ -2,12 +2,18 @@
 
 ## Supported versions
 
-Security fixes are applied to the latest released minor version. This alpha project does not promise backports to older minors.
+Security fixes target the latest released minor version; this alpha project does not promise backports.
 
 ## Report a vulnerability
 
-Do not open a public issue for a suspected vulnerability. Use GitHub's private vulnerability reporting for this repository. Include affected version, impact, reproduction, and any suggested mitigation. The maintainer will acknowledge a complete report within seven days and coordinate disclosure after a fix or mitigation is available.
+Do not open a public issue. Use GitHub private vulnerability reporting with the affected version, impact, reproduction, and suggested mitigation.
 
 ## Deployment boundary
 
-The bundled dashboard is local-first, single-tenant, and unauthenticated. Bind to loopback or place it behind trusted authentication/network controls. Treat query text, candidate metadata, traces, reports, and Test Sets as potentially sensitive; see [Data and privacy](docs/PRIVACY.md).
+- `retobs serve` binds to `127.0.0.1` by default; the dashboard is unauthenticated and local-first.
+- Telemetry queue capacity and overflow policy are explicit configuration.
+- Instrumentation health reports sampling, drops, serialization failures, and export failures.
+- Queries, candidates, metadata, labels, and traces may be sensitive.
+- Redaction occurs before enqueue and persistence according to the integration manifest.
+
+Use trusted authentication and network controls before any non-loopback deployment. See [privacy](docs/PRIVACY.md).

@@ -3,7 +3,11 @@ from __future__ import annotations
 import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from dataclasses import asdict, dataclass, field, replace
+from typing import Any, Dict, List, Mapping, Optional, Sequence
+
+from retrieval_observatory.integrations.model import IntegrationCheck, IntegrationManifest, IntegrationResult
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_SERVE_PORT = 4000
@@ -65,13 +69,13 @@ def _integration_checks(traces: list) -> List[Dict[str, Any]]:
         return [
             _check(
                 "traces_present", "arrival", "error",
-                "No V2 traces found; instrumentation has not been observed.",
+                "No traces found; instrumentation has not been observed.",
                 required=True, affects=_CAPABILITIES,
-                fix="Run at least one representative query and push/persist its V2 trace.",
+                fix="Run at least one representative query and push or persist its trace.",
             )
         ]
 
-    checks.append(_check("traces_present", "arrival", "ok", f"{n} V2 traces recorded.", required=True))
+    checks.append(_check("traces_present", "arrival", "ok", f"{n} traces recorded.", required=True))
 
     now = datetime.now(timezone.utc)
     timestamps = []
@@ -170,7 +174,7 @@ def _integration_checks(traces: list) -> List[Dict[str, Any]]:
 
     missing_final = sum(
         trace.status == "OK" and (
-            not trace.final_op_id or trace.final_op_id not in {span.op_id for span in trace.spans}
+            not trace.final_op_ids or not set(trace.final_op_ids) <= {span.op_id for span in trace.spans}
         )
         for trace in traces
     )
@@ -268,6 +272,88 @@ def _integration_checks(traces: list) -> List[Dict[str, Any]]:
     return checks
 
 
+@dataclass(frozen=True)
+class VerificationCheck:
+    name: str
+    status: str
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class VerificationReport:
+    checks: tuple[VerificationCheck, ...]
+
+    @property
+    def ready(self) -> bool:
+        return bool(self.checks) and all(item.status == "ok" for item in self.checks)
+
+    def check(self, name: str) -> VerificationCheck:
+        return next(item for item in self.checks if item.name == name)
+
+
+def operator_signature(trace: RetrievalTrace) -> dict[str, tuple[str, tuple[str, ...]]]:
+    return {span.op_id: (span.op_type, tuple(span.parent_ids)) for span in trace.spans}
+
+
+def verify_trace_contract(
+    manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]
+) -> VerificationReport:
+    declared = {item.op_id: (item.op_type, tuple(item.parent_ids)) for item in manifest.operators}
+    signatures = [operator_signature(trace) for trace in traces]
+    drift = [
+        {op_id: actual for op_id, actual in signature.items() if declared.get(op_id) != actual}
+        for signature in signatures
+    ]
+    missing = [sorted(set(declared) - set(signature)) for signature in signatures]
+    unknown = sorted({op_id for signature in signatures for op_id in signature if op_id not in declared})
+    topology_error = bool(unknown or any(drift) or any(missing))
+
+    parent_missing = sorted({
+        f"{span.op_id}:{parent}"
+        for trace in traces for span in trace.spans for parent in span.parent_ids
+        if parent not in operator_signature(trace)
+    })
+    grouped_missing = sorted({
+        span.op_id for trace in traces for span in trace.spans
+        if span.status == "FIRED" and span.parent_ids and set(span.input_groups) != set(span.parent_ids)
+    })
+
+    declared_branches: set[str] = set()
+    for item in manifest.operators:
+        declared_branches.update(getattr(item, "branches", {}) or {})
+    declared_branches.update(getattr(manifest, "branches", {}) or {})
+    observed_routes = {
+        str(span.gate_values["selected_route"])
+        for trace in traces for span in trace.spans
+        if span.op_type == "GATE" and span.gate_values.get("selected_route") is not None
+    }
+    missing_branches = sorted(declared_branches - observed_routes)
+
+    invalid_finals = [
+        trace.trace_id for trace in traces
+        if trace.status == "OK" and (
+            not trace.final_op_ids or not set(trace.final_op_ids) <= set(operator_signature(trace))
+        )
+    ]
+    checks = (
+        VerificationCheck(
+            "topology_identity", "error" if topology_error else "ok",
+            {"unknown": unknown, "missing_by_trace": missing, "drift_by_trace": drift},
+        ),
+        VerificationCheck(
+            "parent_coverage", "error" if parent_missing or grouped_missing else "ok",
+            {"missing_parents": parent_missing, "missing_candidate_groups": grouped_missing},
+        ),
+        VerificationCheck(
+            "branch_coverage", "error" if missing_branches else "ok",
+            {"observed": sorted(observed_routes), "missing": missing_branches},
+        ),
+        VerificationCheck("unknown_components", "error" if unknown else "ok", {"unknown": unknown}),
+        VerificationCheck("final_output", "error" if invalid_finals else "ok", {"invalid": invalid_finals}),
+    )
+    return VerificationReport(checks)
+
+
 def _capability_matrix(checks: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     matrix: Dict[str, Dict[str, Any]] = {}
     for capability in _CAPABILITIES:
@@ -317,7 +403,9 @@ async def verify_integration(
         }
 
     target = run_id or runs[0]["run_id"]
-    traces = await store.get_traces_v2(target)
+    from retrieval_observatory.store.base import TraceQuery
+
+    traces = await store.list_traces(TraceQuery(run_id=target))
     from retrieval_observatory.metrics.engine import MetricsEngine
 
     metrics = await MetricsEngine().aggregate(target, store)
@@ -364,3 +452,47 @@ async def verify_integration(
         "dashboard_url": dashboard_run_url(target),
         "next": next_steps,
     }
+
+
+def verify_observed_traces(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]) -> IntegrationResult:
+    declared = {op.op_id for op in manifest.operators}
+    observed = {span.op_id for trace in traces for span in trace.spans}
+    expected_edges = {(parent, op.op_id) for op in manifest.operators for parent in op.parent_ids}
+    observed_edges = {(parent, span.op_id) for trace in traces for span in trace.spans for parent in span.parent_ids}
+    specifications = (
+        ("trace_sample", bool(traces), "Run every verification scenario."),
+        ("expected_operators", declared <= observed, f"Missing operators: {sorted(declared-observed)}"),
+        ("stable_operator_identity", observed <= declared, f"Unknown operators: {sorted(observed-declared)}"),
+        ("declared_edges", expected_edges <= observed_edges, f"Missing edges: {sorted(expected_edges-observed_edges)}"),
+        ("candidate_transitions", all(not s.parent_ids or bool(s.input_groups) for t in traces for s in t.spans), "Capture parent-grouped candidates."),
+        ("timing", all(t.timing is not None for t in traces), "Capture trace timing."),
+    )
+    checks = tuple(IntegrationCheck(name, "ok" if passed else "error", "measured", "1.0", len(traces), fix=None if passed else fix) for name, passed, fix in specifications)
+    errors = tuple(check.fix or check.check_id for check in checks if check.status == "error")
+    signatures = Counter(tuple(sorted((span.op_id, tuple(span.parent_ids)) for span in trace.spans)) for trace in traces)
+    variants = tuple({"signature": repr(signature), "count": count} for signature, count in signatures.items())
+    available = not errors
+    capabilities = {
+        "candidate_transitions": {"available": available, "status": "ready" if available else "unavailable"},
+        "operator_debugging": {"available": available, "status": "ready" if available else "unavailable"},
+        "production_investigation": {"available": available, "status": "ready" if available else "unavailable"},
+        "stable_topology": {"available": available, "status": "ready" if available else "unavailable"},
+    }
+    return IntegrationResult("verify", "ready" if available else "failed", checks=checks, capabilities=capabilities, observed_operator_ids=tuple(sorted(observed)), topology_variants=variants, errors=errors)
+
+
+async def verify_project(root, store) -> IntegrationResult:
+    from pathlib import Path
+    from retrieval_observatory.integrations.manifest import load_manifest
+    from retrieval_observatory.store.base import TraceQuery
+    manifest = load_manifest(Path(root))
+    traces = await store.list_traces(TraceQuery(service_id=manifest.service_id, pipeline_id=manifest.pipeline_id))
+    result = verify_observed_traces(manifest, traces)
+    health = await store.get_instrumentation_health(manifest.service_id)
+    telemetry_health = asdict(health) if health is not None else {
+        "serialization_failures": 0,
+        "export_failures": 0,
+    }
+    if health is not None:
+        telemetry_health["export_failures"] = health.permanent_failures
+    return replace(result, telemetry_health=telemetry_health)

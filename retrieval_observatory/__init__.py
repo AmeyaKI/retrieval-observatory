@@ -1,51 +1,30 @@
-from pathlib import Path
+from __future__ import annotations
 
-PACKAGE_DIR = Path(__file__).resolve().parent
-EXAMPLES_DIR = PACKAGE_DIR / "examples"
+from typing import Any, TypeAlias
 
-from retrieval_observatory.sdk import (  # noqa: E402
-    BenchmarkReport,
-    FunctionReranker,
-    FunctionRetriever,
-    as_retriever,
-    benchmark,
-    compare,
-    evaluate,
-    fuse,
-    generate_testset,
-    inspect_query,
-    reranker,
-    retriever,
-    run_from_config,
-)
-from retrieval_observatory.types import Document, Query, StageSnapshot  # noqa: E402
+from retrieval_observatory.forge.types import TestSetSummary as TestSet
+from retrieval_observatory.integrations import IntegrationOptions
+from retrieval_observatory.sdk import compare, evaluate, generate_testset, inspect_query
+from retrieval_observatory.sdk.report import BenchmarkReport as Run
+from retrieval_observatory.sdk.report import ReportModel as Comparison
+from retrieval_observatory.tracing import RetrievalTrace, TraceRecorder, init
+from retrieval_observatory.types import Document, Query
 
-
-def init(*args, **kwargs):
-    """One-line production tracing setup. See ``retrieval_observatory.tracing.init``."""
-    from retrieval_observatory.tracing import init as _init
-
-    return _init(*args, **kwargs)
-
+QueryEvidence: TypeAlias = dict[str, Any]
 
 __all__ = [
-    "EXAMPLES_DIR",
-    "PACKAGE_DIR",
-    "benchmark",
+    "Comparison",
+    "Document",
+    "IntegrationOptions",
+    "Query",
+    "QueryEvidence",
+    "RetrievalTrace",
+    "Run",
+    "TestSet",
+    "TraceRecorder",
     "compare",
     "evaluate",
-    "run_from_config",
-    "fuse",
-    "init",
     "generate_testset",
+    "init",
     "inspect_query",
-    "retriever",
-    "reranker",
-    "as_retriever",
-    "FunctionRetriever",
-    "FunctionReranker",
-    "BenchmarkReport",
-    "Document",
-    "Query",
-    "StageSnapshot",
 ]

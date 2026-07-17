@@ -1,4 +1,4 @@
-"""Unit tests for Forge scenario detection — no LLM or API key required."""
+"""Unit tests for Test Sets scenario detection — no LLM or API key required."""
 from __future__ import annotations
 
 import pytest

@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  source-gates:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -33,113 +33,26 @@ jobs:
       - name: Ruff
         run: ruff check retrieval_observatory tests scripts
 
-      - name: Markdown links
+      - name: Public surface contract
+        run: python scripts/check_public_surface.py
+
+      - name: Removed vocabulary
+        run: python scripts/check_public_vocabulary.py
+
+      - name: Markdown links and anchors
         run: python scripts/check_markdown_links.py
 
-      - name: Release metadata and generated assets
-        run: python scripts/check_release.py
-
-      - name: Build dashboard UI
-        run: make dashboard-build
-
-      - name: Dashboard UI tests (vitest)
-        run: make dashboard-test
-
       - name: Run unit tests
-        run: pytest tests/unit/ -v --tb=short
+        run: pytest tests/unit tests/contracts -v --tb=short
 
       - name: Run integration tests
-        run: pytest tests/integration/ -v --tb=short -m "not slow"
+        run: pytest tests/integration -v --tb=short -m "not slow"
 
-      - name: Hybrid graph smoke (slow)
-        run: pytest tests/integration/test_hybrid_graph_smoke.py -v --tb=short
+      - name: Dashboard UI tests (vitest)
+        run: npm run test --prefix retrieval_observatory/dashboard/ui -- --run
 
-      - name: Check imports
-        run: |
-          python -c "import retrieval_observatory as ro; from retrieval_observatory import Query, Document, benchmark"
-          python -c "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback"
-          python -c "from retrieval_observatory.cli import app"
-          python -c "from retrieval_observatory import run_from_config; from retrieval_observatory.mcp.server import build_server; build_server()"
-          # Duck-typed adapters must import cleanly with none of these frameworks installed
-          # (this job installs no haystack/dspy/openai-agents extra) -- see
-          # tracing/integrations/_duck_typed.py.
-          python -c "from retrieval_observatory.tracing.integrations.haystack import wrap_haystack_component"
-          python -c "from retrieval_observatory.tracing.integrations.dspy import wrap_retrieve"
-          python -c "from retrieval_observatory.tracing.integrations.openai_agents import wrap_retrieval_tool"
-
-  first-class-framework-smoke:
-    # Claimed first-class paths install and exercise the real framework, separate from
-    # duck-typed contracts in the main test job.
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: python
-            editable: ".[dev]"
-            additional: ""
-            command: python examples/basic/sdk_quickstart.py
-          - name: fastapi
-            editable: ".[dev,dashboard]"
-            additional: ""
-            command: pytest tests/unit/test_tracing_fastapi.py -v --tb=short
-          - name: langchain
-            editable: ".[dev,langchain]"
-            additional: "langchain-community faiss-cpu"
-            command: pytest tests/integration/test_langchain_callback.py -v --tb=short
-          - name: llamaindex
-            editable: ".[dev,llamaindex]"
-            additional: ""
-            command: pytest tests/integration/test_llamaindex_callback.py -v --tb=short
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install ${{ matrix.name }}
-        run: pip install -e "${{ matrix.editable }}" ${{ matrix.additional }}
-      - name: Run live ${{ matrix.name }} contract
-        run: ${{ matrix.command }}
-
-  first-class-http-smoke:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install
-        run: pip install -e ".[dev,dashboard,demo]"
-      - name: Run live HTTP evaluation
-        run: |
-          python -m uvicorn server:app --app-dir examples/integrations/http_quickstart --port 8000 > /tmp/retobs-http.log 2>&1 &
-          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/docs > /dev/null && break; sleep 1; done
-          retobs evaluate --config examples/integrations/http_quickstart/config.yaml --max-queries 3
-          python -c "import asyncio; from retrieval_observatory.integrations.verify import verify_integration; report=asyncio.run(verify_integration(db_path='.retobs/http_quickstart.db')); assert report['check_status'] != 'error', report"
-
-  supported-example-framework-smoke:
-    # These broader adapters are maintained as examples, not first-class project wiring claims.
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: haystack
-            extra: haystack
-            example: examples/integrations/haystack_search/app.py
-          - name: dspy
-            extra: dspy
-            example: examples/integrations/dspy_search/app.py
-          - name: openai-agents
-            extra: openai-agents
-            example: examples/integrations/openai_agents_search/app.py
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install
-        run: pip install -e ".[dev,${{ matrix.extra }}]"
-      - name: Run example
-        run: python ${{ matrix.example }}
+      - name: Build dashboard UI
+        run: npm run build --prefix retrieval_observatory/dashboard/ui
 
   postgres:
     runs-on: ubuntu-latest

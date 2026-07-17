@@ -110,7 +110,7 @@ export default function AdvisorWorkspace() {
     <div className="flex-1 flex flex-col overflow-hidden">
       <header className="shrink-0 border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-6 py-4">
         <div className="flex items-center justify-between gap-2">
-          <h1 className="text-lg font-semibold text-violet-800">Advisor</h1>
+          <h1 className="text-lg font-semibold text-violet-800">Findings</h1>
           <WorkspaceGlossaryLink className="text-[11px] text-violet-700 underline decoration-violet-300" />
         </div>
         <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">

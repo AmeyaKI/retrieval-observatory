@@ -40,7 +40,7 @@ export interface RecommendationDiff {
   persisting: Recommendation[]
 }
 
-/** Item D.4: diff two runs' Advisor recommendations by action string. */
+/** Item D.4: diff two runs' Findings recommendations by action string. */
 export function diffRecommendations(recsA: Recommendation[], recsB: Recommendation[]): RecommendationDiff {
   const actionsA = new Set(recsA.map((r) => r.action))
   const actionsB = new Set(recsB.map((r) => r.action))

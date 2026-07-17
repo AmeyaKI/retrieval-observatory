@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from retrieval_observatory.tracing.attribution import _find_final_span, _metric_at_k
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.tracing.replay import ReplayAssumptions, simulate_without_operator
 
 
@@ -34,7 +34,7 @@ class SimulationResult:
 
 
 def simulate_operator_removal(
-    traces: List[RetrievalTraceV2],
+    traces: List[RetrievalTrace],
     qrels: Dict[str, object],
     op_id: str,
     *,

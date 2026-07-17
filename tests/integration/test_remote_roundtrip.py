@@ -55,7 +55,7 @@ def test_v2_trace_ingest_and_get(tmp_path):
         get_resp = client.get(f"/runs/{run_id}/traces/{trace_id}")
         assert get_resp.status_code == 200
         data = get_resp.json()
-        assert data["trace_format_version"] == 2
+        assert data["schema_version"] == 1
         assert data["query_id"] == "q1"
         assert data["pipeline_id"] == "pipe_a"
         assert len(data["spans"]) == 1

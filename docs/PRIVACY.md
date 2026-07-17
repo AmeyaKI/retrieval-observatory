@@ -1,16 +1,12 @@
 # Data and privacy
 
-retobs is local-first: it does not require a hosted retobs service. SQLite/PostgreSQL data and generated reports stay where the user places them. This does not make every integration private automatically.
+retobs is local-first, but local storage is still sensitive storage. Queries, candidates, metadata, labels, and traces may contain customer, personal, or proprietary data.
 
-Potentially sensitive fields include query text, document IDs/content/metadata, filters, relevance judgments, candidate lists/scores, errors, service names, traces, and generated Test Set prompts/outputs. Before production use:
+- The dashboard binds to `127.0.0.1` by default and is unauthenticated.
+- Telemetry queue capacity, overflow policy, sampling, and retry behavior are explicit configuration.
+- Instrumentation health makes sampling, drops, serialization failures, and export failures visible.
+- Redaction runs before enqueue and persistence according to the integration manifest.
 
-- choose sampling and retention deliberately;
-- redact secrets and personal/customer data before recording metadata or errors;
-- restrict filesystem/database access;
-- do not expose the unauthenticated single-tenant dashboard to an untrusted network;
-- review report artifacts before uploading them to CI or a pull request;
-- configure deletion with `retobs production purge` and database retention controls.
+Before production use, choose retention and sampling deliberately, restrict database/filesystem access, review report artifacts before upload, and place the dashboard behind trusted controls if loopback is insufficient. External label or generation providers receive the supplied content under their own policies.
 
-Rule-based Test Set generation is local. Selecting an LLM generator or judge sends the supplied prompt/corpus excerpts to that provider under its policy and may incur cost. Generated or extractive qrels remain labeled with their method until human/judge validation is recorded.
-
-Security issues should follow [SECURITY.md](../SECURITY.md).
+Report vulnerabilities through [SECURITY.md](../SECURITY.md).

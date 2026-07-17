@@ -1,4 +1,4 @@
-"""Unit tests for Forge ground truth building."""
+"""Unit tests for Test Sets ground truth building."""
 from __future__ import annotations
 
 from retrieval_observatory.forge.labels.ground_truth import build_extractive_qrels

@@ -12,31 +12,27 @@ pytestmark = pytest.mark.skipif(
 @pytest.mark.asyncio
 async def test_postgres_roundtrip():
     from retrieval_observatory.store.postgres import PostgresStore
-    from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
+    from retrieval_observatory.store.base import TraceQuery
+    from retrieval_observatory.tracing.model import OperatorSpan, RetrievalTrace
 
     store = PostgresStore(dsn=os.environ["RETOBS_POSTGRES_DSN"])
     await store.init_db()
 
-    docs = [Document(id="pg_d1", text="hello", score=0.9, rank=1)]
-    snap = StageSnapshot(stage_index=0, stage_id="r1", documents=docs, latency_ms=8.0)
-    result = PipelineResult(
+    trace = RetrievalTrace(
+        trace_id="pg-trace",
+        service_id="pg-service",
+        run_id="pg_run1",
         query_id="pg_q1",
         pipeline_id="pg_p1",
-        snapshots=[snap],
-        total_latency_ms=8.0,
-        status="OK",
+        query_text="query",
+        spans=(OperatorSpan.source("r1", "Source", ()),),
+        final_op_ids=("r1",),
     )
 
     await store.save_run("pg_run1", "pg-test", "{}")
-    await store.save_result("pg_run1", result)
-
-    retrieved = await store.get_results("pg_run1")
-    assert any(r.query_id == "pg_q1" for r in retrieved)
-    assert any(
-        r.snapshots[0].documents[0].id == "pg_d1"
-        for r in retrieved
-        if r.query_id == "pg_q1"
-    )
+    await store.save_trace(trace)
+    retrieved = await store.list_traces(TraceQuery(run_id="pg_run1"))
+    assert [item.trace_id for item in retrieved] == ["pg-trace"]
 
     await store.cache_set("pg_key", '{"ok": true}')
     assert await store.cache_get("pg_key") == '{"ok": true}'
@@ -63,17 +59,17 @@ async def test_postgres_forge_trace_lineage_roundtrip():
     assert await store.get_golden_set("pg_golden") is not None
     assert await store.list_golden_sets()
 
-    from retrieval_observatory.tracing.types import RetrievalTrace
-    from retrieval_observatory.types import StageSnapshot, Document
+    from retrieval_observatory.store.base import TraceQuery
+    from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
     t = RetrievalTrace(
-        trace_id="pg_t1", service="pg_svc", query_id="q", query_text="hello",
-        pipeline_id="p", snapshots=[StageSnapshot(0, "s", [Document("d", "", 0.5, 1)], 1.0)],
-        total_latency_ms=1.0, predicted_difficulty="medium", suspected_failures=["candidate_miss"],
+        trace_id="pg_t1", service_id="pg_svc", run_id=None, query_id="q", query_text="hello",
+        pipeline_id="p", spans=(OperatorSpan.source("s", "Source", (Candidate("d", 0.5, 1),)),),
+        final_op_ids=("s",), metadata={"predicted_difficulty": "medium", "suspected_failures": ["candidate_miss"]},
     )
     await store.save_trace(t)
     assert await store.list_services()
-    rows = await store.list_traces("pg_svc")
+    rows = await store.list_traces(TraceQuery(service_id="pg_svc"))
     assert rows
     assert await store.get_trace("pg_t1")
 

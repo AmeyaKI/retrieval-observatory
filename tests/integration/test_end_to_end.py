@@ -74,13 +74,6 @@ async def test_full_pipeline_with_fixture_data(tmp_path):
     aggregated = await engine.aggregate(run_id="run1", store=store)
     assert len(aggregated) > 0
 
-    from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
-
-    diagnostics = build_query_diagnostics("run1", all_results, qrels)
-    await store.save_query_diagnostics(diagnostics)
-    stored_diagnostics = await store.get_query_diagnostics("run1")
-    assert len(stored_diagnostics) == 5
-
     # Check that recall metrics exist
     recall_keys = [k for k in aggregated if "recall" in k]
     assert len(recall_keys) > 0

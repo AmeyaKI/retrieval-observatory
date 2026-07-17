@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict
 
+from retrieval_observatory.store.base import TraceQuery
+
 
 async def build_query_evidence(
     store: Any,
@@ -20,13 +22,11 @@ async def build_query_evidence(
         raise LookupError(f"Run '{run_id}' not found")
     run_queries = await store.get_run_queries(run_id)
     query_row = next((row for row in run_queries if row.get("query_id") == query_id), None)
-    diagnostics = await store.get_query_diagnostics(run_id, query_id=query_id)
+    stored_findings = await store.query_diagnostics(run_id, query_id=query_id)
+    diagnostics = [finding.to_dict() for finding in stored_findings]
     qrels = await store.get_qrels(run_id)
-    trace_page = await store.get_traces_v2(
-        run_id,
-        query_id=query_id,
-        limit=trace_limit + 1,
-        offset=trace_offset,
+    trace_page = await store.list_traces(
+        TraceQuery(run_id=run_id, query_id=query_id, limit=trace_limit + 1, offset=trace_offset)
     )
     has_more = len(trace_page) > trace_limit
     traces = trace_page[:trace_limit]
@@ -38,7 +38,7 @@ async def build_query_evidence(
     diagnostic_labels = {
         label
         for diagnostic in diagnostics
-        for label in diagnostic.get("failure_labels", [])
+        for label in ([diagnostic["label"]] if diagnostic.get("availability") == "supported" else [])
     }
     relevant_findings = [
         finding
@@ -62,7 +62,7 @@ async def build_query_evidence(
     if not relevant_ids:
         warnings.append("No positive relevance judgments are available for this query.")
     if not traces:
-        warnings.append("No V2 operator traces are available for this query.")
+        warnings.append("No operator traces are available for this query.")
     partial_count = sum(trace.status != "OK" for trace in traces)
     if partial_count:
         warnings.append(f"{partial_count} returned trace(s) are partial or failed.")
@@ -116,9 +116,13 @@ async def build_query_evidence(
 
 def _serialize_trace(trace: Dict[str, Any], *, candidate_limit: int) -> Dict[str, Any]:
     for span in trace.get("spans", []):
-        for field in ("inputs", "outputs"):
-            candidates = span.get(field, [])
+        fields = {"outputs": span.get("outputs", [])}
+        fields.update(span.get("input_groups", {}))
+        for field, candidates in fields.items():
             span[f"{field}_total"] = len(candidates)
             span[f"{field}_truncated"] = len(candidates) > candidate_limit
-            span[field] = candidates[:candidate_limit]
+            if field == "outputs":
+                span[field] = candidates[:candidate_limit]
+            else:
+                span.setdefault("input_groups", {})[field] = candidates[:candidate_limit]
     return trace

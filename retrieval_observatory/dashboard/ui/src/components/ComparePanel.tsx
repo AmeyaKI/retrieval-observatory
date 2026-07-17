@@ -135,6 +135,23 @@ function SummaryBanner({
   )
 }
 
+function DecisionDimensions({ comparison, releaseAllowed }: { comparison: ComparisonEntry[]; releaseAllowed: boolean }) {
+  const tested = comparison.filter(row => row.statistics)
+  const statistical = tested.filter(row => row.statistics?.significant === true).length
+  const practical = tested.filter(row => row.statistics?.decision !== 'no_decision').length
+  const powered = tested.filter(row => row.statistics?.low_power === false).length
+  const release = releaseAllowed && practical > 0 && powered === tested.length
+  const dimensions = [
+    ['Statistical evidence', `${statistical}/${tested.length} metrics pass corrected significance`],
+    ['Practical effect', `${practical}/${tested.length} metrics exceed declared effect thresholds`],
+    ['Power', `${powered}/${tested.length} metrics have adequate paired samples`],
+    ['Release decision', release ? 'Eligible for release review' : 'Blocked or no decision'],
+  ]
+  return <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4" aria-label="Decision dimensions">
+    {dimensions.map(([title, detail]) => <div key={title} className="border rounded p-2"><div className="text-xs font-semibold">{title}</div><div className="text-[11px] text-gray-500">{detail}</div></div>)}
+  </div>
+}
+
 export default function ComparePanel({ selections }: Props) {
   const [comparison, setComparison] = useState<ComparisonEntry[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -246,6 +263,8 @@ export default function ComparePanel({ selections }: Props) {
       </div>
 
       {comparability && <ComparabilityBanner report={comparability} />}
+
+      {twoRuns && <DecisionDimensions comparison={comparison} releaseAllowed={comparability?.decision_allowed !== false} />}
 
       {twoRuns && <SummaryBanner comparison={comparison} runKeys={runKeys} />}
 

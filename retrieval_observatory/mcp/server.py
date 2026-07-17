@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
@@ -200,25 +201,6 @@ async def _inspect_query(
     )
 
 
-def _normalize_benchmark_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Accept full ExperimentConfig or legacy pipeline-descriptor shape."""
-    if config.get("experiment") and config.get("dataset"):
-        return config
-    if "pipelines" in config and ("dataset" in config or config.get("name")):
-        name = str(config.get("name", config.get("experiment", {}).get("name", "mcp-pipeline")))
-        return {
-            "experiment": {"name": name},
-            "dataset": config.get("dataset", {}),
-            "pipelines": config.get("pipelines", []),
-            "output": config.get("output", {"store": "sqlite", "db_path": DEFAULT_DB_PATH}),
-            **{k: v for k, v in config.items() if k in ("metrics", "execution", "combinations", "stages", "costs", "graphs")},
-        }
-    raise ValueError(
-        "Config must be an ExperimentConfig (experiment + dataset + pipelines) "
-        "or a legacy descriptor with name, dataset, and pipelines."
-    )
-
-
 async def _describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
     from retrieval_observatory.integrations.registry import describe_integration
 
@@ -234,15 +216,24 @@ async def _verify_integration(
     return await verify_integration(db_path=db_path, run_id=run_id, expected_stages=expected_stages)
 
 
-async def _plan_integration(
+async def _integrate_project(
     project_root: str,
-    framework: Optional[str] = None,
-    retriever_entrypoint: Optional[str] = None,
+    phase: str = "plan",
+    plan: Optional[Dict[str, Any]] = None,
+    plan_path: Optional[str] = None,
+    db_path: str = DEFAULT_DB_PATH,
 ) -> Dict[str, Any]:
-    """Inspect a project and return the smallest integration patch without writing files."""
-    from retrieval_observatory.integrations.wire import plan_project
+    from pathlib import Path
+    from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
+    from retrieval_observatory.integrations.service import integrate_project
 
-    return plan_project(project_root, framework=framework, retriever_entrypoint=retriever_entrypoint)
+    if plan and plan_path:
+        raise ValueError("provide either plan or plan_path, not both")
+    if plan_path:
+        payload = json.loads(Path(plan_path).read_text(encoding="utf-8"))
+        plan = payload.get("plan", payload)
+    reviewed = IntegrationPlan.from_dict(plan) if plan else None
+    return (await integrate_project(Path(project_root), IntegrationPhase(phase), IntegrationOptions(reviewed, db_path))).to_dict()
 
 
 async def _benchmark_config(
@@ -257,9 +248,8 @@ async def _benchmark_config(
     from retrieval_observatory.dashboard.api import _headline_winner
     from retrieval_observatory.sdk.run_config import _run_from_config_async
 
-    normalized = _normalize_benchmark_config(config)
     report = await _run_from_config_async(
-        config=normalized,
+        config=config,
         db_path=db_path,
         max_queries=max_queries,
         run_id=None,
@@ -290,19 +280,6 @@ async def _benchmark_config_file(
         db_path=db_path,
         config_base_dir=str(path.parent),
     )
-
-
-async def _benchmark_pipeline_descriptor(
-    descriptor: Dict[str, Any],
-    max_queries: int = DEFAULT_MAX_QUERIES,
-    db_path: str = DEFAULT_DB_PATH,
-) -> Dict[str, Any]:
-    """Deprecated — use benchmark_config with the same shape (auto-normalized)."""
-    out = await _benchmark_config(descriptor, max_queries=max_queries, db_path=db_path)
-    return {
-        **out,
-        "deprecated": "benchmark_pipeline_descriptor is deprecated; pass this shape to benchmark_config instead.",
-    }
 
 
 async def _benchmark_vs_baseline(
@@ -408,7 +385,7 @@ async def _get_pareto_frontier(run_id: str, db_path: str = DEFAULT_DB_PATH) -> D
 
 
 async def _get_recommendations(run_id: str, db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
-    """Advisor recommendations for improving a run's retrieval pipeline."""
+    """Findings recommendations for improving a run's retrieval pipeline."""
     from retrieval_observatory.advisor.recommend import recommend
 
     store = _store(db_path)
@@ -428,7 +405,7 @@ async def _get_operator_attribution(
 
     store = _store(db_path)
     await store.init_db()
-    traces = await store.get_traces_v2(run_id)
+    traces = await store.get_traces(run_id)
     qrels = await store.get_qrels(run_id) if hasattr(store, "get_qrels") else {}
     op_ids = sorted({span.op_id for trace in traces for span in trace.spans})
     out: List[Dict[str, Any]] = []
@@ -457,7 +434,7 @@ async def _get_pipeline_graph(
     store = _store(db_path)
     await store.init_db()
     agg = await MetricsEngine().aggregate(run_id, store)
-    traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+    traces = await store.get_traces(run_id) if hasattr(store, "get_traces") else []
     graphs = build_pipeline_graphs(
         agg,
         traces,
@@ -471,12 +448,12 @@ async def _get_pipeline_graph(
 
 
 def _parse_trace_payload(payload: Dict[str, Any], run_id: str):
-    from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+    from retrieval_observatory.tracing.model import RetrievalTrace
 
     data = dict(payload)
     if run_id:
         data["run_id"] = run_id
-    return RetrievalTraceV2.from_dict(data)
+    return RetrievalTrace.from_dict(data)
 
 
 async def _push_traces(
@@ -490,49 +467,9 @@ async def _push_traces(
     stored: List[str] = []
     for payload in traces:
         trace = _parse_trace_payload(payload, run_id=run_id)
-        await store.save_trace_v2(trace)
+        await store.save_trace(trace)
         stored.append(trace.trace_id)
     return {"run_id": run_id, "trace_ids": stored, "count": len(stored)}
-
-
-async def _wire_project(
-    project_root: str,
-    framework: Optional[str] = None,
-    retriever_entrypoint: Optional[str] = None,
-    experiment_name: Optional[str] = None,
-    phase: str = "setup",
-    db_path: str = DEFAULT_DB_PATH,
-    run_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Start here: wire retobs into an external project (setup) or verify after agent patches."""
-    from retrieval_observatory.integrations.wire import wire_project
-
-    return await wire_project(
-        project_root=project_root,
-        framework=framework,
-        retriever_entrypoint=retriever_entrypoint,
-        experiment_name=experiment_name,
-        phase=phase,
-        db_path=db_path if phase == "verify" else None,
-        run_id=run_id,
-    )
-
-
-async def _bootstrap_project(
-    project_root: str,
-    framework: str = "python",
-    retriever_entrypoint: Optional[str] = None,
-    experiment_name: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Deprecated — use wire_project(phase='setup')."""
-    out = await _wire_project(
-        project_root,
-        framework=framework,
-        retriever_entrypoint=retriever_entrypoint,
-        experiment_name=experiment_name,
-        phase="setup",
-    )
-    return {**out, "deprecated": "bootstrap_project is deprecated; use wire_project instead."}
 
 
 def build_server(config_path: Optional[str] = None):
@@ -551,22 +488,9 @@ def build_server(config_path: Optional[str] = None):
     server.tool(name="get_report")(_with_config_defaults(config_path, _get_report))
     server.tool(name="describe_config")(_describe_config)
     server.tool(name="validate_config")(_validate_config)
-    server.tool(name="describe_integration")(_describe_integration)
-    server.tool(name="plan_integration")(_plan_integration)
-    server.tool(name="wire_project")(_with_config_defaults(config_path, _wire_project))
+    server.tool(name="integrate_project")(_with_config_defaults(config_path, _integrate_project))
     server.tool(name="verify_integration")(_with_config_defaults(config_path, _verify_integration))
-    server.tool(name="bootstrap_project")(_bootstrap_project)
     server.tool(name="push_traces")(_with_config_defaults(config_path, _push_traces))
-    server.tool(name="list_runs")(_with_config_defaults(config_path, _list_runs))
-    server.tool(name="get_run_metrics")(_with_config_defaults(config_path, _get_run_metrics))
-    server.tool(name="benchmark_config")(_with_config_defaults(config_path, _benchmark_config))
-    server.tool(name="benchmark_config_file")(_with_config_defaults(config_path, _benchmark_config_file))
-    server.tool(name="benchmark_pipeline_descriptor")(_with_config_defaults(config_path, _benchmark_pipeline_descriptor))
-    server.tool(name="benchmark_vs_baseline")(_with_config_defaults(config_path, _benchmark_vs_baseline))
-    server.tool(name="get_pareto_frontier")(_with_config_defaults(config_path, _get_pareto_frontier))
-    server.tool(name="get_recommendations")(_with_config_defaults(config_path, _get_recommendations))
-    server.tool(name="get_operator_attribution")(_with_config_defaults(config_path, _get_operator_attribution))
-    server.tool(name="get_pipeline_diagram")(_with_config_defaults(config_path, _get_pipeline_diagram))
     server.tool(name="get_pipeline_graph")(_with_config_defaults(config_path, _get_pipeline_graph))
     return server
 

@@ -1,7 +1,7 @@
 """Trace-native diagram JSON (PipelineGraph contract) + standalone HTML export."""
 from retrieval_observatory.diagram.html import render_diagram_html
 from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
 def _agg_entry(pipeline_id, stage_index, metric_name, k, mean, ci, branch_id=None):
@@ -17,19 +17,19 @@ def _agg_entry(pipeline_id, stage_index, metric_name, k, mean, ci, branch_id=Non
     }
 
 
-def _linear_trace() -> RetrievalTraceV2:
+def _linear_trace() -> RetrievalTrace:
     source = OperatorSpan(
         op_id="stage0_bm25", op_type="SOURCE", op_name="bm25", parent_ids=[],
         status="FIRED", deterministic=True, replay_policy="EXACT", latency_ms=1.0,
         outputs=[Candidate(doc_id="d", score=1.0, rank=1, origin_op_ids=["stage0_bm25"])],
     )
-    return RetrievalTraceV2(
-        trace_id="t1", run_id="r", query_id="q1", query_text="q", pipeline_id="p",
-        spans=[source], total_latency_ms=1.0, final_op_id="stage0_bm25",
+    return RetrievalTrace(
+        trace_id="t1", service_id="svc", run_id="r", query_id="q1", query_text="q", pipeline_id="p",
+        spans=[source], timing=TraceTiming(1.0, 1.0, 1.0), final_op_ids=("stage0_bm25",),
     )
 
 
-def _fusion_trace() -> RetrievalTraceV2:
+def _fusion_trace() -> RetrievalTrace:
     arm_a = OperatorSpan(
         op_id="arm_a", op_type="SOURCE", op_name="bm25", parent_ids=[],
         status="FIRED", deterministic=True, replay_policy="EXACT", latency_ms=1.0,
@@ -48,9 +48,9 @@ def _fusion_trace() -> RetrievalTraceV2:
             Candidate(doc_id="d2", score=0.4, rank=2, origin_op_ids=["arm_b"]),
         ],
     )
-    return RetrievalTraceV2(
-        trace_id="t2", run_id="r", query_id="q2", query_text="q", pipeline_id="p_fused",
-        spans=[arm_a, arm_b, fuse], total_latency_ms=2.0, final_op_id="fuse",
+    return RetrievalTrace(
+        trace_id="t2", service_id="svc", run_id="r", query_id="q2", query_text="q", pipeline_id="p_fused",
+        spans=[arm_a, arm_b, fuse], timing=TraceTiming(2.0, 2.0, 2.0), final_op_ids=("fuse",),
     )
 
 

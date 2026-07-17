@@ -12,10 +12,57 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `integrations/model.py` — add deterministic plan, manifest, phase-specific result, check, patch, and verification contracts.
 - `diagnostics/model.py` — add versioned evidence contracts for supported, limited, unavailable, and not-observed retrieval findings.
 - `contracts/public_surface.json` and `scripts/check_public_surface.py` — make supported CLI, MCP, SDK, documentation, extras, and integration tiers release-gated contracts.
+- `contracts/forbidden_vocabulary.json`, `scripts/check_public_vocabulary.py`, and `scripts/check_markdown_links.py` — reject removed public vocabulary and broken documentation anchors in CI.
+- `tests/external_projects/` — add self-contained callable, FastAPI, LangChain, and LlamaIndex integration fixtures with declared topology and output contracts.
+- `integrations/` — preserve fixture-declared service identity and expose verification capability and telemetry-health evidence.
+- `scripts/smoke_external_project.py` and `tests/release/` — prove plan/apply/verify, production-without-run, telemetry containment, and import isolation against installed wheels.
+- `cli.py` — let `integrate --phase apply --plan` consume the reviewed plan emitted by `--phase plan --output`.
+- `sdk/observe.py` — omit unfired branch parents from candidate evidence so optional routes cannot alter host behavior.
+- `tracing/model.py` — calculate critical paths without requiring parents from unfired branches.
+- `sdk/observe.py` — omit skipped branch parents from stored trace topology as well as candidate groups.
+- `integrations/planner.py` — discover explicit `source` functions as canonical source operators.
+- `scripts/smoke_wheel.py` and `tests/release/` — add installed-wheel evidence for public surfaces, evaluation, production traces, loopback serving, and bundled assets.
+- `.github/workflows/release-candidate.yml` — build one checksummed release artifact and test it across Python, external fixtures, stores, and dashboard/browser gates.
+- `scripts/verify_release_artifact.py` and publish workflow — promote only the checksummed release-candidate wheel and sdist through TestPyPI and PyPI.
+- `scripts/generate_release_evidence.py` and release-candidate CI — publish one digest-bound, machine-verifiable release-evidence JSON and Markdown artifact for every required gate.
+
+### Changed
+
+- `examples/` and bundled SciFact config — rename active quickstart paths to evaluation-oriented names.
+- CI and retrieval comparison workflows — separate source PR gates from wheel-only release-candidate evidence and record tested wheel digests.
+- Public documentation and package metadata — center the installed-wheel `integrate plan/apply/verify` workflow, active task vocabulary, evidence limits, and loopback safety boundary.
+- `pipeline/executors.py` and `tracing/integrations/operator_registry.py` — add typed DAG execution and manifest-stable framework operator identity.
+- `tracing/config.py`, `serialization.py`, and `exporters.py` — add bounded, redacted, retry-aware trace capture with measured health.
+- `diagnostics/` — add branch-aware candidate histories and versioned identity, routing, transition-loss, truncation, and final-ranking rules.
+- `store/` — persist ordered typed diagnostic findings with indexed evidence metadata in SQLite and PostgreSQL.
+- `integrations/` — add one deterministic plan/apply/verify workflow with concrete source patches, stale-plan protection, reversal metadata, and observed-trace readiness checks.
+- `dashboard/ui/src/context/DashboardContext.tsx` — add URL-backed database, service, run, time-window, cohort, and filter context.
+- `analysis/` and `dashboard/analysis_api.py` — add cohort-scoped router, branch, score, latency, corpus, ground-truth, instrumentation, baseline, regression-check, and local-alert analysis products using one evidence contract.
+- `store/sqlite.py` and `store/postgres.py` — add versioned cohort, corpus snapshot, judgment, baseline, check, and alert persistence.
 
 ### Changed
 
 - `config/operators.py` — replace generic DAG nodes with validated operator-specific graph specifications.
+- `tracing/`, `store/`, `dashboard/api.py` — isolate trace export behind a bounded queue and expose measured capture health.
+- `cli.py` — bind `retobs serve` to `127.0.0.1` by default and warn on remote exposure.
+- `store/`, `runner/`, `metrics/`, and `dashboard/api.py` — use the sole unified trace record for production and evaluation workflows.
+- `runner/execute.py`, `evidence/query.py`, `advisor/recommend.py`, and `dashboard/api.py` — consume persisted trace-native findings without pipeline-name diagnosis.
+- `dashboard/api.py` and Production/Test Set UI — paginate traces, topology variants, and Test Set queries; summarize production matches and separate Compare decision dimensions.
+- `dashboard/ui/src/analysis/` — expose shareable, cohort-aware ready/partial/unavailable analysis views without rendering unsupported claims.
+- `cli.py` and `mcp/server.py` — expose `integrate`/`integrate_project` as the sole integration workflow.
+
+### Fixed
+
+- `cli.py` — create requested integration-plan output directories and resolve project-root callable modules for the documented installed-wheel commands.
+
+### Removed
+
+- `tracing/model_v2.py`, `tracing/types.py`, and `tracing/lift.py` — remove split trace models and lift compatibility paths.
+- `integrations/wire.py` and legacy integration CLI/MCP entrypoints — remove competing setup, bootstrap, plan, wire, and standalone verify paths.
+- `retrieval_observatory/cli.py` — remove deprecated `run`, `wire`, `doctor`, `inspect`, `quickstart`, `forge`, `tracelens`, and `advisor` command surfaces.
+- `retrieval_observatory/mcp/server.py` — remove wiring, bootstrap, benchmark-descriptor, Pareto, recommendation, and diagram aliases in favor of the task-oriented MCP contract.
+- `retrieval_observatory/__init__.py` and `retrieval_observatory/tracing/__init__.py` — remove legacy benchmark, snapshot, recorder, and helper exports from the supported SDK.
+- `docs/MIGRATION.md` — remove the compatibility-window guide after the beta clean break.
 
 ## [0.5.0] — 2026-07-14 [PyPI]
 
@@ -42,6 +89,7 @@ Major product revamp: one callable-first retrieval debugging loop replaces the o
 
 ### Fixed
 
+- `dashboard/ui/src/components/RunQueryDetailPage.tsx` — tolerate unified trace timing, input, and diagnostic evidence shapes in query drill-downs.
 - Partial traces retained on operator error/timeout/cancellation instead of silent drop.
 - Ambiguous multi-db dashboard evidence routes now require explicit database scope.
 - Integration verify fails closed on zero runs or required-check failures.

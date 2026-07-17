@@ -84,7 +84,7 @@ def test_golden_workflow_is_responsive_and_semantic(page: Page, tmp_path: Path, 
     baseline = context["baseline_run_id"]
     query_id = context["sample_query_id"]
 
-    page.goto(f"{BASE_URL}/#/runs/{baseline}")
+    page.goto(f"{BASE_URL}/#/runs/{baseline}?window=all")
     expect(page.get_by_role("heading", name="Run conclusion")).to_be_visible()
     expect(page.get_by_text("Evidence:", exact=False).first).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
@@ -92,13 +92,13 @@ def test_golden_workflow_is_responsive_and_semantic(page: Page, tmp_path: Path, 
     assert _wcag_aa_violations(page) == []
     page.screenshot(path=tmp_path / f"run-{width}.png", full_page=True)
 
-    page.goto(f"{BASE_URL}/#/runs/{baseline}/queries/{query_id}")
+    page.goto(f"{BASE_URL}/#/runs/{baseline}/queries/{query_id}?window=all")
     expect(page.get_by_role("heading", name="Query evidence")).to_be_visible()
     expect(page.get_by_text("Relevant document movement", exact=True)).to_be_visible()
     assert _semantic_violations(page) == []
     assert _wcag_aa_violations(page) == []
 
-    page.goto(f"{BASE_URL}/#/compare")
+    page.goto(f"{BASE_URL}/#/compare?window=all")
     expect(page.get_by_text("Baseline", exact=False).first).to_be_visible()
     expect(page.get_by_text("Candidate", exact=False).first).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
@@ -117,3 +117,21 @@ def test_run_api_failure_renders_actionable_error_state(page: Page) -> None:
     page.route("**/metrics*", lambda route: route.fulfill(status=503, body='{"detail":"simulated"}', content_type="application/json"))
     page.goto(f"{BASE_URL}/#/runs/{baseline}")
     expect(page.get_by_text("Failed to fetch metrics", exact=False)).to_be_visible()
+
+
+def test_analysis_route_renders_evidence_state(page: Page) -> None:
+    context = page.request.get(f"{BASE_URL}/demo/context").json()
+    baseline = context["baseline_run_id"]
+    databases = page.request.get(f"{BASE_URL}/dbs").json()
+    db_id = databases[0]["db_id"]
+
+    page.goto(
+        f"{BASE_URL}/#/runs/{baseline}/analysis/latency"
+        f"?db={db_id}&run={baseline}&window=all"
+    )
+
+    expect(page.get_by_role("heading", name="Latency critical path")).to_be_visible()
+    expect(page.get_by_role("status")).to_contain_text("measured")
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
+    assert _semantic_violations(page) == []
+    assert _wcag_aa_violations(page) == []

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchPipelineGraphs, fetchRunTraces, GraphMetricValue, PipelineGraph, PipelineGraphNode, RetrievalTraceV2 } from '../api'
+import { fetchPipelineGraphs, fetchRunTraces, GraphMetricValue, PipelineGraph, PipelineGraphNode, RetrievalTrace } from '../api'
 import { layoutPipelineGraph, LaidOutNode } from '../utils/dagLayout'
 import { fmtQuality, fmtLatencyMs } from '../utils/format'
 import { OP_ACCENT, OP_LABEL } from '../utils/opTypeColors'
@@ -192,7 +192,7 @@ export default function PipelineDagView({ dbId, runId }: Props) {
   const [graphs, setGraphs] = useState<PipelineGraph[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedByPipeline, setSelectedByPipeline] = useState<Record<string, string>>({})
-  const [traceOptions, setTraceOptions] = useState<RetrievalTraceV2[]>([])
+  const [traceOptions, setTraceOptions] = useState<RetrievalTrace[]>([])
   const [selectedTraceId, setSelectedTraceId] = useState('')
 
   useEffect(() => {

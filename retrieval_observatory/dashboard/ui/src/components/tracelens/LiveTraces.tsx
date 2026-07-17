@@ -3,6 +3,7 @@ import { fetchTraces, TraceRow } from '../../api'
 import { difficultyChipClass } from '../../utils/difficulty'
 import SuspectedFailureChip from './SuspectedFailureChip'
 import TraceDetail from './TraceDetail'
+import { useDashboardContext } from '../../context/DashboardContext'
 
 interface Props {
   dbId: string
@@ -20,12 +21,16 @@ function fmtTime(iso: string): string {
 }
 
 export default function LiveTraces({ dbId, service, since, initialFilter }: Props) {
+  const { selection, updateSelection } = useDashboardContext()
+  const urlFilters = Object.fromEntries(selection.filters.map(value => value.split(/=(.*)/s).slice(0, 2)))
   const [rows, setRows] = useState<TraceRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState(initialFilter?.status || '')
-  const [difficultyFilter, setDifficultyFilter] = useState(initialFilter?.difficulty || '')
-  const [suspectedOnly, setSuspectedOnly] = useState(initialFilter?.suspected_only || false)
+  const [statusFilter, setStatusFilter] = useState(initialFilter?.status || urlFilters.status || '')
+  const [difficultyFilter, setDifficultyFilter] = useState(initialFilter?.difficulty || urlFilters.difficulty || '')
+  const [suspectedOnly, setSuspectedOnly] = useState(initialFilter?.suspected_only || urlFilters.suspected === 'true')
+  const [offset, setOffset] = useState(Number(urlFilters.offset || 0))
+  const [total, setTotal] = useState(0)
 
   useEffect(() => {
     setRows(null)
@@ -33,11 +38,16 @@ export default function LiveTraces({ dbId, service, since, initialFilter }: Prop
       since,
       status: statusFilter || undefined,
       difficulty: difficultyFilter || undefined,
-      suspected_only: suspectedOnly || undefined,
+      suspected_only: suspectedOnly || undefined, limit: 100, offset,
     })
-      .then(setRows)
+      .then((page) => { setRows(page.items); setTotal(page.total) })
       .catch((e) => setError(e.message))
-  }, [dbId, service, since, statusFilter, difficultyFilter, suspectedOnly])
+  }, [dbId, service, since, statusFilter, difficultyFilter, suspectedOnly, offset])
+
+  useEffect(() => {
+    const filters = [statusFilter && `status=${statusFilter}`, difficultyFilter && `difficulty=${difficultyFilter}`, suspectedOnly && 'suspected=true', offset && `offset=${offset}`].filter(Boolean) as string[]
+    if (filters.join('|') !== selection.filters.join('|')) updateSelection({ filters }, 'replace')
+  }, [statusFilter, difficultyFilter, suspectedOnly, offset])
 
   if (error) return <div className="p-3 bg-status-negative/10 border border-status-negative/30 rounded text-sm text-status-negative">{error}</div>
 
@@ -60,7 +70,12 @@ export default function LiveTraces({ dbId, service, since, initialFilter }: Prop
           <input type="checkbox" className="accent-accent" checked={suspectedOnly} onChange={(e) => setSuspectedOnly(e.target.checked)} />
           Suspected failures only
         </label>
-        <span className="text-ink-faint ml-auto">{rows?.length ?? '…'} traces</span>
+        <span className="text-ink-faint ml-auto">{rows ? `${offset + 1}–${offset + rows.length} of ${total}` : '…'} traces</span>
+      </div>
+
+      <div className="flex justify-end gap-2 mt-2">
+        <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))} className="px-2 py-1 border rounded disabled:opacity-40">Previous</button>
+        <button type="button" disabled={offset + 100 >= total} onClick={() => setOffset(offset + 100)} className="px-2 py-1 border rounded disabled:opacity-40">Next</button>
       </div>
 
       <div className="border border-hairline rounded-lg overflow-hidden">

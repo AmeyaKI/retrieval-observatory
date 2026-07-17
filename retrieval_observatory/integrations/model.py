@@ -83,6 +83,7 @@ class IntegrationPlan:
     candidate_mapping: Mapping[str, str]
     scenarios: tuple[VerificationScenario, ...]
     unresolved: tuple[str, ...] = ()
+    discovery: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def create(
@@ -97,6 +98,7 @@ class IntegrationPlan:
         candidate_mapping: Mapping[str, str],
         scenarios: Sequence[VerificationScenario],
         unresolved: Sequence[str] = (),
+        discovery: Mapping[str, Any] | None = None,
     ) -> "IntegrationPlan":
         identity = {
             "schema_version": 1,
@@ -108,6 +110,7 @@ class IntegrationPlan:
             "candidate_mapping": dict(candidate_mapping),
             "scenarios": [asdict(item) for item in scenarios],
             "unresolved": list(unresolved),
+            "discovery": dict(discovery or {}),
         }
         plan_id = sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
         return cls(
@@ -122,6 +125,7 @@ class IntegrationPlan:
             dict(candidate_mapping),
             tuple(scenarios),
             tuple(unresolved),
+            dict(discovery or {}),
         )
 
     def validate_for_apply(self) -> None:
@@ -139,8 +143,9 @@ class IntegrationPlan:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "IntegrationPlan":
         expected = {field.name for field in __import__("dataclasses").fields(cls)}
-        if set(value) != expected:
-            raise ValueError(f"IntegrationPlan fields differ: {sorted(set(value) ^ expected)}")
+        supplied = set(value)
+        if supplied - expected or expected - supplied - {"discovery"}:
+            raise ValueError(f"IntegrationPlan fields differ: {sorted(supplied ^ expected)}")
         return cls(
             **{
                 **value,
@@ -149,6 +154,7 @@ class IntegrationPlan:
                 "candidate_mapping": dict(value["candidate_mapping"]),
                 "scenarios": tuple(VerificationScenario.from_dict(item) for item in value["scenarios"]),
                 "unresolved": tuple(value.get("unresolved", ())),
+                "discovery": dict(value.get("discovery", {})),
             }
         )
 
@@ -162,11 +168,21 @@ class IntegrationManifest:
     operators: tuple[OperatorMapping, ...]
     candidate_mapping: Mapping[str, str]
     scenarios: tuple[VerificationScenario, ...]
+    reversal_patches: tuple[PatchOperation, ...] = ()
 
     @classmethod
-    def from_plan(cls, plan: IntegrationPlan) -> "IntegrationManifest":
+    def from_plan(
+        cls, plan: IntegrationPlan, reversal_patches: Sequence[PatchOperation] = ()
+    ) -> "IntegrationManifest":
         return cls(
-            1, plan.plan_id, plan.service_id, plan.pipeline_id, plan.operators, plan.candidate_mapping, plan.scenarios
+            1,
+            plan.plan_id,
+            plan.service_id,
+            plan.pipeline_id,
+            plan.operators,
+            plan.candidate_mapping,
+            plan.scenarios,
+            tuple(reversal_patches),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -175,7 +191,14 @@ class IntegrationManifest:
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "IntegrationManifest":
         plan = IntegrationPlan.from_dict(
-            {**value, "project_root": "/", "framework": "manifest", "patches": (), "unresolved": ()}
+            {
+                **{key: item for key, item in value.items() if key != "reversal_patches"},
+                "project_root": "/",
+                "framework": "manifest",
+                "patches": (),
+                "unresolved": (),
+                "discovery": {},
+            }
         )
         return cls(
             value["schema_version"],
@@ -185,6 +208,7 @@ class IntegrationManifest:
             plan.operators,
             plan.candidate_mapping,
             plan.scenarios,
+            tuple(PatchOperation.from_dict(item) for item in value.get("reversal_patches", ())),
         )
 
 
@@ -214,13 +238,23 @@ class IntegrationResult:
     plan: IntegrationPlan | None = None
     changed_files: tuple[str, ...] = ()
     checks: tuple[IntegrationCheck, ...] = ()
-    capabilities: Mapping[str, str] = field(default_factory=dict)
+    capabilities: Mapping[str, Any] = field(default_factory=dict)
     observed_operator_ids: tuple[str, ...] = ()
     topology_variants: tuple[Mapping[str, Any], ...] = ()
+    telemetry_health: Mapping[str, Any] = field(default_factory=dict)
     errors: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        def normalize(value: Any) -> Any:
+            if hasattr(value, "isoformat"):
+                return value.isoformat()
+            if isinstance(value, dict):
+                return {key: normalize(item) for key, item in value.items()}
+            if isinstance(value, tuple | list):
+                return [normalize(item) for item in value]
+            return value
+
+        return normalize(asdict(self))
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "IntegrationResult":
@@ -233,6 +267,7 @@ class IntegrationResult:
                 "capabilities": dict(value.get("capabilities", {})),
                 "observed_operator_ids": tuple(value.get("observed_operator_ids", ())),
                 "topology_variants": tuple(dict(x) for x in value.get("topology_variants", ())),
+                "telemetry_health": dict(value.get("telemetry_health", {})),
                 "errors": tuple(value.get("errors", ())),
             }
         )

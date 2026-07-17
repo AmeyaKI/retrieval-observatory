@@ -115,11 +115,11 @@ export default function RunQueryDetailPage({ dbId, runId, queryId }: { dbId: str
         } />
       )}
 
-      {evidence.diagnostics.some((diagnostic) => diagnostic.diagnostic_evidence.length > 0) && (
+      {evidence.diagnostics.some((diagnostic) => (diagnostic.diagnostic_evidence?.length ?? 0) > 0) && (
         <div>
           <SectionHeading title="Diagnostic evidence" />
           <div className="space-y-2">
-            {evidence.diagnostics.flatMap((diagnostic) => diagnostic.diagnostic_evidence.map((item) => (
+            {evidence.diagnostics.flatMap((diagnostic) => (diagnostic.diagnostic_evidence ?? []).map((item) => (
               <div key={`${diagnostic.pipeline_id}:${item.label}`} className="rounded border border-gray-200 p-2 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-mono font-semibold">{item.label}</span>
@@ -152,7 +152,7 @@ export default function RunQueryDetailPage({ dbId, runId, queryId }: { dbId: str
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-sm font-semibold">{trace.pipeline_id}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-ink-muted">{trace.status} · {trace.total_latency_ms.toFixed(1)}ms</span>
+                      <span className="text-xs text-ink-muted">{trace.status} · {(trace.total_latency_ms ?? trace.timing?.wall_clock_ms ?? 0).toFixed(1)}ms</span>
                       <button
                         type="button"
                         onClick={() => setReplayFor(replayFor === trace.trace_id ? null : trace.trace_id)}

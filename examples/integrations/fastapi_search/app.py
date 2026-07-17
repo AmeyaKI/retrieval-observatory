@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal instrumented BM25 search API for TraceLens demo.
+"""Minimal instrumented BM25 search API for Production demo.
 
 Run::
 
@@ -105,7 +105,7 @@ app = create_app(use_memory=os.environ.get("RETOBS_MEMORY_SINK") == "1")
 if __name__ == "__main__":
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="FastAPI search demo with TraceLens instrumentation")
+    parser = argparse.ArgumentParser(description="FastAPI search demo with Production instrumentation")
     parser.add_argument("--memory", action="store_true", help="Use MemorySink instead of StoreSink")
     parser.add_argument("--port", type=int, default=8080, help="Port to listen on (default: 8080)")
     args = parser.parse_args()

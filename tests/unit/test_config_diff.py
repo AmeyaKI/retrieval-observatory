@@ -57,7 +57,7 @@ def test_diff_reports_no_changes_when_identical():
     assert result.has_changes is False
 
 
-def test_diff_configs_cli_runs(tmp_path):
+def test_diff_configs_command_is_removed(tmp_path):
     from typer.testing import CliRunner
 
     from retrieval_observatory.cli import app
@@ -74,6 +74,5 @@ def test_diff_configs_cli_runs(tmp_path):
     )
     runner = CliRunner()
     result = runner.invoke(app, ["diff-configs", str(config_a), str(config_b)])
-    assert result.exit_code == 0
-    assert "bm25" in result.output
-    assert "changed" in result.output
+    assert result.exit_code != 0
+    assert "No such command" in result.output

@@ -11,7 +11,7 @@ shapes, one of these snapshots breaks.
 from __future__ import annotations
 
 from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
 def _span(op_id, op_type, parents, status="FIRED", **kw):
@@ -21,7 +21,7 @@ def _span(op_id, op_type, parents, status="FIRED", **kw):
     )
 
 
-def _graph_dict(trace: RetrievalTraceV2, pipeline_id: str) -> dict:
+def _graph_dict(trace: RetrievalTrace, pipeline_id: str) -> dict:
     graphs = build_pipeline_graphs({}, [trace])
     matches = [g for g in graphs if g.pipeline_id == pipeline_id]
     assert matches, f"no graph produced for pipeline {pipeline_id}"
@@ -45,9 +45,9 @@ def _shape(graph: dict) -> dict:
 def test_golden_linear_chain():
     source = _span("src", "SOURCE", [], outputs=[Candidate(doc_id="d1", score=1.0, rank=1)])
     rerank = _span("rr", "RERANK", ["src"], outputs=[Candidate(doc_id="d1", score=1.0, rank=1)])
-    trace = RetrievalTraceV2(
-        trace_id="t", run_id="r", query_id="q", query_text="q", pipeline_id="linear",
-        spans=[source, rerank], total_latency_ms=2.0, final_op_id="rr",
+    trace = RetrievalTrace(
+        trace_id="t", service_id="svc", run_id="r", query_id="q", query_text="q", pipeline_id="linear",
+        spans=[source, rerank], timing=TraceTiming(2.0, 2.0, 2.0), final_op_ids=("rr",),
     )
     assert _shape(_graph_dict(trace, "linear")) == {
         "nodes": [
@@ -64,9 +64,9 @@ def test_golden_hybrid_fan_in():
     fuse = _span("fuse", "FUSE", ["arm_a", "arm_b"], outputs=[
         Candidate(doc_id="d1", score=0.5, rank=1), Candidate(doc_id="d2", score=0.4, rank=2),
     ])
-    trace = RetrievalTraceV2(
-        trace_id="t", run_id="r", query_id="q", query_text="q", pipeline_id="hybrid",
-        spans=[arm_a, arm_b, fuse], total_latency_ms=3.0, final_op_id="fuse",
+    trace = RetrievalTrace(
+        trace_id="t", service_id="svc", run_id="r", query_id="q", query_text="q", pipeline_id="hybrid",
+        spans=[arm_a, arm_b, fuse], timing=TraceTiming(3.0, 3.0, 3.0), final_op_ids=("fuse",),
     )
     assert _shape(_graph_dict(trace, "hybrid")) == {
         "nodes": [
@@ -89,9 +89,9 @@ def test_golden_conditional_gate_with_skip():
     # appear in the graph (never silently omitted) even though it contributes no metrics.
     fast_path = _span("fast_rerank", "RERANK", ["gate"], outputs=[Candidate(doc_id="d1", score=1.0, rank=1)])
     slow_path = _span("slow_rerank", "RERANK", ["gate"], status="SKIPPED_BY_GATE", outputs=[])
-    trace = RetrievalTraceV2(
-        trace_id="t", run_id="r", query_id="q", query_text="q", pipeline_id="gated",
-        spans=[source, gate, fast_path, slow_path], total_latency_ms=3.0, final_op_id="fast_rerank",
+    trace = RetrievalTrace(
+        trace_id="t", service_id="svc", run_id="r", query_id="q", query_text="q", pipeline_id="gated",
+        spans=[source, gate, fast_path, slow_path], timing=TraceTiming(3.0, 3.0, 3.0), final_op_ids=("fast_rerank",),
     )
     shape = _shape(_graph_dict(trace, "gated"))
     node_ids = {n[0] for n in shape["nodes"]}
@@ -107,9 +107,9 @@ def test_golden_parallel_lanes_no_fusion():
     lane_b = _span("lane_b", "SOURCE", [], outputs=[Candidate(doc_id="d2", score=0.9, rank=1)])
     rerank_a = _span("rr_a", "RERANK", ["lane_a"], outputs=[Candidate(doc_id="d1", score=1.0, rank=1)])
     rerank_b = _span("rr_b", "RERANK", ["lane_b"], outputs=[Candidate(doc_id="d2", score=0.9, rank=1)])
-    trace = RetrievalTraceV2(
-        trace_id="t", run_id="r", query_id="q", query_text="q", pipeline_id="parallel",
-        spans=[lane_a, lane_b, rerank_a, rerank_b], total_latency_ms=2.0, final_op_id="rr_a",
+    trace = RetrievalTrace(
+        trace_id="t", service_id="svc", run_id="r", query_id="q", query_text="q", pipeline_id="parallel",
+        spans=[lane_a, lane_b, rerank_a, rerank_b], timing=TraceTiming(2.0, 2.0, 2.0), final_op_ids=("rr_a",),
     )
     shape = _shape(_graph_dict(trace, "parallel"))
     assert shape["edges"] == [

@@ -1,0 +1,390 @@
+name: release-candidate
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: retrieval_observatory/dashboard/ui/package-lock.json
+      - run: python -m pip install build twine pytest pytest-asyncio ruff -e ".[dashboard,mcp,postgres]"
+      - run: npm ci --prefix retrieval_observatory/dashboard/ui
+      - name: Run source and contract gates
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/evidence/build
+          python scripts/check_public_surface.py | tee artifacts/evidence/build/public-surface.txt
+          python scripts/check_public_vocabulary.py | tee artifacts/evidence/build/removed-vocabulary.txt
+          python scripts/check_markdown_links.py | tee artifacts/evidence/build/markdown-links.txt
+          ruff check retrieval_observatory tests scripts | tee artifacts/evidence/build/ruff.txt
+          pytest tests/unit tests/contracts -v --tb=short | tee artifacts/evidence/build/python-unit-contracts.txt
+          pytest tests/integration -v --tb=short | tee artifacts/evidence/build/python-integration.txt
+      - run: npm run build --prefix retrieval_observatory/dashboard/ui
+      - run: python -m build
+      - run: set -o pipefail; twine check dist/* | tee artifacts/evidence/build/wheel-metadata.txt
+      - run: shasum -a 256 dist/* > dist/SHA256SUMS
+      - name: Create digest-bound build results
+        run: |
+          mkdir -p artifacts/evidence/build/results
+          cp scripts/smoke_wheel.py scripts/verify_release_artifact.py artifacts/evidence/build/
+          mkdir -p artifacts/evidence/build/contracts artifacts/evidence/build/scripts
+          cp contracts/public_surface.json artifacts/evidence/build/contracts/public_surface.json
+          cp scripts/check_public_surface.py artifacts/evidence/build/scripts/check_public_surface.py
+          python - <<'PY'
+          from datetime import UTC, datetime
+          import hashlib
+          import json
+          from pathlib import Path
+
+          dist = Path("dist")
+          wheel = next(dist.glob("*.whl"))
+          digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+          evidence = Path("artifacts/evidence/build")
+          manifest = {
+              "sha256": {
+                  path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in sorted(dist.glob("*"))
+                  if path.suffix in {".whl", ".gz"}
+              }
+          }
+          (evidence / "artifact-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+          timestamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          gates = {
+              "public_surface": ("python scripts/check_public_surface.py", ["public-surface.txt"]),
+              "removed_vocabulary": ("python scripts/check_public_vocabulary.py", ["removed-vocabulary.txt"]),
+              "markdown_links": ("python scripts/check_markdown_links.py", ["markdown-links.txt"]),
+              "ruff": ("ruff check retrieval_observatory tests scripts", ["ruff.txt"]),
+              "python_unit_contracts": ("pytest tests/unit tests/contracts -v --tb=short", ["python-unit-contracts.txt"]),
+              "python_integration": ("pytest tests/integration -v --tb=short", ["python-integration.txt"]),
+              "wheel_metadata": ("twine check dist/*", ["wheel-metadata.txt"]),
+              "artifact_digest": ("shasum -a 256 dist/*", ["artifact-manifest.json", "SHA256SUMS"]),
+          }
+          for gate, (command, artifacts) in gates.items():
+              (evidence / "results" / f"{gate}.json").write_text(json.dumps({
+                  "id": gate, "status": "passed", "command": command, "artifacts": artifacts,
+                  "wheel_sha256": digest, "timestamp": timestamp,
+              }, indent=2, sort_keys=True) + "\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-dist
+          path: dist/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-build
+          path: artifacts/evidence/build/
+          if-no-files-found: error
+
+  wheel-python:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - run: shasum -a 256 -c dist/SHA256SUMS
+      - name: Install and smoke the built wheel
+        run: |
+          python -m venv /tmp/retobs-wheel
+          WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
+          /tmp/retobs-wheel/bin/pip install --index-url https://pypi.org/simple "${WHEEL}[dashboard,mcp]"
+          VERSION=$(/tmp/retobs-wheel/bin/python -c "import importlib.metadata; print(importlib.metadata.version('retrieval-observatory'))")
+          mkdir -p "artifacts/evidence/python-${{ matrix.python-version }}"
+          cd /tmp
+          /tmp/retobs-wheel/bin/python "$GITHUB_WORKSPACE/scripts/smoke_wheel.py" --expected-version "$VERSION" --output "$GITHUB_WORKSPACE/artifacts/evidence/python-${{ matrix.python-version }}/wheel-smoke-${{ matrix.python-version }}.json"
+          if [ "${{ matrix.python-version }}" = "3.12" ]; then
+            python - "$WHEEL" "$GITHUB_WORKSPACE/artifacts/evidence/python-${{ matrix.python-version }}" <<'PY'
+          from datetime import UTC, datetime
+          import hashlib, json, sys
+          from pathlib import Path
+          wheel, output = map(Path, sys.argv[1:])
+          output.joinpath("results").mkdir()
+          output.joinpath("results", "wheel_smoke.json").write_text(json.dumps({
+              "id": "wheel_smoke", "status": "passed", "command": "python scripts/smoke_wheel.py --expected-version <version> --output wheel-smoke.json",
+              "artifacts": ["wheel-smoke-3.12.json"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+          }, indent=2, sort_keys=True) + "\n")
+          PY
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-python-${{ matrix.python-version }}
+          path: artifacts/evidence/python-${{ matrix.python-version }}/
+          if-no-files-found: error
+
+  external-fixture:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        fixture: [python_callable, fastapi_hybrid_dag, langchain_retriever, llamaindex_retriever]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - run: shasum -a 256 -c dist/SHA256SUMS
+      - name: Exercise ${{ matrix.fixture }} against the wheel
+        run: |
+          WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
+          OUTPUT="artifacts/evidence/external-${{ matrix.fixture }}"
+          python scripts/smoke_external_project.py --wheel "$WHEEL" --fixture "${{ matrix.fixture }}" --artifacts "$OUTPUT"
+          python - "$WHEEL" "$OUTPUT" "${{ matrix.fixture }}" <<'PY'
+          from datetime import UTC, datetime
+          import hashlib, json, sys
+          from pathlib import Path
+          wheel, output, fixture = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+          gate = {
+              "python_callable": "external_python", "fastapi_hybrid_dag": "external_fastapi",
+              "langchain_retriever": "external_langchain", "llamaindex_retriever": "external_llamaindex",
+          }[fixture]
+          output.joinpath("results").mkdir()
+          output.joinpath("results", f"{gate}.json").write_text(json.dumps({
+              "id": gate, "status": "passed", "command": f"python scripts/smoke_external_project.py --wheel <wheel> --fixture {fixture} --artifacts <artifacts>",
+              "artifacts": [f"{fixture}/verification.json"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+          }, indent=2, sort_keys=True) + "\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-external-${{ matrix.fixture }}
+          path: artifacts/evidence/external-${{ matrix.fixture }}/
+          if-no-files-found: error
+
+  sqlite-contract:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - run: shasum -a 256 -c dist/SHA256SUMS
+      - name: Run SQLite contract suite against the wheel
+        run: |
+          set -o pipefail
+          python -m venv /tmp/retobs-sqlite
+          WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
+          /tmp/retobs-sqlite/bin/pip install "$WHEEL" pytest
+          mkdir -p /tmp/retobs-store-tests artifacts/evidence/sqlite/results
+          cp tests/unit/test_store_contract.py /tmp/retobs-store-tests/
+          cd /tmp/retobs-store-tests
+          /tmp/retobs-sqlite/bin/pytest test_store_contract.py -v --tb=short | tee "$GITHUB_WORKSPACE/artifacts/evidence/sqlite/sqlite-store.txt"
+          python - "$WHEEL" "$GITHUB_WORKSPACE/artifacts/evidence/sqlite/results/sqlite_store.json" <<'PY'
+          from datetime import UTC, datetime
+          import hashlib, json, sys
+          from pathlib import Path
+          wheel, output = map(Path, sys.argv[1:])
+          output.write_text(json.dumps({"id": "sqlite_store", "status": "passed", "command": "pytest tests/unit/test_store_contract.py -v --tb=short", "artifacts": ["sqlite-store.txt"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(), "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")}, indent=2, sort_keys=True) + "\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-sqlite
+          path: artifacts/evidence/sqlite/
+          if-no-files-found: error
+
+  postgres-contract:
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: retobs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - run: shasum -a 256 -c dist/SHA256SUMS
+      - name: Run PostgreSQL contract suite against the wheel
+        env:
+          RETOBS_POSTGRES_DSN: postgresql://postgres:postgres@localhost:5432/retobs_test
+        run: |
+          set -o pipefail
+          python -m venv /tmp/retobs-postgres
+          WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
+          /tmp/retobs-postgres/bin/pip install "${WHEEL}[postgres]" pytest pytest-asyncio
+          mkdir -p /tmp/retobs-postgres-tests artifacts/evidence/postgres/results
+          cp tests/unit/test_store_postgres.py /tmp/retobs-postgres-tests/
+          cd /tmp/retobs-postgres-tests
+          /tmp/retobs-postgres/bin/pytest test_store_postgres.py -v --tb=short | tee "$GITHUB_WORKSPACE/artifacts/evidence/postgres/postgres-store.txt"
+          python - "$WHEEL" "$GITHUB_WORKSPACE/artifacts/evidence/postgres/results/postgres_store.json" <<'PY'
+          from datetime import UTC, datetime
+          import hashlib, json, sys
+          from pathlib import Path
+          wheel, output = map(Path, sys.argv[1:])
+          output.write_text(json.dumps({"id": "postgres_store", "status": "passed", "command": "pytest tests/unit/test_store_postgres.py -v --tb=short", "artifacts": ["postgres-store.txt"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(), "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")}, indent=2, sort_keys=True) + "\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-postgres
+          path: artifacts/evidence/postgres/
+          if-no-files-found: error
+
+  dashboard-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: retrieval_observatory/dashboard/ui/package-lock.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - run: shasum -a 256 -c dist/SHA256SUMS
+      - run: npm ci --prefix retrieval_observatory/dashboard/ui
+      - name: Run UI test and build gates
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/evidence/dashboard/results
+          npm run test --prefix retrieval_observatory/dashboard/ui -- --run | tee artifacts/evidence/dashboard/ui-vitest.txt
+          npm run build --prefix retrieval_observatory/dashboard/ui | tee artifacts/evidence/dashboard/ui-build.txt
+      - name: Install wheel and browser test dependencies
+        run: |
+          python -m venv /tmp/retobs-dashboard
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          /tmp/retobs-dashboard/bin/pip install "${WHEEL}[dashboard,demo]" pytest playwright
+          /tmp/retobs-dashboard/bin/python -m playwright install --with-deps chromium
+      - name: Seed and serve dashboard from the wheel
+        run: |
+          /tmp/retobs-dashboard/bin/retobs demo --db .retobs/release/results.db --output-dir .retobs/release --n-traces 80
+          /tmp/retobs-dashboard/bin/retobs serve --host 127.0.0.1 --port 4000 --db .retobs/release/results.db > /tmp/retobs-dashboard.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4000/dbs > /dev/null && exit 0; sleep 1; done
+          cat /tmp/retobs-dashboard.log
+          exit 1
+      - name: Run desktop and 390px browser workflow
+        env:
+          RETOBS_E2E_URL: http://127.0.0.1:4000
+        run: set -o pipefail; /tmp/retobs-dashboard/bin/pytest tests/browser -v --tb=short | tee artifacts/evidence/dashboard/browser-workflow.txt
+      - name: Fail on browser console errors or API 500s and write gate results
+        env:
+          RETOBS_E2E_URL: http://127.0.0.1:4000
+        run: |
+          /tmp/retobs-dashboard/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+
+          errors, server_errors = [], []
+          with sync_playwright() as playwright:
+              browser = playwright.chromium.launch()
+              page = browser.new_page(viewport={"width": 390, "height": 900})
+              page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+              page.on("response", lambda response: server_errors.append({"url": response.url, "status": response.status}) if response.status >= 500 else None)
+              page.goto(os.environ["RETOBS_E2E_URL"] + "/#/runs", wait_until="networkidle")
+              page.goto(os.environ["RETOBS_E2E_URL"] + "/#/compare", wait_until="networkidle")
+              browser.close()
+          payload = {"console_errors": errors, "api_responses_gte_500": server_errors}
+          Path("artifacts/evidence/dashboard/browser-probes.json").write_text(json.dumps(payload, indent=2) + "\n")
+          assert not errors, payload
+          assert not server_errors, payload
+          PY
+          WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
+          python - "$WHEEL" artifacts/evidence/dashboard/results <<'PY'
+          from datetime import UTC, datetime
+          import hashlib, json, sys
+          from pathlib import Path
+          wheel, results = map(Path, sys.argv[1:])
+          digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
+          timestamp = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+          gates = {
+              "ui_vitest": ("npm run test --prefix retrieval_observatory/dashboard/ui -- --run", ["ui-vitest.txt"]),
+              "ui_build": ("npm run build --prefix retrieval_observatory/dashboard/ui", ["ui-build.txt"]),
+              "browser_desktop_mobile": ("pytest tests/browser -v --tb=short", ["browser-workflow.txt", "browser-probes.json"]),
+          }
+          for gate, (command, artifacts) in gates.items():
+              results.joinpath(f"{gate}.json").write_text(json.dumps({"id": gate, "status": "passed", "command": command, "artifacts": artifacts, "wheel_sha256": digest, "timestamp": timestamp}, indent=2, sort_keys=True) + "\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: evidence-dashboard
+          path: artifacts/evidence/dashboard/
+          if-no-files-found: error
+
+  collect-evidence:
+    needs: [build, wheel-python, external-fixture, sqlite-contract, postgres-contract, dashboard-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: evidence-*
+          path: results
+          merge-multiple: true
+      - run: shasum -a 256 -c dist/SHA256SUMS
+      - name: Generate and verify release evidence
+        run: |
+          python scripts/generate_release_evidence.py --results-dir results --dist dist --output-json artifacts/release-evidence.json --output-markdown artifacts/release-evidence.md
+          python scripts/check_release.py --require-assets --require-wheel dist/retrieval_observatory-*.whl --require-evidence artifacts/release-evidence.json
+          pytest tests/contracts/test_release_evidence.py -v --tb=short
+          cat artifacts/release-evidence.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Assemble release-evidence artifact
+        run: |
+          mkdir -p release-evidence
+          cp -R results/. release-evidence/
+          cp artifacts/release-evidence.json artifacts/release-evidence.md release-evidence/
+          find release-evidence -type f -print0 | sort -z | xargs -0 shasum -a 256 > release-evidence/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: release-evidence/
+          if-no-files-found: error

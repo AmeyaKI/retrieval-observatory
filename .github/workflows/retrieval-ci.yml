@@ -5,7 +5,11 @@ on:
     branches: [main]
 
 jobs:
+  release-candidate:
+    uses: ./.github/workflows/release-candidate.yml
+
   golden-check:
+    needs: release-candidate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -14,20 +18,41 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install
-        run: pip install -e ".[demo,dashboard,dense,dev]"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+
+      - run: shasum -a 256 -c dist/SHA256SUMS
+
+      - name: Install tested wheel
+        run: |
+          python -m venv /tmp/retobs-retrieval-ci
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          /tmp/retobs-retrieval-ci/bin/pip install --index-url https://pypi.org/simple "${WHEEL}[demo,dashboard,dense]"
 
       - name: Generate deterministic regression story
         run: |
-          retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
-          echo "BASELINE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])")" >> $GITHUB_ENV
-          echo "CANDIDATE=$(python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['validation_run_id'])")" >> $GITHUB_ENV
+          /tmp/retobs-retrieval-ci/bin/retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
+          echo "BASELINE=$(/tmp/retobs-retrieval-ci/bin/python -c \"import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])\")" >> $GITHUB_ENV
+          echo "CANDIDATE=$(/tmp/retobs-retrieval-ci/bin/python -c \"import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['validation_run_id'])\")" >> $GITHUB_ENV
 
       - name: Compare baseline with validated change
         run: |
           mkdir -p artifacts
-          retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format markdown --output artifacts/comparison.md --fail-on regression
-          retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format html --output artifacts/comparison.html --fail-on regression
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          WHEEL_DIGEST=$(shasum -a 256 "$WHEEL" | awk '{print $1}')
+          printf 'Wheel SHA-256: `%s`\n\n' "$WHEEL_DIGEST" > artifacts/comparison.md
+          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format markdown --fail-on regression >> artifacts/comparison.md
+          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format html --output artifacts/comparison.html --fail-on regression
+          WHEEL_DIGEST="$WHEEL_DIGEST" /tmp/retobs-retrieval-ci/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("artifacts/comparison.html")
+          digest = os.environ["WHEEL_DIGEST"]
+          path.write_text(path.read_text(encoding="utf-8").replace("<body>", f"<body><p><strong>Wheel SHA-256:</strong> <code>{digest}</code></p>", 1), encoding="utf-8")
+          PY
           cat artifacts/comparison.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload reviewable comparison

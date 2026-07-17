@@ -7,9 +7,9 @@ interface Props {
   runId: string
 }
 
-// Self-gating: renders the Forge stress-test breakdown ONLY when the run's queries
-// carry Forge metadata (scenario_type / difficulty_label). Otherwise renders nothing,
-// so non-Forge runs are unaffected. This keeps the section factual — it appears exactly
+// Self-gating: renders the Test Sets stress-test breakdown ONLY when the run's queries
+// carry Test Sets metadata (scenario_type / difficulty_label). Otherwise renders nothing,
+// so non-Test Sets runs are unaffected. This keeps the section factual — it appears exactly
 // when there is data to back it.
 export default function StressTestResults({ dbId, runId }: Props) {
   const [hasScenario, setHasScenario] = useState(false)

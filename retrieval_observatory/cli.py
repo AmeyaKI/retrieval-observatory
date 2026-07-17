@@ -24,28 +24,24 @@ testsets_app = typer.Typer(name="testsets", help="Generate, inspect, and list re
 production_app = typer.Typer(name="production", help="Inspect sampled production retrieval traces and findings.")
 app.add_typer(testsets_app, name="testsets")
 app.add_typer(production_app, name="production")
-app.add_typer(mcp_app, name="mcp", hidden=True)
-app.add_typer(classifier_app, name="classifier", hidden=True)
-app.add_typer(forge_app, name="forge", hidden=True, deprecated=True)
-app.add_typer(tracelens_app, name="tracelens", hidden=True, deprecated=True)
-app.add_typer(advisor_app, name="advisor", hidden=True, deprecated=True)
 console = Console()
 
 
 @forge_app.callback()
 def _forge_deprecated() -> None:
-    console.print("[yellow]Deprecated:[/yellow] use `retobs testsets` (legacy `forge` is removed in v1.0).")
+    console.print("[yellow]Deprecated:[/yellow] use `retobs testsets` (legacy `forge` is ).")
 
 
 @tracelens_app.callback()
 def _tracelens_deprecated() -> None:
-    console.print("[yellow]Deprecated:[/yellow] use `retobs production` (legacy `tracelens` is removed in v1.0).")
+    console.print("[yellow]Deprecated:[/yellow] use `retobs production` (legacy `tracelens` is ).")
 
 
 def _load_evaluate_target(spec: str):
     """Load module:symbol or /path/file.py:symbol without mutating project files."""
     import importlib
     import importlib.util
+    import sys
 
     if ":" not in spec:
         raise ValueError("Callable target must use module:symbol or /path/file.py:symbol.")
@@ -59,7 +55,15 @@ def _load_evaluate_target(spec: str):
         module = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(module)
     else:
-        module = importlib.import_module(module_ref)
+        project_root = str(Path.cwd())
+        added_project_root = project_root not in sys.path
+        if added_project_root:
+            sys.path.insert(0, project_root)
+        try:
+            module = importlib.import_module(module_ref)
+        finally:
+            if added_project_root:
+                sys.path.remove(project_root)
     if not hasattr(module, symbol):
         raise ValueError(f"Symbol '{symbol}' not found in {module_ref}.")
     return getattr(module, symbol), module
@@ -201,7 +205,6 @@ def report_cmd(
         raise typer.Exit(1)
 
 
-@app.command(hidden=True, deprecated=True)
 def run(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
     skip_smoke_test: bool = typer.Option(False, "--skip-smoke-test", help="Skip ID consistency smoke test."),
@@ -209,7 +212,7 @@ def run(
     latency_budget_ms: Optional[int] = typer.Option(None, "--latency-budget-ms", help="Latency budget per query in ms. If set, prints a verdict against stage deltas."),
 ) -> None:
     """Deprecated alias for `retobs evaluate --config`."""
-    console.print("[yellow]Deprecated:[/yellow] use `retobs evaluate --config <path>` (`run` is removed in v1.0).")
+    console.print("[yellow]Deprecated:[/yellow] use `retobs evaluate --config <path>` (`run` is ).")
     asyncio.run(_run(config, skip_smoke_test, no_cache, latency_budget_ms))
 
 
@@ -406,7 +409,6 @@ async def _compare(
     return report
 
 
-@app.command("diff-configs", hidden=True)
 def diff_configs_cmd(
     config_a: Path = typer.Argument(..., help="Path to the 'before' experiment YAML config."),
     config_b: Path = typer.Argument(..., help="Path to the 'after' experiment YAML config."),
@@ -464,7 +466,7 @@ def _collect_dashboard_db_paths(cli_dbs: Optional[List[str]]) -> List[str]:
 
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", "--host"),
+    host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(4000, "--port"),
     db: Optional[List[str]] = typer.Option(None, "--db", "--db-path", help="SQLite DB path(s); repeat or comma-separate."),
 ) -> None:
@@ -488,6 +490,8 @@ def serve(
 
         registry = DbRegistry(db_paths)
         dashboard_app = create_app(registry=registry)
+        if host not in ("127.0.0.1", "::1", "localhost"):
+            console.print("[yellow]Warning: dashboard read APIs are unauthenticated; bind remotely only on a trusted network.[/yellow]")
         display_host = "localhost" if host in ("0.0.0.0", "::") else host
         console.print(f"[bold green]Dashboard:[/bold green] http://{display_host}:{port}")
         if len(db_paths) > 1:
@@ -532,113 +536,32 @@ def mcp_init(
 
 @app.command("integrate")
 def integrate_cmd(
-    project_root: Path = typer.Argument(Path("."), help="Project root to inspect when --plan is used."),
-    framework: Optional[str] = typer.Option(None, "--framework", "-f", help="langchain|llamaindex|fastapi|http|python"),
-    check: bool = typer.Option(False, "--check", help="Print verification steps after the snippet."),
-    plan: bool = typer.Option(False, "--plan", help="Inspect the project and print a read-only integration plan."),
+    project_root: Path = typer.Argument(Path(".")),
+    phase: str = typer.Option("plan", "--phase"),
+    plan_file: Optional[Path] = typer.Option(None, "--plan"),
+    output: Optional[Path] = typer.Option(None, "--output"),
+    db: str = typer.Option(".retobs/results.db", "--db"),
 ) -> None:
-    """Plan an integration or print one framework's wiring reference."""
-    if plan:
-        from retrieval_observatory.integrations.wire import plan_project
-
-        result = plan_project(project_root, framework=framework)
-        console.print_json(data=result)
-        if result.get("status") == "failed":
-            raise typer.Exit(1)
-        return
-    if not framework:
-        console.print("[red]Pass --framework for a reference snippet, or use --plan for project detection.[/red]")
-        raise typer.Exit(1)
-    from retrieval_observatory.integrations.registry import describe_integration
-
-    guide = describe_integration(framework)
-    if guide.get("error"):
-        console.print(f"[red]{guide['error']}[/red]")
-        console.print(f"Frameworks: {', '.join(guide.get('frameworks', []))}")
-        raise typer.Exit(1)
-    console.print(f"[bold]{guide['title']}[/bold]")
-    if guide.get("install_extra"):
-        console.print(f"Install extra: pip install 'retrieval-observatory[{guide['install_extra']}]'")
-    if guide.get("env_vars"):
-        console.print(f"Env: {', '.join(guide['env_vars'])}")
-    console.print("\n[bold]Snippet[/bold]\n")
-    console.print(guide["snippet"])
-    if check:
-        console.print("\n[bold]Verify[/bold]")
-        console.print(guide.get("verify", ""))
-        console.print("Then: retobs doctor && retobs mcp (verify_integration tool)")
-
-
-@app.command("verify")
-def verify_cmd(
-    project_root: Path = typer.Argument(Path("."), help="Integrated project root."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite evidence database."),
-) -> None:
-    """Verify integration evidence and capability readiness."""
-    from retrieval_observatory.integrations.wire import verify_project
-
-    result = asyncio.run(verify_project(project_root, db_path=db))
-    console.print_json(data=result)
-    if result.get("status") != "ready":
+    """Plan, apply, or verify one canonical project integration."""
+    from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
+    from retrieval_observatory.integrations.service import integrate_project
+    selected = IntegrationPhase(phase)
+    if plan_file:
+        reviewed_payload = json.loads(plan_file.read_text())
+        reviewed = IntegrationPlan.from_dict(reviewed_payload.get("plan", reviewed_payload))
+    else:
+        reviewed = None
+    payload = asyncio.run(integrate_project(project_root, selected, IntegrationOptions(reviewed, db))).to_dict()
+    serialized = json.dumps(payload, indent=2)
+    if output:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(serialized + "\n", encoding="utf-8")
+    else:
+        typer.echo(serialized)
+    if payload["status"] == "failed":
         raise typer.Exit(1)
 
 
-@app.command("wire", hidden=True, deprecated=True)
-def wire_cmd(
-    project_root: Path = typer.Argument(Path("."), help="Project root to wire retobs into."),
-    framework: Optional[str] = typer.Option(None, "--framework", "-f", help="Override auto-detected framework."),
-    retriever_entrypoint: Optional[str] = typer.Option(None, "--retriever-entrypoint", help="adapter.import factory path."),
-    experiment_name: Optional[str] = typer.Option(None, "--experiment-name", help="Experiment name in config.yaml."),
-    verify: bool = typer.Option(False, "--verify", help="Verify wiring after agent patches (phase=verify)."),
-    db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB for verify phase."),
-) -> None:
-    console.print(
-        "[yellow]Deprecated:[/yellow] use `retobs integrate . --plan`, apply its patches, then "
-        "`retobs verify .` (`wire` is removed in v1.0)."
-    )
-    """Wire retobs into an external project (setup or verify). Agent twin of MCP wire_project."""
-    from retrieval_observatory.integrations.wire import setup_project, verify_project
-
-    async def _run():
-        if verify:
-            return await verify_project(project_root, db_path=db)
-        return setup_project(
-            project_root,
-            framework=framework,
-            retriever_entrypoint=retriever_entrypoint,
-            experiment_name=experiment_name,
-        )
-
-    result = asyncio.run(_run())
-    console.print(f"[bold]Status:[/bold] {result.get('status')}")
-    if result.get("framework"):
-        console.print(f"[bold]Framework:[/bold] {result['framework']}")
-    if result.get("files_written"):
-        console.print("[bold]Files written:[/bold]")
-        for path in result["files_written"]:
-            console.print(f"  {path}")
-    if result.get("wiring_brief"):
-        console.print("\n[bold]Wiring brief[/bold] — apply patches, then: [cyan]retobs verify .[/cyan]")
-        for patch in result["wiring_brief"].get("patches", []):
-            console.print(f"  - {patch.get('file')}: {patch.get('description')}")
-    if result.get("post_wiring_commands"):
-        console.print("\n[bold]Post-wiring commands[/bold]")
-        for name, cmd in result["post_wiring_commands"].items():
-            console.print(f"  {name}: {cmd}")
-    if result.get("commands"):
-        console.print("\n[bold]Commands[/bold]")
-        for name, cmd in result["commands"].items():
-            console.print(f"  {name}: {cmd}")
-    retos = project_root.resolve() / "RETOS.md"
-    if retos.is_file():
-        console.print(f"\n[green]See[/green] {retos} for agent/human next steps.")
-    if result.get("agent_instructions"):
-        console.print(f"\n[dim]{result['agent_instructions']}[/dim]")
-    if verify and result.get("status") != "ready":
-        raise typer.Exit(1)
-
-
-@app.command("doctor", hidden=True, deprecated=True)
 def doctor_cmd(
     db: str = typer.Option(".retobs/results.db", "--db", help="SQLite DB to probe."),
 ) -> None:
@@ -691,7 +614,7 @@ def doctor_cmd(
 
         tools = asyncio.run(srv.list_tools())
         names = {t.name for t in tools}
-        check("MCP tools registered", "wire_project" in names and "benchmark_config" in names, f"{len(names)} tools")
+        check("MCP tools registered", "integrate_project" in names and "benchmark_config" in names, f"{len(names)} tools")
     except Exception as e:
         check("MCP tools registered", False, str(e))
 
@@ -700,7 +623,6 @@ def doctor_cmd(
     console.print("[green]All checks passed.[/green]")
 
 
-@app.command(hidden=True)
 def diagram(
     run_id: str = typer.Argument(..., help="Run ID to render."),
     output: str = typer.Option("diagram.html", "--output", "-o", help="Output HTML file path."),
@@ -722,7 +644,7 @@ async def _diagram(run_id: str, output: str, db_path: str) -> None:
     if not metrics:
         console.print(f"[red]Run '{run_id}' not found or has no metrics in {db_path}.[/red]")
         raise typer.Exit(1)
-    traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+    traces = await store.get_traces(run_id) if hasattr(store, "get_traces") else []
     if not traces:
         console.print(
             f"[red]Run '{run_id}' has no execution traces yet -- no trace-native diagram to render.[/red]"
@@ -1019,7 +941,6 @@ async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, form
     )
 
 
-@app.command("inspect", hidden=True, deprecated=True)
 def inspect(
     run_id: str = typer.Argument(..., help="Run ID to inspect"),
     query_id: str = typer.Option(..., "--query", "-q", help="Query ID to inspect"),
@@ -1027,30 +948,35 @@ def inspect(
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
 ) -> None:
     """Deprecated alias for `retobs inspect-query`."""
-    console.print("[yellow]Deprecated:[/yellow] use `retobs inspect-query RUN QUERY` (`inspect` is removed in v1.0).")
+    console.print("[yellow]Deprecated:[/yellow] use `retobs inspect-query RUN QUERY` (`inspect` is ).")
     asyncio.run(_inspect(run_id, query_id, pipeline_id, db_path))
 
 
 async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_path: str) -> None:
     import aiosqlite
     import json as _json
+    from retrieval_observatory.store.base import TraceQuery
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    store = SQLiteStore(db_path=db_path)
+    traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id, pipeline_id=pipeline_id))
+    stage_rows = [
+        {
+            "pipeline_id": trace.pipeline_id,
+            "stage_index": index,
+            "stage_id": span.op_id,
+            "status": span.status,
+            "latency_ms": span.latency_ms,
+            "retrieved_doc_ids_json": _json.dumps([candidate.doc_id for candidate in span.outputs]),
+            "retrieved_scores_json": _json.dumps([candidate.score for candidate in span.outputs]),
+            "error_traceback": span.error,
+        }
+        for trace in traces
+        for index, span in enumerate(trace.spans)
+    ]
 
     async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
-
-        # Load stage rows for this query
-        sql = """SELECT pipeline_id, stage_index, stage_id, status, latency_ms,
-                        retrieved_doc_ids_json, retrieved_scores_json, error_traceback
-                 FROM raw_results
-                 WHERE run_id = ? AND query_id = ? AND stage_index >= 0
-                 ORDER BY pipeline_id, stage_index"""
-        params: tuple = (run_id, query_id)
-        if pipeline_id:
-            sql = sql.replace("AND stage_index >= 0", "AND pipeline_id = ? AND stage_index >= 0")
-            params = (run_id, query_id, pipeline_id)
-
-        async with db.execute(sql, params) as cur:
-            stage_rows = await cur.fetchall()
 
         # Load diagnostics for this query
         diag_sql = "SELECT * FROM query_diagnostics WHERE run_id = ? AND query_id = ?"
@@ -1119,7 +1045,6 @@ async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_pa
             console.print()
 
 
-@app.command(hidden=True)
 def validate(
     config: Path = typer.Option(..., "--config", "-c", help="Path to experiment YAML config."),
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Optional SQLite DB for saving the report."),
@@ -1148,7 +1073,6 @@ def validate(
         raise typer.Exit(1)
 
 
-@app.command(hidden=True)
 def init(
     output: Path = typer.Option(Path("retobs_experiment.yaml"), "--output", "-o"),
     mode: str = typer.Option("custom-jsonl", "--mode", help="beir, custom-jsonl, http-endpoint, bm25+dense, bm25+reranker, reliability-demo"),
@@ -1196,7 +1120,7 @@ def _starter_config_yaml(mode: str) -> str:
     """Return a starter YAML config string with inline explanatory comments."""
     if mode == "reliability-demo":
         return """\
-# Starter config for the retobs reliability demo Forge dataset.
+# Starter config for the retobs reliability demo Test Sets dataset.
 # Run: retobs demo  then point these paths at .retobs/demo/forge_dataset/
 
 experiment:
@@ -1594,7 +1518,7 @@ async def _classifier_report(
 
 
 # ---------------------------------------------------------------------------
-# Forge commands — synthetic evaluation dataset generation
+# Test Sets commands — synthetic evaluation dataset generation
 # ---------------------------------------------------------------------------
 
 def _load_corpus_from_jsonl(corpus_path: str) -> dict:
@@ -1625,7 +1549,7 @@ def forge_scan(
 ) -> None:
     """Scan a corpus for retrieval failure scenarios — no LLM or API key needed.
 
-    This is the dry-run step. Use it to preview what scenarios Forge found before
+    This is the dry-run step. Use it to preview what scenarios Test Sets found before
     spending any LLM budget on query generation.
     """
     from retrieval_observatory.forge.scenarios.registry import detect_all
@@ -1811,7 +1735,7 @@ async def _forge_run(
         table.add_row(f"  Query type: {qtype}", str(count))
     console.print(table)
 
-    # Register the dataset in the store so it shows up in the dashboard's Forge workspace.
+    # Register the dataset in the store so it shows up in the dashboard's Test Sets workspace.
     try:
         from retrieval_observatory.store.sqlite import SQLiteStore
         store = SQLiteStore(db_path=db_path)
@@ -1867,7 +1791,7 @@ async def _forge_run(
 def forge_list(
     db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite DB to read from."),
 ) -> None:
-    """List Forge datasets registered in the store."""
+    """List Test Sets datasets registered in the store."""
     asyncio.run(_forge_list(db))
 
 
@@ -1972,7 +1896,7 @@ async def _demo(
     corpus_dict = {d["id"]: {"text": d["text"], "title": d["title"]} for d in corpus_docs}
     console.print(f"  [green]✓[/green] {len(corpus_docs)} documents → {corpus_path}")
 
-    # ── Step 2: Forge scan (real detector, no LLM) ───────────────────────────
+    # ── Step 2: Test Sets scan (real detector, no LLM) ───────────────────────────
     console.print("\n[bold cyan]Step 2/9[/bold cyan] Scanning corpus for failure scenarios (no LLM)...")
     scenarios = detect_all(corpus_dict, types=["temporal", "alias"], max_per_type=20)
     temporal = [s for s in scenarios if s.scenario_type == "temporal"]
@@ -1986,7 +1910,7 @@ async def _demo(
     synthetic_queries, qrels = _build_demo_queries(scenarios, corpus_dict)
     console.print(f"  [green]✓[/green] {len(synthetic_queries)} queries ({len(qrels)} with qrels)")
 
-    # ── Step 4: Export Forge dataset and register in store ────────────────────
+    # ── Step 4: Export Test Sets dataset and register in store ────────────────────
     console.print("\n[bold cyan]Step 4/9[/bold cyan] Exporting and registering the Test Set...")
     forge_dir = out / "forge_dataset"
     dataset = SyntheticDataset(
@@ -2086,11 +2010,11 @@ async def _demo(
         ablation_run_id = runs[0]["run_id"] if runs else None
         console.print(f"  [green]✓[/green] Ablation run: [bold]{ablation_run_id}[/bold]")
 
-    # ── Step 7: Seed TraceLens with drift + failure hotspots ──────────────────
+    # ── Step 7: Seed Production with drift + failure hotspots ──────────────────
     console.print(f"\n[bold cyan]Step 8/9[/bold cyan] Seeding {n_traces} sampled production traces (drift + hotspots)...")
     await _seed_showcase_traces(tracelens_service, n_traces, db_path)
 
-    # ── Step 8: Advisor regression check ──────────────────────────────────────
+    # ── Step 8: Findings regression check ──────────────────────────────────────
     console.print("\n[bold cyan]Step 9/9[/bold cyan] Building comparison findings and validation evidence...")
     from retrieval_observatory.advisor.regression import detect_regressions
     from retrieval_observatory.advisor.recommend import recommend, compute_reliability
@@ -2445,7 +2369,7 @@ def _demo_corpus_docs() -> list:
         },
         {
             "id": "rrf-benchmarks", "timestamp": "2023-06-01T00:00:00",
-            "title": "RRF Performance Benchmarks",
+            "title": "RRF Performance Runs",
             "text": (
                 "Benchmark results show RRF consistently improves retrieval quality across diverse query "
                 "types. On information-seeking queries, RRF achieves 8 to 15 percent relative improvement "
@@ -2738,7 +2662,7 @@ def _build_demo_queries(
     scenarios: list,
     corpus_dict: dict,
 ) -> tuple:
-    """Create hand-crafted synthetic queries matched to detected Forge scenarios.
+    """Create hand-crafted synthetic queries matched to detected Test Sets scenarios.
 
     Each query gets scenario_type and difficulty_label in its metadata so the
     by-segment endpoint can power the StressTestResults cross-link in the dashboard.
@@ -2885,18 +2809,20 @@ def _build_demo_queries(
 
 
 def _append_demo_forge_tags(trace) -> None:
-    """Add Forge failure_category tags so query lineage prod-matches work in the demo."""
+    """Add Test Sets failure_category tags so query lineage prod-matches work in the demo."""
     text = trace.query_text.lower()
-    tags = list(trace.suspected_failures or [])
+    metadata = dict(trace.metadata)
+    tags = list(metadata.get("suspected_failures", []))
     temporal_markers = ("2022", "2023", "2024", "current", "latest", "earlier version", "changed over time", "versus")
     alias_markers = ("aws vs", "amazon web services", " rrf ", " rag ", " bm25 ", " ann ")
     if any(m in text for m in temporal_markers) and "temporal_confusion" not in tags:
         tags.append("temporal_confusion")
-        trace.predicted_difficulty = "hard"
+        metadata["predicted_difficulty"] = "hard"
     if any(m in text for m in alias_markers) and "alias_mismatch" not in tags:
         tags.append("alias_mismatch")
-        trace.predicted_difficulty = "hard"
-    trace.suspected_failures = tags
+        metadata["predicted_difficulty"] = "hard"
+    metadata["suspected_failures"] = tags
+    trace.metadata = metadata
 
 
 async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
@@ -2907,7 +2833,7 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
 
     from retrieval_observatory.store.sqlite import SQLiteStore
     from retrieval_observatory.tracing.enrich import enrich
-    from retrieval_observatory.tracing.types import RetrievalTrace
+    from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
     from retrieval_observatory.types import Document, StageSnapshot
 
     store = SQLiteStore(db_path=db_path)
@@ -2961,7 +2887,6 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
             q = random.choice(temporal_queries + hard_queries)
             pipeline = random.choice(pipelines)
             snapshots = [StageSnapshot(0, "bm25", [], random.uniform(15, 80), candidate_count=0)]
-            final: list = []
             latency = snapshots[0].latency_ms
             status = "OK"
         elif failure_roll < 0.22:
@@ -2972,7 +2897,6 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
                 StageSnapshot(0, "bm25", docs, random.uniform(40, 120), candidate_count=10),
                 StageSnapshot(1, "rerank", _docs(1, 0.1, 0.2), random.uniform(2500, 4500), candidate_count=1),
             ]
-            final = snapshots[1].documents
             latency = sum(s.latency_ms for s in snapshots)
             status = "OK"
         elif failure_roll < 0.32 and recent_window:
@@ -2984,7 +2908,6 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
                 StageSnapshot(0, "bm25", docs, random.uniform(30, 90), candidate_count=10),
                 StageSnapshot(1, "rerank", kept, random.uniform(50, 150), candidate_count=2),
             ]
-            final = kept
             latency = sum(s.latency_ms for s in snapshots)
             status = "OK"
         else:
@@ -2997,29 +2920,40 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
                 snapshots.append(
                     StageSnapshot(1, "rerank", kept, random.uniform(25, 70), candidate_count=5)
                 )
-                final = kept
-            else:
-                final = docs[:5]
             latency = sum(s.latency_ms for s in snapshots)
             status = "OK"
 
+        spans = []
+        for index, snapshot in enumerate(snapshots):
+            parent_ids = (spans[-1].op_id,) if spans else ()
+            spans.append(OperatorSpan(
+                op_id=snapshot.stage_id,
+                op_type="SOURCE" if not parent_ids else "RERANK",
+                op_name=snapshot.stage_id,
+                parent_ids=parent_ids,
+                status="FIRED",
+                latency_ms=snapshot.latency_ms,
+                input_groups={parent_ids[0]: spans[-1].outputs} if parent_ids else {},
+                outputs=tuple(Candidate(doc_id=doc.id, score=doc.score, rank=doc.rank) for doc in snapshot.documents),
+            ))
         trace = RetrievalTrace(
             trace_id=uuid.uuid4().hex,
-            service=service,
+            service_id=service,
+            run_id=None,
             query_id=uuid.uuid4().hex[:8],
             query_text=q,
             pipeline_id=pipeline,
-            snapshots=snapshots,
-            total_latency_ms=latency,
+            spans=spans,
+            final_op_ids=(spans[-1].op_id,),
+            timing=TraceTiming(latency, latency, latency),
             status=status,
             timestamp=ts,
-            final_results=final,
         )
         enrich(trace, latency_budget_ms=800.0)
         _append_demo_forge_tags(trace)
         traces.append(trace)
 
-    await store.save_traces_batch(traces)
+    await store.save_traces(traces)
     console.print(
         f"  [green]✓[/green] {len(traces)} traces — "
         f"~{int(n * 0.45)} baseline-window (healthy) + ~{int(n * 0.55)} recent (elevated failures for drift)"
@@ -3033,7 +2967,7 @@ def tracelens_demo(
     n: int = typer.Option(200, "--n", help="Number of synthetic traces to seed."),
     db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to write traces into."),
 ) -> None:
-    """Seed synthetic production traces so the TraceLens dashboard has data to explore."""
+    """Seed synthetic production traces so the Production dashboard has data to explore."""
     asyncio.run(_tracelens_demo(service, n, db))
 
 
@@ -3130,7 +3064,7 @@ def advisor_check(
 async def _advisor_check(baseline: str, candidate: str, db_path: str) -> None:
     console.print(
         "[yellow]Deprecated:[/yellow] use `retobs compare BASELINE CANDIDATE --fail-on regression` "
-        "(`advisor check` is removed in v1.0)."
+        "(`advisor check` is )."
     )
     report = await _compare(baseline, candidate, db_path)
     if report.verdict == "regression":
@@ -3232,18 +3166,17 @@ async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> Non
     console.print(f"[green]Registered golden set '{set_name}' ({len(data)} queries).[/green]")
 
 
-@app.command(hidden=True, deprecated=True)
 def quickstart(
     output_dir: Path = typer.Option(Path(".retobs/quickstart"), "--output-dir", "-o", help="Directory for all quickstart outputs."),
     db: str = typer.Option(".retobs/quickstart/results.db", "--db", "--db-path", help="SQLite DB to write results into."),
     host: str = typer.Option("0.0.0.0", "--host"),
     port: int = typer.Option(4000, "--port"),
 ) -> None:
-    """Cold-start: corpus → Forge scan → BM25 benchmark → TraceLens traces → dashboard.
+    """Cold-start: corpus → Test Sets scan → BM25 benchmark → Production traces → dashboard.
 
     No API keys or external services required.  Takes under 5 minutes from a
     fresh install.  After completion, open the URL printed below to explore
-    benchmark results and per-query failure labels in the TraceLens tab.
+    benchmark results and per-query failure labels in the Production tab.
 
     Minimum install: pip install retrieval-observatory[demo,dashboard]
     """
@@ -3261,7 +3194,7 @@ async def _quickstart(output_dir: str, db_path: str, host: str, port: int) -> No
         console.print("[red]Dashboard requires fastapi+uvicorn. Run: pip install retrieval-observatory[dashboard][/red]")
         raise typer.Exit(1)
 
-    console.print("[bold green]retobs quickstart[/bold green] — building demo in [dim]~30 seconds[/dim] …\n")
+    console.print("[bold green]retobs demo[/bold green] — building demo in [dim]~30 seconds[/dim] …\n")
     t0 = time.monotonic()
 
     # Delegate to the demo builder (fast mode: small n_traces, no full ablation)
@@ -3277,14 +3210,14 @@ async def _quickstart(output_dir: str, db_path: str, host: str, port: int) -> No
     elapsed = time.monotonic() - t0
     display_host = "localhost" if host in ("0.0.0.0", "::") else host
     console.print(f"\n[bold green]✓ Ready in {elapsed:.0f}s[/bold green]")
-    console.print(f"  Benchmarks  → http://{display_host}:{port}")
-    console.print(f"  TraceLens   → http://{display_host}:{port}/tracelens")
-    console.print(f"  Advisor     → http://{display_host}:{port}/advisor")
+    console.print(f"  Runs  → http://{display_host}:{port}")
+    console.print(f"  Production   → http://{display_host}:{port}/tracelens")
+    console.print(f"  Findings     → http://{display_host}:{port}/advisor")
     console.print(
-        "\n  [dim]What you're seeing: Forge found retrieval failure scenarios in a synthetic\n"
+        "\n  [dim]What you're seeing: Test Sets found retrieval failure scenarios in a synthetic\n"
         "  RAG corpus, built stress-test queries, ran a BM25 benchmark against them,\n"
-        "  and seeded TraceLens with 50 production-shaped traces with failure labels.\n"
-        "  Open the TraceLens tab and look at 'suspected_failures' per query.[/dim]\n"
+        "  and seeded Production with 50 production-shaped traces with failure labels.\n"
+        "  Open the Production tab and look at 'suspected_failures' per query.[/dim]\n"
     )
 
     registry = DbRegistry([db_path])

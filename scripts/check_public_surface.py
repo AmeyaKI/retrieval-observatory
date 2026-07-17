@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import retrieval_observatory as ro
 from retrieval_observatory.cli import app
 from retrieval_observatory.mcp.server import build_server
+from typer.main import get_command
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def actual_surface() -> dict[str, list[str]]:
-    cli = {command.name for command in app.registered_commands if command.name}
-    cli.update(group.name for group in app.registered_groups if group.name and not group.hidden)
+    cli = set(get_command(app).commands)
     server = build_server()
     manager = server._tool_manager
     tools = manager.list_tools()
@@ -47,7 +48,7 @@ def main() -> int:
         print(json.dumps({"valid": not mismatches, "mismatches": mismatches}, indent=2, sort_keys=True))
     elif mismatches:
         for key, values in mismatches.items():
-            print(f"{key}: expected {values['expected']}; actual {values['actual']}")
+            print(f"{key}: expected {values['expected']}; actual {values['actual']}", file=sys.stderr)
     else:
         print("Public surface matches contracts/public_surface.json.")
     return 1 if mismatches else 0

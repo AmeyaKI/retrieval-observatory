@@ -5,12 +5,13 @@ from retrieval_observatory.cli import app
 runner = CliRunner()
 
 
-def test_integrate_cmd_prints_snippet():
+def test_integrate_rejects_removed_framework_option():
     result = runner.invoke(app, ["integrate", "--framework", "http"])
-    assert result.exit_code == 0
-    assert "adapter.http" in result.stdout
+    assert result.exit_code != 0
+    assert "No such option" in result.output
 
 
-def test_doctor_cmd_runs():
+def test_doctor_command_is_removed():
     result = runner.invoke(app, ["doctor"])
-    assert "retrieval_observatory import" in result.stdout
+    assert result.exit_code != 0
+    assert "No such command" in result.output

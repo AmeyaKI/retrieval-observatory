@@ -1,9 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import WorkspaceGlossaryLink from './WorkspaceGlossaryLink'
 import {
-  DbSource,
   DemoContext,
-  fetchDbs,
   fetchRuns,
   Run,
   RunSelection,
@@ -13,6 +11,7 @@ import { buildRoutes } from '../routing'
 import DbTabs from './DbTabs'
 import RunsSidebar from './RunsSidebar'
 import RunPageLayout from './RunPageLayout'
+import { useDashboardContext } from '../context/DashboardContext'
 
 const RunOverviewPage = lazy(() => import('./RunOverviewPage'))
 const RunArchitecturePage = lazy(() => import('./RunArchitecturePage'))
@@ -25,6 +24,7 @@ const RunCandidateFlowPage = lazy(() => import('./RunCandidateFlowPage'))
 const QueryDiffPage = lazy(() => import('./QueryDiffPage'))
 const RunDocumentsPage = lazy(() => import('./RunDocumentsPage'))
 const ComparePanel = lazy(() => import('./ComparePanel'))
+const AnalysisPage = lazy(() => import('../analysis/AnalysisPage'))
 
 const RUN_ROUTES = buildRoutes([
   ':runId',
@@ -37,6 +37,7 @@ const RUN_ROUTES = buildRoutes([
   ':runId/queries/:queryId/diff',
   ':runId/queries/:queryId/candidates/:docId',
   ':runId/documents',
+  ':runId/analysis/:analysisId',
 ])
 
 function pageIdForRoute(routeId: string): string {
@@ -53,8 +54,8 @@ export default function BenchmarksWorkspace({
   route?: string
   view?: 'runs' | 'compare' | 'queries'
 }) {
-  const [sources, setSources] = useState<DbSource[]>([])
-  const [activeDbId, setActiveDbId] = useState<string | null>(null)
+  const { selection, databases: sources, updateSelection } = useDashboardContext()
+  const activeDbId = selection.db
   const [runs, setRuns] = useState<Run[]>([])
   const [selected, setSelected] = useState<RunSelection[]>([])
   const [resolvedRun, setResolvedRun] = useState<Run | null>(null)
@@ -71,6 +72,7 @@ export default function BenchmarksWorkspace({
       docId: match.params.docId,
       isDiff: match.routeId.endsWith('/diff'),
       against: match.query.against,
+      analysisId: match.params.analysisId,
     }
   }, [route])
 
@@ -78,17 +80,6 @@ export default function BenchmarksWorkspace({
     if (!deepLink || !activeDbId) return
     setSelected([{ dbId: activeDbId, runId: deepLink.runId }])
   }, [deepLink?.runId, activeDbId])
-
-  useEffect(() => {
-    fetchDbs()
-      .then((dbs) => {
-        setSources(dbs)
-        if (dbs.length > 0) {
-          setActiveDbId(dbs[0].db_id)
-        }
-      })
-      .catch((e) => setError(e.message))
-  }, [])
 
   useEffect(() => {
     if (!activeDbId) {
@@ -117,6 +108,7 @@ export default function BenchmarksWorkspace({
       setResolvedRun(null)
       return
     }
+    if (selection.run !== selected[0].runId) updateSelection({ run: selected[0].runId }, 'replace')
     const sel = selected[0]
     const local = runs.find(
       (r) => r.run_id === sel.runId && (r.db_id ?? activeDbId) === sel.dbId,
@@ -162,7 +154,7 @@ export default function BenchmarksWorkspace({
             {error}
           </div>
         )}
-        <DbTabs sources={sources} activeDbId={activeDbId} onSelect={setActiveDbId} />
+        <DbTabs sources={sources} activeDbId={activeDbId} onSelect={(db) => updateSelection({ db, run: null, service: null, cohort: null })} />
         <RunsSidebar
           runs={runs}
           selectedKeys={selectedKeys}
@@ -243,6 +235,7 @@ export default function BenchmarksWorkspace({
               />
             )}
             {deepLink?.page === 'documents' && <RunDocumentsPage dbId={selected[0].dbId} runId={resolvedRun.run_id} />}
+            {deepLink?.page === 'analysis' && deepLink.analysisId && <AnalysisPage dbId={selected[0].dbId} runId={resolvedRun.run_id} analysisId={deepLink.analysisId} />}
           </RunPageLayout>
         )}
         {selected.length === 1 && !resolvedRun && (

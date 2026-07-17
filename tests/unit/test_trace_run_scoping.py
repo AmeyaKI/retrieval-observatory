@@ -18,13 +18,13 @@ class FixedRetriever:
 
 
 @pytest.mark.asyncio
-async def test_traces_v2_do_not_collide_across_runs_with_same_query_and_pipeline(tmp_path):
-    """Regression test: traces_v2 rows are keyed by trace_id alone (INSERT OR REPLACE, not
+async def test_traces_do_not_collide_across_runs_with_same_query_and_pipeline(tmp_path):
+    """Regression test: traces rows are keyed by trace_id alone (INSERT OR REPLACE, not
     scoped by run_id in the primary key). Before the fix, lift_pipeline_result derived
     trace_id purely from query_id+pipeline_id, so re-running the same experiment (same
     query_ids, same pipeline_ids -- the entire point of a baseline-vs-candidate comparison)
     silently overwrote the earlier run's trace data. Confirms both runs keep their own,
-    distinct traces_v2 rows.
+    distinct traces rows.
     """
     store = SQLiteStore(db_path=str(tmp_path / "test.db"))
     await store.init_db()
@@ -40,8 +40,8 @@ async def test_traces_v2_do_not_collide_across_runs_with_same_query_and_pipeline
     pipeline_b = SingleStagePipeline("p1", FixedRetriever("r1", ["d3", "d4"]))
     await runner.run(pipelines=[pipeline_b], queries=queries, run_id="run_candidate")
 
-    baseline_traces = await store.get_traces_v2("run_baseline")
-    candidate_traces = await store.get_traces_v2("run_candidate")
+    baseline_traces = await store.get_traces("run_baseline")
+    candidate_traces = await store.get_traces("run_candidate")
 
     assert len(baseline_traces) == 1
     assert len(candidate_traces) == 1
@@ -57,7 +57,7 @@ async def test_traces_v2_do_not_collide_across_runs_with_same_query_and_pipeline
 
 @pytest.mark.asyncio
 async def test_cached_result_gets_fresh_trace_id_for_new_run(tmp_path):
-    """A cache hit returns a PipelineResult (with its trace_v2 already populated and
+    """A cache hit returns a PipelineResult (with its trace already populated and
     persisted under the run that produced it). Re-running the same query/pipeline under a
     different run_id and serving it from cache must not reuse that stale trace_id."""
     store = SQLiteStore(db_path=str(tmp_path / "test.db"))
@@ -73,8 +73,8 @@ async def test_cached_result_gets_fresh_trace_id_for_new_run(tmp_path):
     await runner.run(pipelines=[pipeline], queries=queries, run_id="run_a")
     await runner.run(pipelines=[pipeline], queries=queries, run_id="run_b")
 
-    traces_a = await store.get_traces_v2("run_a")
-    traces_b = await store.get_traces_v2("run_b")
+    traces_a = await store.get_traces("run_a")
+    traces_b = await store.get_traces("run_b")
     assert len(traces_a) == 1
     assert len(traces_b) == 1
     assert traces_a[0].trace_id != traces_b[0].trace_id

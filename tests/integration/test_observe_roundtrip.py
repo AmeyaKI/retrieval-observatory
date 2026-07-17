@@ -7,7 +7,7 @@ from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace
 
 
-@observe("SOURCE", deterministic=True, replay_policy="EXACT")
+@observe("SOURCE", op_id="retrieve", deterministic=True, replay_policy="EXACT")
 def source_step() -> list[str]:
     return ["d1", "d2", "d3"]
 
@@ -38,5 +38,5 @@ def test_observe_roundtrip(tmp_path):
         get_resp = client.get(f"/runs/{run_id}/traces/{trace_id}")
         assert get_resp.status_code == 200
         payload = get_resp.json()
-        assert payload["trace_format_version"] == 2
+        assert payload["schema_version"] == 1
         assert payload["query_id"] == "q1"

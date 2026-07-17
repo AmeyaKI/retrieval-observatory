@@ -19,7 +19,7 @@ def test_monolith_emits_per_stage_snapshots(tmp_path):
             StageSnapshot(stage_index=1, stage_id="rerank", documents=_docs(["d2", "d3"]), latency_ms=2.0),
         ]
 
-    rep = ro.benchmark(monolith, queries=QUERIES, corpus=CORPUS, k=5, db_path=str(tmp_path / "m.db"))
+    rep = ro.evaluate(monolith, queries=QUERIES, corpus=CORPUS, k=5, db_path=str(tmp_path / "m.db"))
     keys = set(rep.metrics)
     assert any("stage0|recall@5" in k for k in keys)
     assert any("stage1|recall@5" in k for k in keys)

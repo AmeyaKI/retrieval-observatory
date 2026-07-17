@@ -11,17 +11,14 @@ CORPUS = {"rel": "semantic match doc", "n1": "alpha", "n2": "beta", "n3": "gamma
 QUERIES = [{"query_id": "q", "text": "find rel", "relevant_doc_ids": ["rel"]}]
 
 
-@ro.retriever
 def bm25_arm(query):
     return ["n1", "n2", "n3"]  # lexical arm misses the relevant doc
 
 
-@ro.retriever
 def dense_arm(query):
     return ["rel", "n1"]  # semantic arm finds it
 
 
-@ro.reranker
 def rerank(query, candidates):
     return [c.id for c in candidates][:3]
 
@@ -31,8 +28,8 @@ def _labels(report):
 
 
 def test_fuse_stage0_contains_union_no_candidate_miss(tmp_path):
-    rep = ro.benchmark(
-        [ro.fuse([bm25_arm, dense_arm]), rerank],
+    rep = ro.evaluate(
+        [[bm25_arm, dense_arm], rerank],
         queries=QUERIES, corpus=CORPUS, k=3, db_path=str(tmp_path / "f.db"),
     )
     # stage 0 (fused) recall@5 should already be 1.0 — the union includes 'rel'.
@@ -42,7 +39,7 @@ def test_fuse_stage0_contains_union_no_candidate_miss(tmp_path):
 
 
 def test_nested_list_is_alias_for_fuse(tmp_path):
-    rep = ro.benchmark(
+    rep = ro.evaluate(
         [[bm25_arm, dense_arm], rerank],
         queries=QUERIES, corpus=CORPUS, k=3, db_path=str(tmp_path / "n.db"),
     )
@@ -50,36 +47,35 @@ def test_nested_list_is_alias_for_fuse(tmp_path):
 
 
 def test_handrolled_fanin_emits_late_stage_recovery_not_candidate_miss(tmp_path):
-    @ro.reranker
     def fuse_fake(query, candidates):
         return ["rel", "n1"]  # introduces 'rel' at stage 1, as a faked dense arm would
 
-    rep = ro.benchmark(
+    rep = ro.evaluate(
         [bm25_arm, fuse_fake],
         queries=QUERIES, corpus=CORPUS, k=3, db_path=str(tmp_path / "h.db"),
     )
     labels = _labels(rep)
     assert "candidate_miss" not in labels  # the query SUCCEEDED — must not be inverted
-    assert "late_stage_recovery" in labels
+    assert "source_miss" in labels
 
 
 def test_true_candidate_miss_still_flagged(tmp_path):
     # No arm finds the relevant doc -> candidate_miss is still correct.
-    rep = ro.benchmark(
-        [ro.fuse([bm25_arm, bm25_arm])],
+    rep = ro.evaluate(
+        [[bm25_arm, bm25_arm]],
         queries=QUERIES, corpus=CORPUS, k=3, db_path=str(tmp_path / "m.db"),
     )
-    assert "candidate_miss" in _labels(rep)
+    assert "source_miss" in _labels(rep)
 
 
-def test_fuse_requires_two_retrievers():
+def test_parallel_stage_requires_two_retrievers():
     with pytest.raises(ValueError):
-        ro.fuse([bm25_arm])
+        ro.evaluate([[bm25_arm]], queries=QUERIES, corpus=CORPUS)
 
 
-def test_fuse_only_valid_at_stage0(tmp_path):
+def test_parallel_stage_only_valid_at_stage0(tmp_path):
     with pytest.raises(ValueError):
-        ro.benchmark(
-            [bm25_arm, ro.fuse([bm25_arm, dense_arm])],
+        ro.evaluate(
+            [bm25_arm, [bm25_arm, dense_arm]],
             queries=QUERIES, corpus=CORPUS, k=3, db_path=str(tmp_path / "e.db"),
         )

@@ -45,14 +45,14 @@ async def test_parallel_sources_overlap_and_record_latency_semantics():
     result = await _parallel_dag().run(Query(query_id="q", text="q", k=10))
 
     assert result.status == "OK"
-    timing = result.trace_v2.timing
+    timing = result.trace.timing
     assert timing is not None
     assert timing.operator_sum_ms >= 90
     assert timing.wall_clock_ms < 90
     assert timing.critical_path_ms < 90
     assert result.total_latency_ms == pytest.approx(timing.wall_clock_ms)
-    assert result.trace_v2.total_latency_ms == pytest.approx(timing.wall_clock_ms)
-    assert [span.op_id for span in result.trace_v2.spans] == ["left", "right", "fuse"]
+    assert result.trace.total_latency_ms == pytest.approx(timing.wall_clock_ms)
+    assert [span.op_id for span in result.trace.spans] == ["left", "right", "fuse"]
 
 
 @pytest.mark.asyncio
@@ -70,15 +70,15 @@ async def test_failed_node_returns_partial_error_trace():
     result = await pipeline.run(Query(query_id="q", text="q", k=10))
 
     assert result.status == "ERROR"
-    assert result.trace_v2 is not None
-    assert result.trace_v2.status == "ERROR"
-    spans = {span.op_id: span for span in result.trace_v2.spans}
+    assert result.trace is not None
+    assert result.trace.status == "ERROR"
+    spans = {span.op_id: span for span in result.trace.spans}
     assert spans["good"].status == "FIRED"
     assert spans["bad"].status == "ERROR"
     assert "bad failed" in (spans["bad"].error or "")
     assert "fuse" not in spans
-    assert result.trace_v2.final_op_id == "good"
-    assert result.trace_v2.error_traceback
+    assert result.trace.final_op_ids == ()
+    assert result.trace.error_traceback
 
 
 @pytest.mark.asyncio
@@ -89,10 +89,10 @@ async def test_cancelled_dag_returns_partial_timeout_trace():
     result = await task
 
     assert result.status == "TIMEOUT"
-    assert result.trace_v2 is not None
-    assert result.trace_v2.status == "TIMEOUT"
-    assert {span.status for span in result.trace_v2.spans} == {"TIMEOUT"}
-    assert {span.op_id for span in result.trace_v2.spans} == {"left", "right"}
+    assert result.trace is not None
+    assert result.trace.status == "TIMEOUT"
+    assert {span.status for span in result.trace.spans} == {"TIMEOUT"}
+    assert {span.op_id for span in result.trace.spans} == {"left", "right"}
 
 
 def test_dag_rejects_cycles_and_unknown_dependencies():

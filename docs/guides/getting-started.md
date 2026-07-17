@@ -13,10 +13,10 @@ No API keys are required for the walkthrough.
 
 ```bash
 pip install "retrieval-observatory[demo,dashboard]"
-retobs quickstart
+retobs demo
 ```
 
-`retobs quickstart` scans a synthetic corpus, builds stress-test queries, runs a BM25
+`retobs demo` scans a synthetic corpus, builds stress-test queries, runs a BM25
 benchmark, seeds a few production traces, and opens the dashboard at
 `http://localhost:4000`. When it finishes you are looking at a real run.
 

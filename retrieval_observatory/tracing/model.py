@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from hashlib import sha256
+import json
 from typing import Any, Literal, Mapping, Sequence
 
 OperatorType = Literal["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE"]
@@ -50,18 +52,19 @@ class OperatorSpan:
     gate_values: Mapping[str, Any] = field(default_factory=dict)
     input_variant: str = "raw"
     error: str | None = None
+    inputs: tuple[Candidate, ...] = ()
 
     def __post_init__(self) -> None:
         groups = {key: tuple(value) for key, value in self.input_groups.items()}
+        inputs = tuple(self.inputs)
         if set(groups) - set(self.parent_ids):
             raise ValueError("input group keys must be declared parent IDs")
+        if inputs and not groups and self.parent_ids:
+            groups = {self.parent_ids[0]: inputs}
         object.__setattr__(self, "parent_ids", tuple(self.parent_ids))
         object.__setattr__(self, "input_groups", groups)
+        object.__setattr__(self, "inputs", tuple(candidate for parent in self.parent_ids for candidate in groups.get(parent, ())))
         object.__setattr__(self, "outputs", tuple(self.outputs))
-
-    @property
-    def inputs(self) -> tuple[Candidate, ...]:
-        return tuple(candidate for parent in self.parent_ids for candidate in self.input_groups.get(parent, ()))
 
     @classmethod
     def source(
@@ -71,6 +74,8 @@ class OperatorSpan:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        payload.pop("inputs", None)
+        payload.pop("final_op_id", None)
         payload["parent_ids"] = list(self.parent_ids)
         payload["input_groups"] = {key: [asdict(item) for item in value] for key, value in self.input_groups.items()}
         payload["outputs"] = [asdict(item) for item in self.outputs]
@@ -106,7 +111,7 @@ def critical_path_latency_ms(spans: Sequence[OperatorSpan]) -> float:
     def duration(op_id: str) -> float:
         if op_id not in cache:
             span = by_id[op_id]
-            cache[op_id] = max((duration(parent) for parent in span.parent_ids), default=0.0) + max(
+            cache[op_id] = max((duration(parent) for parent in span.parent_ids if parent in by_id), default=0.0) + max(
                 0.0, span.latency_ms
             )
         return cache[op_id]
@@ -141,7 +146,7 @@ class CaptureMetadata:
             raise ValueError("sample_rate must be between 0 and 1")
 
 
-@dataclass(frozen=True)
+@dataclass
 class RetrievalTrace:
     trace_id: str
     service_id: str
@@ -150,7 +155,7 @@ class RetrievalTrace:
     query_text: str
     pipeline_id: str
     spans: Sequence[OperatorSpan]
-    final_op_ids: tuple[str, ...]
+    final_op_ids: tuple[str, ...] = ()
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     dataset_id: str | None = None
     corpus_version: str | None = None
@@ -162,6 +167,7 @@ class RetrievalTrace:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     error_traceback: str | None = None
     schema_version: int = 1
+    final_op_id: str | None = None
 
     def __post_init__(self) -> None:
         spans = tuple(self.spans)
@@ -173,7 +179,8 @@ class RetrievalTrace:
             for parent in span.parent_ids:
                 if parent not in known:
                     raise ValueError(f"unknown parent {parent}")
-        if not set(self.final_op_ids) <= known:
+        final_op_ids = tuple(self.final_op_ids) or ((self.final_op_id,) if self.final_op_id else ())
+        if not set(final_op_ids) <= known:
             raise ValueError("final operator IDs must exist in spans")
         visiting: set[str] = set()
         visited: set[str] = set()
@@ -198,7 +205,8 @@ class RetrievalTrace:
                 if any(rank < 1 for rank in ranks) or len(ranks) != len(set(ranks)):
                     raise ValueError("candidate ranks must be positive and unique within a group")
         object.__setattr__(self, "spans", spans)
-        object.__setattr__(self, "final_op_ids", tuple(self.final_op_ids))
+        object.__setattr__(self, "final_op_ids", final_op_ids)
+        object.__setattr__(self, "final_op_id", final_op_ids[0] if len(final_op_ids) == 1 else None)
         if self.timing is None:
             object.__setattr__(self, "timing", TraceTiming.from_spans(spans))
 
@@ -225,18 +233,49 @@ class RetrievalTrace:
             "schema_version": self.schema_version,
         }
 
+    @property
+    def total_latency_ms(self) -> float:
+        return self.timing.wall_clock_ms if self.timing is not None else 0.0
+
+    def topology_hash(self) -> str:
+        """Stable graph signature used by both storage backends."""
+        topology = [
+            (span.op_id, span.op_type, tuple(span.parent_ids), span.status)
+            for span in sorted(self.spans, key=lambda item: item.op_id)
+        ]
+        return sha256(json.dumps(topology, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def with_identity(self, *, run_id: str | None, service_id: str) -> "RetrievalTrace":
+        return RetrievalTrace(
+            **{
+                **self.to_dict(),
+                "run_id": run_id,
+                "service_id": service_id,
+                "timestamp": self.timestamp,
+                "spans": self.spans,
+                "timing": self.timing,
+                "capture": self.capture,
+            }
+        )
+
+    def span(self, op_id: str) -> OperatorSpan:
+        for span in self.spans:
+            if span.op_id == op_id:
+                return span
+        raise KeyError(op_id)
+
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "RetrievalTrace":
         return cls(
             trace_id=str(value["trace_id"]),
-            service_id=str(value["service_id"]),
+            service_id=str(value.get("service_id", "remote")),
             run_id=value.get("run_id"),
             query_id=str(value["query_id"]),
             query_text=str(value.get("query_text", "")),
             pipeline_id=str(value["pipeline_id"]),
             spans=tuple(OperatorSpan.from_dict(item) for item in value.get("spans", ())),
             final_op_ids=tuple(value.get("final_op_ids", ())),
-            timestamp=datetime.fromisoformat(str(value["timestamp"])),
+            timestamp=datetime.fromisoformat(str(value["timestamp"])) if value.get("timestamp") else datetime.now(timezone.utc),
             dataset_id=value.get("dataset_id"),
             corpus_version=value.get("corpus_version"),
             index_version=value.get("index_version"),

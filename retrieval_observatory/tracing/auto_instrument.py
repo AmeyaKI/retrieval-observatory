@@ -23,14 +23,13 @@ _patched_class: Optional[type] = None
 
 def _record_span(op_id: str, op_name: str, elapsed_ms: float, result: Any, status: str, error: Optional[str]) -> None:
     from retrieval_observatory.sdk.observe import current_trace
-    from retrieval_observatory.tracing.model_v2 import OperatorSpan
+    from retrieval_observatory.tracing.model import OperatorSpan
 
     trace = current_trace()
     if trace is None:
         return
     documents = result if status == "FIRED" and isinstance(result, list) else []
-    trace.spans.append(
-        OperatorSpan(
+    trace.spans = (*trace.spans, OperatorSpan(
             op_id=op_id,
             op_type="SOURCE",
             op_name=op_name,
@@ -41,8 +40,7 @@ def _record_span(op_id: str, op_name: str, elapsed_ms: float, result: Any, statu
             latency_ms=elapsed_ms,
             outputs=to_candidates(documents, op_id),
             error=error,
-        )
-    )
+        ))
 
 
 def _patch_langchain() -> None:

@@ -1,0 +1,45 @@
+# HTTP adapter evaluation — benchmark a live retrieval endpoint.
+#
+# 1. Start the server: uvicorn server:app --port 8000 --app-dir examples/integrations/http_evaluation
+# 2. Evaluate: retobs evaluate --config examples/integrations/http_evaluation/config.yaml
+#
+# The HTTP adapter POSTs {"query": str, "k": int} and expects:
+#   {"documents": [{"id": str, "text": str, "score": float}]}
+
+experiment:
+  name: http-evaluation
+
+dataset:
+  type: custom
+  name: custom
+  queries_path: queries.jsonl
+  corpus_path: corpus.jsonl
+  qrels_path: qrels.jsonl
+
+pipelines:
+  - id: http_bm25
+    stages:
+      - type: adapter.http
+        url: http://localhost:8000/search
+        config:
+          k: 10
+          id_field: id
+          text_field: text
+          score_field: score
+          timeout: 10.0
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 2
+  timeout_seconds: 30
+  cache_results: false
+
+output:
+  store: sqlite
+  db_path: .retobs/http_evaluation.db
+  export: [json]

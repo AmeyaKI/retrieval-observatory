@@ -95,7 +95,7 @@ def test_wrap_retrieve_emits_source_span_from_passages():
 
 def test_wrap_retrieve_untraced_without_active_trace():
     # No start_trace() call -- wrapper must not raise, just skip span recording.
-    traced = wrap_retrieve(_StubDSPyRetrieve())
+    traced = wrap_retrieve(_StubDSPyRetrieve(), op_id="dspy_retrieve")
     result = traced("hello")
     assert isinstance(result, _StubPrediction)
 
@@ -122,7 +122,7 @@ def test_wrap_retrieval_tool_with_result_key():
     def tool(query: str) -> dict:
         return {"results": [{"id": "d1"}]}
 
-    traced = wrap_retrieval_tool(tool, result_key="results")
+    traced = wrap_retrieval_tool(tool, op_id="result_tool", result_key="results")
     start_trace(_ctx())
     traced("hello")
     trace = finish_trace()
@@ -134,7 +134,7 @@ async def test_wrap_retrieval_tool_supports_async_functions():
     async def async_tool(query: str) -> list:
         return [{"id": "async-d1"}]
 
-    traced = wrap_retrieval_tool(async_tool)
+    traced = wrap_retrieval_tool(async_tool, op_id="async_tool")
     start_trace(_ctx())
     result = await traced("hello")
     trace = finish_trace()

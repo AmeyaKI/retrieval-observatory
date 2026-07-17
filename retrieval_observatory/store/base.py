@@ -1,13 +1,25 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
-from retrieval_observatory.types import PipelineResult
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 
 @runtime_checkable
 class BaseStore(Protocol):
+    async def save_analysis_record(self, kind: str, record_id: str, payload: Dict, version: int = 1) -> None: ...
+    async def get_analysis_record(self, kind: str, record_id: str) -> Dict | None: ...
+    async def list_analysis_records(self, kind: str) -> List[Dict]: ...
+    async def save_cohort(self, cohort_id: str, payload: Dict, version: int) -> None: ...
+    async def get_cohort(self, cohort_id: str) -> Dict | None: ...
+    async def list_cohorts(self) -> List[Dict]: ...
+    async def save_corpus_snapshot(self, snapshot_id: str, payload: Dict, version: int = 1) -> None: ...
+    async def append_judgment(self, judgment_id: str, payload: Dict, version: int = 1) -> None: ...
+    async def save_baseline(self, baseline_id: str, payload: Dict, version: int = 1) -> None: ...
+    async def save_regression_check(self, check_id: str, payload: Dict, version: int = 1) -> None: ...
+    async def append_alert(self, alert_id: str, payload: Dict, version: int = 1) -> None: ...
     async def init_db(self) -> None:
         ...
 
@@ -17,22 +29,31 @@ class BaseStore(Protocol):
     async def finish_run(self, run_id: str) -> None:
         ...
 
-    async def save_result(self, run_id: str, result: PipelineResult) -> None:
+    async def save_trace(self, trace: RetrievalTrace) -> None:
         ...
 
-    async def save_trace_v2(self, trace: RetrievalTraceV2) -> None:
+    async def save_traces(self, traces: Sequence[RetrievalTrace]) -> None:
         ...
 
-    async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
+    async def get_trace(self, trace_id: str) -> RetrievalTrace | None:
         ...
 
-    async def get_traces_v2(
-        self,
-        run_id: str,
-        query_id: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: int = 0,
-    ) -> List[RetrievalTraceV2]:
+    async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
+        ...
+
+    async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
+        ...
+
+    async def list_services(self) -> List[ServiceSummary]:
+        ...
+
+    async def list_topology_variants(self, query: TraceQuery) -> List[TopologyVariant]:
+        ...
+
+    async def get_instrumentation_health(self, service_id: str) -> InstrumentationHealth | None:
+        ...
+
+    async def save_instrumentation_health(self, snapshot: InstrumentationHealth) -> None:
         ...
 
     async def save_doc_edge(self, src_doc_id: str, dst_doc_id: str, edge_type: str, weight: float = 1.0) -> None:
@@ -59,9 +80,6 @@ class BaseStore(Protocol):
         self,
         rows: List[Dict],
     ) -> None:
-        ...
-
-    async def get_results(self, run_id: str) -> List[PipelineResult]:
         ...
 
     async def get_run_status_counts(self, run_id: str) -> Dict[str, int]:
@@ -97,6 +115,12 @@ class BaseStore(Protocol):
         ...
 
     async def get_query_diagnostics(self, run_id: str, query_id: Optional[str] = None) -> List[Dict]:
+        ...
+
+    async def save_diagnostics(self, run_id: str, query_id: str, findings) -> None:
+        ...
+
+    async def query_diagnostics(self, run_id: str, query_id: Optional[str] = None):
         ...
 
     async def save_run_queries(self, run_id: str, queries: List, dataset_name: str) -> None:
@@ -144,34 +168,7 @@ class BaseStore(Protocol):
     ) -> List[Dict]:
         ...
 
-    # TraceLens — production retrieval observability
-
-    async def save_trace(self, trace) -> None:
-        ...
-
-    async def save_traces_batch(self, traces) -> None:
-        ...
-
-    async def list_services(self) -> List[Dict]:
-        ...
-
-    async def list_traces(
-        self,
-        service: str,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        status: Optional[str] = None,
-        difficulty: Optional[str] = None,
-        suspected_only: bool = False,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> List[Dict]:
-        ...
-
-    async def get_trace(self, trace_id: str) -> Optional[Dict]:
-        ...
-
-    async def purge_traces(self, service: Optional[str] = None, older_than: Optional[str] = None) -> int:
+    async def purge_traces(self, query: TraceQuery) -> int:
         ...
 
     async def get_query_lineage(self, query_id: str) -> Dict:
@@ -191,3 +188,53 @@ class BaseStore(Protocol):
 
     async def get_reliability_history(self, run_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
         ...
+@dataclass(frozen=True)
+class TraceQuery:
+    service_id: str | None = None
+    run_id: str | None = None
+    pipeline_id: str | None = None
+    query_id: str | None = None
+    since: datetime | None = None
+    until: datetime | None = None
+    status: str | None = None
+    topology_hash: str | None = None
+    limit: int = 200
+    offset: int = 0
+
+    def __post_init__(self) -> None:
+        if self.limit < 1:
+            raise ValueError("limit must be positive")
+        if self.offset < 0:
+            raise ValueError("offset must be non-negative")
+
+
+@dataclass(frozen=True)
+class ServiceSummary:
+    service_id: str
+    trace_count: int
+    last_seen: datetime | None
+
+
+@dataclass(frozen=True)
+class TopologyVariant:
+    topology_hash: str
+    trace_count: int
+    operator_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class InstrumentationHealth:
+    service_id: str
+    accepted: int = 0
+    exported: int = 0
+    dropped: int = 0
+    serialization_failures: int = 0
+    retries: int = 0
+    permanent_failures: int = 0
+    queue_depth: int = 0
+    queue_high_water: int = 0
+    drop_reasons: Dict[str, int] = field(default_factory=dict)
+    sample_rate: float = 1.0
+    observed_at: datetime | None = None
+    last_export_at: datetime | None = None
+    last_flush_latency_ms: float | None = None

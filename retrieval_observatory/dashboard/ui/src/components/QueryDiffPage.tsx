@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchRunTraces, RetrievalTraceV2 } from '../api'
+import { fetchRunTraces, RetrievalTrace } from '../api'
 import { diffStep, spanOutputs, buildReplaySteps, stepOutputs, CandidateDiffEntry } from '../utils/traceSteps'
 import NoData from './NoData'
 import SectionHeading from './SectionHeading'
@@ -26,8 +26,8 @@ export default function QueryDiffPage({
   againstRunId: string
   queryId: string
 }) {
-  const [tracesA, setTracesA] = useState<RetrievalTraceV2[] | null>(null)
-  const [tracesB, setTracesB] = useState<RetrievalTraceV2[] | null>(null)
+  const [tracesA, setTracesA] = useState<RetrievalTrace[] | null>(null)
+  const [tracesB, setTracesB] = useState<RetrievalTrace[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export default function QueryDiffPage({
   )
 }
 
-function PipelineDiff({ pipelineId, traceA, traceB }: { pipelineId: string; traceA: RetrievalTraceV2; traceB: RetrievalTraceV2 }) {
+function PipelineDiff({ pipelineId, traceA, traceB }: { pipelineId: string; traceA: RetrievalTrace; traceB: RetrievalTrace }) {
   const stepsA = buildReplaySteps(traceA.spans)
   const stepsB = buildReplaySteps(traceB.spans)
   const finalA = stepsA.length ? stepOutputs(stepsA[stepsA.length - 1]) : new Map<string, number>()

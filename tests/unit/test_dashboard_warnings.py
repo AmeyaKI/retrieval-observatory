@@ -3,7 +3,7 @@ from retrieval_observatory.dashboard.api import (
     _overview_warnings,
 )
 from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
 def test_overview_warnings_cache_and_zero_rate():
@@ -75,9 +75,9 @@ def test_pipeline_graph_reports_fused_arms():
             Candidate(doc_id="d2", score=0.8, rank=2, origin_op_ids=["dense_stage"]),
         ],
     )
-    trace = RetrievalTraceV2(
-        trace_id="t1", run_id="r", query_id="q1", query_text="q", pipeline_id="fused__rerank",
-        spans=[arm_bm25, arm_dense, fused], total_latency_ms=10.0, final_op_id="fused",
+    trace = RetrievalTrace(
+        trace_id="t1", service_id="svc", run_id="r", query_id="q1", query_text="q", pipeline_id="fused__rerank",
+        spans=[arm_bm25, arm_dense, fused], timing=TraceTiming(10.0, 10.0, 10.0), final_op_ids=("fused",),
     )
     metrics = {
         "fused__rerank|fused|ndcg@10": {

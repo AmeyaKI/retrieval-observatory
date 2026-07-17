@@ -1,46 +1,26 @@
-# Start with retobs
+# Start
 
-Use retobs when you have a retrieval callable or service and need to know whether a change regressed retrieval, which queries moved, and where candidates were lost.
-
-## Install
+Install the dashboard and MCP extras:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install "retrieval-observatory[dashboard]"
+pip install "retrieval-observatory[dashboard,mcp]"
 ```
 
-Extras are task-specific:
-
-| Need | Extra |
-|---|---|
-| Dashboard/API server | `dashboard` |
-| Deterministic demo and local BM25 | `demo` |
-| MCP server | `mcp` |
-| LangChain callback types | `langchain` |
-| LlamaIndex callback types | `llamaindex` |
-| PostgreSQL result store | `postgres` |
-
-## Evaluate a callable
-
-Put `QUERIES`, `CORPUS`, and optional `QRELS` next to a retriever function, then run:
+For an existing retrieval project, use the reviewed integration sequence:
 
 ```bash
-retobs evaluate path/to/eval.py:retrieve
+retobs integrate . --phase plan --output retobs/integration-plan.json
+retobs integrate . --phase apply --plan retobs/integration-plan.json
+retobs integrate . --phase verify --plan retobs/integration-plan.json
 ```
 
-JSON/JSONL inputs can instead be supplied with `--queries`, `--corpus`, and `--qrels`. Use `--max-queries` for a bounded smoke run. Use `--config` only for advanced adapter/DAG configuration:
+`plan` detects supported mappings and emits exact precondition hashes. `apply` rejects unresolved mappings or stale hashes and returns the changed files. `verify` is evidence-based: it is not `ready` until observed topology, candidate evidence, and telemetry health satisfy the declared capability checks.
+
+Evaluate a callable with explicit inputs:
 
 ```bash
-retobs evaluate --config retobs/config.yaml
-```
-
-## Inspect the result
-
-```bash
-retobs report RUN_ID --format json
-retobs inspect-query RUN_ID QUERY_ID
+retobs evaluate mypackage.search:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl --corpus data/corpus.jsonl
 retobs serve --db .retobs/results.db
 ```
 
-An evaluation is not automatically a pass. Read its evidence health and limitations, then compare it with an explicit baseline. Continue with the [golden workflow](WORKFLOW.md).
+The dashboard is loopback-only by default. Continue with the [workflow](WORKFLOW.md) and [integration support matrix](INTEGRATIONS.md).

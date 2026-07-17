@@ -84,10 +84,10 @@ Workstream numbers describe ownership, not a strictly serial schedule. Contract-
 
 **Objective:** Make the sole trace the canonical record for evaluation and Production.
 
-- [ ] Implement the unified SQLite/PostgreSQL store protocol and schema reset behavior.
-- [ ] Port evaluation execution, metrics, query evidence, and Production APIs to unified traces.
-- [ ] Implement typed operator executors and explicit gate/skip/drop semantics.
-- [ ] Delete V1 models, recorders, tables, lift/migration paths, and compatibility branches in the same reviewed changes that replace them.
+- [x] Implement the unified SQLite/PostgreSQL store protocol and schema reset behavior.
+- [x] Port evaluation execution, metrics, query evidence, and Production APIs to unified traces.
+- [x] Implement typed operator executors and explicit gate/skip/drop semantics.
+- [x] Delete V1 models, recorders, tables, lift/migration paths, and compatibility branches in the same reviewed changes that replace them.
 
 **Gate:** A production trace with no run ID is queryable in Production, an evaluation trace with a run ID computes metrics, and SQLite/PostgreSQL contract tests return identical domain objects.
 
@@ -95,11 +95,11 @@ Workstream numbers describe ownership, not a strictly serial schedule. Contract-
 
 **Objective:** Ensure instrumentation cannot hurt the host application and adapters preserve the real graph.
 
-- [ ] Implement normalization, redaction, payload limits, and capture metadata.
-- [ ] Implement the bounded background sink, exporters, counters, retry/drop policy, and lifecycle.
-- [ ] Add the manifest-aware operator registry.
-- [ ] Rewrite FastAPI, LangChain, LlamaIndex, Haystack, DSPy, and OpenAI Agents integrations around the sole recorder and registry.
-- [ ] Expand integration verification to prove stable identity, parentage, branch coverage, candidates, timing, and exporter health.
+- [x] Implement normalization, redaction, payload limits, and capture metadata.
+- [x] Implement the bounded background sink, exporters, counters, retry/drop policy, and lifecycle.
+- [x] Add the manifest-aware operator registry.
+- [x] Rewrite FastAPI, LangChain, LlamaIndex, Haystack, DSPy, and OpenAI Agents integrations around the sole recorder and registry.
+- [x] Expand integration verification to prove stable identity, parentage, branch coverage, candidates, timing, and exporter health.
 
 **Gate:** Exporter outage, serialization failure, full queue, cancellation, and shutdown deadlines do not change host responses. Repeated and concurrent framework traces preserve stable operator signatures.
 
@@ -107,11 +107,11 @@ Workstream numbers describe ownership, not a strictly serial schedule. Contract-
 
 **Objective:** Replace heuristic labels with versioned evidence rules.
 
-- [ ] Build branch-aware candidate histories.
-- [ ] Implement identity/source/branch/gate rules.
-- [ ] Implement fusion/filter/rerank/truncation/final-ranking rules.
-- [ ] Persist typed findings and cut runner/query/recommendation consumers over.
-- [ ] Pass the complete adversarial hybrid/gated fixture suite.
+- [x] Build branch-aware candidate histories.
+- [x] Implement identity/source/branch/gate rules.
+- [x] Implement fusion/filter/rerank/truncation/final-ranking rules.
+- [x] Persist typed findings and cut runner/query/recommendation consumers over.
+- [x] Pass the complete adversarial hybrid/gated fixture suite.
 
 **Gate:** Every registered rule returns supported, limited, unavailable, or not-observed with explicit prerequisites. `ranking_failure` is correct at a declared cutoff and unavailable when pre-truncation evidence is absent.
 
@@ -119,12 +119,12 @@ Workstream numbers describe ownership, not a strictly serial schedule. Contract-
 
 **Objective:** Make the external agent experience match the product promise.
 
-- [ ] Complete symbol/route/operator/dataset discovery.
-- [ ] Generate concrete patch operations with confidence and precondition hashes.
-- [ ] Implement atomic apply and reversal metadata.
-- [ ] Connect verify to manifest and observation health.
-- [ ] Expose only canonical CLI and MCP entrypoints.
-- [ ] Demonstrate plan/apply/verify against the complex FastAPI hybrid fixture without changing host outputs.
+- [x] Complete symbol/route/operator/dataset discovery.
+- [x] Generate concrete patch operations with confidence and precondition hashes.
+- [x] Implement atomic apply and reversal metadata.
+- [x] Connect verify to manifest and observation health.
+- [x] Expose only canonical CLI and MCP entrypoints.
+- [x] Demonstrate plan/apply/verify against the complex FastAPI hybrid fixture without changing host outputs.
 
 **Gate:** A fresh agent can use the installed package to produce an exact reviewed patch, apply it, run representative queries, and receive a factual readiness matrix in one coherent workflow.
 
@@ -132,12 +132,12 @@ Workstream numbers describe ownership, not a strictly serial schedule. Contract-
 
 **Objective:** Make current evidence understandable and shareable at production scale.
 
-- [ ] Add global URL-backed database/service/run/window/cohort context.
-- [ ] Make every Production subview and filter deep-linkable.
-- [ ] Add paginated trace search and topology-variant summaries.
-- [ ] Summarize production matches before trace drill-down.
-- [ ] Separate statistical, practical, power, and release-decision states in Compare.
-- [ ] Expose stable Test Set identity and generation provenance.
+- [x] Add global URL-backed database/service/run/window/cohort context.
+- [x] Make every Production subview and filter deep-linkable.
+- [x] Add paginated trace search and topology-variant summaries.
+- [x] Summarize production matches before trace drill-down.
+- [x] Separate statistical, practical, power, and release-decision states in Compare.
+- [x] Expose stable Test Set identity and generation provenance.
 
 **Gate:** Refresh, browser navigation, direct links, global database changes, and cohort filters reproduce the same state. Large trace sets do not render unbounded selectors or opaque ID walls.
 
@@ -145,15 +145,15 @@ Workstream numbers describe ownership, not a strictly serial schedule. Contract-
 
 **Objective:** Ship the missing ML-engineering views on shared evidence contracts.
 
-- [ ] Add shared cohort persistence and typed `AnalysisResult`.
-- [ ] Add router/gate analysis.
-- [ ] Add branch contribution analysis.
-- [ ] Add score calibration and threshold sensitivity.
-- [ ] Add latency critical-path analysis.
-- [ ] Add corpus/index health.
-- [ ] Add ground-truth health and label audit queue.
-- [ ] Add instrumentation health.
-- [ ] Add saved baselines, regression checks, and evidence-backed alerts.
+- [x] Add shared cohort persistence and typed `AnalysisResult`.
+- [x] Add router/gate analysis.
+- [x] Add branch contribution analysis.
+- [x] Add score calibration and threshold sensitivity.
+- [x] Add latency critical-path analysis.
+- [x] Add corpus/index health.
+- [x] Add ground-truth health and label audit queue.
+- [x] Add instrumentation health.
+- [x] Add saved baselines, regression checks, and evidence-backed alerts.
 
 **Gate:** Every analysis has positive, partial, and unavailable fixtures; no chart appears when its evidence prerequisites are absent.
 

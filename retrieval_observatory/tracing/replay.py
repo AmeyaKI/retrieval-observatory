@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional, Sequence, Set
 
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
 _MISS_TYPE_BY_OP_TYPE = {
     "RERANK": "rerank_demotion",
@@ -51,7 +51,7 @@ class ReplayResult:
     op_id: str
     status: Literal["replayed", "indeterminate"]
     evidence_class: Literal["replayed", "unavailable"]
-    trace: Optional[RetrievalTraceV2]
+    trace: Optional[RetrievalTrace]
     assumptions: ReplayAssumptions
     reason: Optional[str] = None
     unsupported_descendants: List[str] = field(default_factory=list)
@@ -90,7 +90,7 @@ _STRATEGY_CAVEATS: Dict[str, List[str]] = {
 }
 
 
-def replay_assumptions(trace: RetrievalTraceV2, op_id: str) -> ReplayAssumptions:
+def replay_assumptions(trace: RetrievalTrace, op_id: str) -> ReplayAssumptions:
     """Classify the counterfactual strategy `without_operator` would use for `op_id`.
 
     Kept as a standalone side-channel so `without_operator`'s signature (used in the
@@ -137,7 +137,7 @@ def replay_assumptions(trace: RetrievalTraceV2, op_id: str) -> ReplayAssumptions
     )
 
 
-def _descendant_spans(trace: RetrievalTraceV2, op_id: str) -> List[OperatorSpan]:
+def _descendant_spans(trace: RetrievalTrace, op_id: str) -> List[OperatorSpan]:
     children: Dict[str, Set[str]] = {}
     by_id = {span.op_id: span for span in trace.spans}
     for span in trace.spans:
@@ -160,16 +160,17 @@ def _clone_span(
     outputs: Sequence[Candidate] | None = None,
     parent_ids: Sequence[str] | None = None,
 ) -> OperatorSpan:
+    cloned_parents = tuple(parent_ids if parent_ids is not None else span.parent_ids)
     return OperatorSpan(
         op_id=span.op_id,
         op_type=span.op_type,
         op_name=span.op_name,
-        parent_ids=list(parent_ids if parent_ids is not None else span.parent_ids),
+        parent_ids=cloned_parents,
         status=span.status,
         deterministic=span.deterministic,
         replay_policy=span.replay_policy,
         latency_ms=span.latency_ms,
-        inputs=list(span.inputs),
+        input_groups={parent: tuple(span.input_groups.get(parent, ())) for parent in cloned_parents},
         outputs=list(outputs if outputs is not None else span.outputs),
         params=dict(span.params),
         gate_values=dict(span.gate_values),
@@ -178,11 +179,11 @@ def _clone_span(
     )
 
 
-def _find_final_span(trace: RetrievalTraceV2) -> Optional[OperatorSpan]:
-    """Return the terminal span using final_op_id or sink detection."""
-    if trace.final_op_id:
+def _find_final_span(trace: RetrievalTrace) -> Optional[OperatorSpan]:
+    """Return the terminal span using declared final operators or sink detection."""
+    if trace.final_op_ids:
         for span in trace.spans:
-            if span.op_id == trace.final_op_id:
+            if span.op_id in trace.final_op_ids:
                 return span
     if not trace.spans:
         return None
@@ -227,7 +228,7 @@ def _rrf_merge(arm_outputs: List[List[Candidate]], k: int = 60) -> List[Candidat
     return result
 
 
-def without_operator(trace: RetrievalTraceV2, op_id: str) -> RetrievalTraceV2:
+def without_operator(trace: RetrievalTrace, op_id: str) -> RetrievalTrace:
     target = next((span for span in trace.spans if span.op_id == op_id), None)
     if target is None:
         raise ValueError(f"Operator '{op_id}' not found in trace")
@@ -337,32 +338,36 @@ def without_operator(trace: RetrievalTraceV2, op_id: str) -> RetrievalTraceV2:
             spans.append(_clone_span(span, parent_ids=projected_parents))
 
     remaining_ids = {span.op_id for span in spans}
-    final_op_id = trace.final_op_id if trace.final_op_id in remaining_ids else None
-    if final_op_id is None and spans:
+    final_op_ids = tuple(op_id for op_id in trace.final_op_ids if op_id in remaining_ids)
+    if not final_op_ids and spans:
         parent_ids = {parent_id for span in spans for parent_id in span.parent_ids}
         sinks = [span.op_id for span in spans if span.op_id not in parent_ids]
-        final_op_id = sinks[0] if len(sinks) == 1 else None
+        final_op_ids = tuple(sinks)
     metadata = dict(trace.metadata)
     metadata["replay_timing"] = "unavailable: recorded operators were not re-executed"
 
-    return RetrievalTraceV2(
+    return RetrievalTrace(
         trace_id=f"{trace.trace_id}:without:{op_id}",
+        service_id=trace.service_id,
         run_id=trace.run_id,
         query_id=trace.query_id,
         query_text=trace.query_text,
         pipeline_id=trace.pipeline_id,
         spans=spans,
-        total_latency_ms=0.0,
         status=trace.status,
-        trace_format_version=trace.trace_format_version,
         timestamp=trace.timestamp,
+        dataset_id=trace.dataset_id,
+        corpus_version=trace.corpus_version,
+        index_version=trace.index_version,
+        request_id=trace.request_id,
+        capture=trace.capture,
         metadata=metadata,
         error_traceback=trace.error_traceback,
-        final_op_id=final_op_id,
+        final_op_ids=final_op_ids,
     )
 
 
-def simulate_without_operator(trace: RetrievalTraceV2, op_id: str) -> ReplayResult:
+def simulate_without_operator(trace: RetrievalTrace, op_id: str) -> ReplayResult:
     """Return an honest recorded-output replay result for removing ``op_id``.
 
     ``NOT_REPLAYABLE`` on the target or any fired descendant makes the result
@@ -406,7 +411,7 @@ def simulate_without_operator(trace: RetrievalTraceV2, op_id: str) -> ReplayResu
 
 
 async def attribute_miss(
-    trace: RetrievalTraceV2,
+    trace: RetrievalTrace,
     qrels: Dict[str, Dict[str, int] | List[str] | set[str]],
     k: int = 10,
     edge_store=None,

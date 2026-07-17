@@ -3,11 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from retrieval_observatory.classifier.features import extract_features
-from retrieval_observatory.metrics.diagnostics import (
-    compute_candidate_lineage,
-    compute_churn_rate,
-)
-from retrieval_observatory.tracing.types import RetrievalTrace
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 # Proxy-failure thresholds. These are label-free signals — production has no qrels, so
 # we never claim "measured" failure, only "suspected".
@@ -20,7 +16,7 @@ _DEFAULT_LATENCY_BUDGET_MS = 2000.0
 def predict_difficulty(query_text: str) -> str:
     """Heuristic difficulty from query-text features (no trained model required).
 
-    Mirrors the Forge difficulty heuristic so offline and online difficulty agree.
+    Mirrors the Test Sets difficulty heuristic so offline and online difficulty agree.
     """
     f = extract_features(query_text)
     score = 0
@@ -53,7 +49,9 @@ def detect_suspected_failures(
     Each label names a concrete, observable condition — never a measured-Recall claim.
     """
     labels: List[str] = []
-    final = trace.final_results or (trace.snapshots[-1].documents if trace.snapshots else [])
+    final_ids = set(trace.final_op_ids)
+    final_spans = [span for span in trace.spans if span.op_id in final_ids]
+    final = [candidate for span in final_spans for candidate in span.outputs]
 
     # 1. empty / near-empty candidate set
     if len(final) == 0:
@@ -69,14 +67,16 @@ def detect_suspected_failures(
                 labels.append("low_confidence")
 
     # 3. high inter-stage churn / late-stage drop (reuse offline lineage machinery)
-    if len(trace.snapshots) >= 2:
-        lineages = compute_candidate_lineage(trace.as_pipeline_result())
-        churn = compute_churn_rate(lineages)
+    fired = [span for span in trace.spans if span.status == "FIRED"]
+    if len(fired) >= 2:
+        previous = {candidate.doc_id for candidate in fired[-2].outputs}
+        current = {candidate.doc_id for candidate in fired[-1].outputs}
+        churn = len(previous - current) / len(previous) if previous else 0.0
         if churn >= _HIGH_CHURN_RATE:
             labels.append("high_churn")
 
     # 4. latency over budget
-    if trace.total_latency_ms > latency_budget_ms:
+    if trace.timing.wall_clock_ms > latency_budget_ms:
         labels.append("latency_over_budget")
 
     return labels
@@ -88,9 +88,10 @@ def enrich(
     low_confidence_score: Optional[float] = _LOW_CONFIDENCE_SCORE,
 ) -> RetrievalTrace:
     """Populate predicted_difficulty + suspected_failures in place and return the trace."""
-    if trace.predicted_difficulty is None:
-        trace.predicted_difficulty = predict_difficulty(trace.query_text)
-    trace.suspected_failures = detect_suspected_failures(
+    metadata = dict(trace.metadata)
+    metadata.setdefault("predicted_difficulty", predict_difficulty(trace.query_text))
+    metadata["suspected_failures"] = detect_suspected_failures(
         trace, latency_budget_ms=latency_budget_ms, low_confidence_score=low_confidence_score
     )
+    trace.metadata = metadata
     return trace

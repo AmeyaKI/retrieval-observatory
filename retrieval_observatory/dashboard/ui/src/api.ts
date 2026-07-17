@@ -569,7 +569,7 @@ export interface TraceOperatorSpan {
   deterministic: boolean
   replay_policy: 'EXACT' | 'OBSERVED_ABLATION' | 'NOT_REPLAYABLE'
   latency_ms: number
-  inputs: TraceCandidate[]
+  inputs?: TraceCandidate[]
   outputs: TraceCandidate[]
   params: Record<string, unknown>
   gate_values: Record<string, unknown>
@@ -581,14 +581,15 @@ export interface TraceOperatorSpan {
   outputs_truncated?: boolean
 }
 
-export interface RetrievalTraceV2 {
+export interface RetrievalTrace {
   trace_id: string
   run_id: string
   query_id: string
   query_text: string
   pipeline_id: string
   spans: TraceOperatorSpan[]
-  total_latency_ms: number
+  total_latency_ms?: number
+  timing?: { wall_clock_ms: number; critical_path_ms: number; operator_sum_ms: number }
   status: 'OK' | 'TIMEOUT' | 'ERROR'
   timestamp: string
   metadata: Record<string, unknown>
@@ -598,7 +599,7 @@ export interface RetrievalTraceV2 {
 
 /** All V2 traces for a run. Used to build the per-query unified timeline (Item C) --
  * there is no per-query filter on the backend, so callers filter client-side by query_id. */
-export async function fetchRunTraces(dbId: string, runId: string, limit = 50): Promise<RetrievalTraceV2[]> {
+export async function fetchRunTraces(dbId: string, runId: string, limit = 50): Promise<RetrievalTrace[]> {
   const res = await fetch(`${runBase(dbId, runId)}/traces?limit=${limit}`)
   if (!res.ok) throw new Error(`Failed to fetch traces for run ${runId}`)
   return res.json()
@@ -610,7 +611,7 @@ export interface QueryEvidence {
   query: { query_id: string; text: string | null; dataset_name: string | null }
   ground_truth: { relevant_doc_ids: string[]; grades: Record<string, number>; evidence_class: EvidenceClass }
   diagnostics: QueryDiagnostic[]
-  traces: RetrievalTraceV2[]
+  traces: RetrievalTrace[]
   trace_pagination: {
     limit: number
     offset: number
@@ -817,7 +818,7 @@ export async function fetchClassifierCalibration(
   return res.json()
 }
 
-// ───────────────────────── Forge ─────────────────────────
+// ───────────────────────── Test Sets ─────────────────────────
 
 export interface ForgeDatasetSummary {
   schema_version: 1
@@ -903,7 +904,8 @@ export async function fetchForgeQueries(
   const qs = params.toString()
   const res = await fetch(`${dbBase(dbId)}/forge/datasets/${encodeURIComponent(datasetId)}/queries${qs ? `?${qs}` : ''}`)
   if (!res.ok) throw new Error(`Failed to fetch queries for Test Set ${datasetId}`)
-  return res.json()
+  const page: { items: ForgeQuery[] } = await res.json()
+  return page.items
 }
 
 export async function fetchForgeDatasetRuns(dbId: string, datasetId: string): Promise<ForgeRunRef[]> {
@@ -912,7 +914,7 @@ export async function fetchForgeDatasetRuns(dbId: string, datasetId: string): Pr
   return res.json()
 }
 
-// ───────────────────────── TraceLens ─────────────────────────
+// ───────────────────────── Production ─────────────────────────
 
 export interface TraceService {
   service: string
@@ -945,6 +947,9 @@ export interface TraceStage {
 export interface TraceDetail extends TraceRow {
   stages: TraceStage[]
 }
+
+export interface Page<T> { items: T[]; total: number; limit: number; offset: number; next_offset: number | null }
+export interface TopologyVariant { topology_hash?: string; variant_id?: string; trace_count?: number; count?: number; operator_ids?: string[]; first_seen?: string; last_seen?: string }
 
 export interface TraceSummary {
   trace_count: number
@@ -1008,7 +1013,7 @@ export interface QueryClusterRow {
 }
 
 function windowParams(service: string, since?: string): string {
-  const p = new URLSearchParams({ service })
+  const p = new URLSearchParams({ service_id: service })
   if (since) p.set('since', since)
   return p.toString()
 }
@@ -1028,15 +1033,24 @@ export async function fetchTraceSummary(dbId: string, service: string, since?: s
 export async function fetchTraces(
   dbId: string,
   service: string,
-  filters: { since?: string; status?: string; difficulty?: string; suspected_only?: boolean } = {},
-): Promise<TraceRow[]> {
+  filters: { since?: string; status?: string; difficulty?: string; suspected_only?: boolean; limit?: number; offset?: number } = {},
+): Promise<Page<TraceRow>> {
   const p = new URLSearchParams({ service })
   if (filters.since) p.set('since', filters.since)
   if (filters.status) p.set('status', filters.status)
   if (filters.difficulty) p.set('difficulty', filters.difficulty)
   if (filters.suspected_only) p.set('suspected_only', 'true')
+  p.set('limit', String(filters.limit ?? 100))
+  p.set('offset', String(filters.offset ?? 0))
   const res = await fetch(`${dbBase(dbId)}/tracelens/traces?${p.toString()}`)
   if (!res.ok) throw new Error('Failed to fetch traces')
+  return res.json()
+}
+
+export async function fetchTopologyVariants(dbId: string, service: string, limit = 50, offset = 0): Promise<Page<TopologyVariant>> {
+  const p = new URLSearchParams({ service_id: service, limit: String(limit), offset: String(offset) })
+  const res = await fetch(`${dbBase(dbId)}/production/topology-variants?${p.toString()}`)
+  if (!res.ok) throw new Error('Failed to fetch topology variants')
   return res.json()
 }
 
@@ -1117,6 +1131,7 @@ export interface QueryLineage {
     note: string
     match_difficulty: string | null
     match_failure_labels: string[]
+    summary: { trace_count: number; service_count: number; failure_labels: string[] }
     traces: QueryLineageTrace[]
   }
 }

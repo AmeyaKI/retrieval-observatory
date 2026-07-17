@@ -143,12 +143,12 @@ def build_pipeline_graphs(
                         continue
                     parents_by_op[span.op_id].add(parent)
                     edge_trace_keys[(parent, span.op_id)].add(trace_key)
-            if trace.final_op_id:
-                if trace.final_op_id in spans_by_id:
-                    final_counts[trace.final_op_id] += 1
+            for final_op_id in trace.final_op_ids:
+                if final_op_id in spans_by_id:
+                    final_counts[final_op_id] += 1
                 else:
                     warnings.append(
-                        f"Trace '{trace_key}' final_op_id '{trace.final_op_id}' is not present in its spans."
+                        f"Trace '{trace_key}' final operator '{final_op_id}' is not present in its spans."
                     )
 
         if not span_samples:

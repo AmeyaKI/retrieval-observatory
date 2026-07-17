@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 import httpx
 
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 
 class RemoteResultsClient:
@@ -21,7 +21,7 @@ class RemoteResultsClient:
             response.raise_for_status()
             return response.json()
 
-    async def push_traces(self, run_id: str, traces: List[RetrievalTraceV2]) -> Dict[str, Any]:
+    async def push_traces(self, run_id: str, traces: List[RetrievalTrace]) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/runs/{run_id}/results",

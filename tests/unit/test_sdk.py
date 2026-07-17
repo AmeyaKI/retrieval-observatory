@@ -8,7 +8,7 @@ from retrieval_observatory.types import Document, Query
 def test_public_import():
     import retrieval_observatory
 
-    assert retrieval_observatory.benchmark is ro.benchmark
+    assert retrieval_observatory.evaluate is ro.evaluate
     from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback  # noqa: F401
 
 CORPUS = {"d1": "cats and kittens", "d2": "space rockets", "d3": "feline pets", "d4": "stock market"}
@@ -69,7 +69,7 @@ async def test_async_callable_supported():
 
 def test_benchmark_inmemory_metrics(tmp_path):
     db = str(tmp_path / "sdk.db")
-    rep = ro.benchmark(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
+    rep = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
     assert rep.run_id
     assert rep.pipeline_ids == ["_retrieve"]
     recall = next(v for kk, v in rep.metrics.items() if kk.endswith("recall@5") and "stage0" in kk)
@@ -110,7 +110,7 @@ def test_benchmark_multistage_per_stage_snapshots(tmp_path):
     def rerank(q, docs):
         return list(reversed([d.id for d in docs]))
 
-    rep = ro.benchmark([_retrieve, rerank], queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
+    rep = ro.evaluate([_retrieve, rerank], queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
     keys = set(rep.metrics)
     # I1: per-stage snapshots exist for both stages plus the end-to-end (stage-1) row.
     assert any("stage0|recall@5" in k for k in keys)
@@ -123,7 +123,7 @@ async def test_lineage_written(tmp_path):
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     db = str(tmp_path / "sdk.db")
-    rep = ro.benchmark(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
+    rep = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, db_path=db)
 
     store = SQLiteStore(db_path=db)
     run_queries = await store.get_run_queries(rep.run_id)
@@ -138,7 +138,7 @@ def test_benchmark_with_query_objects_and_explicit_qrels(tmp_path):
     db = str(tmp_path / "sdk.db")
     queries = [Query(text="cats", query_id="q1"), Query(text="rockets", query_id="q2")]
     qrels = {"q1": ["d1", "d3"], "q2": {"d2": 1}}
-    rep = ro.benchmark(_retrieve, queries=queries, corpus=CORPUS, qrels=qrels, k=5, db_path=db)
+    rep = ro.evaluate(_retrieve, queries=queries, corpus=CORPUS, qrels=qrels, k=5, db_path=db)
     recall = next(v for kk, v in rep.metrics.items() if kk.endswith("recall@5") and "stage0" in kk)
     assert recall["mean"] == pytest.approx(0.75)
 
@@ -146,8 +146,8 @@ def test_benchmark_with_query_objects_and_explicit_qrels(tmp_path):
 def test_determinism_same_pipeline(tmp_path):
     """The shared executor yields identical aggregates for identical inputs (parity guard)."""
     db = str(tmp_path / "sdk.db")
-    rep1 = ro.benchmark(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, name="p", db_path=db)
-    rep2 = ro.benchmark(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, name="p", db_path=db)
+    rep1 = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, name="p", db_path=db)
+    rep2 = ro.evaluate(_retrieve, queries=QUERIES, corpus=CORPUS, k=5, name="p", db_path=db)
     quality1 = {k: v["mean"] for k, v in rep1.metrics.items() if "latency" not in k and "profile" not in k}
     quality2 = {k: v["mean"] for k, v in rep2.metrics.items() if "latency" not in k and "profile" not in k}
     assert quality1 == quality2

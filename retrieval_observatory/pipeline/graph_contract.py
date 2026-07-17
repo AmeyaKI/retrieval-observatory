@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 # boundary (priority-1 accuracy guardrail). See pipeline_graph.schema.json for the frozen
 # JSON schema both the Python producer and the TypeScript consumer validate against.
 
-# Operator taxonomy shared with tracing.model_v2.OperatorType.
+# Operator taxonomy shared with tracing.model.OperatorType.
 OP_TYPES = ("SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE")
 
 

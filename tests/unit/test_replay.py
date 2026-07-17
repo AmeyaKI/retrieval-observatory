@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 from retrieval_observatory.tracing.replay import attribute_miss, without_operator
 
 
-def _trace() -> RetrievalTraceV2:
+def _trace() -> RetrievalTrace:
     source = OperatorSpan(
         op_id="source",
         op_type="SOURCE",
@@ -32,19 +32,20 @@ def _trace() -> RetrievalTraceV2:
         latency_ms=1.0,
         outputs=[Candidate(doc_id="d2", score=1.1, rank=1, origin_op_ids=["rerank"])],
     )
-    return RetrievalTraceV2(
+    return RetrievalTrace(
         trace_id="t1",
+        service_id="svc",
         run_id="run1",
         query_id="q1",
         query_text="q",
         pipeline_id="p1",
         spans=[source, rerank],
-        total_latency_ms=2.0,
-        final_op_id="rerank",
+        timing=TraceTiming(2.0, 2.0, 2.0),
+        final_op_ids=("rerank",),
     )
 
 
-def _fused_trace() -> RetrievalTraceV2:
+def _fused_trace() -> RetrievalTrace:
     arm_a = OperatorSpan(
         op_id="arm_bm25", op_type="SOURCE", op_name="bm25",
         parent_ids=[], status="FIRED", deterministic=True,
@@ -74,12 +75,12 @@ def _fused_trace() -> RetrievalTraceV2:
             Candidate(doc_id="d3", score=0.8, rank=3, origin_op_ids=["arm_dense"]),
         ],
     )
-    return RetrievalTraceV2(
-        trace_id="t_fused", run_id="run1", query_id="q1",
+    return RetrievalTrace(
+        trace_id="t_fused", service_id="svc", run_id="run1", query_id="q1",
         query_text="q", pipeline_id="p1",
         spans=[arm_a, arm_b, fuse],
-        total_latency_ms=3.5,
-        final_op_id="fuse_rrf",
+        timing=TraceTiming(3.5, 3.5, 3.5),
+        final_op_ids=("fuse_rrf",),
     )
 
 
@@ -134,11 +135,12 @@ def test_without_operator_dag_propagation() -> None:
         inputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["src"])],
         outputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["src"])],
     )
-    trace = RetrievalTraceV2(
-        trace_id="t_dag", run_id="r", query_id="q",
+    trace = RetrievalTrace(
+        trace_id="t_dag", service_id="svc", run_id="r", query_id="q",
         query_text="q", pipeline_id="p",
         spans=[source, child_a, child_b],
-        total_latency_ms=2.0,
+        timing=TraceTiming(2.0, 2.0, 2.0),
+        final_op_ids=("filter_a", "filter_b"),
     )
     cf = without_operator(trace, "src")
     for span in cf.spans:
@@ -182,11 +184,11 @@ async def test_attribute_miss_with_edge_store() -> None:
         assert len(reachable_misses) == 1
 
 
-def _rerank_demotion_trace() -> RetrievalTraceV2:
+def _rerank_demotion_trace() -> RetrievalTrace:
     return _trace()  # existing helper: source (d1, d2) -> rerank keeps only d2
 
 
-def _fusion_dilution_trace() -> RetrievalTraceV2:
+def _fusion_dilution_trace() -> RetrievalTrace:
     arm_a = OperatorSpan(
         op_id="arm_bm25", op_type="SOURCE", op_name="bm25",
         parent_ids=[], status="FIRED", deterministic=True,
@@ -208,14 +210,14 @@ def _fusion_dilution_trace() -> RetrievalTraceV2:
         replay_policy="EXACT", latency_ms=1.0,
         outputs=[Candidate(doc_id="d1", score=2.0, rank=1, origin_op_ids=["arm_bm25"])],
     )
-    return RetrievalTraceV2(
-        trace_id="t2", run_id="run1", query_id="q1", query_text="q",
-        pipeline_id="p1", spans=[arm_a, arm_b, fuse], total_latency_ms=3.0,
-        final_op_id="fuse",
+    return RetrievalTrace(
+        trace_id="t2", service_id="svc", run_id="run1", query_id="q1", query_text="q",
+        pipeline_id="p1", spans=[arm_a, arm_b, fuse], timing=TraceTiming(3.0, 3.0, 3.0),
+        final_op_ids=("fuse",),
     )
 
 
-def _generation_ignored_context_trace() -> RetrievalTraceV2:
+def _generation_ignored_context_trace() -> RetrievalTrace:
     retrieve = OperatorSpan(
         op_id="retrieve", op_type="SOURCE", op_name="bm25",
         parent_ids=[], status="FIRED", deterministic=True,
@@ -235,10 +237,10 @@ def _generation_ignored_context_trace() -> RetrievalTraceV2:
         ],
         outputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["retrieve"])],
     )
-    return RetrievalTraceV2(
-        trace_id="t3", run_id="run1", query_id="q1", query_text="q",
-        pipeline_id="p1", spans=[retrieve, generate], total_latency_ms=6.0,
-        final_op_id="generate",
+    return RetrievalTrace(
+        trace_id="t3", service_id="svc", run_id="run1", query_id="q1", query_text="q",
+        pipeline_id="p1", spans=[retrieve, generate], timing=TraceTiming(6.0, 6.0, 6.0),
+        final_op_ids=("generate",),
     )
 
 
@@ -287,12 +289,12 @@ def test_without_boost_restores_pre_boost_scores() -> None:
             score_components={"pre_boost": 1.0, "boost": 0.5},
         )],
     )
-    trace = RetrievalTraceV2(
-        trace_id="t_boost", run_id="r", query_id="q",
+    trace = RetrievalTrace(
+        trace_id="t_boost", service_id="svc", run_id="r", query_id="q",
         query_text="q", pipeline_id="p",
         spans=[source, boost],
-        total_latency_ms=1.1,
-        final_op_id="boost",
+        timing=TraceTiming(1.1, 1.1, 1.1),
+        final_op_ids=("boost",),
     )
     cf = without_operator(trace, "boost")
     assert len(cf.spans) == 1
@@ -313,11 +315,12 @@ def test_without_gate_passes_through() -> None:
         replay_policy="EXACT", latency_ms=1.0,
         outputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["src"])],
     )
-    trace = RetrievalTraceV2(
-        trace_id="t_gate", run_id="r", query_id="q",
+    trace = RetrievalTrace(
+        trace_id="t_gate", service_id="svc", run_id="r", query_id="q",
         query_text="q", pipeline_id="p",
         spans=[gate, source],
-        total_latency_ms=1.1,
+        timing=TraceTiming(1.1, 1.1, 1.1),
+        final_op_ids=("src",),
     )
     cf = without_operator(trace, "gate")
     assert len(cf.spans) == 1

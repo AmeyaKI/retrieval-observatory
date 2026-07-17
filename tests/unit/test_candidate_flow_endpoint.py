@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 from retrieval_observatory.dashboard.api import create_app
 from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 RUN_ID = "run1"
 
 
-def _trace() -> RetrievalTraceV2:
+def _trace() -> RetrievalTrace:
     """SOURCE(d1,d2) -> FILTER drops d2."""
     source = OperatorSpan(
         op_id="source_bm25", op_type="SOURCE", op_name="bm25", parent_ids=[],
@@ -27,11 +27,12 @@ def _trace() -> RetrievalTraceV2:
     filt = OperatorSpan(
         op_id="filter_cap", op_type="FILTER", op_name="cap", parent_ids=["source_bm25"],
         status="FIRED", deterministic=True, replay_policy="EXACT", latency_ms=1.0,
-        inputs=source.outputs, outputs=[source.outputs[0]],
+        input_groups={"source_bm25": tuple(source.outputs)}, outputs=[source.outputs[0]],
     )
-    return RetrievalTraceV2(
+    return RetrievalTrace(
+        service_id="test",
         trace_id="t_q0", run_id=RUN_ID, query_id="q0", query_text="q",
-        pipeline_id="p", spans=[source, filt], total_latency_ms=2.0, final_op_id="filter_cap",
+        pipeline_id="p", spans=[source, filt], timing=TraceTiming(2.0, 2.0, 2.0), final_op_ids=("filter_cap",),
     )
 
 
@@ -41,7 +42,7 @@ async def seeded_db(tmp_path: Path) -> Path:
     store = SQLiteStore(db_path=str(db_path))
     await store.init_db()
     await store.save_run(RUN_ID, "flow-test", json.dumps({"dataset": {"name": "custom"}}))
-    await store.save_trace_v2(_trace())
+    await store.save_trace(_trace())
     return db_path
 
 

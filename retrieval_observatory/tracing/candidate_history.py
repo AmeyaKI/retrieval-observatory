@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
 # When a candidate is present in an operator's inputs but absent from its outputs
 # and no explicit drop_reason was recorded, infer the reason from the operator type.
@@ -65,7 +65,7 @@ def _find(candidates: List[Candidate], doc_id: str) -> Optional[Candidate]:
     return None
 
 
-def candidate_history(trace: RetrievalTraceV2, doc_id: str) -> CandidateHistory:
+def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
     """Assemble one candidate's full journey through the pipeline.
 
     Answers the five questions the vision names for Candidate Flow Visualization:
@@ -162,10 +162,10 @@ def candidate_history(trace: RetrievalTraceV2, doc_id: str) -> CandidateHistory:
     return history
 
 
-def _final_span(trace: RetrievalTraceV2) -> Optional[OperatorSpan]:
-    if trace.final_op_id:
+def _final_span(trace: RetrievalTrace) -> Optional[OperatorSpan]:
+    if trace.final_op_ids:
         for span in trace.spans:
-            if span.op_id == trace.final_op_id:
+            if span.op_id in trace.final_op_ids:
                 return span
     if not trace.spans:
         return None

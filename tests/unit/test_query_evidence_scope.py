@@ -8,8 +8,9 @@ from fastapi.testclient import TestClient
 
 from retrieval_observatory.dashboard.api import create_app
 from retrieval_observatory.dashboard.registry import DbRegistry
+from retrieval_observatory.diagnostics.model import DiagnosticEvidence, DiagnosticFinding, FindingAvailability
 from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 from retrieval_observatory.types import Query
 
 
@@ -19,29 +20,19 @@ async def _seed(path: Path, marker: str) -> None:
     await store.save_run("run", marker, json.dumps({"dataset": {"name": marker}}))
     await store.save_run_queries("run", [Query(query_id="shared", text=f"query-{marker}")], marker)
     await store.save_qrels("run", {"shared": {f"gold-{marker}": 1}})
-    await store.save_query_diagnostics([{
-        "run_id": "run",
-        "query_id": "shared",
-        "pipeline_id": "pipeline",
-        "difficulty_bucket": "hard",
-        "failure_labels": ["candidate_miss"],
-        "missing_relevant_ids": [f"gold-{marker}"],
-        "stage_hits": {"0": []},
-        "diagnostic_evidence": [{
-            "label": "candidate_miss",
-            "evidence_class": "measured",
-            "method": "observed_stage_transition_v1",
-            "reason": marker,
-            "doc_ids": [],
-            "threshold": None,
-        }],
-    }])
+    await store.save_diagnostics("run", "shared", (DiagnosticFinding(
+        "source_miss",
+        FindingAvailability.SUPPORTED,
+        DiagnosticEvidence("measured_candidate_transition", "candidate_transition", "1.0", trace_ids=(f"trace-{marker}",), operator_ids=("source",), document_ids=(f"gold-{marker}",), cutoff=10),
+        details={"reason": marker},
+    ),))
     candidates = [
         Candidate(doc_id=f"{marker}-{index}", score=1.0, rank=index + 1, origin_op_ids=["source"])
         for index in range(3)
     ]
-    await store.save_trace_v2(RetrievalTraceV2(
+    await store.save_trace(RetrievalTrace(
         trace_id=f"trace-{marker}",
+        service_id=marker,
         run_id="run",
         query_id="shared",
         query_text=f"query-{marker}",
@@ -57,8 +48,7 @@ async def _seed(path: Path, marker: str) -> None:
             latency_ms=1.0,
             outputs=candidates,
         )],
-        total_latency_ms=1.0,
-        final_op_id="source",
+        final_op_ids=("source",),
     ))
 
 
@@ -82,12 +72,12 @@ async def test_query_evidence_is_database_scoped_and_bounded(tmp_path: Path) -> 
     assert [candidate["doc_id"] for candidate in alpha_span["outputs"]] == ["alpha-0", "alpha-1"]
     assert alpha_span["outputs_total"] == 3
     assert alpha_span["outputs_truncated"] is True
-    assert alpha.json()["diagnostics"][0]["diagnostic_evidence"][0]["reason"] == "alpha"
+    assert alpha.json()["diagnostics"][0]["details"]["reason"] == "alpha"
 
     report = client.get("/dbs/alpha/runs/run/report")
     assert report.status_code == 200
     assert report.json()["run_id"] == "run"
-    assert report.json()["dominant_issue"] == {"label": "candidate_miss", "query_count": 1}
+    assert report.json()["dominant_issue"] == {"label": "source_miss", "query_count": 1}
     overview = client.get("/dbs/alpha/runs/run/overview")
     assert overview.json()["report"]["next_action"]
 

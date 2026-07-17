@@ -1,18 +1,20 @@
 # Architecture
 
-retobs has one evidence spine:
+retobs shares one evidence path across CLI, SDK, MCP, API, and dashboard:
 
 ```text
-callable/config/instrumentation
-        -> executor + V2 operator traces
-        -> Run manifest + scoped store
-        -> metrics/diagnostics/comparison
-        -> Run report + QueryEvidence + PipelineGraphV2
-        -> CLI / SDK / MCP / API / dashboard
+integration plan -> reviewed patch -> observed traces -> scoped store
+evaluation callable/config -> Run + query evidence -> reports and dashboard
 ```
 
-The executor records wall-clock, critical-path, operator-sum, fired/skipped, cache, timeout, cancellation, partial output, parents, and candidate transitions. SQLite and PostgreSQL implement the same store protocol and contract suite. API evidence reads always select a database before a Run/query.
+SQLite and PostgreSQL implement the same store contract. The dashboard reads canonical projections; it does not invent topology, candidate movement, or causal explanations.
 
-The dashboard consumes canonical backend projections instead of independently inferring topology or causality. Aggregate graph views use the union of observed real edges; exact views select one trace. Reports are renderer-neutral models shared by terminal, JSON, Markdown, and standalone HTML.
+## Production safety boundary
 
-Internal packages retain historical names (`forge`, `tracelens`, `advisor`) for compatibility, but public tasks are Evaluate, Compare, Queries, Production, and Test Sets.
+- `retobs serve` binds to `127.0.0.1` by default; the dashboard is unauthenticated and local-first.
+- Telemetry queue capacity, overflow policy, sampling, and retry limits are explicit configuration.
+- Instrumentation health exposes sampling, drops, serialization failures, and export failures.
+- Queries, candidates, metadata, labels, and traces may be sensitive.
+- Redaction runs before enqueue and persistence according to the integration manifest.
+
+Deploy behind trusted authentication and network controls if loopback-only access is not sufficient.

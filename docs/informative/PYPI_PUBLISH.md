@@ -4,8 +4,7 @@ Publishing uses **OIDC trusted publishers** (no API tokens in GitHub secrets). T
 
 Current distribution name: **`retrieval-observatory`** (see `name = "retrieval-observatory"` in `pyproject.toml`).
 
-Public import: `import retrieval_observatory as ro`  
-CLI command (unchanged): `retobs quickstart`, `retobs demo`, etc.
+Public import: `import retrieval_observatory as ro`.
 
 ---
 
@@ -64,30 +63,32 @@ METADATA `Name` field uses hyphen: `retrieval-observatory`
 - [ ] No `retobs/` shim package in tree (only `retrieval_observatory/`)
 - [ ] Docs/examples use `pip install retrieval-observatory[...]` and `import retrieval_observatory as ro`
 - [ ] `CHANGELOG.md` updated
-- [ ] CI green on `main`
+- [ ] Source CI and the reusable `release-candidate` workflow are green
 
 ### 2. Tag and push
 
 ```bash
-git tag v0.3.3
+git tag v0.5.0
 git push origin main
-git push origin v0.3.3
+git push origin v0.5.0
 ```
 
 Tag must match `version` in `pyproject.toml` exactly (without the `v` prefix).
 
 ### 3. Watch GitHub Actions
 
-- **Publish** workflow runs on tag push
-- `build` → `publish-testpypi` → `publish-pypi`
-- Smoke test verifies: `import retrieval_observatory as ro` and `retobs --help`
+- **Publish** runs `release-candidate` once, then `publish-testpypi`, then `publish-pypi`.
+- The candidate produces `release-dist` and `release-evidence` artifacts with SHA-256 manifests.
+- Both promotion jobs verify `release-evidence/artifact-manifest.json`; neither checks out source or rebuilds a distribution.
+- TestPyPI smoke installs the exact local wheel with dependencies from PyPI, then records installed-wheel evidence and TestPyPI metadata.
+- PyPI promotion verifies the published wheel and sdist digests before the workflow can pass.
 
 ### 4. Verify on PyPI
 
 ```bash
-curl -sf "https://pypi.org/pypi/retrieval-observatory/0.3.3/json" | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])"
+curl -sf "https://pypi.org/pypi/retrieval-observatory/0.5.0/json" | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])"
 
-pip install "retrieval-observatory[dashboard]==0.3.3"
+pip install "retrieval-observatory[dashboard]==0.5.0"
 python -c "import retrieval_observatory as ro; print(ro.__version__ if hasattr(ro,'__version__') else 'ok')"
 retobs --help
 ```
@@ -121,6 +122,6 @@ Then update imports: `import retrieval_observatory as ro`
 2. In GitHub Actions, **Re-run failed jobs** on the latest tag workflow, or push a new tag:
 
 ```bash
-git tag v0.3.3
-git push origin v0.3.3
+git tag v0.5.0
+git push origin v0.5.0
 ```

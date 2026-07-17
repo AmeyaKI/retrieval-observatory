@@ -1,62 +1,28 @@
-from __future__ import annotations
-
-from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
-from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
+from retrieval_observatory.diagnostics import DiagnosticEngine, FindingAvailability, context_for_trace
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
 
-def _result(doc_ids: list[str]) -> PipelineResult:
-    return PipelineResult(
-        query_id="q",
-        pipeline_id="bm25",
-        status="OK",
-        total_latency_ms=1.0,
-        snapshots=[
-            StageSnapshot(
-                stage_index=0,
-                stage_id="bm25",
-                latency_ms=1.0,
-                documents=[
-                    Document(id=doc_id, text="", score=1.0, rank=rank)
-                    for rank, doc_id in enumerate(doc_ids, start=1)
-                ],
-            )
-        ],
+def test_ranking_failure_requires_relevant_document_below_cutoff() -> None:
+    final = OperatorSpan.source(
+        "final", "final", [Candidate("other", 1, 1), Candidate("gold", .5, 11)]
     )
+    trace = RetrievalTrace("t", "svc", "run", "q", "q", "p", (final,), ("final",))
+    finding = next(
+        item for item in DiagnosticEngine.default().evaluate(
+            context_for_trace(trace, relevant_document_ids={"gold"}, cutoff=10)
+        ) if item.label == "ranking_failure"
+    )
+    assert finding.availability is FindingAvailability.SUPPORTED
+    assert finding.evidence.cutoff == 10
 
 
-def test_valid_missed_qrel_is_not_labeled_as_identity_mismatch() -> None:
-    row = build_query_diagnostics(
-        "run",
-        [_result(["other"])],
-        {"q": {"gold": 1}},
-        corpus_doc_ids={"gold", "other"},
-    )[0]
-
-    assert "qrel_not_in_corpus" not in row["failure_labels"]
-    assert "not_retrieved_by_any_pipeline" in row["failure_labels"]
-    evidence = next(item for item in row["diagnostic_evidence"] if item["label"] == "not_retrieved_by_any_pipeline")
-    assert evidence["evidence_class"] == "measured"
-
-
-def test_absent_qrel_id_is_measured_against_corpus() -> None:
-    row = build_query_diagnostics(
-        "run",
-        [_result(["other"])],
-        {"q": {"missing-gold": 1}},
-        corpus_doc_ids={"other"},
-    )[0]
-
-    assert "qrel_not_in_corpus" in row["failure_labels"]
-    assert "candidate_miss" not in row["failure_labels"]
-    evidence = next(item for item in row["diagnostic_evidence"] if item["label"] == "qrel_not_in_corpus")
-    assert evidence["doc_ids"] == ["missing-gold"]
-    assert evidence["method"] == "qrel_corpus_membership_v1"
-
-
-def test_unknown_corpus_identity_is_explicitly_unavailable() -> None:
-    row = build_query_diagnostics("run", [_result(["other"])], {"q": {"gold": 1}})[0]
-
-    assert "corpus_identity_unknown" in row["failure_labels"]
-    evidence = next(item for item in row["diagnostic_evidence"] if item["label"] == "corpus_identity_unknown")
-    assert evidence["evidence_class"] == "unavailable"
-    assert evidence["threshold"] is None
+def test_pretruncated_final_ranking_is_unavailable() -> None:
+    final = OperatorSpan(
+        "final", "RERANK", "final", (), "FIRED", 1, outputs=(Candidate("other", 1, 1),), params={"top_k": 10}
+    )
+    trace = RetrievalTrace("t", "svc", "run", "q", "q", "p", (final,), ("final",))
+    finding = next(item for item in DiagnosticEngine.default().evaluate(
+        context_for_trace(trace, relevant_document_ids={"gold"}, cutoff=10)
+    ) if item.label == "ranking_failure")
+    assert finding.availability is FindingAvailability.UNAVAILABLE
+    assert finding.unavailable_reason == "pre_truncation_ranking_not_captured"

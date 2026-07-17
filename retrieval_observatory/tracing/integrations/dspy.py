@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from retrieval_observatory.tracing.integrations._duck_typed import wrap_callable
+from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry
 
 # Duck-typed DSPy integration: no import of `dspy` here, so this module stays importable
 # (and unit-testable) without the `dspy-ai` package installed -- see _duck_typed.py's
@@ -16,6 +17,9 @@ def wrap_retrieve(
     retrieve: Callable[..., Any],
     *,
     op_id: Optional[str] = None,
+    parent_ids: Sequence[str] = (),
+    registry: OperatorRegistry | None = None,
+    component_path: str | None = None,
     deterministic: bool = False,
     replay_policy: str = "NOT_REPLAYABLE",
 ) -> Callable[..., Any]:
@@ -44,6 +48,9 @@ def wrap_retrieve(
         retrieve,
         op_type="SOURCE",
         op_id=op_id,
+        parent_ids=parent_ids,
+        registry=registry,
+        component_path=component_path or op_id,
         op_name=getattr(retrieve, "__class__", type(retrieve)).__name__,
         result_key=None,  # _extract_documents falls back to .passages / list-shaped results
         deterministic=deterministic,

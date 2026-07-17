@@ -51,16 +51,16 @@ def _hybrid_dag() -> DAGPipeline:
 async def test_dag_emits_branching_trace():
     result = await _hybrid_dag().run(Query(text="q", k=10, query_id="q1"))
     assert result.status == "OK"
-    trace = result.trace_v2
+    trace = result.trace
     assert trace is not None
     spans = {s.op_id: s for s in trace.spans}
     assert set(spans) == {"bm25", "dense", "fuse", "rerank"}
     # Real fan-in: fuse has two parents; sources have none; rerank has one.
-    assert spans["bm25"].parent_ids == []
-    assert spans["dense"].parent_ids == []
+    assert spans["bm25"].parent_ids == ()
+    assert spans["dense"].parent_ids == ()
     assert sorted(spans["fuse"].parent_ids) == ["bm25", "dense"]
-    assert spans["rerank"].parent_ids == ["fuse"]
-    assert trace.final_op_id == "rerank"
+    assert spans["rerank"].parent_ids == ("fuse",)
+    assert trace.final_op_ids == ("rerank",)
 
 
 @pytest.mark.asyncio
@@ -81,7 +81,7 @@ async def test_dag_metric_depths_and_branches():
         async def get_run_status_counts(self, run_id):
             return {}
 
-    await engine.compute_from_traces("run", _Store(), [result.trace_v2], qrels)
+    await engine.compute_from_traces("run", _Store(), [result.trace], qrels)
 
     # Depth: sources at 0 (parallel → branch_id set), fuse at 1, rerank at 2 (spine → None).
     by_key = defaultdict(list)

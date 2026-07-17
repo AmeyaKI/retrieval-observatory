@@ -1,0 +1,5 @@
+from tests.unit.test_dashboard_trace_search import test_production_trace_search_returns_page_envelope
+
+
+def test_trace_search_contract_is_loaded():
+    assert callable(test_production_trace_search_returns_page_envelope)

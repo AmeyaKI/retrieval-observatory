@@ -1,5 +1,6 @@
 import AppShell from './components/AppShell'
+import { DashboardProvider } from './context/DashboardContext'
 
 export default function App() {
-  return <AppShell />
+  return <DashboardProvider><AppShell /></DashboardProvider>
 }

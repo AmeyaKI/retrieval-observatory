@@ -65,14 +65,14 @@ async def _run_and_project(tmp_path) -> list:
         qid = f"q{i}"
         qrels[qid] = {"d1", "d3"}
         result = await pipe.run(Query(text="q", k=10, query_id=qid))
-        result.trace_v2.run_id = "run"
-        result.trace_v2.trace_id = f"t{i}"
-        await store.save_trace_v2(result.trace_v2)
-        traces.append(result.trace_v2)
+        result.trace.run_id = "run"
+        result.trace.trace_id = f"t{i}"
+        await store.save_trace(result.trace)
+        traces.append(result.trace)
     engine = MetricsEngine(recall_at_k_values=[10], ndcg_at_k_values=[10], compute_mrr=False, compute_map=False)
     await engine.compute_from_traces("run", store, traces, qrels)
     agg = await engine.aggregate("run", store)
-    return build_pipeline_graphs(agg, await store.get_traces_v2("run"))
+    return build_pipeline_graphs(agg, await store.get_traces("run"))
 
 
 @pytest.mark.asyncio

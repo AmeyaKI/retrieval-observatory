@@ -14,7 +14,6 @@ from retrieval_observatory.metrics.ranking import (
 from retrieval_observatory.metrics.comparison import paired_scores_by_query, pipeline_pairs
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.diagnostics import (
-    build_query_diagnostics,
     compute_candidate_lineage,
     compute_churn_rate,
 )
@@ -185,33 +184,6 @@ def test_paired_scores_join_by_query_id_not_row_order():
     assert s2 == [0.2, 0.8]
 
 
-def test_query_diagnostics_labels_reranker_drop():
-    result = PipelineResult(
-        query_id="q1",
-        pipeline_id="bm25__rerank",
-        status="OK",
-        total_latency_ms=3.0,
-        snapshots=[
-            StageSnapshot(
-                stage_index=0,
-                stage_id="bm25",
-                documents=[Document(id="d1", text="", score=1.0, rank=1)],
-                latency_ms=1.0,
-            ),
-            StageSnapshot(
-                stage_index=1,
-                stage_id="rerank",
-                documents=[Document(id="d2", text="", score=1.0, rank=1)],
-                latency_ms=2.0,
-            ),
-        ],
-    )
-
-    rows = build_query_diagnostics("run1", [result], {"q1": {"d1": 1}})
-    assert rows[0]["failure_labels"] == ["reranker_drop"]
-    assert rows[0]["missing_relevant_ids"] == ["d1"]
-
-
 def test_pipeline_pairs_basic():
     ids = ["bm25", "bm25__rerank"]
     assert pipeline_pairs(ids) == [("bm25", "bm25__rerank")]
@@ -349,19 +321,6 @@ def test_candidate_lineage_empty_snapshots():
     )
     lineages = compute_candidate_lineage(result)
     assert lineages == []
-
-
-def test_diagnostics_include_churn_rate():
-    snaps = [
-        _make_snapshot(0, "bm25", ["d1", "d2", "d3"]),
-        _make_snapshot(1, "rerank", ["d1", "d2"]),
-    ]
-    result = _make_result("p1", snaps)
-    qrels = {"q1": {"d1": 2}}
-    rows = build_query_diagnostics("run1", [result], qrels)
-    assert len(rows) == 1
-    assert "churn_rate" in rows[0]
-    assert isinstance(rows[0]["churn_rate"], float)
 
 
 @pytest.mark.asyncio

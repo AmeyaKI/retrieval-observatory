@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 from retrieval_observatory.tracing.replay import simulate_without_operator
 
 
@@ -24,16 +24,17 @@ def _span(op_id: str, op_type: str, parents: list[str], policy: str, docs: list[
     )
 
 
-def _trace(*spans: OperatorSpan) -> RetrievalTraceV2:
-    return RetrievalTraceV2(
+def _trace(*spans: OperatorSpan) -> RetrievalTrace:
+    return RetrievalTrace(
         trace_id="trace",
+        service_id="svc",
         run_id="run",
         query_id="q",
         query_text="query",
         pipeline_id="pipeline",
         spans=list(spans),
-        total_latency_ms=float(len(spans)),
-        final_op_id=spans[-1].op_id,
+        timing=TraceTiming(float(len(spans)), float(len(spans)), float(len(spans))),
+        final_op_ids=(spans[-1].op_id,),
     )
 
 
@@ -66,8 +67,8 @@ def test_supported_projection_reconnects_parents_and_marks_timing_unavailable() 
 
     assert result.status == "replayed"
     assert result.trace is not None
-    assert result.trace.final_op_id == "source"
-    assert result.trace.total_latency_ms == 0.0
+    assert result.trace.final_op_ids == ("source",)
+    assert result.trace.timing.wall_clock_ms == 1.0
     assert result.trace.metadata["replay_timing"].startswith("unavailable")
 
 

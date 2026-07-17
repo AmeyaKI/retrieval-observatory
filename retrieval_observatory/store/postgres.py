@@ -4,8 +4,13 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
-from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
+from retrieval_observatory.store.base import (
+    InstrumentationHealth,
+    ServiceSummary,
+    TopologyVariant,
+    TraceQuery,
+)
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 _CREATE_RUNS = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -17,29 +22,6 @@ CREATE TABLE IF NOT EXISTS runs (
 )
 """
 
-_CREATE_RAW_RESULTS = """
-CREATE TABLE IF NOT EXISTS raw_results (
-    id SERIAL PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    pipeline_id TEXT,
-    query_id TEXT,
-    stage_index INT,
-    stage_id TEXT,
-    status TEXT,
-    latency_ms REAL,
-    retrieved_doc_ids_json TEXT,
-    retrieved_scores_json TEXT,
-    profiling_json TEXT,
-    candidate_count INT DEFAULT 0,
-    branch_id TEXT,
-    error_traceback TEXT
-)
-"""
-
-_MIGRATE_RAW_RESULTS_STAGE_ID = "ALTER TABLE raw_results ADD COLUMN stage_id TEXT"
-_MIGRATE_RAW_RESULTS_PROFILING = "ALTER TABLE raw_results ADD COLUMN profiling_json TEXT"
-_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT = "ALTER TABLE raw_results ADD COLUMN candidate_count INT DEFAULT 0"
-_MIGRATE_RAW_RESULTS_BRANCH_ID = "ALTER TABLE raw_results ADD COLUMN branch_id TEXT"
 
 _CREATE_METRIC_SCORES = """
 CREATE TABLE IF NOT EXISTS metric_scores (
@@ -67,6 +49,14 @@ _CREATE_CACHE = """
 CREATE TABLE IF NOT EXISTS result_cache (
     cache_key TEXT PRIMARY KEY,
     result_json TEXT NOT NULL
+)
+"""
+
+_CREATE_ANALYSIS_RECORDS = """
+CREATE TABLE IF NOT EXISTS analysis_records (
+    kind TEXT NOT NULL, record_id TEXT NOT NULL, version INT NOT NULL,
+    payload_json JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (kind, record_id, version)
 )
 """
 
@@ -105,6 +95,15 @@ CREATE TABLE IF NOT EXISTS query_diagnostics (
     stage_hits_json TEXT NOT NULL,
     diagnostic_evidence_json TEXT NOT NULL DEFAULT '[]',
     PRIMARY KEY (run_id, query_id, pipeline_id)
+)
+"""
+
+_CREATE_DIAGNOSTIC_FINDINGS = """
+CREATE TABLE IF NOT EXISTS diagnostic_findings (
+    run_id TEXT NOT NULL, query_id TEXT NOT NULL, trace_id TEXT NOT NULL,
+    label TEXT NOT NULL, availability TEXT NOT NULL, method_id TEXT,
+    method_version TEXT, evidence_class TEXT, finding_order INTEGER NOT NULL, finding_json JSONB NOT NULL,
+    PRIMARY KEY (run_id, query_id, trace_id, label)
 )
 """
 
@@ -158,28 +157,26 @@ CREATE TABLE IF NOT EXISTS forge_queries (
 _CREATE_TRACES = """
 CREATE TABLE IF NOT EXISTS traces (
     trace_id TEXT PRIMARY KEY,
-    service TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    run_id TEXT,
     query_id TEXT NOT NULL,
-    query_text TEXT NOT NULL,
     pipeline_id TEXT NOT NULL,
     status TEXT NOT NULL,
-    total_latency_ms REAL NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL,
-    predicted_difficulty TEXT,
-    suspected_failures_json TEXT NOT NULL DEFAULT '[]',
-    metadata_json TEXT NOT NULL DEFAULT '{}'
+    topology_hash TEXT NOT NULL,
+    trace_json JSONB NOT NULL
 )
 """
+_CREATE_TRACES_SERVICE_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_service_time ON traces(service_id, timestamp DESC)"
+_CREATE_TRACES_RUN_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_run_query ON traces(run_id, query_id)"
+_CREATE_TRACES_TOPOLOGY_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_pipeline_topology ON traces(pipeline_id, topology_hash)"
 
-_CREATE_TRACE_STAGES = """
-CREATE TABLE IF NOT EXISTS trace_stages (
-    trace_id TEXT NOT NULL,
-    stage_index INT NOT NULL,
-    stage_id TEXT NOT NULL,
-    latency_ms REAL NOT NULL,
-    candidate_count INT NOT NULL,
-    documents_json TEXT NOT NULL,
-    PRIMARY KEY (trace_id, stage_index)
+_CREATE_INSTRUMENTATION_HEALTH = """
+CREATE TABLE IF NOT EXISTS instrumentation_health (
+    id BIGSERIAL PRIMARY KEY,
+    service_id TEXT NOT NULL,
+    observed_at TIMESTAMPTZ NOT NULL,
+    health_json JSONB NOT NULL
 )
 """
 
@@ -201,21 +198,6 @@ CREATE TABLE IF NOT EXISTS reliability_snapshots (
 )
 """
 
-_CREATE_TRACES_V2 = """
-CREATE TABLE IF NOT EXISTS traces_v2 (
-    trace_id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    query_id TEXT NOT NULL,
-    pipeline_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    timestamp TIMESTAMPTZ NOT NULL,
-    trace_json TEXT NOT NULL
-)
-"""
-
-_CREATE_TRACES_V2_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_v2_run ON traces_v2(run_id, query_id)"
-_CREATE_TRACES_V2_PIPELINE_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_v2_pipeline ON traces_v2(pipeline_id)"
-_CREATE_TRACES_V2_STATUS_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_v2_status ON traces_v2(status)"
 
 _CREATE_DOC_EDGES = """
 CREATE TABLE IF NOT EXISTS doc_edges (
@@ -259,44 +241,28 @@ class PostgresStore:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             await conn.execute(_CREATE_RUNS)
-            await conn.execute(_CREATE_RAW_RESULTS)
             await conn.execute(_CREATE_METRIC_SCORES)
             await conn.execute(_CREATE_CACHE)
+            await conn.execute(_CREATE_ANALYSIS_RECORDS)
             await conn.execute(_CREATE_RUN_MANIFESTS)
             await conn.execute(_CREATE_RUN_QRELS)
             await conn.execute(_CREATE_VALIDATION_REPORTS)
             await conn.execute(_CREATE_QUERY_DIAGNOSTICS)
+            await conn.execute(_CREATE_DIAGNOSTIC_FINDINGS)
             await conn.execute(_CREATE_RUN_QUERIES)
             await conn.execute(_CREATE_FORGE_DATASETS)
             await conn.execute(_CREATE_FORGE_SCENARIOS)
             await conn.execute(_CREATE_FORGE_QUERIES)
             await conn.execute(_CREATE_TRACES)
-            await conn.execute(_CREATE_TRACE_STAGES)
+            await conn.execute(_CREATE_TRACES_SERVICE_IDX)
+            await conn.execute(_CREATE_TRACES_RUN_IDX)
+            await conn.execute(_CREATE_TRACES_TOPOLOGY_IDX)
+            await conn.execute(_CREATE_INSTRUMENTATION_HEALTH)
             await conn.execute(_CREATE_GOLDEN_SETS)
             await conn.execute(_CREATE_RELIABILITY_SNAPSHOTS)
-            await conn.execute(_CREATE_TRACES_V2)
-            await conn.execute(_CREATE_TRACES_V2_IDX)
-            await conn.execute(_CREATE_TRACES_V2_PIPELINE_IDX)
-            await conn.execute(_CREATE_TRACES_V2_STATUS_IDX)
             await conn.execute(_CREATE_DOC_EDGES)
             await conn.execute(_CREATE_DOC_EDGES_SRC_IDX)
             await conn.execute(_CREATE_DOC_EDGES_DST_IDX)
-            try:
-                await conn.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
-            except Exception:
-                pass
-            try:
-                await conn.execute(_MIGRATE_RAW_RESULTS_PROFILING)
-            except Exception:
-                pass
-            try:
-                await conn.execute(_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT)
-            except Exception:
-                pass
-            try:
-                await conn.execute(_MIGRATE_RAW_RESULTS_BRANCH_ID)
-            except Exception:
-                pass
             try:
                 await conn.execute(_MIGRATE_METRIC_SCORES_BRANCH_ID)
             except Exception:
@@ -333,123 +299,6 @@ class PostgresStore:
                 datetime.now(timezone.utc),
                 run_id,
             )
-
-    async def save_result(self, run_id: str, result: PipelineResult) -> None:
-        pool = await self._get_pool()
-        rows = [
-            (
-                run_id,
-                result.pipeline_id,
-                result.query_id,
-                -1,
-                "__pipeline__",
-                result.status,
-                result.total_latency_ms,
-                "[]",
-                "[]",
-                "{}",
-                0,
-                None,
-                result.error_traceback,
-            )
-        ]
-        for snap in result.snapshots:
-            rows.append(
-                (
-                    run_id,
-                    result.pipeline_id,
-                    result.query_id,
-                    snap.stage_index,
-                    snap.stage_id,
-                    result.status,
-                    snap.latency_ms,
-                    json.dumps([d.id for d in snap.documents]),
-                    json.dumps([d.score for d in snap.documents]),
-                    json.dumps(snap.profiling),
-                    snap.candidate_count or len(snap.documents),
-                    None,
-                    result.error_traceback,
-                )
-            )
-            for arm in snap.arms:
-                rows.append(
-                    (
-                        run_id,
-                        result.pipeline_id,
-                        result.query_id,
-                        snap.stage_index,
-                        arm.stage_id,
-                        result.status,
-                        arm.latency_ms,
-                        json.dumps([d.id for d in arm.documents]),
-                        json.dumps([d.score for d in arm.documents]),
-                        json.dumps(arm.profiling),
-                        arm.candidate_count or len(arm.documents),
-                        arm.stage_id,
-                        result.error_traceback,
-                    )
-                )
-        async with pool.acquire() as conn:
-            await conn.executemany(
-                """INSERT INTO raw_results
-                   (run_id, pipeline_id, query_id, stage_index, stage_id, status,
-                    latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                    candidate_count, branch_id, error_traceback)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)""",
-                rows,
-            )
-
-    async def save_trace_v2(self, trace: RetrievalTraceV2) -> None:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """INSERT INTO traces_v2
-                   (trace_id, run_id, query_id, pipeline_id, status, timestamp, trace_json)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)
-                   ON CONFLICT (trace_id) DO UPDATE SET
-                       run_id = EXCLUDED.run_id,
-                       query_id = EXCLUDED.query_id,
-                       pipeline_id = EXCLUDED.pipeline_id,
-                       status = EXCLUDED.status,
-                       timestamp = EXCLUDED.timestamp,
-                       trace_json = EXCLUDED.trace_json""",
-                trace.trace_id,
-                trace.run_id,
-                trace.query_id,
-                trace.pipeline_id,
-                trace.status,
-                trace.timestamp,
-                json.dumps(trace.to_dict()),
-            )
-
-    async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT trace_json FROM traces_v2 WHERE trace_id = $1", trace_id)
-        if not row:
-            return None
-        return RetrievalTraceV2.from_dict(json.loads(row["trace_json"]))
-
-    async def get_traces_v2(
-        self,
-        run_id: str,
-        query_id: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: int = 0,
-    ) -> List[RetrievalTraceV2]:
-        pool = await self._get_pool()
-        query = "SELECT trace_json FROM traces_v2 WHERE run_id = $1"
-        params: list = [run_id]
-        if query_id is not None:
-            params.append(query_id)
-            query += f" AND query_id = ${len(params)}"
-        query += " ORDER BY timestamp, trace_id"
-        if limit is not None:
-            params.extend([limit, offset])
-            query += f" LIMIT ${len(params) - 1} OFFSET ${len(params)}"
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(query, *params)
-        return [RetrievalTraceV2.from_dict(json.loads(row["trace_json"])) for row in rows]
 
     async def save_doc_edge(
         self,
@@ -539,70 +388,6 @@ class PostgresStore:
                 ],
             )
 
-    async def get_results(self, run_id: str) -> List[PipelineResult]:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT * FROM raw_results WHERE run_id = $1 ORDER BY pipeline_id, query_id, stage_index, COALESCE(branch_id, '')",
-                run_id,
-            )
-
-        grouped: Dict[tuple, list] = {}
-        for row in rows:
-            key = (row["pipeline_id"], row["query_id"])
-            grouped.setdefault(key, []).append(row)
-
-        results = []
-        for (pipeline_id, query_id), stage_rows in grouped.items():
-            snapshots = []
-            snap_by_stage: Dict[int, StageSnapshot] = {}
-            status = "OK"
-            error_traceback = None
-            total_latency = 0.0
-            envelope_latency = None
-            for row in stage_rows:
-                if row["stage_index"] == -1 and row["stage_id"] == "__pipeline__":
-                    status = row["status"]
-                    error_traceback = row["error_traceback"]
-                    envelope_latency = row["latency_ms"]
-                    continue
-                doc_ids = json.loads(row["retrieved_doc_ids_json"])
-                scores = json.loads(row["retrieved_scores_json"])
-                docs = [
-                    Document(id=did, text="", score=s, rank=i + 1)
-                    for i, (did, s) in enumerate(zip(doc_ids, scores))
-                ]
-                branch_id = row.get("branch_id")
-                snapshot = StageSnapshot(
-                    stage_index=row["stage_index"],
-                    stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
-                    documents=docs,
-                    latency_ms=row["latency_ms"],
-                    profiling=json.loads(row["profiling_json"] or "{}"),
-                    candidate_count=row["candidate_count"] or len(docs),
-                )
-                if branch_id:
-                    parent = snap_by_stage.get(row["stage_index"])
-                    if parent is not None:
-                        parent.arms.append(snapshot)
-                    continue
-                snapshots.append(snapshot)
-                snap_by_stage[row["stage_index"]] = snapshot
-                total_latency += row["latency_ms"]
-                status = row["status"]
-                error_traceback = row["error_traceback"]
-            results.append(
-                PipelineResult(
-                    query_id=query_id,
-                    pipeline_id=pipeline_id,
-                    snapshots=snapshots,
-                    total_latency_ms=envelope_latency if envelope_latency is not None else total_latency,
-                    status=status,
-                    error_traceback=error_traceback,
-                )
-            )
-        return results
-
     async def get_metrics(self, run_id: str) -> List[Dict]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
@@ -624,17 +409,7 @@ class PostgresStore:
         counts: Dict[str, int] = {}
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT status, COUNT(*) AS n FROM traces_v2 WHERE run_id = $1 GROUP BY status",
-                run_id,
-            )
-        if rows:
-            for row in rows:
-                counts[str(row["status"])] = int(row["n"])
-            return counts
-
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT status, COUNT(*) AS n FROM raw_results WHERE run_id = $1 AND stage_index = -1 GROUP BY status",
+                "SELECT status, COUNT(*) AS n FROM traces WHERE run_id = $1 GROUP BY status",
                 run_id,
             )
         for row in rows:
@@ -768,6 +543,49 @@ class PostgresStore:
             item["diagnostic_evidence"] = json.loads(item.pop("diagnostic_evidence_json", "[]"))
             result.append(item)
         return result
+
+    async def save_diagnostics(self, run_id: str, query_id: str, findings) -> None:
+        if not findings:
+            return
+        trace_id = next((f.evidence.trace_ids[0] for f in findings if f.evidence and f.evidence.trace_ids), "")
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.executemany(
+                """INSERT INTO diagnostic_findings
+                   (run_id, query_id, trace_id, label, availability, method_id, method_version, evidence_class, finding_order, finding_json)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb)
+                   ON CONFLICT (run_id, query_id, trace_id, label) DO UPDATE SET
+                   availability=EXCLUDED.availability, method_id=EXCLUDED.method_id,
+                   method_version=EXCLUDED.method_version, evidence_class=EXCLUDED.evidence_class,
+                   finding_order=EXCLUDED.finding_order,
+                   finding_json=EXCLUDED.finding_json""",
+                [(run_id, query_id, trace_id, f.label,
+                  f.availability.value, f.evidence.method_id if f.evidence else None,
+                  f.evidence.method_version if f.evidence else None, f.evidence.evidence_class if f.evidence else None,
+                  index, json.dumps(f.to_dict())) for index, f in enumerate(findings)],
+            )
+        await self.save_query_diagnostics([{
+            "run_id": run_id,
+            "query_id": query_id,
+            "pipeline_id": "typed_findings",
+            "difficulty_bucket": "unknown",
+            "failure_labels": [f.label for f in findings if f.availability.value == "supported"],
+            "missing_relevant_ids": [],
+            "stage_hits": {},
+            "diagnostic_evidence": [f.to_dict() for f in findings],
+        }])
+
+    async def query_diagnostics(self, run_id: str, query_id: Optional[str] = None):
+        from retrieval_observatory.diagnostics.model import DiagnosticFinding
+        pool = await self._get_pool()
+        sql, params = "SELECT finding_json FROM diagnostic_findings WHERE run_id = $1", [run_id]
+        if query_id is not None:
+            sql += " AND query_id = $2"
+            params.append(query_id)
+        sql += " ORDER BY query_id, trace_id, finding_order"
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(sql, *params)
+        return [DiagnosticFinding.from_dict(dict(row["finding_json"])) for row in rows]
 
     async def save_run_queries(
         self,
@@ -987,164 +805,150 @@ class PostgresStore:
             result.append(d)
         return result
 
-    async def save_trace(self, trace) -> None:
-        await self.save_traces_batch([trace])
+    async def save_trace(self, trace: RetrievalTrace) -> None:
+        await self.save_traces([trace])
 
-    async def save_traces_batch(self, traces) -> None:
+    async def save_traces(self, traces: List[RetrievalTrace]) -> None:
+        if not traces:
+            return
+        rows = [
+            (
+                trace.trace_id,
+                trace.service_id,
+                trace.run_id,
+                trace.query_id,
+                trace.pipeline_id,
+                trace.status,
+                trace.timestamp,
+                trace.topology_hash(),
+                json.dumps(trace.to_dict(), sort_keys=True),
+            )
+            for trace in traces
+        ]
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            for t in traces:
-                await conn.execute(
+            async with conn.transaction():
+                await conn.executemany(
                     """INSERT INTO traces
-                       (trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms,
-                        timestamp, predicted_difficulty, suspected_failures_json, metadata_json)
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                       (trace_id, service_id, run_id, query_id, pipeline_id, status,
+                        timestamp, topology_hash, trace_json)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
                        ON CONFLICT (trace_id) DO UPDATE SET
-                           service = EXCLUDED.service,
+                           service_id = EXCLUDED.service_id,
+                           run_id = EXCLUDED.run_id,
+                           query_id = EXCLUDED.query_id,
+                           pipeline_id = EXCLUDED.pipeline_id,
                            status = EXCLUDED.status,
-                           total_latency_ms = EXCLUDED.total_latency_ms,
                            timestamp = EXCLUDED.timestamp,
-                           predicted_difficulty = EXCLUDED.predicted_difficulty,
-                           suspected_failures_json = EXCLUDED.suspected_failures_json,
-                           metadata_json = EXCLUDED.metadata_json""",
-                    t.trace_id,
-                    t.service,
-                    t.query_id,
-                    t.query_text,
-                    t.pipeline_id,
-                    t.status,
-                    t.total_latency_ms,
-                    t.timestamp,
-                    t.predicted_difficulty,
-                    json.dumps(t.suspected_failures),
-                    json.dumps(t.metadata),
+                           topology_hash = EXCLUDED.topology_hash,
+                           trace_json = EXCLUDED.trace_json""",
+                    rows,
                 )
-                await conn.execute("DELETE FROM trace_stages WHERE trace_id = $1", t.trace_id)
-                for s in t.snapshots:
-                    docs = [
-                        {
-                            "id": d.id,
-                            "text": getattr(d, "text", ""),
-                            "score": d.score,
-                            "rank": d.rank,
-                            "title": getattr(d, "title", ""),
-                        }
-                        for d in s.documents
-                    ]
-                    await conn.execute(
-                        """INSERT INTO trace_stages
-                           (trace_id, stage_index, stage_id, latency_ms, candidate_count, documents_json)
-                           VALUES ($1, $2, $3, $4, $5, $6)""",
-                        t.trace_id,
-                        s.stage_index,
-                        s.stage_id,
-                        s.latency_ms,
-                        s.candidate_count or len(s.documents),
-                        json.dumps(docs),
-                    )
 
-    async def list_services(self) -> List[Dict]:
+    async def list_services(self) -> List[ServiceSummary]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """SELECT service, COUNT(*) AS trace_count, MAX(timestamp) AS last_seen
-                   FROM traces GROUP BY service ORDER BY last_seen DESC"""
+                """SELECT service_id, COUNT(*) AS trace_count, MAX(timestamp) AS last_seen
+                   FROM traces GROUP BY service_id ORDER BY last_seen DESC"""
             )
-        return [dict(r) for r in rows]
+        return [ServiceSummary(r["service_id"], int(r["trace_count"]), r["last_seen"]) for r in rows]
 
-    async def list_traces(
-        self,
-        service: str,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        status: Optional[str] = None,
-        difficulty: Optional[str] = None,
-        suspected_only: bool = False,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> List[Dict]:
-        where = ["service = $1"]
-        params: List = [service]
-        idx = 2
-        if since:
-            where.append(f"timestamp >= ${idx}")
-            params.append(since)
-            idx += 1
-        if until:
-            where.append(f"timestamp <= ${idx}")
-            params.append(until)
-            idx += 1
-        if status:
-            where.append(f"status = ${idx}")
-            params.append(status)
-            idx += 1
-        if difficulty:
-            where.append(f"predicted_difficulty = ${idx}")
-            params.append(difficulty)
-            idx += 1
-        if suspected_only:
-            where.append("suspected_failures_json != '[]'")
+    async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
+        if query is None:
+            query = TraceQuery(service_id=service, limit=limit or 200)
+        clauses: List[str] = []
+        params: List = []
+        for column, value in (
+            ("service_id", query.service_id),
+            ("run_id", query.run_id),
+            ("pipeline_id", query.pipeline_id),
+            ("query_id", query.query_id),
+            ("status", query.status),
+            ("topology_hash", query.topology_hash),
+        ):
+            if value is not None:
+                params.append(value)
+                clauses.append(f"{column} = ${len(params)}")
+        if query.since is not None:
+            params.append(query.since)
+            clauses.append(f"timestamp >= ${len(params)}")
+        if query.until is not None:
+            params.append(query.until)
+            clauses.append(f"timestamp <= ${len(params)}")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend((query.limit, query.offset))
         sql = (
-            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
-            "timestamp, predicted_difficulty, suspected_failures_json, metadata_json FROM traces WHERE "
-            + " AND ".join(where)
-            + f" ORDER BY timestamp DESC LIMIT ${idx} OFFSET ${idx + 1}"
+            f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id "
+            f"LIMIT ${len(params) - 1} OFFSET ${len(params)}"
         )
-        params.extend([limit, offset])
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
-        return [self._trace_row_to_dict(dict(r)) for r in rows]
+        return [RetrievalTrace.from_dict(dict(row["trace_json"])) for row in rows]
 
-    async def get_trace(self, trace_id: str) -> Optional[Dict]:
+    async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
+        return await self.list_traces(TraceQuery(run_id=run_id))
+
+    async def get_trace(self, trace_id: str) -> Optional[RetrievalTrace]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT trace_json FROM traces WHERE trace_id = $1", trace_id)
+        return RetrievalTrace.from_dict(dict(row["trace_json"])) if row else None
+
+    async def list_topology_variants(self, query: TraceQuery) -> List[TopologyVariant]:
+        traces = await self.list_traces(query)
+        grouped: Dict[str, List[RetrievalTrace]] = {}
+        for trace in traces:
+            grouped.setdefault(trace.topology_hash(), []).append(trace)
+        return [
+            TopologyVariant(key, len(items), tuple(sorted({s.op_id for t in items for s in t.spans})))
+            for key, items in sorted(grouped.items())
+        ]
+
+    async def save_instrumentation_health(self, snapshot: InstrumentationHealth) -> None:
+        observed_at = snapshot.observed_at or datetime.now(timezone.utc)
+        payload = {**snapshot.__dict__, "observed_at": observed_at.isoformat()}
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO instrumentation_health (service_id, observed_at, health_json) VALUES ($1, $2, $3::jsonb)",
+                snapshot.service_id, observed_at, json.dumps(payload, sort_keys=True),
+            )
+
+    async def get_instrumentation_health(self, service_id: str) -> Optional[InstrumentationHealth]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                """SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms,
-                          timestamp, predicted_difficulty, suspected_failures_json, metadata_json
-                   FROM traces WHERE trace_id = $1""",
-                trace_id,
+                "SELECT health_json FROM instrumentation_health WHERE service_id = $1 ORDER BY observed_at DESC LIMIT 1",
+                service_id,
             )
-            if not row:
-                return None
-            d = self._trace_row_to_dict(dict(row))
-            stage_rows = await conn.fetch(
-                """SELECT stage_index, stage_id, latency_ms, candidate_count, documents_json
-                   FROM trace_stages WHERE trace_id = $1 ORDER BY stage_index""",
-                trace_id,
-            )
-        stages = []
-        for sr in stage_rows:
-            sd = dict(sr)
-            try:
-                sd["documents"] = json.loads(sd.pop("documents_json", "[]"))
-            except Exception:
-                sd["documents"] = []
-            stages.append(sd)
-        d["stages"] = stages
-        return d
+        if not row:
+            return None
+        payload = dict(row["health_json"])
+        payload["observed_at"] = datetime.fromisoformat(payload["observed_at"])
+        return InstrumentationHealth(**payload)
 
-    async def purge_traces(self, service: Optional[str] = None, older_than: Optional[str] = None) -> int:
-        where = []
+    async def purge_traces(self, query: TraceQuery) -> int:
+        clauses: List[str] = []
         params: List = []
-        idx = 1
-        if service:
-            where.append(f"service = ${idx}")
-            params.append(service)
-            idx += 1
-        if older_than:
-            where.append(f"timestamp < ${idx}")
-            params.append(older_than)
-            idx += 1
-        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        for column, value in (("service_id", query.service_id), ("run_id", query.run_id),
+                              ("pipeline_id", query.pipeline_id), ("query_id", query.query_id),
+                              ("status", query.status), ("topology_hash", query.topology_hash)):
+            if value is not None:
+                params.append(value)
+                clauses.append(f"{column} = ${len(params)}")
+        if query.since is not None:
+            params.append(query.since)
+            clauses.append(f"timestamp >= ${len(params)}")
+        if query.until is not None:
+            params.append(query.until)
+            clauses.append(f"timestamp <= ${len(params)}")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch(f"SELECT trace_id FROM traces{clause}", *params)
-            ids = [r["trace_id"] for r in rows]
-            await conn.execute(f"DELETE FROM traces{clause}", *params)
-            if ids:
-                await conn.execute("DELETE FROM trace_stages WHERE trace_id = ANY($1::text[])", ids)
-        return len(ids)
+            result = await conn.execute(f"DELETE FROM traces{where}", *params)
+        return int(result.rsplit(" ", 1)[-1])
 
     async def get_query_lineage(self, query_id: str) -> Dict:
         pool = await self._get_pool()
@@ -1235,6 +1039,11 @@ class PostgresStore:
                 ),
                 "match_difficulty": match_difficulty,
                 "match_failure_labels": match_failures,
+                "summary": {
+                    "trace_count": len(production_traces),
+                    "service_count": len({trace.get("service") for trace in production_traces}),
+                    "failure_labels": sorted({label for trace in production_traces for label in trace.get("suspected_failures", [])}),
+                },
                 "traces": production_traces,
             },
         }
@@ -1247,36 +1056,23 @@ class PostgresStore:
     ) -> List[Dict]:
         if not difficulty and not failure_labels:
             return []
-        where = []
-        params: List = []
-        idx = 1
-        if difficulty:
-            where.append(f"predicted_difficulty = ${idx}")
-            params.append(difficulty)
-            idx += 1
-        sql = (
-            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
-            "timestamp, predicted_difficulty, suspected_failures_json FROM traces"
-        )
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += f" ORDER BY timestamp DESC LIMIT ${idx}"
-        params.append(limit * 5)
+        sql = "SELECT trace_json FROM traces WHERE run_id IS NULL ORDER BY timestamp DESC LIMIT $1"
         pool = await self._get_pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch(sql, *params)
+            rows = await conn.fetch(sql, limit * 5)
         matched = []
         label_set = set(failure_labels)
         for row in rows:
-            d = dict(row)
-            d["timestamp"] = str(d.get("timestamp"))
-            try:
-                suspected = json.loads(d.pop("suspected_failures_json", "[]"))
-            except Exception:
-                suspected = []
+            trace = RetrievalTrace.from_dict(dict(row["trace_json"]))
+            d = trace.to_dict()
+            suspected = list(trace.metadata.get("suspected_failures", ()))
+            predicted = trace.metadata.get("predicted_difficulty")
+            if difficulty and predicted != difficulty:
+                continue
             if label_set and not (label_set & set(suspected)):
                 continue
             d["suspected_failures"] = suspected
+            d["predicted_difficulty"] = predicted
             matched.append(d)
             if len(matched) >= limit:
                 break
@@ -1342,6 +1138,73 @@ class PostgresStore:
                 d["components"] = {}
             out.append(d)
         return out
+
+    async def save_analysis_record(self, kind: str, record_id: str, payload: Dict, version: int = 1) -> None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            current = await conn.fetchval(
+                "SELECT MAX(version) FROM analysis_records WHERE kind=$1 AND record_id=$2",
+                kind,
+                record_id,
+            )
+            expected = int(current or 0) + 1
+            if version != expected:
+                raise ValueError(f"{kind} version must be {expected}")
+            await conn.execute(
+                "INSERT INTO analysis_records VALUES ($1,$2,$3,$4,$5)",
+                kind,
+                record_id,
+                version,
+                json.dumps(payload, sort_keys=True),
+                datetime.now(timezone.utc),
+            )
+
+    async def get_analysis_record(self, kind: str, record_id: str) -> Dict | None:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT payload_json,version,created_at FROM analysis_records WHERE kind=$1 AND record_id=$2 ORDER BY version DESC LIMIT 1",
+                kind,
+                record_id,
+            )
+        if row is None:
+            return None
+        payload = row["payload_json"] if isinstance(row["payload_json"], dict) else json.loads(row["payload_json"])
+        return {**payload, "version": row["version"], "created_at": str(row["created_at"])}
+
+    async def list_analysis_records(self, kind: str) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT DISTINCT ON (record_id) record_id,payload_json,version,created_at FROM analysis_records WHERE kind=$1 ORDER BY record_id,version DESC",
+                kind,
+            )
+        return [
+            {
+                **(row["payload_json"] if isinstance(row["payload_json"], dict) else json.loads(row["payload_json"])),
+                "record_id": row["record_id"],
+                "version": row["version"],
+                "created_at": str(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    async def save_cohort(self, cohort_id: str, payload: Dict, version: int) -> None:
+        await self.save_analysis_record("cohort", cohort_id, payload, version)
+    async def get_cohort(self, cohort_id: str) -> Dict | None:
+        return await self.get_analysis_record("cohort", cohort_id)
+    async def list_cohorts(self) -> List[Dict]:
+        return await self.list_analysis_records("cohort")
+    async def save_corpus_snapshot(self, snapshot_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("corpus_snapshot", snapshot_id, payload, version)
+    async def append_judgment(self, judgment_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("judgment", judgment_id, payload, version)
+    async def save_baseline(self, baseline_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("baseline", baseline_id, payload, version)
+    async def save_regression_check(self, check_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("check", check_id, payload, version)
+    async def append_alert(self, alert_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("alert", alert_id, payload, version)
 
     @staticmethod
     def _trace_row_to_dict(d: Dict) -> Dict:

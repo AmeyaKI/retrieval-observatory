@@ -1,4 +1,4 @@
-"""Rule-based query templates (no LLM) for Forge stress-test generation."""
+"""Rule-based query templates (no LLM) for Test Sets stress-test generation."""
 from __future__ import annotations
 
 import hashlib
