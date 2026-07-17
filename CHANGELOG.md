@@ -6,6 +6,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
 ## [0.5.1] — 2026-07-17 [PyPI]
 
 Dashboard single-run diagnosis polish, Production API client fix, `evaluate --config` repair, and the remaining audit-remediation surface that landed after 0.5.0.
