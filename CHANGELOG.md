@@ -53,6 +53,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `store/postgres.py` — deserialize JSONB trace payloads returned as strings before reconstructing traces.
 - `cli.py` — create requested integration-plan output directories and resolve project-root callable modules for the documented installed-wheel commands.
 
 ### Removed

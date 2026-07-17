@@ -61,7 +61,6 @@ Queries, candidates, metadata, labels, and traces may be sensitive. Redaction ru
 - [Concepts](docs/CONCEPTS.md)
 - [CLI, SDK, and MCP reference](docs/REFERENCE.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Contributing](CONTRIBUTING.md)
 - [Releases](https://github.com/AmeyaKI/retrieval-observatory/releases)
 
 License: [MIT](LICENSE).

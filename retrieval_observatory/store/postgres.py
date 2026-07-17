@@ -12,6 +12,10 @@ from retrieval_observatory.store.base import (
 )
 from retrieval_observatory.tracing.model import RetrievalTrace
 
+
+def _trace_from_json(payload: str | dict) -> RetrievalTrace:
+    return RetrievalTrace.from_dict(payload if isinstance(payload, dict) else json.loads(payload))
+
 _CREATE_RUNS = """
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
@@ -885,7 +889,7 @@ class PostgresStore:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
-        return [RetrievalTrace.from_dict(dict(row["trace_json"])) for row in rows]
+        return [_trace_from_json(row["trace_json"]) for row in rows]
 
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
         return await self.list_traces(TraceQuery(run_id=run_id))
@@ -894,7 +898,7 @@ class PostgresStore:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT trace_json FROM traces WHERE trace_id = $1", trace_id)
-        return RetrievalTrace.from_dict(dict(row["trace_json"])) if row else None
+        return _trace_from_json(row["trace_json"]) if row else None
 
     async def list_topology_variants(self, query: TraceQuery) -> List[TopologyVariant]:
         traces = await self.list_traces(query)
@@ -1063,7 +1067,7 @@ class PostgresStore:
         matched = []
         label_set = set(failure_labels)
         for row in rows:
-            trace = RetrievalTrace.from_dict(dict(row["trace_json"]))
+            trace = _trace_from_json(row["trace_json"])
             d = trace.to_dict()
             suspected = list(trace.metadata.get("suspected_failures", ()))
             predicted = trace.metadata.get("predicted_difficulty")
