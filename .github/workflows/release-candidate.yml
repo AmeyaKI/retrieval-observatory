@@ -375,7 +375,7 @@ jobs:
       - name: Install package for release surface checks
         run: |
           WHEEL=$(ls dist/retrieval_observatory-*.whl | head -1)
-          python -m pip install "$WHEEL"
+          python -m pip install "${WHEEL}[mcp]"
           python -c "import retrieval_observatory; import importlib.metadata as m; print(m.version('retrieval-observatory'))"
       - name: Generate and verify release evidence
         run: |
