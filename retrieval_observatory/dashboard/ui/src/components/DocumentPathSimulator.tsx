@@ -54,7 +54,7 @@ function FlowchartLane({
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0}>
         <svg
           width={width}
           height={height}

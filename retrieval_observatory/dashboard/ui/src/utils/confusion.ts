@@ -17,22 +17,22 @@ export const CONFUSION_META: Record<
   TP: {
     title: 'True positive',
     short: 'Relevant & returned',
-    className: 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200',
+    className: 'bg-emerald-100 text-emerald-900 border-emerald-600 dark:bg-emerald-950 dark:text-emerald-100',
   },
   FP: {
     title: 'False positive',
     short: 'Returned but not relevant',
-    className: 'bg-amber-50 text-amber-900 border-amber-300 dark:bg-amber-950/40 dark:text-amber-200',
+    className: 'bg-amber-100 text-amber-950 border-amber-700 dark:bg-amber-950 dark:text-amber-100',
   },
   FN: {
     title: 'False negative',
     short: 'Relevant but missing',
-    className: 'bg-red-50 text-red-800 border-red-300 dark:bg-red-950/40 dark:text-red-200',
+    className: 'bg-red-100 text-red-950 border-red-700 dark:bg-red-950 dark:text-red-100',
   },
   TN: {
     title: 'True negative',
     short: 'Seen mid-pipeline, correctly not final',
-    className: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300',
+    className: 'bg-slate-200 text-slate-900 border-slate-600 dark:bg-slate-800 dark:text-slate-100',
   },
 }
 

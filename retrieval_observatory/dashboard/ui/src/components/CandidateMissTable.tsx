@@ -62,17 +62,15 @@ export default function CandidateMissTable({
             key={label}
             type="button"
             onClick={() => setFilter(label)}
-            className={`rounded border px-2 py-1 text-[11px] ${
+            className={`rounded border px-2 py-1 text-[11px] font-medium ${
               filter === label
-                ? CONFUSION_META[label].className + ' ring-1 ring-indigo-400'
-                : CONFUSION_META[label].className + ' opacity-80'
+                ? CONFUSION_META[label].className + ' ring-2 ring-indigo-500'
+                : CONFUSION_META[label].className
             }`}
             title={CONFUSION_META[label].short}
+            aria-label={`${label}: ${CONFUSION_META[label].short} (${counts[label]})`}
           >
             {label} · {counts[label]}
-            <span className="ml-1 hidden sm:inline text-[10px] opacity-80">
-              {CONFUSION_META[label].short}
-            </span>
           </button>
         ))}
       </div>
@@ -82,7 +80,7 @@ export default function CandidateMissTable({
           No chunks match this filter.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+        <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700" tabIndex={0}>
           <table className="w-full min-w-[760px] text-left text-xs">
             <thead className="bg-surface-muted text-ink-faint">
               <tr>
