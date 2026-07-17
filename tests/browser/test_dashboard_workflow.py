@@ -93,8 +93,9 @@ def test_golden_workflow_is_responsive_and_semantic(page: Page, tmp_path: Path, 
     page.screenshot(path=tmp_path / f"run-{width}.png", full_page=True)
 
     page.goto(f"{BASE_URL}/#/runs/{baseline}/queries/{query_id}?window=all")
-    expect(page.get_by_role("heading", name="Query evidence")).to_be_visible()
-    expect(page.get_by_text("Relevant document movement", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name="Candidate flow diagnosis")).to_be_visible()
+    expect(page.get_by_role("heading", name="Expected vs retrieved chunks")).to_be_visible()
+    expect(page.get_by_text("Stage flowchart", exact=False).first).to_be_visible()
     assert _semantic_violations(page) == []
     assert _wcag_aa_violations(page) == []
 
