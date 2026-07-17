@@ -34,9 +34,10 @@ jobs:
       - name: Generate deterministic regression story
         run: |
           /tmp/retobs-retrieval-ci/bin/retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
-          echo "BASELINE=$(/tmp/retobs-retrieval-ci/bin/python -c \"import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])\")" >> $GITHUB_ENV
-          echo "CANDIDATE=$(/tmp/retobs-retrieval-ci/bin/python -c \"import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['validation_run_id'])\")" >> $GITHUB_ENV
-
+          BASELINE=$(/tmp/retobs-retrieval-ci/bin/python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])")
+          CANDIDATE=$(/tmp/retobs-retrieval-ci/bin/python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['validation_run_id'])")
+          echo "BASELINE=$BASELINE" >> "$GITHUB_ENV"
+          echo "CANDIDATE=$CANDIDATE" >> "$GITHUB_ENV"
       - name: Compare baseline with validated change
         run: |
           mkdir -p artifacts
