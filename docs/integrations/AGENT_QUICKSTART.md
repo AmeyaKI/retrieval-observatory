@@ -1,58 +1,23 @@
-# Agent quickstart — retobs MCP
+# Agent integration runbook
 
-## Journey 0 — Wire retobs (one agent prompt)
-
-**ML engineer prompt:**
-
-> Wire retobs into this project.
-
-**Agent does:**
-
-1. **`wire_project(project_root=...)`** — detect framework, scaffold `retobs/`, write manifest + `RETOS.md`, return `wiring_brief`
-2. Apply `wiring_brief.patches` to the listed pipeline files
-3. **`wire_project(project_root=..., phase="verify")`** — confirm wiring; returns `status: ready` + post-wiring commands
-
-Register MCP once:
-
-```json
-{ "mcpServers": { "retobs": { "command": "retobs", "args": ["mcp"] } } } }
-```
-
-Bootstrap: `pip install 'retrieval-observatory[mcp]'` · `retobs doctor`
-
-CLI twin: `retobs integrate . --plan`, apply the minimal patches, then `retobs verify .`
-
----
-
-## After wiring — evaluate
-
-1. **`validate_config`** — pass config dict or use on-disk YAML
-2. **`evaluate_file(config_path="retobs/config.yaml")`** — smoke evaluation with sample JSONL
-3. **`get_report`** / **`inspect_query`** / **`get_pipeline_graph`**
-
-Human: `retobs evaluate --config retobs/config.yaml` · `retobs serve --db .retobs/results.db`
-
----
-
-## After wiring — trace
-
-1. Hooks from `wiring_brief` or **`describe_integration(framework=...)`**
-2. **`push_traces`** — ingest V2 traces
-3. **`verify_integration(expected_stages=[...])`**
-
----
-
-## Example transcript
+Register the MCP server with `retobs mcp`, then run one reviewed integration loop:
 
 ```text
-> wire_project(project_root="/path/to/my-rag")
-{ "status": "setup_complete", "wiring_brief": { "patches": [...] }, "post_wiring_commands": {...} }
-
-> wire_project(project_root="/path/to/my-rag", phase="verify")
-{ "status": "ready", "commands": { "evaluate": "retobs evaluate --config retobs/config.yaml", ... } }
-
-> evaluate_file(config_path="/path/to/my-rag/retobs/config.yaml", max_queries=10)
-{ "run_id": "...", "verdict": "...", "affected_queries": [...] }
+integrate_project(project_root="/repo", phase="plan")
+integrate_project(project_root="/repo", phase="apply", plan_path="/repo/retobs/integration-plan.json")
+integrate_project(project_root="/repo", phase="verify", plan_path="/repo/retobs/integration-plan.json")
 ```
 
-See `RETOS.md` and `.retobs/manifest.yaml` in the wired project for persistent state.
+The plan result contains the reviewed patch plan. Save it at `/repo/retobs/integration-plan.json` before apply. Required unresolved mappings block apply, and stale precondition hashes block mutation. Apply returns every changed file and its record contains the reversal patches. Do not describe this as one-step wiring.
+
+Verify is a measurement step. `ready` requires observed topology, candidate evidence, and telemetry health. A project with no observed traces, unavailable candidate mapping, or telemetry loss is not ready even if apply changed files.
+
+CLI uses the same inputs:
+
+```bash
+retobs integrate . --phase plan --output retobs/integration-plan.json
+retobs integrate . --phase apply --plan retobs/integration-plan.json
+retobs integrate . --phase verify --plan retobs/integration-plan.json
+```
+
+After readiness, use `evaluate`, `compare`, `inspect_query`, and `get_report` for explicit retrieval evidence.

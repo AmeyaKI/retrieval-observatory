@@ -1,0 +1,33 @@
+{
+  "service_id": "external-hybrid-api",
+  "pipeline_id": "hybrid-search-v1",
+  "required_operator_ids": [
+    "intent_gate",
+    "bm25",
+    "dense",
+    "rrf_fusion",
+    "temporal_filter",
+    "rerank"
+  ],
+  "required_edges": [
+    ["intent_gate", "bm25"],
+    ["intent_gate", "dense"],
+    ["bm25", "rrf_fusion"],
+    ["dense", "rrf_fusion"],
+    ["rrf_fusion", "temporal_filter"],
+    ["temporal_filter", "rerank"]
+  ],
+  "scenario_ids": ["hybrid", "lexical_only", "gate_skip", "retriever_error"],
+  "expected_final_doc_ids": {
+    "hybrid": ["d-current", "d-hybrid"],
+    "lexical_only": ["d-lexical"],
+    "gate_skip": [],
+    "retriever_error": []
+  },
+  "required_capabilities": [
+    "candidate_transitions",
+    "operator_debugging",
+    "production_investigation",
+    "stable_topology"
+  ]
+}

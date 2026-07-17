@@ -15,7 +15,7 @@ from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
 
 if TYPE_CHECKING:
-    from retrieval_observatory.tracing.model_v2 import OperatorSpan
+    from retrieval_observatory.tracing.model import OperatorSpan
 
 
 def _mean(values: List[float]) -> float:
@@ -280,14 +280,14 @@ class MetricsEngine:
                 await self._save_metrics(store, metric_rows)
 
     def _find_final_span(self, trace) -> "OperatorSpan | None":
-        """Return the final operator span: explicit final_op_id, or the span
+        """Return an explicit final operator span, or a terminal fired span.
         whose op_id is never referenced as a parent by another span."""
         fired = [s for s in trace.spans if s.status == "FIRED"]
         if not fired:
             return None
-        if trace.final_op_id:
+        if trace.final_op_ids:
             for s in fired:
-                if s.op_id == trace.final_op_id:
+                if s.op_id in trace.final_op_ids:
                     return s
         all_parent_ids: Set[str] = set()
         for s in fired:
@@ -303,7 +303,7 @@ class MetricsEngine:
         qrels: Union[Dict[str, Set[str]], Dict[str, Dict[str, int]]],
         queries_by_id: Optional[Dict] = None,
     ) -> None:
-        """Compute per-query metrics from RetrievalTraceV2 operator DAGs.
+        """Compute per-query metrics from unified retrieval-trace operator DAGs.
 
         Produces identical metric values to compute_and_store for linear
         pipelines — a linear recall funnel is just a special case of a DAG path.
@@ -388,7 +388,7 @@ class MetricsEngine:
                             "stage_index": -1,
                             "metric_name": "latency_ms",
                             "k": 0,
-                            "value": trace.total_latency_ms,
+                            "value": trace.timing.wall_clock_ms,
                             "query_metadata_json": query_meta,
                         }
                     ],
@@ -569,38 +569,6 @@ class MetricsEngine:
                             "zero_pct": 0.0,
                         }
                 return aggregated
-
-        # Backward-compatible fallback when traces_v2 is unavailable.
-        results = await store.get_results(run_id)
-        by_pipeline: Dict[str, List[Any]] = defaultdict(list)
-        for result in results:
-            by_pipeline[result.pipeline_id].append(result)
-        for pipeline_id, pipeline_results in by_pipeline.items():
-            total = len(pipeline_results)
-            if total == 0:
-                continue
-            timeout_count = sum(1 for r in pipeline_results if r.status == "TIMEOUT")
-            error_count = sum(1 for r in pipeline_results if r.status == "ERROR")
-            dropout_count = timeout_count + error_count
-            for metric_name, value in (
-                ("failure_rate", dropout_count / total),
-                ("timeout_rate", timeout_count / total),
-                ("dropout_count", float(dropout_count)),
-            ):
-                key = f"{pipeline_id}|stage-1|{metric_name}@0"
-                aggregated[key] = {
-                    "pipeline_id": pipeline_id,
-                    "stage_index": -1,
-                    "metric_name": metric_name,
-                    "k": 0,
-                    "mean": float(value),
-                    "std": 0.0,
-                    "ci_low": float(value),
-                    "ci_high": float(value),
-                    "n": total,
-                    "zero_count": 0,
-                    "zero_pct": 0.0,
-                }
 
         return aggregated
 

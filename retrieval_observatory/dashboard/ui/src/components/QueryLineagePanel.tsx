@@ -99,6 +99,11 @@ export default function QueryLineagePanel({ dbId, queryId }: { dbId: string; que
             {' '}Match: difficulty={lineage.production_matches.match_difficulty || '—'},{' '}
             labels={lineage.production_matches.match_failure_labels.join(', ') || '—'}
           </p>
+          <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+            <div className="border rounded p-2"><strong>{lineage.production_matches.summary?.trace_count ?? lineage.production_matches.traces.length}</strong><br />matching traces</div>
+            <div className="border rounded p-2"><strong>{lineage.production_matches.summary?.service_count ?? 0}</strong><br />services</div>
+            <div className="border rounded p-2"><strong>{lineage.production_matches.summary?.failure_labels.length ?? 0}</strong><br />failure labels</div>
+          </div>
           {lineage.production_matches.traces.length === 0 ? (
             <p className="text-xs text-gray-400 dark:text-slate-500">No matching production traces.</p>
           ) : (

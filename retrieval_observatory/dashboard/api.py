@@ -21,8 +21,9 @@ from retrieval_observatory.metrics.comparison import (
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.dashboard.registry import DbRegistry
+from retrieval_observatory.store.base import TraceQuery
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.types import Document, StageSnapshot
 from retrieval_observatory.config.diff import diff_configs
 from retrieval_observatory.config.schema import ExperimentConfig
@@ -136,7 +137,7 @@ class _CompatResult:
     error_traceback: str | None = None
 
 
-def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_CompatResult]:
+def _pipeline_results_from_traces(traces: List[RetrievalTrace]) -> List[_CompatResult]:
     """Adapt trace-native spans into legacy StageSnapshot rows for the per-query results
     endpoint (`/runs/{id}/queries/{query_id}`), which still renders a flat per-stage
     document list.
@@ -171,12 +172,20 @@ def _pipeline_results_from_traces(traces: List[RetrievalTraceV2]) -> List[_Compa
                 query_id=trace.query_id,
                 pipeline_id=trace.pipeline_id,
                 snapshots=snapshots,
-                total_latency_ms=trace.total_latency_ms,
+                total_latency_ms=trace.timing.wall_clock_ms,
                 status=trace.status,
                 error_traceback=trace.error_traceback,
             )
         )
     return results
+
+
+def _monitor_trace(trace: RetrievalTrace) -> Dict[str, Any]:
+    payload = trace.to_dict()
+    payload["total_latency_ms"] = trace.timing.wall_clock_ms
+    payload.setdefault("predicted_difficulty", trace.metadata.get("predicted_difficulty"))
+    payload.setdefault("suspected_failures", trace.metadata.get("suspected_failures", []))
+    return payload
 
 
 def _comparability_report(manifests: List[Dict[str, Any] | None]) -> Dict[str, Any]:
@@ -475,8 +484,8 @@ def create_app(
         traces = payload.get("traces", [])
         ingested = 0
         for item in traces:
-            trace = _parse_trace_v2(item, run_id=run_id)
-            await store.save_trace_v2(trace)
+            trace = _parse_trace(item, run_id=run_id)
+            await store.save_trace(trace)
             ingested += 1
         return {"run_id": run_id, "ingested": ingested}
 
@@ -529,8 +538,8 @@ def create_app(
     async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:
         store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
-        if not agg and hasattr(store, "get_traces_v2"):
-            traces = await store.get_traces_v2(run_id)
+        if not agg:
+            traces = await store.list_traces(TraceQuery(run_id=run_id))
             if traces:
                 qrels = await _resolve_qrels(store, run_id)
                 await engine.compute_from_traces(run_id, store, traces, qrels)
@@ -815,12 +824,9 @@ def create_app(
     @db_router.get("/runs/{run_id}/queries/{query_id}")
     async def get_query_result(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
-        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
-        if traces:
-            results = [r for r in _pipeline_results_from_traces(traces) if r.query_id == query_id]
-        else:
-            results = [r for r in await store.get_results(run_id) if r.query_id == query_id]
-        diagnostics = await store.get_query_diagnostics(run_id, query_id=query_id)
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
+        results = [r for r in _pipeline_results_from_traces(traces) if r.query_id == query_id]
+        diagnostics = [finding.to_dict() for finding in await store.query_diagnostics(run_id, query_id=query_id)]
         return {
             "run_id": run_id,
             "query_id": query_id,
@@ -849,6 +855,50 @@ def create_app(
             ],
         }
 
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidate-journeys")
+    async def get_candidate_journeys(
+        db_id: str, run_id: str, query_id: str, k: int = 10,
+    ) -> Dict[str, Any]:
+        """Miss-overview rows for one query: relevant docs + docs dropped mid-pipeline.
+
+        Joins qrels, candidate_history, and miss attribution so the Query-detail table
+        does not N+1 the per-doc flow endpoint.
+        """
+        if not 1 <= k <= 100:
+            raise HTTPException(status_code=422, detail="k must be 1..100")
+        from retrieval_observatory.tracing.candidate_journeys import build_candidate_journeys
+
+        store = _store_for(db_id)
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
+        query_traces = [t for t in traces if t.query_id == query_id]
+        if not query_traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No traces for query '{query_id}' in run '{run_id}' (candidate journeys need trace data)",
+            )
+        qrels = await _resolve_qrels(store, run_id)
+        qrels_for_query = qrels.get(query_id, {})
+        query_text = query_traces[0].query_text
+        if hasattr(store, "get_run_queries"):
+            for row in await store.get_run_queries(run_id):
+                if row.get("query_id") == query_id and row.get("query_text"):
+                    query_text = row["query_text"]
+                    break
+        rows = await build_candidate_journeys(
+            query_traces,
+            query_id=query_id,
+            query_text=query_text,
+            qrels_for_query=qrels_for_query,
+            k=k,
+        )
+        return {
+            "run_id": run_id,
+            "query_id": query_id,
+            "query_text": query_text,
+            "k": k,
+            "rows": rows,
+        }
+
     @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{doc_id}")
     async def get_candidate_flow(db_id: str, run_id: str, query_id: str, doc_id: str) -> Dict[str, Any]:
         """Candidate Flow Visualization backend (Pillar 2): one document's full journey
@@ -858,13 +908,17 @@ def create_app(
         from retrieval_observatory.tracing.replay import replay_assumptions
 
         store = _store_for(db_id)
-        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
         query_traces = [t for t in traces if t.query_id == query_id]
         if not query_traces:
             raise HTTPException(
                 status_code=404,
-                detail=f"No V2 traces for query '{query_id}' in run '{run_id}' (candidate flow needs trace data)",
+                detail=f"No traces for query '{query_id}' in run '{run_id}' (candidate flow needs trace data)",
             )
+        qrels = await _resolve_qrels(store, run_id)
+        qrels_for_query = qrels.get(query_id, {})
+        grade = qrels_for_query.get(doc_id)
+        relevant = grade is not None and int(grade) > 0
         pipelines: List[Dict[str, Any]] = []
         for trace in query_traces:
             history = candidate_history(trace, doc_id)
@@ -884,7 +938,14 @@ def create_app(
                     "drop_replay_assumptions": assumptions,
                 }
             )
-        return {"run_id": run_id, "query_id": query_id, "doc_id": doc_id, "pipelines": pipelines}
+        return {
+            "run_id": run_id,
+            "query_id": query_id,
+            "doc_id": doc_id,
+            "relevant": relevant,
+            "grade": int(grade) if relevant and grade is not None else None,
+            "pipelines": pipelines,
+        }
 
     @db_router.get("/runs/{run_id}/stage-matrix")
     async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
@@ -964,24 +1025,24 @@ def create_app(
         }
 
     @db_router.post("/runs/{run_id}/traces")
-    async def ingest_trace_v2(db_id: str, run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
+    async def ingest_trace(db_id: str, run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         store = _store_for(db_id)
-        trace = _parse_trace_v2(payload, run_id=run_id)
-        await store.save_trace_v2(trace)
+        trace = _parse_trace(payload, run_id=run_id)
+        await store.save_trace(trace)
         return {"trace_id": trace.trace_id, "stored": True}
 
     @db_router.get("/runs/{run_id}/traces")
-    async def list_run_traces_v2(
+    async def list_run_traces(
         db_id: str,
         run_id: str,
         query_id: Optional[str] = None,
         limit: int = 200,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         store = _store_for(db_id)
         if limit < 1 or limit > 500 or offset < 0:
             raise HTTPException(status_code=422, detail="limit must be 1..500 and offset must be non-negative")
-        traces = await store.get_traces_v2(run_id, query_id=query_id, limit=limit, offset=offset)
+        traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id, limit=limit, offset=offset))
         return [trace.to_dict() for trace in traces]
 
     @db_router.get("/runs/{run_id}/queries/{query_id}/evidence")
@@ -1013,9 +1074,9 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(error))
 
     @db_router.get("/runs/{run_id}/traces/{trace_id}")
-    async def get_run_trace_v2(db_id: str, run_id: str, trace_id: str) -> Dict[str, Any]:
+    async def get_run_trace(db_id: str, run_id: str, trace_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
-        trace = await store.get_trace_v2(trace_id)
+        trace = await store.get_trace(trace_id)
         if trace is None or trace.run_id != run_id:
             raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found for run '{run_id}'")
         return trace.to_dict()
@@ -1028,7 +1089,7 @@ def create_app(
         k: int = 10,
     ) -> List[Dict[str, Any]]:
         store = _store_for(db_id)
-        traces = await store.get_traces_v2(run_id)
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
         qrels = await _resolve_qrels(store, run_id)
         op_ids = sorted({span.op_id for trace in traces for span in trace.spans})
         out: List[Dict[str, Any]] = []
@@ -1046,7 +1107,7 @@ def create_app(
 
         store = _store_for(db_id)
         agg = await engine.aggregate(run_id, store)
-        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
         graphs = build_pipeline_graphs(
             agg,
             traces,
@@ -1063,7 +1124,7 @@ def create_app(
         graph_response = await get_pipeline_graph(db_id, run_id)
         pipelines = graph_response["pipelines"]
         if not pipelines:
-            raise HTTPException(status_code=404, detail=f"No V2 traces for run '{run_id}'")
+            raise HTTPException(status_code=404, detail=f"No traces for run '{run_id}'")
         nodes = [
             {
                 "op_id": node["node_id"],
@@ -1090,7 +1151,7 @@ def create_app(
         from retrieval_observatory.tracing.replay import simulate_without_operator
 
         store = _store_for(db_id)
-        trace = await store.get_trace_v2(trace_id)
+        trace = await store.get_trace(trace_id)
         if trace is None or trace.run_id != run_id:
             raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
         span = next((s for s in trace.spans if s.op_id == op_id), None)
@@ -1124,7 +1185,7 @@ def create_app(
         from retrieval_observatory.tracing.replay import attribute_miss as _attr_miss
 
         store = _store_for(db_id)
-        trace = await store.get_trace_v2(trace_id)
+        trace = await store.get_trace(trace_id)
         if trace is None or trace.run_id != run_id:
             raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
         qrels = await _resolve_qrels(store, run_id)
@@ -1269,15 +1330,18 @@ def create_app(
             raise HTTPException(status_code=400, detail="Explicit db_id scope is required when multiple databases are loaded")
         return _store_for(registry.default_db_id or "")
 
+    from retrieval_observatory.dashboard.analysis_api import build_analysis_router
+    app.include_router(build_analysis_router(_store_for))
+
     # ---------------------------------------------------------------------------
-    # Forge endpoints — synthetic dataset management
+    # Test Sets endpoints — synthetic dataset management
     # ---------------------------------------------------------------------------
     forge_router = APIRouter(prefix="/forge")
 
     @app.get("/dbs/{db_id}/forge/datasets")
     @forge_router.get("/datasets")
     async def list_forge_datasets(db_id: str = "") -> List[Dict[str, Any]]:
-        """List all Forge-generated synthetic datasets saved in the store."""
+        """List all Test Sets-generated synthetic datasets saved in the store."""
         try:
             store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_datasets"):
@@ -1291,7 +1355,7 @@ def create_app(
     @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}")
     @forge_router.get("/datasets/{dataset_id}")
     async def get_forge_dataset(dataset_id: str, db_id: str = "") -> Dict[str, Any]:
-        """Return summary and scenario breakdown for a Forge dataset."""
+        """Return summary and scenario breakdown for a Test Sets dataset."""
         try:
             store = _evidence_store(db_id)
             if store:
@@ -1310,7 +1374,7 @@ def create_app(
             raise
         except Exception:
             pass
-        raise HTTPException(status_code=404, detail=f"Forge dataset {dataset_id!r} not found")
+        raise HTTPException(status_code=404, detail=f"Test Sets dataset {dataset_id!r} not found")
 
     @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/queries")
     @forge_router.get("/datasets/{dataset_id}/queries")
@@ -1323,12 +1387,12 @@ def create_app(
         limit: int = 200,
         offset: int = 0,
         db_id: str = "",
-    ) -> List[Dict[str, Any]]:
-        """Return generated synthetic queries for a Forge dataset, with optional filters."""
+    ) -> Dict[str, Any]:
+        """Return a stable, paginated Test Set query and provenance envelope."""
         try:
             store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_queries"):
-                return await store.get_forge_queries(
+                items = await store.get_forge_queries(
                     dataset_id,
                     scenario_type=scenario_type or None,
                     difficulty=difficulty or None,
@@ -1337,16 +1401,36 @@ def create_app(
                     limit=limit,
                     offset=offset,
                 )
+                all_items = await store.get_forge_queries(
+                    dataset_id,
+                    scenario_type=scenario_type or None,
+                    difficulty=difficulty or None,
+                    query_type=query_type or None,
+                    validated_only=validated_only,
+                    limit=100000,
+                    offset=0,
+                )
+                datasets = await store.get_forge_datasets()
+                dataset = next((item for item in datasets if item["dataset_id"] == dataset_id), {})
+                return {
+                    "test_set_id": dataset_id,
+                    "provenance": dataset.get("provenance") or dataset.get("metadata") or {},
+                    "items": items,
+                    "total": len(all_items),
+                    "limit": limit,
+                    "offset": offset,
+                    "next_offset": offset + len(items) if offset + len(items) < len(all_items) else None,
+                }
         except HTTPException:
             raise
         except Exception:
             pass
-        return []
+        return {"test_set_id": dataset_id, "provenance": {}, "items": [], "total": 0, "limit": limit, "offset": offset, "next_offset": None}
 
     @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/runs")
     @forge_router.get("/datasets/{dataset_id}/runs")
     async def get_forge_dataset_runs(dataset_id: str, db_id: str = "") -> List[Dict[str, Any]]:
-        """Return benchmark runs executed against this Forge dataset.
+        """Return benchmark runs executed against this Test Sets dataset.
 
         Prefer manifest ``forge_dataset_id``; fall back to output_dir text match for older runs.
         """
@@ -1392,7 +1476,7 @@ def create_app(
     @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/scenarios")
     @forge_router.get("/datasets/{dataset_id}/scenarios")
     async def get_forge_dataset_scenarios(dataset_id: str, db_id: str = "") -> List[Dict[str, Any]]:
-        """Return scenarios for a Forge dataset."""
+        """Return scenarios for a Test Sets dataset."""
         try:
             store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_scenarios"):
@@ -1485,97 +1569,68 @@ def create_app(
 
     app.include_router(advisor_router)
 
-    # ───────────────────────── TraceLens ─────────────────────────
-    tracelens_router = APIRouter(prefix="/tracelens")
+    production_router = APIRouter(prefix="/production")
 
-    def _tl_store(db_id: str = ""):
+    def _production_store(db_id: str = ""):
         return _evidence_store(db_id)
 
-    def _parse_trace_v2(payload: Dict[str, Any], *, run_id: str = "") -> RetrievalTraceV2:
+    def _parse_trace(payload: Dict[str, Any], *, run_id: str | None = None) -> RetrievalTrace:
         data = dict(payload)
-        if data.get("trace_format_version", 2) != 2:
-            raise HTTPException(status_code=422, detail="trace_format_version must be 2")
+        if data.get("schema_version", 1) != 1:
+            raise HTTPException(status_code=422, detail="schema_version must be 1")
         data.setdefault("run_id", run_id)
-        return RetrievalTraceV2.from_dict(data)
+        return RetrievalTrace.from_dict(data)
 
-    def _parse_trace(payload: Dict[str, Any]):
-        from datetime import datetime, timezone
-        from retrieval_observatory.types import Document, StageSnapshot
-        from retrieval_observatory.tracing.types import RetrievalTrace
-
-        def to_doc(d: Dict[str, Any]) -> Document:
-            return Document(
-                id=str(d.get("id", "")),
-                text=d.get("text", ""),
-                score=float(d.get("score", 0.0)),
-                rank=int(d.get("rank", 0)),
-                title=d.get("title", ""),
-            )
-
-        snapshots = []
-        for s in payload.get("snapshots", []):
-            docs = [to_doc(d) for d in s.get("documents", [])]
-            snapshots.append(StageSnapshot(
-                stage_index=int(s.get("stage_index", len(snapshots))),
-                stage_id=str(s.get("stage_id", "")),
-                documents=docs,
-                latency_ms=float(s.get("latency_ms", 0.0)),
-                candidate_count=int(s.get("candidate_count", len(docs))),
-            ))
-        ts_raw = payload.get("timestamp")
-        try:
-            ts = datetime.fromisoformat(ts_raw) if ts_raw else datetime.now(timezone.utc)
-        except Exception:
-            ts = datetime.now(timezone.utc)
-        import uuid as _uuid
-        return RetrievalTrace(
-            trace_id=str(payload.get("trace_id") or _uuid.uuid4().hex),
-            service=str(payload.get("service", "default")),
-            query_id=str(payload.get("query_id") or _uuid.uuid4().hex),
-            query_text=str(payload.get("query_text", "")),
-            pipeline_id=str(payload.get("pipeline_id", "")),
-            snapshots=snapshots,
-            total_latency_ms=float(payload.get("total_latency_ms", sum(s.latency_ms for s in snapshots))),
-            status=payload.get("status", "OK"),
-            timestamp=ts,
-            final_results=[to_doc(d) for d in payload.get("final_results", [])],
-            metadata=payload.get("metadata", {}) or {},
-        )
-
-    @app.post("/dbs/{db_id}/tracelens/traces")
-    @tracelens_router.post("/traces")
+    @app.post("/dbs/{db_id}/production/traces")
+    @production_router.post("/traces")
     async def ingest_traces(payload: Any = Body(...), db_id: str = "") -> Dict[str, Any]:
         """Ingest one trace (object) or many (list). Enriches server-side, then stores."""
-        from retrieval_observatory.tracing.enrich import enrich
-
-        store = _tl_store(db_id)
+        store = _production_store(db_id)
         if not store:
             raise HTTPException(status_code=503, detail="No store available for trace ingestion")
         items = payload if isinstance(payload, list) else [payload]
         traces = []
         for item in items:
-            tr = _parse_trace(item)
-            enrich(tr)
-            traces.append(tr)
-        if hasattr(store, "save_traces_batch"):
-            await store.save_traces_batch(traces)
-        else:
-            for tr in traces:
-                await store.save_trace(tr)
+            traces.append(_parse_trace(item))
+        await store.save_traces(traces)
         return {"ingested": len(traces)}
 
-    @app.get("/dbs/{db_id}/tracelens/services")
-    @tracelens_router.get("/services")
+    @app.get("/dbs/{db_id}/production/services")
+    @production_router.get("/services")
     async def list_trace_services(db_id: str = "") -> List[Dict[str, Any]]:
-        store = _tl_store(db_id)
+        store = _production_store(db_id)
         if store and hasattr(store, "list_services"):
-            return await store.list_services()
+            return [_dataclass_asdict(summary) for summary in await store.list_services()]
         return []
 
-    @app.get("/dbs/{db_id}/tracelens/traces")
-    @tracelens_router.get("/traces")
+    @app.get("/dbs/{db_id}/production/services/{service_id}/instrumentation-health")
+    @production_router.get("/services/{service_id}/instrumentation-health")
+    async def instrumentation_health(service_id: str, db_id: str = "") -> Dict[str, Any]:
+        store = _production_store(db_id)
+        snapshot = await store.get_instrumentation_health(service_id)
+        if snapshot is None:
+            return {
+                "service_id": service_id,
+                "evidence_class": "unavailable",
+                "method_version": "instrumentation-health/1",
+                "sample_size": 0,
+                "limitations": [],
+                "unavailable_reason": "no instrumentation health snapshot",
+            }
+        payload = _dataclass_asdict(snapshot)
+        payload.update({
+            "evidence_class": "measured",
+            "method_version": "instrumentation-health/1",
+            "sample_size": snapshot.accepted,
+            "limitations": ["sampled capture"] if snapshot.sample_rate < 1 else [],
+            "unavailable_reason": None,
+        })
+        return payload
+
+    @app.get("/dbs/{db_id}/production/traces")
+    @production_router.get("/traces")
     async def list_traces_ep(
-        service: str,
+        service_id: str,
         since: str = "",
         until: str = "",
         status: str = "",
@@ -1584,59 +1639,76 @@ def create_app(
         limit: int = 200,
         offset: int = 0,
         db_id: str = "",
-    ) -> List[Dict[str, Any]]:
-        store = _tl_store(db_id)
+    ) -> Dict[str, Any]:
+        from datetime import datetime
+        store = _production_store(db_id)
         if store and hasattr(store, "list_traces"):
-            return await store.list_traces(
-                service, since=since or None, until=until or None, status=status or None,
-                difficulty=difficulty or None, suspected_only=suspected_only, limit=limit, offset=offset,
-            )
-        return []
+            base = TraceQuery(
+                service_id=service_id,
+                since=datetime.fromisoformat(since) if since else None,
+                until=datetime.fromisoformat(until) if until else None,
+                status=status or None, limit=limit, offset=offset)
+            traces = await store.list_traces(base)
+            all_matches = await store.list_traces(TraceQuery(service_id=service_id, since=base.since, until=base.until, status=base.status, limit=100000))
+            total = len(all_matches)
+            return {"items": [trace.to_dict() for trace in traces], "total": total, "limit": limit, "offset": offset, "next_offset": offset + len(traces) if offset + len(traces) < total else None}
+        return {"items": [], "total": 0, "limit": limit, "offset": offset, "next_offset": None}
 
-    @app.get("/dbs/{db_id}/tracelens/traces/{trace_id}")
-    @tracelens_router.get("/traces/{trace_id}")
+    @app.get("/dbs/{db_id}/production/topology-variants")
+    @production_router.get("/topology-variants")
+    async def topology_variants(service_id: str, limit: int = 50, offset: int = 0, db_id: str = "") -> Dict[str, Any]:
+        store = _production_store(db_id)
+        variants = await store.list_topology_variants(TraceQuery(service_id=service_id, limit=100000))
+        page = variants[offset:offset + limit]
+        return {"items": [_dataclass_asdict(item) for item in page], "total": len(variants), "limit": limit, "offset": offset, "next_offset": offset + len(page) if offset + len(page) < len(variants) else None}
+
+    @app.get("/dbs/{db_id}/production/traces/{trace_id}")
+    @production_router.get("/traces/{trace_id}")
     async def get_trace_ep(trace_id: str, db_id: str = "") -> Dict[str, Any]:
-        store = _tl_store(db_id)
+        store = _production_store(db_id)
         if store and hasattr(store, "get_trace"):
             t = await store.get_trace(trace_id)
             if t:
-                return t
+                return t.to_dict()
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
 
-    @app.get("/dbs/{db_id}/tracelens/summary")
-    @tracelens_router.get("/summary")
-    async def trace_summary(service: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
-        store = _tl_store(db_id)
+    @app.get("/dbs/{db_id}/production/summary")
+    @production_router.get("/summary")
+    async def trace_summary(service_id: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
+        from datetime import datetime
+        store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return {}
-        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        traces = await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=100000))
+        rows = [_monitor_trace(trace) for trace in traces]
         from retrieval_observatory.tracing.monitor.distribution import summarize
         return summarize(rows)
 
-    @app.get("/dbs/{db_id}/tracelens/distribution")
-    @tracelens_router.get("/distribution")
-    async def trace_distribution(service: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
-        store = _tl_store(db_id)
+    @app.get("/dbs/{db_id}/production/distribution")
+    @production_router.get("/distribution")
+    async def trace_distribution(service_id: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
+        from datetime import datetime
+        store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return {}
-        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=100000))]
         from retrieval_observatory.tracing.monitor.distribution import compute_distribution
         return compute_distribution(rows)
 
-    @app.get("/dbs/{db_id}/tracelens/drift")
-    @tracelens_router.get("/drift")
-    async def trace_drift(service: str, baseline: str = "", recent: str = "", db_id: str = "") -> List[Dict[str, Any]]:
+    @app.get("/dbs/{db_id}/production/drift")
+    @production_router.get("/drift")
+    async def trace_drift(service_id: str, baseline: str = "", recent: str = "", db_id: str = "") -> List[Dict[str, Any]]:
         """Compare a baseline window vs a recent window. Defaults: prior 7d vs last 24h."""
         from datetime import datetime, timedelta, timezone
-        store = _tl_store(db_id)
+        store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
         now = datetime.now(timezone.utc)
         recent_since = recent or (now - timedelta(hours=24)).isoformat()
         baseline_until = recent_since
         baseline_since = baseline or (now - timedelta(days=8)).isoformat()
-        recent_rows = await store.list_traces(service, since=recent_since, limit=10000)
-        baseline_rows = await store.list_traces(service, since=baseline_since, until=baseline_until, limit=10000)
+        recent_rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(recent_since), limit=10000))]
+        baseline_rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(baseline_since), until=datetime.fromisoformat(baseline_until), limit=10000))]
         from retrieval_observatory.tracing.monitor.drift import compute_drift
         findings = compute_drift(baseline_rows, recent_rows)
         for finding in findings:
@@ -1645,27 +1717,29 @@ def create_app(
             finding["sample_limited"] = len(baseline_rows) == 10000 or len(recent_rows) == 10000
         return findings
 
-    @app.get("/dbs/{db_id}/tracelens/hotspots")
-    @tracelens_router.get("/hotspots")
-    async def trace_hotspots(service: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        store = _tl_store(db_id)
+    @app.get("/dbs/{db_id}/production/hotspots")
+    @production_router.get("/hotspots")
+    async def trace_hotspots(service_id: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
+        from datetime import datetime
+        store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
-        rows = await store.list_traces(service, since=since or None, until=until or None, limit=10000)
+        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=10000))]
         from retrieval_observatory.tracing.monitor.hotspots import compute_hotspots
         return compute_hotspots(rows)
 
-    @app.get("/dbs/{db_id}/tracelens/clusters")
-    @tracelens_router.get("/clusters")
-    async def trace_clusters(service: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        store = _tl_store(db_id)
+    @app.get("/dbs/{db_id}/production/clusters")
+    @production_router.get("/clusters")
+    async def trace_clusters(service_id: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
+        from datetime import datetime
+        store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
-        rows = await store.list_traces(service, since=since or None, until=until or None, limit=100000)
+        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=100000))]
         from retrieval_observatory.tracing.monitor.cluster import compute_clusters
         return compute_clusters(rows)
 
-    app.include_router(tracelens_router)
+    app.include_router(production_router)
 
     # Backward-compatible aliases when a single database is loaded.
     if registry.is_single:
@@ -1717,15 +1791,15 @@ def create_app(
 
         @app.post("/runs/{run_id}/traces")
         async def legacy_ingest_trace(run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-            return await ingest_trace_v2(_sole_db, run_id, payload)
+            return await ingest_trace(_sole_db, run_id, payload)
 
         @app.get("/runs/{run_id}/traces")
         async def legacy_list_traces(run_id: str) -> List[Dict[str, Any]]:
-            return await list_run_traces_v2(_sole_db, run_id)
+            return await list_run_traces(_sole_db, run_id)
 
         @app.get("/runs/{run_id}/traces/{trace_id}")
         async def legacy_get_trace(run_id: str, trace_id: str) -> Dict[str, Any]:
-            return await get_run_trace_v2(_sole_db, run_id, trace_id)
+            return await get_run_trace(_sole_db, run_id, trace_id)
 
         @app.get("/runs/{run_id}/operator-attribution")
         async def legacy_operator_attribution(run_id: str, metric: str = "recall", k: int = 10) -> List[Dict[str, Any]]:
@@ -1889,7 +1963,7 @@ def create_app(
         agg = await engine.aggregate(run_id, store)
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
-        traces = await store.get_traces_v2(run_id) if hasattr(store, "get_traces_v2") else []
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
         if not traces:
             raise HTTPException(
                 status_code=404,

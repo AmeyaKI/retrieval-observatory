@@ -96,7 +96,7 @@ class TemporalScenarioDetector:
                     earlier, later = (id_b, year_b), (id_a, year_a)
 
                 # Content-derived id (not random): regenerating the same corpus produces the
-                # same scenario_id for the same doc pair, so Forge datasets/query ids stay
+                # same scenario_id for the same doc pair, so Test Sets datasets/query ids stay
                 # stable across regenerations instead of aliasing under a fresh uuid each time.
                 pair_digest = hashlib.sha256(f"{pair_key[0]}|{pair_key[1]}".encode("utf-8")).hexdigest()[:8]
                 scenario = CorpusScenario(

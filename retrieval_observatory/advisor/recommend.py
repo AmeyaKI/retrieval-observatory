@@ -8,6 +8,10 @@ from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.store.base import BaseStore
 
 _LABEL_ACTIONS = {
+    "source_miss": (
+        "Increase first-stage depth or add a complementary retriever",
+        "Measured source candidates omitted relevant documents",
+    ),
     "candidate_miss": (
         "Increase first-stage k or add an additional retriever",
         "High candidate_miss rate — relevant docs never enter the candidate pool",
@@ -33,13 +37,14 @@ _LABEL_ACTIONS = {
 _LABEL_THRESHOLD = 0.15
 _LATENCY_BUDGET_HEADROOM = 0.8
 
-# Per-failure-label estimation profile for Advisor Evolution (Pillar 5). Each entry:
+# Per-failure-label estimation profile for Findings Evolution (Pillar 5). Each entry:
 #   recovery_factor — fraction of the failing queries the fix is expected to recover
 #                     (grounded, conservative; the estimate, not a promise)
 #   latency_ms      — expected added p50 latency of the fix
 #   effort          — coarse implementation effort
 #   category        — affected query category label surfaced to the user
 _LABEL_ESTIMATES = {
+    "source_miss": {"recovery_factor": 0.5, "latency_ms": 30.0, "effort": "M", "category": "source_miss"},
     "candidate_miss": {"recovery_factor": 0.5, "latency_ms": 30.0, "effort": "M", "category": "candidate_miss"},
     "reranker_drop": {"recovery_factor": 0.6, "latency_ms": 0.0, "effort": "M", "category": "reranker_drop"},
     "late_stage_drop": {"recovery_factor": 0.5, "latency_ms": 0.0, "effort": "S", "category": "late_stage_drop"},
@@ -119,7 +124,9 @@ async def recommend(
 ) -> List[Recommendation]:
     engine = engine or MetricsEngine()
     agg = await engine.aggregate(run_id, store)
-    diagnostics_rows = await store.get_query_diagnostics(run_id)
+    stored_findings = await store.query_diagnostics(run_id)
+    supported = [finding.label for finding in stored_findings if finding.availability.value == "supported"]
+    diagnostics_rows = [{"failure_labels": [label]} for label in supported]
     diag = aggregate_diagnostics(diagnostics_rows)
     manifest = await store.get_run_manifest(run_id) or {}
     recommendations: List[Recommendation] = []
@@ -188,7 +195,7 @@ async def recommend(
             recommendations.append(
                 Recommendation(
                     action=f"Investigate production hotspot: {label}",
-                    rationale="TraceLens hotspot correlates with this failure pattern in live traffic",
+                    rationale="Production hotspot correlates with this failure pattern in live traffic",
                     evidence=[f"hotspot_label={label}", f"trace_count={hs.get('count', '?')}"],
                     priority=priority,
                 )
@@ -261,7 +268,7 @@ async def _forge_scenario_recommendations(
         recommendations.append(
             Recommendation(
                 action=f"Add targeted retrieval for '{stype}' scenarios (e.g. temporal recency boost)",
-                rationale=f"Forge scenario_type '{stype}' Recall@10 ({type_recall:.2f}) is well below overall ({overall_recall:.2f})",
+                rationale=f"Test Sets scenario_type '{stype}' Recall@10 ({type_recall:.2f}) is well below overall ({overall_recall:.2f})",
                 evidence=[
                     f"scenario_type={stype}",
                     f"recall@10={type_recall:.3f}",
@@ -282,7 +289,12 @@ async def compute_reliability(
     """Composite reliability score with named, explainable components (0–1 each)."""
     engine = engine or MetricsEngine()
     agg = await engine.aggregate(run_id, store)
-    diagnostics_rows = await store.get_query_diagnostics(run_id)
+    stored_findings = await store.query_diagnostics(run_id)
+    diagnostics_rows = [
+        {"failure_labels": [finding.label]}
+        for finding in stored_findings
+        if finding.availability.value == "supported"
+    ]
     diag = aggregate_diagnostics(diagnostics_rows)
     manifest = await store.get_run_manifest(run_id) or {}
     notes: List[str] = []

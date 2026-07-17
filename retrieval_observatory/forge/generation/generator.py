@@ -188,7 +188,7 @@ class ForgeGenerator:
     def _check_budget(self) -> None:
         if self._call_count >= self.budget:
             raise RuntimeError(
-                f"Forge generation budget exhausted ({self.budget} LLM calls). "
+                f"Test Sets generation budget exhausted ({self.budget} LLM calls). "
                 "Increase --budget or reduce --n-queries."
             )
 

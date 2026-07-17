@@ -1,0 +1,17 @@
+{
+  "service_id": "external-llamaindex-retriever",
+  "pipeline_id": "llamaindex-search-v1",
+  "required_operator_ids": ["llamaindex_retriever"],
+  "required_edges": [],
+  "scenario_ids": ["current", "history"],
+  "expected_final_doc_ids": {
+    "current": ["d-llama-current", "d-llama-history"],
+    "history": ["d-llama-history", "d-llama-current"]
+  },
+  "required_capabilities": [
+    "candidate_transitions",
+    "operator_debugging",
+    "production_investigation",
+    "stable_topology"
+  ]
+}

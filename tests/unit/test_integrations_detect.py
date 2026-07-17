@@ -1,4 +1,4 @@
-"""Framework and entrypoint detection for wire_project."""
+"""Framework and entrypoint detection for the canonical integration planner."""
 from pathlib import Path
 
 from retrieval_observatory.integrations.detect import detect_project

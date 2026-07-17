@@ -28,7 +28,7 @@ export default function ExperimentOverview({ dbId, runId }: { dbId: string; runI
     hard: 'bg-red-100 text-red-700',
     discriminative: 'bg-purple-100 text-purple-700',
     unstable: 'bg-amber-100 text-amber-700',
-    unknown: 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400',
+    unknown: 'bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-200',
   }
 
   return (

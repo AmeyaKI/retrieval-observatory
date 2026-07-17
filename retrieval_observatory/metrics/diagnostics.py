@@ -1,331 +1,73 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from statistics import mean, pstdev
-from typing import Any, Dict, Iterable, List, Optional, Set
+from statistics import mean
+from typing import Any, Dict, List, Set
 
-from retrieval_observatory.metrics.ranking import dedupe_preserve_rank
 from retrieval_observatory.types import CandidateLineage
 
 
 def compute_candidate_lineage(result: Any) -> List[CandidateLineage]:
-    """Return per-stage candidate flow for a single pipeline result."""
+    """Legacy-shaped flow statistics only; causal diagnosis lives in diagnostics/."""
     lineages: List[CandidateLineage] = []
-    prev_ids: Set[str] = set()
-
-    for snap in result.snapshots:
-        curr_ids = {d.id for d in snap.documents}
-        if not prev_ids:
-            # First stage — everything is new
-            lineages.append(CandidateLineage(
-                stage_index=snap.stage_index,
-                stage_id=snap.stage_id,
-                entered=sorted(curr_ids),
-                survived=[],
-                dropped=[],
-                churn_rate=0.0,
-            ))
-        else:
-            survived = sorted(curr_ids & prev_ids)
-            dropped = sorted(prev_ids - curr_ids)
-            entered = sorted(curr_ids - prev_ids)
-            is_expansion = len(curr_ids) > len(prev_ids)
-            # churn_rate is only meaningful for narrowing stages; set to 0.0 for expansion stages
-            # to avoid implying that added candidates are "churn"
-            churn_rate = 0.0 if is_expansion else len(dropped) / max(len(prev_ids), 1)
-            lineages.append(CandidateLineage(
-                stage_index=snap.stage_index,
-                stage_id=snap.stage_id,
-                entered=entered,
-                survived=survived,
-                dropped=dropped,
-                churn_rate=churn_rate,
-                is_expansion=is_expansion,
-            ))
-        prev_ids = curr_ids
-
+    previous: Set[str] = set()
+    for snapshot in result.snapshots:
+        current = {document.id for document in snapshot.documents}
+        expansion = bool(previous) and len(current) > len(previous)
+        lineages.append(CandidateLineage(
+            stage_index=snapshot.stage_index,
+            stage_id=snapshot.stage_id,
+            entered=sorted(current - previous),
+            survived=sorted(current & previous),
+            dropped=sorted(previous - current),
+            churn_rate=0.0 if not previous or expansion else len(previous - current) / len(previous),
+            is_expansion=expansion,
+        ))
+        previous = current
     return lineages
 
 
 def compute_churn_rate(lineages: List[CandidateLineage]) -> float:
-    """Average churn rate across non-first, non-expansion stages (0.0 if single-stage pipeline).
-
-    Expansion stages are excluded: churn rate is undefined when a stage grows the candidate set.
-    """
-    narrowing = [lin.churn_rate for lin in lineages if lin.stage_index > 0 and not lin.is_expansion]
+    narrowing = [item.churn_rate for item in lineages if item.stage_index > 0 and not item.is_expansion]
     return mean(narrowing) if narrowing else 0.0
-
-
-def build_query_diagnostics(
-    run_id: str,
-    results: List[Any],
-    qrels: Dict,
-    corpus_doc_ids: Optional[Set[str]] = None,
-) -> List[Dict]:
-    """Create per-query, per-pipeline diagnostic labels from stored stage outputs."""
-    by_query: Dict[str, List[Any]] = defaultdict(list)
-    for result in results:
-        by_query[result.query_id].append(result)
-
-    recall_by_query: Dict[str, List[float]] = defaultdict(list)
-    final_sets: Dict[tuple, Set[str]] = {}
-    first_sets: Dict[tuple, Set[str]] = {}
-    any_stage_sets: Dict[tuple, Set[str]] = {}
-
-    for result in results:
-        relevant = _relevant_set(qrels.get(result.query_id))
-        if not relevant or result.status != "OK" or not result.snapshots:
-            recall_by_query[result.query_id].append(0.0)
-            continue
-        first = set(d.id for d in result.snapshots[0].documents)
-        final = set(d.id for d in result.snapshots[-1].documents)
-        first_sets[(result.query_id, result.pipeline_id)] = first
-        final_sets[(result.query_id, result.pipeline_id)] = final
-        any_stage_sets[(result.query_id, result.pipeline_id)] = {
-            document.id for snapshot in result.snapshots for document in snapshot.documents
-        }
-        recall_by_query[result.query_id].append(len(final & relevant) / len(relevant))
-
-    buckets = {
-        query_id: _difficulty_bucket(scores)
-        for query_id, scores in recall_by_query.items()
-    }
-
-    rows: List[Dict] = []
-    for result in results:
-        relevant = _relevant_set(qrels.get(result.query_id))
-        absent_qrel_ids = sorted(relevant - corpus_doc_ids) if corpus_doc_ids is not None else []
-        diagnostic_relevant = relevant - set(absent_qrel_ids)
-        stage_hits = {}
-        labels = []
-        if result.status != "OK":
-            labels.append("unstable")
-
-        for snap in result.snapshots:
-            ids = set(dedupe_preserve_rank([d.id for d in snap.documents]))
-            stage_hits[str(snap.stage_index)] = sorted(ids & diagnostic_relevant)
-
-        final_ids = final_sets.get((result.query_id, result.pipeline_id), set())
-        first_ids = first_sets.get((result.query_id, result.pipeline_id), set())
-        missing = sorted(relevant - final_ids)
-
-        # Union of every stage's candidates. For hybrid / fan-in pipelines a relevant doc
-        # may be generated by a later (fused) stage rather than stage 0, so candidate_miss
-        # must mean "no stage ever surfaced it" — otherwise a *successful* query whose doc
-        # came from the dense arm would be inverted into a retrieval-failure label.
-        any_stage_ids: Set[str] = set()
-        for snap in result.snapshots:
-            any_stage_ids |= {d.id for d in snap.documents}
-
-        if diagnostic_relevant and not any_stage_ids & diagnostic_relevant:
-            labels.append("candidate_miss")
-        elif diagnostic_relevant and not first_ids & diagnostic_relevant and final_ids & diagnostic_relevant:
-            # Surfaced only by a later / parallel stage and carried through to the final
-            # results — an accurate, non-failure signal (not the inverted candidate_miss).
-            labels.append("late_stage_recovery")
-
-        if len(result.snapshots) > 1 and first_ids & diagnostic_relevant and not final_ids & diagnostic_relevant:
-            labels.append("reranker_drop")
-
-        # Late-stage drop: relevant doc survived to penultimate stage but absent from final
-        if len(result.snapshots) > 2:
-            penultimate_ids = {d.id for d in result.snapshots[-2].documents}
-            if penultimate_ids & diagnostic_relevant and not final_ids & diagnostic_relevant:
-                if "reranker_drop" not in labels:
-                    labels.append("late_stage_drop")
-
-        # Ranking failure: relevant doc present in final candidates but ranked below K
-        if diagnostic_relevant and final_ids & diagnostic_relevant:
-            max_k = len(result.snapshots[-1].documents)
-            top_k_ids = {d.id for d in result.snapshots[-1].documents if d.rank <= max_k}
-            if not top_k_ids & diagnostic_relevant:
-                labels.append("ranking_failure")
-
-        pipeline_ids = _pipeline_ids(by_query[result.query_id])
-        retrieved_by_any_pipeline = any(
-            any_stage_sets.get((result.query_id, pipeline_id), set()) & diagnostic_relevant
-            for pipeline_id in pipeline_ids
-        )
-        if absent_qrel_ids:
-            labels.append("qrel_not_in_corpus")
-        if diagnostic_relevant and not retrieved_by_any_pipeline:
-            labels.append("not_retrieved_by_any_pipeline")
-        if relevant and corpus_doc_ids is None and not retrieved_by_any_pipeline:
-            labels.append("corpus_identity_unknown")
-
-        # Cross-pipeline lexical/semantic hints via adapter name as lightweight signal
-        if result.pipeline_id.lower().find("bm25") >= 0 and not final_ids & diagnostic_relevant:
-            if any(
-                "dense" in pid.lower() and final_sets.get((result.query_id, pid), set()) & diagnostic_relevant
-                for pid in pipeline_ids
-            ):
-                labels.append("lexical_mismatch")
-        if "dense" in result.pipeline_id.lower() and not final_ids & diagnostic_relevant:
-            if any(
-                "bm25" in pid.lower() and final_sets.get((result.query_id, pid), set()) & diagnostic_relevant
-                for pid in pipeline_ids
-            ):
-                labels.append("semantic_mismatch")
-
-        bucket = buckets.get(result.query_id, "unknown")
-        if bucket == "unstable" and "unstable" not in labels:
-            labels.append("unstable")
-
-        # Compute candidate lineage for churn metrics
-        lineages = compute_candidate_lineage(result) if result.status == "OK" else []
-        churn = compute_churn_rate(lineages)
-        has_expansion = any(lin.is_expansion for lin in lineages)
-        evidence = [_diagnostic_evidence(label, absent_qrel_ids) for label in sorted(set(labels))]
-
-        rows.append(
-            {
-                "run_id": run_id,
-                "query_id": result.query_id,
-                "pipeline_id": result.pipeline_id,
-                "difficulty_bucket": bucket,
-                "failure_labels": sorted(set(labels)),
-                "diagnostic_evidence": evidence,
-                "missing_relevant_ids": missing,
-                "stage_hits": stage_hits,
-                "churn_rate": round(churn, 4),
-                "has_expansion_stage": has_expansion,
-            }
-        )
-    return rows
 
 
 def aggregate_diagnostics(rows: List[Dict]) -> Dict:
     by_bucket: Dict[str, int] = defaultdict(int)
     by_label: Dict[str, int] = defaultdict(int)
     by_pipeline: Dict[str, Dict] = {}
-
     for row in rows:
-        by_bucket[row["difficulty_bucket"]] += 1
-        pid = row.get("pipeline_id", "unknown")
-        if pid not in by_pipeline:
-            by_pipeline[pid] = {"n": 0, "labels": defaultdict(int), "difficulty_buckets": defaultdict(int)}
-        by_pipeline[pid]["n"] += 1
-        by_pipeline[pid]["difficulty_buckets"][row["difficulty_bucket"]] += 1
+        bucket = row.get("difficulty_bucket", "unknown")
+        by_bucket[bucket] += 1
+        pipeline_id = row.get("pipeline_id", "unknown")
+        data = by_pipeline.setdefault(pipeline_id, {"n": 0, "labels": defaultdict(int), "difficulty_buckets": defaultdict(int)})
+        data["n"] += 1
+        data["difficulty_buckets"][bucket] += 1
         for label in row.get("failure_labels", []):
             by_label[label] += 1
-            by_pipeline[pid]["labels"][label] += 1
-
+            data["labels"][label] += 1
     return {
         "difficulty_buckets": dict(by_bucket),
         "failure_labels": dict(by_label),
-        "by_pipeline": {
-            pid: {
-                "n": data["n"],
-                "labels": dict(data["labels"]),
-                "difficulty_buckets": dict(data["difficulty_buckets"]),
-            }
-            for pid, data in by_pipeline.items()
-        },
+        "by_pipeline": {key: {"n": value["n"], "labels": dict(value["labels"]), "difficulty_buckets": dict(value["difficulty_buckets"])} for key, value in by_pipeline.items()},
         "n": len(rows),
     }
 
 
-def _diagnostic_evidence(label: str, absent_qrel_ids: List[str]) -> Dict[str, object]:
-    if label == "qrel_not_in_corpus":
-        return {
-            "label": label,
-            "evidence_class": "measured",
-            "method": "qrel_corpus_membership_v1",
-            "reason": "One or more positively judged document IDs are absent from the loaded corpus.",
-            "doc_ids": list(absent_qrel_ids),
-            "threshold": None,
-        }
-    if label == "not_retrieved_by_any_pipeline":
-        return {
-            "label": label,
-            "evidence_class": "measured",
-            "method": "observed_candidate_union_v1",
-            "reason": "No observed pipeline stage surfaced a corpus-valid relevant document.",
-            "doc_ids": [],
-            "threshold": None,
-        }
-    if label == "corpus_identity_unknown":
-        return {
-            "label": label,
-            "evidence_class": "unavailable",
-            "method": "qrel_corpus_membership_v1",
-            "reason": "Corpus document identity was not supplied, so qrel membership could not be checked.",
-            "doc_ids": [],
-            "threshold": None,
-        }
-    if label in {"lexical_mismatch", "semantic_mismatch"}:
-        return {
-            "label": label,
-            "evidence_class": "heuristic",
-            "method": "pipeline_name_cross_retrieval_v1",
-            "reason": "Inferred from lexical/dense pipeline naming and their observed result difference.",
-            "doc_ids": [],
-            "threshold": "at least one counterpart pipeline retrieves a relevant document",
-        }
-    if label == "unstable":
-        return {
-            "label": label,
-            "evidence_class": "statistical",
-            "method": "cross_pipeline_recall_spread_v1",
-            "reason": "Observed execution failure or cross-pipeline recall spread met the instability rule.",
-            "doc_ids": [],
-            "threshold": "population standard deviation >= 0.25",
-        }
-    return {
-        "label": label,
-        "evidence_class": "measured",
-        "method": "observed_stage_transition_v1",
-        "reason": "Derived from recorded candidate membership and rank transitions.",
-        "doc_ids": [],
-        "threshold": None,
-    }
-
-
-def _relevant_set(raw: object) -> Set[str]:
-    if isinstance(raw, dict):
-        return {doc_id for doc_id, grade in raw.items() if int(grade) > 0}
-    return set(raw or [])
-
-
-def _difficulty_bucket(scores: List[float]) -> str:
-    if not scores:
-        return "unknown"
-    avg = mean(scores)
-    spread = pstdev(scores) if len(scores) > 1 else 0.0
-    if spread >= 0.25:
-        return "discriminative"
-    if avg >= 0.8:
-        return "easy"
-    if avg <= 0.2:
-        return "hard"
-    return "medium"
-
-
-def _pipeline_ids(results: Iterable[Any]) -> List[str]:
-    return [result.pipeline_id for result in results]
-
-
 def predict_retrieval_risks(query_text: str) -> List[str]:
-    """Pre-execution risk signals from query text features (no classifier required).
-
-    Returns actionable hints — not measured failure predictions.
-    """
     from retrieval_observatory.classifier.features import extract_features
     from retrieval_observatory.tracing.enrich import predict_difficulty
 
+    features = extract_features(query_text)
     risks: List[str] = []
-    f = extract_features(query_text)
-    difficulty = predict_difficulty(query_text)
-
-    if difficulty in ("hard", "extreme"):
+    if predict_difficulty(query_text) in ("hard", "extreme"):
         risks.append("high_difficulty_query")
-    if f.get("has_temporal_anchor", 0) >= 1.0:
+    if features.get("has_temporal_anchor", 0) >= 1.0:
         risks.append("temporal_sensitivity")
-    if f.get("has_comparison", 0) >= 1.0:
+    if features.get("has_comparison", 0) >= 1.0:
         risks.append("comparison_query")
-    if f.get("token_count", 0) > 20:
+    if features.get("token_count", 0) > 20:
         risks.append("long_query_may_need_higher_k")
-    if f.get("has_negation", 0) >= 1.0:
+    if features.get("has_negation", 0) >= 1.0:
         risks.append("negation_may_hurt_lexical_match")
-
     return risks

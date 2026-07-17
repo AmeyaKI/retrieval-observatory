@@ -258,7 +258,7 @@ async def main() -> None:
     corpus = {d["id"]: d for d in load_jsonl(HERE / "corpus.jsonl")}
     queries = load_jsonl(HERE / "queries.jsonl")
 
-    # TraceRecorderV2 stamps every trace's run_id from `service=`, so the run we
+    # TraceRecorder stamps every trace's run_id from `service=`, so the run we
     # register (RUN_ID) and the run we later query traces for must both use it.
     recorder = ro.init(service=RUN_ID, db=DB_PATH)
     store = recorder.store

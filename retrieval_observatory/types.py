@@ -35,7 +35,7 @@ class RetrievalResult:
     ``arm_results`` is optional and used by fusing retrievers (for example RRF):
     each entry represents one arm's ranked candidates. Downstream pipeline/store
     code converts each arm result into a scoreable arm-level ``StageSnapshot`` so
-    per-arm metrics are preserved in Benchmarks and the dashboard.
+    per-arm metrics are preserved in Runs and the dashboard.
     """
     documents: List[Document]
     latency_ms: float
@@ -66,10 +66,10 @@ class PipelineResult:
     total_latency_ms: float
     status: Literal["OK", "TIMEOUT", "ERROR"]
     error_traceback: Optional[str] = None
-    # Populated by DAGPipeline with a real branching trace so the runner persists true
-    # topology (parent_ids) instead of lifting the flattened snapshot list. None for
-    # linear pipelines (they lift as before).
-    trace_v2: Optional[Any] = None
+    # The canonical execution evidence. Pipelines should provide this directly;
+    # the benchmark runner derives an equivalent linear graph for legacy-shaped
+    # in-process pipeline results before persistence.
+    trace: Optional[Any] = None
 
 
 @dataclass

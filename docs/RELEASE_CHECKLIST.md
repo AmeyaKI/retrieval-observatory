@@ -1,12 +1,35 @@
 # Release checklist
 
-- [ ] Version and tag match; `CHANGELOG.md` distinguishes Added/Changed/Fixed/Removed and preview limits.
-- [ ] Python tests, PostgreSQL parity, Ruff, UI tests/build, browser/accessibility checks, and Markdown links pass.
-- [ ] First-class framework jobs and supported-example jobs pass in their separate tiers.
-- [ ] `retobs demo` completes regression → query cause → validation without contract warnings.
-- [ ] `scripts/generate_demo_assets.py` was run against the release candidate and `scripts/check_release.py --require-assets` passes.
-- [ ] Wheel metadata/UI/examples are present and `scripts/smoke_wheel.py` passes inside a clean wheel-only environment.
-- [ ] Migration warnings name replacements/removal version; old fixture reads still pass.
-- [ ] Security, privacy, contribution, issue templates, support levels, and maintainer triage guidance are current.
-- [ ] PR Markdown and standalone HTML show validity, effects, q-values, paired `n`, affected queries, and no-decision reasons.
-- [ ] Launch text calls Production/Test Sets preview where appropriate and does not imply heuristic replay is causal proof.
+Release proof is generated in `artifacts/release-evidence.json` and `artifacts/release-evidence.md`. A release is not ready when a gate is a manual checkbox, missing, skipped, failed, or tied to a different wheel digest.
+
+Run the candidate workflow to build one wheel, test that exact wheel, collect every gate result, and generate the evidence artifact. Its final gate is:
+
+```bash
+python scripts/generate_release_evidence.py --results-dir results --dist dist --output-json artifacts/release-evidence.json --output-markdown artifacts/release-evidence.md
+python scripts/check_release.py --require-assets --require-wheel dist/retrieval_observatory-*.whl --require-evidence artifacts/release-evidence.json
+```
+
+The generated report records the command, status, evidence artifact, wheel SHA-256, and timestamp for public-surface, vocabulary, link, Python, store, UI, browser, wheel, external-project, and digest gates. `check_release.py` also verifies the package, wheel metadata, installed-wheel runtime, generated demo assets, and release evidence all report the same version.
+
+For a local candidate proof, run:
+
+```bash
+ruff check retrieval_observatory tests scripts
+pytest tests/unit tests/contracts -v --tb=short
+pytest tests/integration -v --tb=short
+npm ci --prefix retrieval_observatory/dashboard/ui
+npm run test --prefix retrieval_observatory/dashboard/ui -- --run
+npm run build --prefix retrieval_observatory/dashboard/ui
+python -m build
+twine check dist/*
+python scripts/smoke_external_project.py --wheel dist/retrieval_observatory-*.whl --fixture all --artifacts artifacts/external-fixtures
+python scripts/check_release.py --require-assets --require-wheel dist/retrieval_observatory-*.whl --require-evidence artifacts/release-evidence.json
+git diff --check
+git status --short
+```
+
+Only these external governance actions remain manual confirmations:
+
+- trusted-publisher environment approval;
+- private vulnerability-disclosure review;
+- release-note approval.

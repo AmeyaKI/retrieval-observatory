@@ -62,7 +62,7 @@ class ForgeEngine:
         output_format: str = "beir",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SyntheticDataset:
-        """Run the full Forge pipeline.
+        """Run the full Test Sets pipeline.
 
         Args:
             query_types: Which query types to generate (paraphrase/temporal/adversarial).

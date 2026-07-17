@@ -4,7 +4,7 @@ import pytest
 
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
 def _span(op_id: str, op_type: str, parents: list[str], status: str = "FIRED") -> OperatorSpan:
@@ -21,17 +21,18 @@ def _span(op_id: str, op_type: str, parents: list[str], status: str = "FIRED") -
     )
 
 
-def _trace(trace_id: str, spans: list[OperatorSpan], *, status: str = "OK", final_op_id: str | None = None):
-    return RetrievalTraceV2(
+def _trace(trace_id: str, spans: list[OperatorSpan], *, status: str = "OK", final_op_ids: tuple[str, ...] = ()):
+    return RetrievalTrace(
         trace_id=trace_id,
+        service_id="svc",
         run_id="run",
         query_id=trace_id,
         query_text="q",
         pipeline_id="conditional",
         spans=spans,
-        total_latency_ms=2.0,
+        timing=TraceTiming(2.0, 2.0, 2.0),
         status=status,  # type: ignore[arg-type]
-        final_op_id=final_op_id,
+        final_op_ids=final_op_ids,
     )
 
 
@@ -39,7 +40,7 @@ def test_run_union_includes_conditional_and_error_only_topology():
     fast = _trace(
         "fast",
         [_span("source", "SOURCE", []), _span("fast", "RERANK", ["source"])],
-        final_op_id="fast",
+        final_op_ids=("fast",),
     )
     slow_error = _trace(
         "slow",
@@ -49,7 +50,7 @@ def test_run_union_includes_conditional_and_error_only_topology():
             _span("error_reporter", "TRANSFORM", ["slow"], status="ERROR"),
         ],
         status="ERROR",
-        final_op_id="slow",
+        final_op_ids=("slow",),
     )
 
     graph = build_pipeline_graphs({}, [fast, slow_error])[0]
@@ -76,12 +77,12 @@ def test_exact_trace_projection_does_not_include_other_branch():
     fast = _trace(
         "fast",
         [_span("source", "SOURCE", []), _span("fast", "RERANK", ["source"])],
-        final_op_id="fast",
+        final_op_ids=("fast",),
     )
     slow = _trace(
         "slow",
         [_span("source", "SOURCE", []), _span("slow", "RERANK", ["source"])],
-        final_op_id="slow",
+        final_op_ids=("slow",),
     )
 
     graph = build_pipeline_graphs({}, [fast, slow], projection_mode="trace", trace_id="fast")[0]
@@ -97,11 +98,8 @@ def test_exact_trace_projection_requires_identity_when_ambiguous():
 
 
 def test_missing_parent_is_warned_and_not_rendered_as_an_edge():
-    trace = _trace("broken", [_span("child", "RERANK", ["missing"])], final_op_id="child")
-    graph = build_pipeline_graphs({}, [trace])[0]
-
-    assert graph.edges == []
-    assert any("missing parent" in warning for warning in graph.warnings)
+    with pytest.raises(ValueError, match="unknown parent"):
+        _trace("broken", [_span("child", "RERANK", ["missing"])], final_op_ids=("child",))
 
 
 @pytest.mark.asyncio
@@ -109,12 +107,12 @@ async def test_conditional_operator_metric_identity_uses_run_union_layout():
     fast = _trace(
         "fast",
         [_span("source", "SOURCE", []), _span("fast", "RERANK", ["source"])],
-        final_op_id="fast",
+        final_op_ids=("fast",),
     )
     slow = _trace(
         "slow",
         [_span("source", "SOURCE", []), _span("slow", "RERANK", ["source"])],
-        final_op_id="slow",
+        final_op_ids=("slow",),
     )
     rows: list[dict] = []
 

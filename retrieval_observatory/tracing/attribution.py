@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Set
 from retrieval_observatory.metrics.ranking import average_precision, ndcg_at_k, ndcg_at_k_graded, precision_at_k
 from retrieval_observatory.metrics.recall import recall_at_k
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
-from retrieval_observatory.tracing.model_v2 import ReplayPolicy, RetrievalTraceV2
+from retrieval_observatory.tracing.model import ReplayPolicy, RetrievalTrace
 from retrieval_observatory.tracing.replay import simulate_without_operator
 
 _SUPPORTED_METRICS = frozenset({"recall", "ndcg", "precision", "mrr", "map"})
@@ -35,11 +35,11 @@ class MarginalResult:
     assumptions: Optional[Dict[str, object]] = None
 
 
-def _find_final_span(trace: RetrievalTraceV2):
-    """Return the terminal span using final_op_id or sink detection."""
-    if trace.final_op_id:
+def _find_final_span(trace: RetrievalTrace):
+    """Return the terminal span using declared final operators or sink detection."""
+    if trace.final_op_ids:
         for span in trace.spans:
-            if span.op_id == trace.final_op_id:
+            if span.op_id in trace.final_op_ids:
                 return span
     if not trace.spans:
         return None
@@ -52,7 +52,7 @@ def _find_final_span(trace: RetrievalTraceV2):
     return trace.spans[-1]
 
 
-def segment_key(trace: RetrievalTraceV2) -> str:
+def segment_key(trace: RetrievalTrace) -> str:
     merged: Dict[str, object] = {}
     for span in trace.spans:
         if span.op_type == "GATE" and span.gate_values:
@@ -62,7 +62,7 @@ def segment_key(trace: RetrievalTraceV2) -> str:
     return "|".join(f"{k}={v}" for k, v in sorted(merged.items()))
 
 
-def segments(traces: List[RetrievalTraceV2], top_n: int = 20) -> List[str]:
+def segments(traces: List[RetrievalTrace], top_n: int = 20) -> List[str]:
     counts: Dict[str, int] = {}
     for trace in traces:
         key = segment_key(trace)
@@ -114,7 +114,7 @@ def _metric_at_k(
     raise ValueError(f"Unsupported metric '{metric}'. Use one of {sorted(_SUPPORTED_METRICS)}")
 
 
-def operator_fire_rate(op_id: str, traces: List[RetrievalTraceV2]) -> float:
+def operator_fire_rate(op_id: str, traces: List[RetrievalTrace]) -> float:
     if not traces:
         return 0.0
     fired = 0
@@ -126,7 +126,7 @@ def operator_fire_rate(op_id: str, traces: List[RetrievalTraceV2]) -> float:
 
 
 def operator_marginal_contribution(
-    traces: List[RetrievalTraceV2],
+    traces: List[RetrievalTrace],
     op_id: str,
     qrels: Dict[str, Dict[str, int] | List[str] | set[str]],
     metric: str = "recall",
@@ -139,7 +139,7 @@ def operator_marginal_contribution(
         raise ValueError(f"Unsupported metric '{metric}'. Use one of {sorted(_SUPPORTED_METRICS)}")
 
     seg_names = segments(traces)
-    traces_by_segment: Dict[str, List[RetrievalTraceV2]] = {}
+    traces_by_segment: Dict[str, List[RetrievalTrace]] = {}
     for trace in traces:
         key = segment_key(trace)
         if key not in seg_names and "other" in seg_names:

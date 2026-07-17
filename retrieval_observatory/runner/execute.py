@@ -10,7 +10,7 @@ from retrieval_observatory.types import PipelineResult, Query
 # Shared benchmark execution core used by BOTH the CLI (`retobs run`) and the Python SDK
 # (`retrieval_observatory.benchmark`). Keeping a single executor guarantees that both paths
 # produce identical artifacts and write the same query lineage (save_run_queries + manifest),
-# which the Forge -> Benchmark -> TraceLens -> Advisor join depends on.
+# which the Test Sets -> Benchmark -> Production -> Findings join depends on.
 
 
 @dataclass
@@ -49,7 +49,7 @@ async def execute_benchmark(
     `console.print`; the SDK leaves it None for silent operation).
     """
     from retrieval_observatory.datasets.validation import dataset_fingerprint
-    from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
+    from retrieval_observatory.diagnostics.engine import DiagnosticEngine, context_for_trace
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.runner.benchmark import BenchmarkRunner
     from retrieval_observatory.runner.cache import ResultCache
@@ -158,29 +158,16 @@ async def execute_benchmark(
         # attribution, miss attribution) can recover ground truth after the run completes —
         # qrels only ever existed in-memory here otherwise.
         await store.save_qrels(run_id, qrels)
-    # DAG pipelines carry a real branching trace (parent_ids); their metrics are bucketed by
-    # topological depth via compute_from_traces so parallel branches aren't collapsed into fake
-    # sequential stages. Linear pipelines keep the snapshot path. The two pipeline sets are
-    # disjoint, so no metric row is double-counted.
-    dag_results = [r for r in all_results if getattr(r, "trace_v2", None) is not None]
-    linear_results = [r for r in all_results if getattr(r, "trace_v2", None) is None]
-    await engine.compute_and_store(
+    traces = [result.trace for result in all_results if result.trace is not None]
+    if len(traces) != len(all_results):
+        raise RuntimeError("every evaluation result must carry a persisted execution trace")
+    await engine.compute_from_traces(
         run_id=run_id,
         store=store,
-        results=linear_results,
+        traces=[trace for trace in traces if trace.status == "OK"],
         qrels=qrels,
         queries_by_id=queries_by_id,
-        corpus_documents=getattr(dataset, "corpus_documents", None),
     )
-    if dag_results:
-        dag_traces = [r.trace_v2 for r in dag_results if r.status == "OK"]
-        await engine.compute_from_traces(
-            run_id=run_id,
-            store=store,
-            traces=dag_traces,
-            qrels=qrels,
-            queries_by_id=queries_by_id,
-        )
 
     # Warn about unjudged queries: queries with no or empty qrel entries are excluded from
     # quality metric means (they contribute no metric_score row), so the dashboard n count
@@ -206,17 +193,36 @@ async def execute_benchmark(
 
     corpus_documents = getattr(dataset, "corpus_documents", None)
     corpus_doc_ids = set(corpus_documents) if corpus_documents is not None else None
-    diagnostics = build_query_diagnostics(run_id, all_results, qrels, corpus_doc_ids=corpus_doc_ids)
-    if hasattr(store, "save_query_diagnostics"):
-        await store.save_query_diagnostics(diagnostics)
-
+    configured_cutoffs = list(getattr(cfg.metrics, "recall_at_k", []) or [10])
+    diagnostic_cutoff = max(configured_cutoffs)
+    diagnostics = []
+    diagnostic_engine = DiagnosticEngine.default()
+    for trace in traces:
+        relevant_ids = {doc_id for doc_id, grade in qrels.get(trace.query_id, {}).items() if grade > 0}
+        context = context_for_trace(
+            trace,
+            relevant_document_ids=relevant_ids,
+            corpus_document_ids=corpus_doc_ids,
+            cutoff=diagnostic_cutoff,
+        )
+        findings = diagnostic_engine.evaluate(context)
+        await store.save_diagnostics(run_id, trace.query_id, findings)
+        diagnostics.append({
+            "run_id": run_id,
+            "query_id": trace.query_id,
+            "pipeline_id": trace.pipeline_id,
+            "difficulty_bucket": "unknown",
+            "failure_labels": [finding.label for finding in findings if finding.availability.value == "supported"],
+            "missing_relevant_ids": [],
+            "stage_hits": {},
+            "diagnostic_evidence": [finding.to_dict() for finding in findings],
+        })
     aggregated = await engine.aggregate(run_id=run_id, store=store)
     metrics_rows = await store.get_metrics(run_id)
     if hasattr(store, "save_run_manifest"):
         manifest = await store.get_run_manifest(run_id) or {}
         completed_query_ids = {result.query_id for result in all_results if result.status == "OK"}
         labeled_query_ids = {query.query_id for query in queries if qrels.get(query.query_id)}
-        traces = [result.trace_v2 for result in all_results if getattr(result, "trace_v2", None) is not None]
         cache_hits = sum(
             bool(span.params.get("cache_hit"))
             for trace in traces

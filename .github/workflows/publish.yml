@@ -4,121 +4,61 @@ on:
   push:
     tags: ["v*"]
 
+permissions:
+  contents: read
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Verify tag matches pyproject version
-        run: |
-          TAG="${GITHUB_REF#refs/tags/v}"
-          VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          if [ "$TAG" != "$VERSION" ]; then
-            echo "Tag v$TAG does not match pyproject.toml version $VERSION"
-            exit 1
-          fi
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install dashboard dependencies from lockfile
-        run: npm ci --prefix retrieval_observatory/dashboard/ui
-
-      - name: Build dashboard UI
-        run: make dashboard-build
-
-      - name: Verify release links, metadata, and generated media
-        run: python scripts/check_release.py --require-assets
-
-      - name: Remove bytecode caches
-        run: find retrieval_observatory -type d -name __pycache__ -print0 | xargs -0 rm -rf
-
-      - name: Install build tools
-        run: pip install build twine
-
-      - name: Build package
-        run: python -m build
-
-      - name: Verify wheel contains UI and examples
-        run: |
-          python -m zipfile -l dist/*.whl | grep -F 'retrieval_observatory/dashboard/ui/dist/index.html'
-          python -m zipfile -l dist/*.whl | grep -F 'retrieval_observatory/examples/quickstart_scifact.yaml'
-
-      - name: Check metadata
-        run: twine check dist/*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+  release-candidate:
+    uses: ./.github/workflows/release-candidate.yml
 
   publish-testpypi:
-    needs: build
+    needs: release-candidate
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist/
-
+          name: release-dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-evidence
+          path: release-evidence
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Verify wheel name matches TestPyPI trusted publisher
+      - name: Verify tested release digest and tag
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
-          PKG=$(python -c "import zipfile, email; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_string(z.read(m).decode())['Name'])")
-          echo "Publishing package: $PKG"
-          if [ "$PKG" != "retrieval-observatory" ]; then
-            echo "Expected package name 'retrieval-observatory' but wheel metadata says '$PKG'"
+          python release-evidence/verify_release_artifact.py --dist dist --manifest release-evidence/artifact-manifest.json
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          VERSION=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Version'])")
+          if [ "${GITHUB_REF#refs/tags/v}" != "$VERSION" ]; then
+            echo "Tag ${GITHUB_REF#refs/tags/v} does not match tested wheel version $VERSION"
             exit 1
           fi
-          echo "::notice title=Trusted publisher config::TestPyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment testpypi). See docs/informative/PYPI_PUBLISH.md"
-
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+      - name: Verify TestPyPI trusted publisher package name
+        run: |
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          PACKAGE=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Name'])")
+          test "$PACKAGE" = "retrieval-observatory"
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
           skip-existing: true
-
-      - name: Verify package appears on TestPyPI
+      - name: Smoke the exact uploaded TestPyPI version
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
-          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
-          echo "Expecting retrieval-observatory ${VERSION} on TestPyPI"
-          curl -sf "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
-
-      - name: Smoke install built wheel
-        run: |
-          WHEEL=$(ls "$GITHUB_WORKSPACE"/dist/retrieval_observatory-*.whl)
-          python -m venv /tmp/smoke
-          /tmp/smoke/bin/pip install --upgrade pip
-          # Do NOT pip install extras from TestPyPI — it hosts typosquats (e.g. svelte==1.0)
-          # that satisfy our version constraints. Install the exact uploaded wheel + deps from PyPI.
-          /tmp/smoke/bin/pip install \
-            --index-url https://pypi.org/simple/ \
-            --only-binary=:all: \
-            "${WHEEL}[dashboard]"
-          # Leave the checkout so site-packages wins over the source tree (ui/dist is gitignored).
+          WHEEL=$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.whl' -print -quit)
+          python -m venv /tmp/testpypi-smoke
+          /tmp/testpypi-smoke/bin/pip install --index-url https://pypi.org/simple "${WHEEL}[dashboard,mcp]"
           cd /tmp
-          /tmp/smoke/bin/python -c "import retrieval_observatory as ro; assert (ro.EXAMPLES_DIR / 'quickstart_scifact.yaml').is_file()"
-          UI_INDEX=$(/tmp/smoke/bin/python -c "import retrieval_observatory as ro; print(ro.PACKAGE_DIR / 'dashboard/ui/dist/index.html')")
-          test -f "$UI_INDEX"
-          /tmp/smoke/bin/retobs --help
-          /tmp/smoke/bin/python "$GITHUB_WORKSPACE/scripts/smoke_wheel.py"
+          /tmp/testpypi-smoke/bin/python "$GITHUB_WORKSPACE/release-evidence/smoke_wheel.py" --expected-version "$VERSION" --output "$GITHUB_WORKSPACE/release-evidence/testpypi-smoke.json"
+          curl -fsS "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > "$GITHUB_WORKSPACE/release-evidence/testpypi-metadata.json"
+          /tmp/testpypi-smoke/bin/python -c "import json; assert json.load(open('$GITHUB_WORKSPACE/release-evidence/testpypi-metadata.json'))['info']['version'] == '$VERSION'"
 
   publish-pypi:
     needs: publish-testpypi
@@ -130,30 +70,38 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist/
-
+          name: release-dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-evidence
+          path: release-evidence
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Verify wheel name matches PyPI trusted publisher
+      - name: Verify tested release digest and PyPI trusted publisher package name
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
-          PKG=$(python -c "import zipfile, email; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_string(z.read(m).decode())['Name'])")
-          echo "Publishing package: $PKG"
-          if [ "$PKG" != "retrieval-observatory" ]; then
-            echo "Expected package name 'retrieval-observatory' but wheel metadata says '$PKG'"
-            exit 1
-          fi
-          echo "::notice title=Trusted publisher config::PyPI publisher project name must be 'retrieval-observatory' (owner AmeyaKI, repo retrieval-observatory, workflow publish.yml, environment pypi). See docs/informative/PYPI_PUBLISH.md"
-
+          python release-evidence/verify_release_artifact.py --dist dist --manifest release-evidence/artifact-manifest.json
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          PACKAGE=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Name'])")
+          test "$PACKAGE" = "retrieval-observatory"
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
-
-      - name: Verify package on PyPI
+      - name: Verify published PyPI metadata matches tested digests
         run: |
-          WHEEL=$(ls dist/retrieval_observatory-*.whl)
-          VERSION=$(basename "$WHEEL" | sed -n 's/retrieval_observatory-\([^-]*\)-.*/\1/p')
-          curl -sf "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > /dev/null
+          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+          VERSION=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Version'])")
+          curl -fsS "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > release-evidence/pypi-metadata.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = json.loads(Path("release-evidence/artifact-manifest.json").read_text(encoding="utf-8"))["sha256"]
+          metadata = json.loads(Path("release-evidence/pypi-metadata.json").read_text(encoding="utf-8"))
+          actual = {item["filename"]: item["digests"]["sha256"] for item in metadata["urls"]}
+          missing = {name: digest for name, digest in expected.items() if actual.get(name) != digest}
+          if missing:
+              raise SystemExit(f"PyPI digest mismatch: {missing}; published={actual}")
+          print("Published PyPI wheel and sdist match tested SHA-256 digests.")
+          PY

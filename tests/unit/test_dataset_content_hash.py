@@ -33,9 +33,9 @@ def test_fingerprint_includes_content_hash():
 
 
 def test_content_hash_stable_across_regenerated_forge_dataset():
-    """Item 0: dataset_content_hash folds query_id into the fingerprint, so a Forge
+    """Item 0: dataset_content_hash folds query_id into the fingerprint, so a Test Sets
     dataset regenerated from the same corpus must produce the same content_hash as the
-    first generation -- this only holds now that Forge scenario/query ids are content-
+    first generation -- this only holds now that Test Sets scenario/query ids are content-
     derived rather than random uuids (see forge/scenarios/*.py, forge/generation/*.py)."""
     from retrieval_observatory.forge.scenarios.temporal import TemporalScenarioDetector
     from retrieval_observatory.forge.generation.rule_based import generate_rule_based_queries

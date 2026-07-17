@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution, segment_key
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from dataclasses import replace
+
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
-def _trace(query_id: str, fired: bool) -> RetrievalTraceV2:
+def _trace(query_id: str, fired: bool) -> RetrievalTrace:
     gate = OperatorSpan(
         op_id="gate_a",
         op_type="GATE",
@@ -30,21 +32,22 @@ def _trace(query_id: str, fired: bool) -> RetrievalTraceV2:
             Candidate(doc_id="d2", score=0.9, rank=2, origin_op_ids=["source_a"]),
         ],
     )
-    return RetrievalTraceV2(
+    return RetrievalTrace(
+        service_id="test",
         trace_id=f"t_{query_id}",
         run_id="run1",
         query_id=query_id,
         query_text="q",
         pipeline_id="p",
         spans=[gate, source],
-        total_latency_ms=4.0,
-        final_op_id="source_a",
+        timing=TraceTiming(4.0, 4.0, 4.0),
+        final_op_ids=("source_a",),
     )
 
 
 def test_segment_key_baseline_when_no_gate_values() -> None:
     trace = _trace("q1", fired=True)
-    trace.spans[0].gate_values = {}
+    trace.spans = (replace(trace.spans[0], gate_values={}), *trace.spans[1:])
     assert segment_key(trace) == "baseline"
 
 
@@ -68,10 +71,11 @@ def test_segment_key_multi_gate() -> None:
         deterministic=True, replay_policy="EXACT", latency_ms=1.0,
         outputs=[Candidate(doc_id="d1", score=1.0, rank=1, origin_op_ids=["src"])],
     )
-    trace = RetrievalTraceV2(
+    trace = RetrievalTrace(
+        service_id="test",
         trace_id="t_multi_gate", run_id="r", query_id="q",
         query_text="q", pipeline_id="p",
-        spans=[gate_a, gate_b, source], total_latency_ms=3.0,
+        spans=[gate_a, gate_b, source], timing=TraceTiming(3.0, 3.0, 3.0), final_op_ids=("src",),
     )
     key = segment_key(trace)
     assert "entity_type=person" in key
@@ -153,12 +157,13 @@ def test_final_op_id_used_not_spans_last() -> None:
             Candidate(doc_id="d2", score=0.9, rank=2, origin_op_ids=["src"]),
         ],
     )
-    trace = RetrievalTraceV2(
+    trace = RetrievalTrace(
+        service_id="test",
         trace_id="t_final", run_id="r", query_id="q1",
         query_text="q", pipeline_id="p",
         spans=[source, gate],
-        total_latency_ms=1.1,
-        final_op_id="src",
+        timing=TraceTiming(1.1, 1.1, 1.1),
+        final_op_ids=("src",),
     )
     qrels = {"q1": {"d1": 1}}
     rows = operator_marginal_contribution(

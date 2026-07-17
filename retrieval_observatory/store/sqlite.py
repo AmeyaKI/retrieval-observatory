@@ -6,8 +6,8 @@ from typing import Dict, List, Optional
 
 import aiosqlite
 
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
-from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
+from retrieval_observatory.store.base import InstrumentationHealth, ServiceSummary, TopologyVariant, TraceQuery
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 _CREATE_RUNS = """
 CREATE TABLE IF NOT EXISTS runs (
@@ -16,25 +16,6 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at TEXT NOT NULL,
     finished_at TEXT,
     config_json TEXT NOT NULL
-)
-"""
-
-_CREATE_RAW_RESULTS = """
-CREATE TABLE IF NOT EXISTS raw_results (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL,
-    pipeline_id TEXT NOT NULL,
-    query_id TEXT NOT NULL,
-    stage_index INTEGER NOT NULL,
-    stage_id TEXT,
-    status TEXT NOT NULL,
-    latency_ms REAL NOT NULL,
-    retrieved_doc_ids_json TEXT NOT NULL,
-    retrieved_scores_json TEXT NOT NULL,
-    profiling_json TEXT,
-    candidate_count INTEGER DEFAULT 0,
-    branch_id TEXT,
-    error_traceback TEXT
 )
 """
 
@@ -56,18 +37,6 @@ CREATE TABLE IF NOT EXISTS metric_scores (
 # Migration: add query_metadata_json to existing databases that predate this column.
 _MIGRATE_METRIC_SCORES_METADATA = (
     "ALTER TABLE metric_scores ADD COLUMN query_metadata_json TEXT DEFAULT NULL"
-)
-_MIGRATE_RAW_RESULTS_STAGE_ID = (
-    "ALTER TABLE raw_results ADD COLUMN stage_id TEXT"
-)
-_MIGRATE_RAW_RESULTS_PROFILING = (
-    "ALTER TABLE raw_results ADD COLUMN profiling_json TEXT"
-)
-_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT = (
-    "ALTER TABLE raw_results ADD COLUMN candidate_count INTEGER DEFAULT 0"
-)
-_MIGRATE_RAW_RESULTS_BRANCH_ID = (
-    "ALTER TABLE raw_results ADD COLUMN branch_id TEXT"
 )
 _MIGRATE_METRIC_SCORES_BRANCH_ID = (
     "ALTER TABLE metric_scores ADD COLUMN branch_id TEXT"
@@ -117,10 +86,27 @@ CREATE TABLE IF NOT EXISTS query_diagnostics (
 )
 """
 
+_CREATE_DIAGNOSTIC_FINDINGS = """
+CREATE TABLE IF NOT EXISTS diagnostic_findings (
+    run_id TEXT NOT NULL, query_id TEXT NOT NULL, trace_id TEXT NOT NULL,
+    label TEXT NOT NULL, availability TEXT NOT NULL, method_id TEXT,
+    method_version TEXT, evidence_class TEXT, finding_order INTEGER NOT NULL, finding_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, query_id, trace_id, label)
+)
+"""
+
 _CREATE_CACHE = """
 CREATE TABLE IF NOT EXISTS result_cache (
     cache_key TEXT PRIMARY KEY,
     result_json TEXT NOT NULL
+)
+"""
+
+_CREATE_ANALYSIS_RECORDS = """
+CREATE TABLE IF NOT EXISTS analysis_records (
+    kind TEXT NOT NULL, record_id TEXT NOT NULL, version INTEGER NOT NULL,
+    payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY (kind, record_id, version)
 )
 """
 
@@ -177,31 +163,28 @@ _CREATE_FORGE_QUERIES_IDX = (
 _CREATE_TRACES = """
 CREATE TABLE IF NOT EXISTS traces (
     trace_id TEXT PRIMARY KEY,
-    service TEXT NOT NULL,
+    service_id TEXT NOT NULL,
+    run_id TEXT,
     query_id TEXT NOT NULL,
-    query_text TEXT NOT NULL,
     pipeline_id TEXT NOT NULL,
     status TEXT NOT NULL,
-    total_latency_ms REAL NOT NULL,
     timestamp TEXT NOT NULL,
-    predicted_difficulty TEXT,
-    suspected_failures_json TEXT NOT NULL DEFAULT '[]',
-    metadata_json TEXT NOT NULL DEFAULT '{}'
+    topology_hash TEXT NOT NULL,
+    trace_json TEXT NOT NULL
 )
 """
 _CREATE_TRACES_IDX = (
-    "CREATE INDEX IF NOT EXISTS idx_traces_service_ts ON traces(service, timestamp)"
+    "CREATE INDEX IF NOT EXISTS idx_traces_service_time ON traces(service_id, timestamp DESC)"
 )
+_CREATE_TRACES_RUN_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_run_query ON traces(run_id, query_id)"
+_CREATE_TRACES_TOPOLOGY_IDX = "CREATE INDEX IF NOT EXISTS idx_traces_pipeline_topology ON traces(pipeline_id, topology_hash)"
 
-_CREATE_TRACE_STAGES = """
-CREATE TABLE IF NOT EXISTS trace_stages (
-    trace_id TEXT NOT NULL,
-    stage_index INTEGER NOT NULL,
-    stage_id TEXT NOT NULL,
-    latency_ms REAL NOT NULL,
-    candidate_count INTEGER NOT NULL,
-    documents_json TEXT NOT NULL,
-    PRIMARY KEY (trace_id, stage_index)
+_CREATE_INSTRUMENTATION_HEALTH = """
+CREATE TABLE IF NOT EXISTS instrumentation_health (
+    service_id TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    health_json TEXT NOT NULL,
+    PRIMARY KEY (service_id, observed_at)
 )
 """
 
@@ -222,28 +205,6 @@ CREATE TABLE IF NOT EXISTS reliability_snapshots (
     components_json TEXT NOT NULL
 )
 """
-
-_CREATE_TRACES_V2 = """
-CREATE TABLE IF NOT EXISTS traces_v2 (
-    trace_id TEXT PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    query_id TEXT NOT NULL,
-    pipeline_id TEXT NOT NULL,
-    status TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    trace_json TEXT NOT NULL
-)
-"""
-
-_CREATE_TRACES_V2_IDX = (
-    "CREATE INDEX IF NOT EXISTS idx_traces_v2_run ON traces_v2 (run_id, query_id)"
-)
-_CREATE_TRACES_V2_PIPELINE_IDX = (
-    "CREATE INDEX IF NOT EXISTS idx_traces_v2_pipeline ON traces_v2 (pipeline_id)"
-)
-_CREATE_TRACES_V2_STATUS_IDX = (
-    "CREATE INDEX IF NOT EXISTS idx_traces_v2_status ON traces_v2 (status)"
-)
 
 _CREATE_DOC_EDGES = """
 CREATE TABLE IF NOT EXISTS doc_edges (
@@ -283,13 +244,14 @@ class SQLiteStore:
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(_CREATE_RUNS)
-            await db.execute(_CREATE_RAW_RESULTS)
             await db.execute(_CREATE_METRIC_SCORES)
             await db.execute(_CREATE_CACHE)
+            await db.execute(_CREATE_ANALYSIS_RECORDS)
             await db.execute(_CREATE_RUN_MANIFESTS)
             await db.execute(_CREATE_RUN_QRELS)
             await db.execute(_CREATE_VALIDATION_REPORTS)
             await db.execute(_CREATE_QUERY_DIAGNOSTICS)
+            await db.execute(_CREATE_DIAGNOSTIC_FINDINGS)
             await db.execute(_CREATE_RUN_QUERIES)
             await db.execute(_CREATE_FORGE_DATASETS)
             await db.execute(_CREATE_FORGE_SCENARIOS)
@@ -297,35 +259,17 @@ class SQLiteStore:
             await db.execute(_CREATE_FORGE_QUERIES_IDX)
             await db.execute(_CREATE_TRACES)
             await db.execute(_CREATE_TRACES_IDX)
-            await db.execute(_CREATE_TRACE_STAGES)
+            await db.execute(_CREATE_TRACES_RUN_IDX)
+            await db.execute(_CREATE_TRACES_TOPOLOGY_IDX)
+            await db.execute(_CREATE_INSTRUMENTATION_HEALTH)
             await db.execute(_CREATE_GOLDEN_SETS)
             await db.execute(_CREATE_RELIABILITY_SNAPSHOTS)
-            await db.execute(_CREATE_TRACES_V2)
-            await db.execute(_CREATE_TRACES_V2_IDX)
-            await db.execute(_CREATE_TRACES_V2_PIPELINE_IDX)
-            await db.execute(_CREATE_TRACES_V2_STATUS_IDX)
             await db.execute(_CREATE_DOC_EDGES)
             await db.execute(_CREATE_DOC_EDGES_SRC_IDX)
             await db.execute(_CREATE_DOC_EDGES_DST_IDX)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
-            except Exception:
-                pass
-            try:
-                await db.execute(_MIGRATE_RAW_RESULTS_STAGE_ID)
-            except Exception:
-                pass
-            try:
-                await db.execute(_MIGRATE_RAW_RESULTS_PROFILING)
-            except Exception:
-                pass
-            try:
-                await db.execute(_MIGRATE_RAW_RESULTS_CANDIDATE_COUNT)
-            except Exception:
-                pass
-            try:
-                await db.execute(_MIGRATE_RAW_RESULTS_BRANCH_ID)
             except Exception:
                 pass
             try:
@@ -343,6 +287,59 @@ class SQLiteStore:
             await db.commit()
         self._schema_ready = True
 
+    async def save_analysis_record(self, kind: str, record_id: str, payload: Dict, version: int = 1) -> None:
+        await self._ensure_schema()
+        from datetime import datetime, timezone
+        async with aiosqlite.connect(self.db_path) as db:
+            row = await (await db.execute("SELECT MAX(version) FROM analysis_records WHERE kind=? AND record_id=?", (kind, record_id))).fetchone()
+            current = row[0] if row and row[0] is not None else 0
+            if version != current + 1:
+                raise ValueError(f"{kind} version must be {current + 1}")
+            await db.execute("INSERT INTO analysis_records VALUES (?,?,?,?,?)", (kind, record_id, version, json.dumps(payload, sort_keys=True), datetime.now(timezone.utc).isoformat()))
+            await db.commit()
+
+    async def get_analysis_record(self, kind: str, record_id: str) -> Dict | None:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            row = await (await db.execute("SELECT payload_json,version,created_at FROM analysis_records WHERE kind=? AND record_id=? ORDER BY version DESC LIMIT 1", (kind, record_id))).fetchone()
+        return None if row is None else {**json.loads(row[0]), "version": row[1], "created_at": row[2]}
+
+    async def list_analysis_records(self, kind: str) -> List[Dict]:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            rows = await (await db.execute("SELECT record_id,payload_json,version,created_at FROM analysis_records WHERE kind=? ORDER BY record_id,version DESC", (kind,))).fetchall()
+        seen = set()
+        out = []
+        for record_id, payload, version, created_at in rows:
+            if record_id not in seen:
+                out.append(
+                    {
+                        **json.loads(payload),
+                        "record_id": record_id,
+                        "version": version,
+                        "created_at": created_at,
+                    }
+                )
+                seen.add(record_id)
+        return out
+
+    async def save_cohort(self, cohort_id: str, payload: Dict, version: int) -> None:
+        await self.save_analysis_record("cohort", cohort_id, payload, version)
+    async def get_cohort(self, cohort_id: str) -> Dict | None:
+        return await self.get_analysis_record("cohort", cohort_id)
+    async def list_cohorts(self) -> List[Dict]:
+        return await self.list_analysis_records("cohort")
+    async def save_corpus_snapshot(self, snapshot_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("corpus_snapshot", snapshot_id, payload, version)
+    async def append_judgment(self, judgment_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("judgment", judgment_id, payload, version)
+    async def save_baseline(self, baseline_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("baseline", baseline_id, payload, version)
+    async def save_regression_check(self, check_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("check", check_id, payload, version)
+    async def append_alert(self, alert_id: str, payload: Dict, version: int = 1) -> None:
+        await self.save_analysis_record("alert", alert_id, payload, version)
+
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
@@ -359,131 +356,119 @@ class SQLiteStore:
             )
             await db.commit()
 
-    async def save_result(self, run_id: str, result: PipelineResult) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """INSERT INTO raw_results
-                   (run_id, pipeline_id, query_id, stage_index, stage_id, status,
-                    latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                    candidate_count, branch_id, error_traceback)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    run_id,
-                    result.pipeline_id,
-                    result.query_id,
-                    -1,
-                    "__pipeline__",
-                    result.status,
-                    result.total_latency_ms,
-                    "[]",
-                    "[]",
-                    "{}",
-                    0,
-                    None,
-                    result.error_traceback,
-                ),
-            )
-            for snap in result.snapshots:
-                doc_ids = json.dumps([d.id for d in snap.documents])
-                scores = json.dumps([d.score for d in snap.documents])
-                await db.execute(
-                    """INSERT INTO raw_results
-                       (run_id, pipeline_id, query_id, stage_index, stage_id, status,
-                        latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                        candidate_count, branch_id, error_traceback)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        run_id,
-                        result.pipeline_id,
-                        result.query_id,
-                        snap.stage_index,
-                        snap.stage_id,
-                        result.status,
-                        snap.latency_ms,
-                        doc_ids,
-                        scores,
-                        json.dumps(snap.profiling),
-                        snap.candidate_count or len(snap.documents),
-                        None,
-                        result.error_traceback,
-                    ),
-                )
-                for arm in snap.arms:
-                    arm_doc_ids = json.dumps([d.id for d in arm.documents])
-                    arm_scores = json.dumps([d.score for d in arm.documents])
-                    await db.execute(
-                        """INSERT INTO raw_results
-                           (run_id, pipeline_id, query_id, stage_index, stage_id, status,
-                            latency_ms, retrieved_doc_ids_json, retrieved_scores_json, profiling_json,
-                            candidate_count, branch_id, error_traceback)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            run_id,
-                            result.pipeline_id,
-                            result.query_id,
-                            snap.stage_index,
-                            arm.stage_id,
-                            result.status,
-                            arm.latency_ms,
-                            arm_doc_ids,
-                            arm_scores,
-                            json.dumps(arm.profiling),
-                            arm.candidate_count or len(arm.documents),
-                            arm.stage_id,
-                            result.error_traceback,
-                        ),
-                    )
-            await db.commit()
+    async def save_trace(self, trace: RetrievalTrace) -> None:
+        await self.save_traces([trace])
 
-    async def save_trace_v2(self, trace: RetrievalTraceV2) -> None:
+    async def save_traces(self, traces: List[RetrievalTrace]) -> None:
         await self._ensure_schema()
+        rows = [
+            (
+                trace.trace_id,
+                trace.service_id,
+                trace.run_id,
+                trace.query_id,
+                trace.pipeline_id,
+                trace.status,
+                trace.timestamp.isoformat(),
+                trace.topology_hash(),
+                json.dumps(trace.to_dict(), sort_keys=True),
+            )
+            for trace in traces
+        ]
         async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """INSERT OR REPLACE INTO traces_v2
-                   (trace_id, run_id, query_id, pipeline_id, status, timestamp, trace_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    trace.trace_id,
-                    trace.run_id,
-                    trace.query_id,
-                    trace.pipeline_id,
-                    trace.status,
-                    trace.timestamp.isoformat(),
-                    json.dumps(trace.to_dict()),
-                ),
+            await db.executemany(
+                """INSERT OR REPLACE INTO traces
+                   (trace_id, service_id, run_id, query_id, pipeline_id, status, timestamp, topology_hash, trace_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows,
             )
             await db.commit()
 
-    async def get_trace_v2(self, trace_id: str) -> Optional[RetrievalTraceV2]:
+    async def get_trace(self, trace_id: str) -> Optional[RetrievalTrace]:
         await self._ensure_schema()
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute("SELECT trace_json FROM traces_v2 WHERE trace_id = ?", (trace_id,)) as cursor:
+            async with db.execute("SELECT trace_json FROM traces WHERE trace_id = ?", (trace_id,)) as cursor:
                 row = await cursor.fetchone()
-        if not row:
-            return None
-        return RetrievalTraceV2.from_dict(json.loads(row[0]))
+        return RetrievalTrace.from_dict(json.loads(row[0])) if row else None
 
-    async def get_traces_v2(
-        self,
-        run_id: str,
-        query_id: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: int = 0,
-    ) -> List[RetrievalTraceV2]:
+    async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
+        if query is None:
+            query = TraceQuery(service_id=service, limit=limit or 200)
         await self._ensure_schema()
-        sql = "SELECT trace_json FROM traces_v2 WHERE run_id = ?"
-        params: list = [run_id]
-        if query_id is not None:
-            sql += " AND query_id = ?"
-            params.append(query_id)
-        sql += " ORDER BY timestamp, trace_id"
-        if limit is not None:
-            sql += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
+        clauses: list[str] = []
+        params: list[object] = []
+        for column, value in (
+            ("service_id", query.service_id), ("run_id", query.run_id),
+            ("pipeline_id", query.pipeline_id), ("query_id", query.query_id),
+            ("status", query.status), ("topology_hash", query.topology_hash),
+        ):
+            if value is not None:
+                clauses.append(f"{column} = ?")
+                params.append(value)
+        if query.since is not None:
+            clauses.append("timestamp >= ?")
+            params.append(query.since.isoformat())
+        if query.until is not None:
+            clauses.append("timestamp <= ?")
+            params.append(query.until.isoformat())
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id LIMIT ? OFFSET ?"
+        params.extend((query.limit, query.offset))
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
-        return [RetrievalTraceV2.from_dict(json.loads(row[0])) for row in rows]
+        return [RetrievalTrace.from_dict(json.loads(row[0])) for row in rows]
+
+    async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
+        return await self.list_traces(TraceQuery(run_id=run_id))
+
+    async def list_services(self) -> List[ServiceSummary]:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT service_id, COUNT(*), MAX(timestamp) FROM traces GROUP BY service_id ORDER BY MAX(timestamp) DESC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [ServiceSummary(row[0], int(row[1]), datetime.fromisoformat(row[2]) if row[2] else None) for row in rows]
+
+    async def list_topology_variants(self, query: TraceQuery) -> List[TopologyVariant]:
+        traces = await self.list_traces(query)
+        grouped: Dict[str, List[RetrievalTrace]] = {}
+        for trace in traces:
+            grouped.setdefault(trace.topology_hash(), []).append(trace)
+        return [
+            TopologyVariant(key, len(items), tuple(sorted({span.op_id for trace in items for span in trace.spans})))
+            for key, items in sorted(grouped.items())
+        ]
+
+    async def save_instrumentation_health(self, snapshot: InstrumentationHealth) -> None:
+        await self._ensure_schema()
+        observed_at = snapshot.observed_at or datetime.now(timezone.utc)
+        payload = {**snapshot.__dict__, "observed_at": observed_at.isoformat()}
+        if snapshot.last_export_at is not None:
+            payload["last_export_at"] = snapshot.last_export_at.isoformat()
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO instrumentation_health (service_id, observed_at, health_json) VALUES (?, ?, ?)",
+                (snapshot.service_id, observed_at.isoformat(), json.dumps(payload, sort_keys=True)),
+            )
+            await db.commit()
+
+    async def get_instrumentation_health(self, service_id: str) -> Optional[InstrumentationHealth]:
+        await self._ensure_schema()
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(
+                "SELECT health_json FROM instrumentation_health WHERE service_id = ? ORDER BY observed_at DESC LIMIT 1",
+                (service_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if not row:
+            return None
+        payload = json.loads(row[0])
+        payload["observed_at"] = datetime.fromisoformat(payload["observed_at"])
+        if payload.get("last_export_at"):
+            payload["last_export_at"] = datetime.fromisoformat(payload["last_export_at"])
+        return InstrumentationHealth(**payload)
 
     async def save_doc_edge(
         self,
@@ -568,72 +553,6 @@ class SQLiteStore:
             )
             await db.commit()
 
-    async def get_results(self, run_id: str) -> List[PipelineResult]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM raw_results WHERE run_id = ? ORDER BY pipeline_id, query_id, stage_index, COALESCE(branch_id, '')",
-                (run_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-
-        # Group rows into PipelineResult objects
-        grouped: Dict[tuple, list] = {}
-        for row in rows:
-            key = (row["pipeline_id"], row["query_id"])
-            grouped.setdefault(key, []).append(row)
-
-        results = []
-        for (pipeline_id, query_id), stage_rows in grouped.items():
-            snapshots = []
-            snap_by_stage: Dict[int, StageSnapshot] = {}
-            status = "OK"
-            error_traceback = None
-            total_latency = 0.0
-            envelope_latency = None
-            for row in stage_rows:
-                if row["stage_index"] == -1 and row["stage_id"] == "__pipeline__":
-                    status = row["status"]
-                    error_traceback = row["error_traceback"]
-                    envelope_latency = row["latency_ms"]
-                    continue
-                doc_ids = json.loads(row["retrieved_doc_ids_json"])
-                scores = json.loads(row["retrieved_scores_json"])
-                docs = [
-                    Document(id=did, text="", score=s, rank=i + 1)
-                    for i, (did, s) in enumerate(zip(doc_ids, scores))
-                ]
-                branch_id = row["branch_id"] if "branch_id" in row.keys() else None
-                snapshot = StageSnapshot(
-                    stage_index=row["stage_index"],
-                    stage_id=row["stage_id"] or f"stage_{row['stage_index']}",
-                    documents=docs,
-                    latency_ms=row["latency_ms"],
-                    profiling=json.loads(row["profiling_json"] or "{}"),
-                    candidate_count=row["candidate_count"] or len(docs),
-                )
-                if branch_id:
-                    parent = snap_by_stage.get(row["stage_index"])
-                    if parent is not None:
-                        parent.arms.append(snapshot)
-                    continue
-                snapshots.append(snapshot)
-                snap_by_stage[row["stage_index"]] = snapshot
-                total_latency += row["latency_ms"]
-                status = row["status"]
-                error_traceback = row["error_traceback"]
-            results.append(
-                PipelineResult(
-                    query_id=query_id,
-                    pipeline_id=pipeline_id,
-                    snapshots=snapshots,
-                    total_latency_ms=envelope_latency if envelope_latency is not None else total_latency,
-                    status=status,
-                    error_traceback=error_traceback,
-                )
-            )
-        return results
-
     async def get_metrics(self, run_id: str) -> List[Dict]:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -656,18 +575,7 @@ class SQLiteStore:
         counts: Dict[str, int] = {}
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT status, COUNT(*) FROM traces_v2 WHERE run_id = ? GROUP BY status",
-                (run_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-        if rows:
-            for status, count in rows:
-                counts[str(status)] = int(count)
-            return counts
-
-        async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(
-                "SELECT status, COUNT(*) FROM raw_results WHERE run_id = ? AND stage_index = -1 GROUP BY status",
+                "SELECT status, COUNT(*) FROM traces WHERE run_id = ? GROUP BY status",
                 (run_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
@@ -796,6 +704,44 @@ class SQLiteStore:
             item["diagnostic_evidence"] = json.loads(item.pop("diagnostic_evidence_json", "[]"))
             result.append(item)
         return result
+
+    async def save_diagnostics(self, run_id: str, query_id: str, findings) -> None:
+        if not findings:
+            return
+        trace_id = next((f.evidence.trace_ids[0] for f in findings if f.evidence and f.evidence.trace_ids), "")
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.executemany(
+                """INSERT OR REPLACE INTO diagnostic_findings
+                   (run_id, query_id, trace_id, label, availability, method_id, method_version, evidence_class, finding_order, finding_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(run_id, query_id, trace_id, f.label,
+                  f.availability.value, f.evidence.method_id if f.evidence else None,
+                  f.evidence.method_version if f.evidence else None, f.evidence.evidence_class if f.evidence else None,
+                  index, json.dumps(f.to_dict())) for index, f in enumerate(findings)],
+            )
+            await db.commit()
+        await self.save_query_diagnostics([{
+            "run_id": run_id,
+            "query_id": query_id,
+            "pipeline_id": "typed_findings",
+            "difficulty_bucket": "unknown",
+            "failure_labels": [f.label for f in findings if f.availability.value == "supported"],
+            "missing_relevant_ids": [],
+            "stage_hits": {},
+            "diagnostic_evidence": [f.to_dict() for f in findings],
+        }])
+
+    async def query_diagnostics(self, run_id: str, query_id: Optional[str] = None):
+        from retrieval_observatory.diagnostics.model import DiagnosticFinding
+        sql, params = "SELECT finding_json FROM diagnostic_findings WHERE run_id = ?", [run_id]
+        if query_id is not None:
+            sql += " AND query_id = ?"
+            params.append(query_id)
+        sql += " ORDER BY query_id, trace_id, finding_order"
+        async with aiosqlite.connect(self.db_path) as db:
+            async with db.execute(sql, params) as cursor:
+                rows = await cursor.fetchall()
+        return [DiagnosticFinding.from_dict(json.loads(row[0])) for row in rows]
 
     async def save_run_queries(
         self,
@@ -1011,138 +957,14 @@ class SQLiteStore:
             result.append(d)
         return result
 
-    # ───────────────────────── TraceLens ─────────────────────────
-
-    async def save_trace(self, trace) -> None:
-        await self.save_traces_batch([trace])
-
-    async def save_traces_batch(self, traces) -> None:
-        await self._ensure_schema()
+    async def purge_traces(self, query: TraceQuery) -> int:
+        traces = await self.list_traces(query)
+        if not traces:
+            return 0
         async with aiosqlite.connect(self.db_path) as db:
-            for t in traces:
-                await db.execute(
-                    "INSERT OR REPLACE INTO traces (trace_id, service, query_id, query_text, pipeline_id, "
-                    "status, total_latency_ms, timestamp, predicted_difficulty, suspected_failures_json, metadata_json) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        t.trace_id, t.service, t.query_id, t.query_text, t.pipeline_id,
-                        t.status, t.total_latency_ms, t.timestamp.isoformat(),
-                        t.predicted_difficulty, json.dumps(t.suspected_failures),
-                        json.dumps(t.metadata),
-                    ),
-                )
-                await db.execute("DELETE FROM trace_stages WHERE trace_id = ?", (t.trace_id,))
-                for s in t.snapshots:
-                    docs = [
-                        {"id": d.id, "text": getattr(d, "text", ""), "score": d.score,
-                         "rank": d.rank, "title": getattr(d, "title", "")}
-                        for d in s.documents
-                    ]
-                    await db.execute(
-                        "INSERT INTO trace_stages (trace_id, stage_index, stage_id, latency_ms, candidate_count, documents_json) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (t.trace_id, s.stage_index, s.stage_id, s.latency_ms,
-                         s.candidate_count or len(s.documents), json.dumps(docs)),
-                    )
+            await db.executemany("DELETE FROM traces WHERE trace_id = ?", [(trace.trace_id,) for trace in traces])
             await db.commit()
-
-    async def list_services(self) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT service, COUNT(*) AS trace_count, MAX(timestamp) AS last_seen "
-                "FROM traces GROUP BY service ORDER BY last_seen DESC"
-            ) as cursor:
-                rows = await cursor.fetchall()
-        return [dict(r) for r in rows]
-
-    async def list_traces(
-        self,
-        service: str,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        status: Optional[str] = None,
-        difficulty: Optional[str] = None,
-        suspected_only: bool = False,
-        limit: int = 200,
-        offset: int = 0,
-    ) -> List[Dict]:
-        where = ["service = ?"]
-        params: List = [service]
-        if since:
-            where.append("timestamp >= ?")
-            params.append(since)
-        if until:
-            where.append("timestamp <= ?")
-            params.append(until)
-        if status:
-            where.append("status = ?")
-            params.append(status)
-        if difficulty:
-            where.append("predicted_difficulty = ?")
-            params.append(difficulty)
-        if suspected_only:
-            where.append("suspected_failures_json != '[]'")
-        sql = (
-            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
-            "timestamp, predicted_difficulty, suspected_failures_json, metadata_json FROM traces WHERE "
-            + " AND ".join(where) + " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-        )
-        params.extend([limit, offset])
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(params)) as cursor:
-                rows = await cursor.fetchall()
-        return [self._trace_row_to_dict(dict(r)) for r in rows]
-
-    async def get_trace(self, trace_id: str) -> Optional[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
-                "timestamp, predicted_difficulty, suspected_failures_json, metadata_json FROM traces WHERE trace_id = ?",
-                (trace_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-            if not row:
-                return None
-            d = self._trace_row_to_dict(dict(row))
-            async with db.execute(
-                "SELECT stage_index, stage_id, latency_ms, candidate_count, documents_json "
-                "FROM trace_stages WHERE trace_id = ? ORDER BY stage_index",
-                (trace_id,),
-            ) as cursor:
-                stage_rows = await cursor.fetchall()
-        stages = []
-        for sr in stage_rows:
-            sd = dict(sr)
-            try:
-                sd["documents"] = json.loads(sd.pop("documents_json", "[]"))
-            except Exception:
-                sd["documents"] = []
-            stages.append(sd)
-        d["stages"] = stages
-        return d
-
-    async def purge_traces(self, service: Optional[str] = None, older_than: Optional[str] = None) -> int:
-        where = []
-        params: List = []
-        if service:
-            where.append("service = ?")
-            params.append(service)
-        if older_than:
-            where.append("timestamp < ?")
-            params.append(older_than)
-        clause = (" WHERE " + " AND ".join(where)) if where else ""
-        async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute("SELECT trace_id FROM traces" + clause, tuple(params)) as cursor:
-                ids = [r[0] for r in await cursor.fetchall()]
-            await db.execute("DELETE FROM traces" + clause, tuple(params))
-            if ids:
-                qmarks = ",".join("?" for _ in ids)
-                await db.execute(f"DELETE FROM trace_stages WHERE trace_id IN ({qmarks})", tuple(ids))
-            await db.commit()
-        return len(ids)
+        return len(traces)
 
     async def save_reliability_snapshot(self, run_id: str, value: float, components: Dict) -> None:
         async with aiosqlite.connect(self.db_path) as db:
@@ -1175,7 +997,7 @@ class SQLiteStore:
         return out
 
     async def get_query_lineage(self, query_id: str) -> Dict:
-        """Assemble one query's lifecycle across Forge, benchmarks, and production (categorical)."""
+        """Assemble one query's lifecycle across Test Sets, benchmarks, and production (categorical)."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
@@ -1267,6 +1089,11 @@ class SQLiteStore:
                 ),
                 "match_difficulty": match_difficulty,
                 "match_failure_labels": match_failures,
+                "summary": {
+                    "trace_count": len(production_traces),
+                    "service_count": len({trace.get("service") for trace in production_traces}),
+                    "failure_labels": sorted({label for trace in production_traces for label in trace.get("suspected_failures", [])}),
+                },
                 "traces": production_traces,
             },
         }
@@ -1279,34 +1106,24 @@ class SQLiteStore:
     ) -> List[Dict]:
         if not difficulty and not failure_labels:
             return []
-        where = []
-        params: List = []
-        if difficulty:
-            where.append("predicted_difficulty = ?")
-            params.append(difficulty)
-        sql = (
-            "SELECT trace_id, service, query_id, query_text, pipeline_id, status, total_latency_ms, "
-            "timestamp, predicted_difficulty, suspected_failures_json FROM traces"
-        )
-        if where:
-            sql += " WHERE " + " AND ".join(where)
-        sql += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit * 5)
+        sql = "SELECT trace_json FROM traces WHERE run_id IS NULL ORDER BY timestamp DESC LIMIT ?"
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(params)) as cursor:
+            async with db.execute(sql, (limit * 5,)) as cursor:
                 rows = await cursor.fetchall()
         matched = []
         label_set = set(failure_labels)
         for row in rows:
-            d = dict(row)
-            try:
-                suspected = json.loads(d.pop("suspected_failures_json", "[]"))
-            except Exception:
-                suspected = []
+            trace = RetrievalTrace.from_dict(json.loads(row["trace_json"]))
+            d = trace.to_dict()
+            suspected = list(trace.metadata.get("suspected_failures", ()))
+            predicted = trace.metadata.get("predicted_difficulty")
+            if difficulty and predicted != difficulty:
+                continue
             if label_set and not (label_set & set(suspected)):
                 continue
             d["suspected_failures"] = suspected
+            d["predicted_difficulty"] = predicted
             matched.append(d)
             if len(matched) >= limit:
                 break

@@ -9,12 +9,12 @@ from fastapi.testclient import TestClient
 from retrieval_observatory.dashboard.api import create_app
 from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 RUN_ID = "run1"
 
 
-def _trace(query_id: str, *, filter_drops: bool) -> RetrievalTraceV2:
+def _trace(query_id: str, *, filter_drops: bool) -> RetrievalTrace:
     """SOURCE -> FILTER, where FILTER sometimes drops the gold doc "d2"."""
     source = OperatorSpan(
         op_id="source_bm25", op_type="SOURCE", op_name="bm25", parent_ids=[],
@@ -30,9 +30,9 @@ def _trace(query_id: str, *, filter_drops: bool) -> RetrievalTraceV2:
         status="FIRED", deterministic=True, replay_policy="EXACT", latency_ms=1.0,
         inputs=source.outputs, outputs=kept,
     )
-    return RetrievalTraceV2(
-        trace_id=f"t_{query_id}", run_id=RUN_ID, query_id=query_id, query_text="q",
-        pipeline_id="p", spans=[source, filt], total_latency_ms=2.0, final_op_id=filt.op_id,
+    return RetrievalTrace(
+        trace_id=f"t_{query_id}", service_id="svc", run_id=RUN_ID, query_id=query_id, query_text="q",
+        pipeline_id="p", spans=[source, filt], timing=TraceTiming(2.0, 2.0, 2.0), final_op_id=filt.op_id,
     )
 
 
@@ -45,7 +45,7 @@ async def seeded_db(tmp_path: Path) -> Path:
     # d2 is the gold doc; FILTER drops it for half the queries -- a real, measurable effect.
     await store.save_qrels(RUN_ID, {f"q{i}": {"d2": 1} for i in range(20)})
     for i in range(20):
-        await store.save_trace_v2(_trace(f"q{i}", filter_drops=(i % 2 == 0)))
+        await store.save_trace(_trace(f"q{i}", filter_drops=(i % 2 == 0)))
     return db_path
 
 
@@ -80,7 +80,7 @@ async def test_operator_attribution_empty_without_qrels(tmp_path: Path) -> None:
     store = SQLiteStore(db_path=str(db_path))
     await store.init_db()
     await store.save_run(RUN_ID, "no-qrels-test", json.dumps({"dataset": {"name": "custom"}}))
-    await store.save_trace_v2(_trace("q0", filter_drops=True))
+    await store.save_trace(_trace("q0", filter_drops=True))
 
     registry = DbRegistry([str(db_path)])
     app = create_app(registry=registry, enable_uploads=False)

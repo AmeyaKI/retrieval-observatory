@@ -1,9 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from dataclasses import dataclass, replace
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
-from retrieval_observatory.tracing.model_v2 import Candidate
+from retrieval_observatory.tracing.model import Candidate
+
+
+@dataclass(frozen=True)
+class CandidateTransition:
+    input_groups: dict[str, tuple[Candidate, ...]]
+    outputs: tuple[Candidate, ...]
+
+    @property
+    def inputs(self) -> tuple[Candidate, ...]:
+        return tuple(candidate for candidates in self.input_groups.values() for candidate in candidates)
+
+    def __iter__(self):
+        # Temporary internal convenience while execution consumers move to the
+        # canonical grouped fields in Phase B.
+        yield list(self.inputs)
+        yield list(self.outputs)
 
 
 _DROP_REASON_BY_OP_TYPE = {
@@ -30,7 +46,7 @@ _ADD_REASON_BY_OP_TYPE = {
 def clone_candidate(candidate: Candidate) -> Candidate:
     return replace(
         candidate,
-        origin_op_ids=list(candidate.origin_op_ids),
+        origin_op_ids=tuple(candidate.origin_op_ids),
         score_components=dict(candidate.score_components),
         metadata=dict(candidate.metadata),
     )
@@ -81,14 +97,16 @@ def build_candidate_transition(
     output_items: Iterable[Any],
     op_id: str,
     op_type: str,
-) -> Tuple[List[Candidate], List[Candidate]]:
+) -> CandidateTransition:
     """Build an immutable before/after candidate transition for one operator."""
     output_rows = [_item_fields(item, index) for index, item in enumerate(output_items, start=1)]
     output_rank_by_id = {doc_id: rank for doc_id, _, rank, _ in output_rows}
 
     inputs: List[Candidate] = []
+    normalized_groups: Dict[str, List[Candidate]] = {}
     inputs_by_doc: Dict[str, List[tuple[str, Candidate]]] = {}
     for parent_id, candidates in input_groups.items():
+        normalized_groups[parent_id] = []
         for candidate in candidates:
             copied = clone_candidate(candidate)
             copied.input_rank = candidate.output_rank if candidate.output_rank is not None else candidate.rank
@@ -98,6 +116,7 @@ def build_candidate_transition(
             if copied.output_rank is None:
                 copied.drop_reason = _DROP_REASON_BY_OP_TYPE.get(op_type, "unknown")  # type: ignore[assignment]
             inputs.append(copied)
+            normalized_groups[parent_id].append(copied)
             inputs_by_doc.setdefault(candidate.doc_id, []).append((parent_id, candidate))
 
     outputs: List[Candidate] = []
@@ -141,4 +160,7 @@ def build_candidate_transition(
             )
         )
 
-    return inputs, outputs
+    return CandidateTransition(
+        input_groups={parent: tuple(candidates) for parent, candidates in normalized_groups.items()},
+        outputs=tuple(outputs),
+    )

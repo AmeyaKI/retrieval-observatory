@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 # boundary (priority-1 accuracy guardrail). See pipeline_graph.schema.json for the frozen
 # JSON schema both the Python producer and the TypeScript consumer validate against.
 
-# Operator taxonomy shared with tracing.model_v2.OperatorType.
+# Operator taxonomy shared with tracing.model.OperatorType.
 OP_TYPES = ("SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE")
 
 
@@ -71,6 +71,7 @@ class PipelineGraphNode:
     is_merge: bool = False
     source: str = "measured"
     input_candidate_count: float = 0.0
+    parent_candidate_counts: Dict[str, float] = field(default_factory=dict)
     observed_count: int = 0
     trace_coverage: float = 0.0
     fire_rate: float = 0.0
@@ -94,6 +95,7 @@ class PipelineGraphNode:
             "is_merge": self.is_merge,
             "source": self.source,
             "input_candidate_count": self.input_candidate_count,
+            "parent_candidate_counts": dict(self.parent_candidate_counts),
             "observed_count": self.observed_count,
             "trace_coverage": self.trace_coverage,
             "fire_rate": self.fire_rate,

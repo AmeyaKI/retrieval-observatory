@@ -6,6 +6,7 @@ from retrieval_observatory.pipeline.single import SingleStagePipeline
 from retrieval_observatory.runner.benchmark import BenchmarkRunner
 from retrieval_observatory.runner.scheduler import interleave_tasks
 from retrieval_observatory.store.sqlite import SQLiteStore
+from retrieval_observatory.store.base import TraceQuery
 from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
@@ -55,7 +56,7 @@ async def test_runner_stores_all_results(tmp_path):
     results = await runner.run(pipelines=[pipeline], queries=queries, run_id="run1")
 
     assert len(results["p1"]) == 5
-    stored = await store.get_results("run1")
+    stored = await store.list_traces(TraceQuery(run_id="run1"))
     assert len(stored) == 5
 
 
@@ -72,6 +73,6 @@ async def test_runner_captures_timeout(tmp_path):
     results = await runner.run(pipelines=[pipeline], queries=queries, run_id="run1")
 
     assert results["p_slow"][0].status == "TIMEOUT"
-    stored = await store.get_results("run1")
+    stored = await store.list_traces(TraceQuery(run_id="run1"))
     assert len(stored) == 1
     assert stored[0].status == "TIMEOUT"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { RetrievalTraceV2 } from '../api'
+import { RetrievalTrace } from '../api'
 import { relevantDocumentOutcomes } from './queryDebugger'
 
 const candidate = (doc_id: string, rank: number) => ({
@@ -7,7 +7,7 @@ const candidate = (doc_id: string, rank: number) => ({
   origin_op_ids: ['source'], score_components: {}, add_reason: 'retrieved', drop_reason: null, metadata: {},
 })
 
-const trace: RetrievalTraceV2 = {
+const trace: RetrievalTrace = {
   trace_id: 't', run_id: 'r', query_id: 'q', query_text: 'query', pipeline_id: 'p',
   total_latency_ms: 2, status: 'OK', timestamp: '', metadata: {}, error_traceback: null, final_op_id: 'filter',
   spans: [

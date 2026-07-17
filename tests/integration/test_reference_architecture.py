@@ -13,7 +13,7 @@ from retrieval_observatory.tracing.attribution import (
     operator_marginal_contribution,
     segment_key,
 )
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 from retrieval_observatory.tracing.replay import attribute_miss, without_operator
 
 
@@ -26,7 +26,7 @@ def _build_reference_trace(
     intent: str = "navigational",
     entity_type: str = "person",
     gate_fired: bool = True,
-) -> RetrievalTraceV2:
+) -> RetrievalTrace:
     """Build a production-shaped trace with the full operator zoo."""
     intent_gate = OperatorSpan(
         op_id="intent_gate", op_type="GATE", op_name="Intent Detection",
@@ -89,7 +89,7 @@ def _build_reference_trace(
         op_id="entity_expand", op_type="EXPAND", op_name="Entity Expansion",
         parent_ids=["rrf_fuse"], status="FIRED" if gate_fired else "SKIPPED_BY_GATE",
         deterministic=True, replay_policy="EXACT", latency_ms=8.0,
-        inputs=list(rrf_fuse.outputs),
+        input_groups={"rrf_fuse": tuple(rrf_fuse.outputs)},
         outputs=list(rrf_fuse.outputs) + [
             _candidate("d7", 0.4, 7, ["entity_expand"], add_reason="expanded"),
         ],
@@ -99,14 +99,14 @@ def _build_reference_trace(
         parent_ids=["entity_expand"], status="FIRED",
         deterministic=True, replay_policy="EXACT", latency_ms=1.0,
         input_variant="context_prefixed",
-        inputs=list(expand.outputs),
+        input_groups={"entity_expand": tuple(expand.outputs)},
         outputs=list(expand.outputs),
     )
     reranker = OperatorSpan(
         op_id="reranker", op_type="RERANK", op_name="Cross-Encoder Rerank",
         parent_ids=["context_prefix"], status="FIRED",
         deterministic=False, replay_policy="OBSERVED_ABLATION", latency_ms=50.0,
-        inputs=list(transform.outputs),
+        input_groups={"context_prefix": tuple(transform.outputs)},
         outputs=[
             _candidate("d1", 0.99, 1, ["bm25", "dense"]),
             _candidate("d2", 0.95, 2, ["bm25", "dense"]),
@@ -119,7 +119,7 @@ def _build_reference_trace(
         op_id="temporal_boost", op_type="BOOST", op_name="Temporal Boost",
         parent_ids=["reranker"], status="FIRED",
         deterministic=True, replay_policy="EXACT", latency_ms=1.0,
-        inputs=list(reranker.outputs),
+        input_groups={"reranker": tuple(reranker.outputs)},
         outputs=[
             _candidate("d1", 1.2, 1, ["bm25", "dense"],
                        score_components={"pre_boost": 0.99, "boost": 0.21}),
@@ -134,8 +134,9 @@ def _build_reference_trace(
         ],
     )
 
-    return RetrievalTraceV2(
+    return RetrievalTrace(
         trace_id=f"ref_{query_id}",
+        service_id="reference",
         run_id="ref_run",
         query_id=query_id,
         query_text=f"query {query_id}",
@@ -145,8 +146,8 @@ def _build_reference_trace(
             recency_source, rrf_fuse, expand, transform, reranker,
             temporal_boost,
         ],
-        total_latency_ms=120.0,
-        final_op_id="temporal_boost",
+        timing=TraceTiming(120.0, 120.0, 120.0),
+        final_op_ids=("temporal_boost",),
     )
 
 
@@ -250,34 +251,8 @@ class TestReferenceArchitecture:
         await store.init_db()
 
         trace = _build_reference_trace()
-        await store.save_trace_v2(trace)
-        loaded = await store.get_trace_v2(trace.trace_id)
+        await store.save_trace(trace)
+        loaded = await store.get_trace(trace.trace_id)
         assert loaded is not None
-        assert loaded.final_op_id == "temporal_boost"
+        assert loaded.final_op_ids == ("temporal_boost",)
         assert len(loaded.spans) == 10
-
-    @pytest.mark.asyncio
-    async def test_migration_roundtrip(self, tmp_path) -> None:
-        """Verify migrate_run_to_v2 produces valid traces."""
-        from retrieval_observatory.store.sqlite import SQLiteStore
-        from retrieval_observatory.store.migrate import migrate_run_to_v2, verify_migration_parity
-        from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
-
-        store = SQLiteStore(db_path=str(tmp_path / "migrate.db"))
-        await store.init_db()
-        run_id = "migrate_test"
-        await store.save_run(run_id, "test", "{}")
-
-        docs = [Document(id=f"d{i}", text="", score=1.0 - i * 0.1, rank=i + 1) for i in range(5)]
-        snap = StageSnapshot(stage_index=0, stage_id="bm25", documents=docs, latency_ms=10.0)
-        result = PipelineResult(
-            query_id="q1", pipeline_id="p1", snapshots=[snap],
-            total_latency_ms=10.0, status="OK",
-        )
-        await store.save_result(run_id, result)
-
-        count = await migrate_run_to_v2(run_id, store)
-        assert count == 1
-
-        parity = await verify_migration_parity(run_id, store)
-        assert parity["parity"] is True

@@ -7,17 +7,20 @@ import Distribution from './tracelens/Distribution'
 import DriftExplorer from './tracelens/DriftExplorer'
 import Hotspots from './tracelens/Hotspots'
 import Clusters from './tracelens/Clusters'
+import TopologyVariants from './tracelens/TopologyVariants'
+import { useDashboardContext } from '../context/DashboardContext'
 
 interface Props {
   route: string // service name, if any
   dbId: string
 }
 
-type View = 'overview' | 'traces' | 'distribution' | 'drift' | 'hotspots' | 'clusters'
+type View = 'overview' | 'traces' | 'architecture' | 'distribution' | 'drift' | 'hotspots' | 'clusters'
 
 const VIEWS: { id: View; label: string; desc: string }[] = [
   { id: 'overview', label: 'Overview', desc: 'Headline KPIs for this window' },
   { id: 'traces', label: 'Live Traces', desc: 'Inspect individual requests' },
+  { id: 'architecture', label: 'Architecture', desc: 'Search observed topology variants' },
   { id: 'distribution', label: 'Distribution', desc: 'How traffic is shaped' },
   { id: 'drift', label: 'Drift', desc: 'What changed over time' },
   { id: 'hotspots', label: 'Failure Hotspots', desc: 'Where suspected failures cluster' },
@@ -32,16 +35,18 @@ const WINDOWS: { label: string; hours: number | null }[] = [
 ]
 
 export default function TraceLensWorkspace({ route, dbId }: Props) {
+  const { selection, updateSelection } = useDashboardContext()
+  const [routeService, routeView] = route.split('/')
   const [services, setServices] = useState<TraceService[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [view, setView] = useState<View>('overview')
-  const [windowIdx, setWindowIdx] = useState(1) // default Last 7d
+  const [view, setView] = useState<View>((VIEWS.some(item => item.id === routeView) ? routeView : 'overview') as View)
+  const [windowIdx, setWindowIdx] = useState(Math.max(0, ['24h','7d','30d','all'].indexOf(selection.window)))
 
   useEffect(() => {
     fetchTraceServices(dbId).then(setServices).catch((e) => setError(e.message))
   }, [dbId])
 
-  const activeService = route || services[0]?.service || null
+  const activeService = routeService || selection.service || services[0]?.service || null
 
   const since = useMemo(() => {
     const h = WINDOWS[windowIdx].hours
@@ -50,8 +55,11 @@ export default function TraceLensWorkspace({ route, dbId }: Props) {
   }, [windowIdx])
 
   const selectService = (svc: string) => {
-    window.location.hash = `#/production/${svc}`
+    updateSelection({ service: svc })
+    window.location.hash = `#/production/${svc}/${view}?${new URLSearchParams(window.location.hash.split('?')[1] || '').toString()}`
   }
+
+  const selectView = (next: View) => { setView(next); window.location.hash = `#/production/${activeService}/${next}?${new URLSearchParams(window.location.hash.split('?')[1] || '').toString()}` }
 
   if (error) {
     return (
@@ -112,7 +120,7 @@ export default function TraceLensWorkspace({ route, dbId }: Props) {
               <button
                 key={v.id}
                 type="button"
-                onClick={() => setView(v.id)}
+                onClick={() => selectView(v.id)}
                 className={`w-full text-left rounded-lg px-3 py-2 transition-colors ${
                   active ? 'bg-teal-50 text-teal-800' : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50'
                 }`}
@@ -151,7 +159,7 @@ export default function TraceLensWorkspace({ route, dbId }: Props) {
                 <button
                   key={w.label}
                   type="button"
-                  onClick={() => setWindowIdx(i)}
+                  onClick={() => { setWindowIdx(i); updateSelection({ window: (['24h','7d','30d','all'][i] as '24h'|'7d'|'30d'|'all') }) }}
                   className={`px-2.5 py-1 rounded text-xs border ${
                     i === windowIdx ? 'border-teal-300 bg-teal-50 text-teal-700' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-500 dark:text-slate-400 hover:border-gray-300'
                   }`}
@@ -164,6 +172,7 @@ export default function TraceLensWorkspace({ route, dbId }: Props) {
 
           {view === 'overview' && <TraceLensOverview dbId={dbId} service={activeService} since={since} />}
           {view === 'traces' && <LiveTraces dbId={dbId} service={activeService} since={since} />}
+          {view === 'architecture' && <TopologyVariants dbId={dbId} service={activeService} />}
           {view === 'distribution' && <Distribution dbId={dbId} service={activeService} since={since} />}
           {view === 'drift' && <DriftExplorer dbId={dbId} service={activeService} />}
           {view === 'hotspots' && <Hotspots dbId={dbId} service={activeService} since={since} />}

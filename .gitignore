@@ -25,6 +25,8 @@ TODO
 
 # Docs (project-specific)
 *.md
+!retobs_audit_remediation/
+!retobs_audit_remediation/**/*.md
 !README.md
 !RESULTS.md
 !GOALS.md
@@ -49,3 +51,4 @@ docs/verification/
 .archive/
 .prompts/
 .claude/
+*.png

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "patterns": {
+    "\\bwire_project\\b": "use integrate_project",
+    "\\bbootstrap_project\\b": "use integrate_project",
+    "\\bplan_integration\\b": "use integrate_project phase plan",
+    "\\bretobs wire\\b": "use retobs integrate",
+    "\\bretobs quickstart\\b": "use retobs integrate or retobs demo",
+    "\\b(?:TraceRecorderV2|LegacyTraceRecorder)\\b": "use the sole TraceRecorder",
+    "\\bTraceLens\\b": "use Production",
+    "\\bForge\\b": "use Test Sets",
+    "\\bAdvisor\\b": "use findings or compare",
+    "\\bBenchmarks\\b": "use Runs or evaluations",
+    "deprecated=True": "delete the deprecated registration",
+    "removed in v1\\.0": "delete the compatibility message",
+    "legacy (alias|surface|reader|route|recorder|trace)": "delete the compatibility implementation"
+  },
+  "scan_roots": [
+    "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "docs",
+    "examples",
+    "retrieval_observatory",
+    "tests"
+  ],
+  "exclude": [
+    ".archive",
+    ".git",
+    ".pytest_cache",
+    ".venv",
+    "CHANGELOG.md",
+    "docs/PRODUCT_AUDIT_AND_REDESIGN.md",
+    "docs/superpowers",
+    "docs/verification",
+    "node_modules",
+    "retobs_audit_remediation"
+  ]
+}

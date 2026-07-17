@@ -1,4 +1,4 @@
-"""Query clustering for TraceLens traffic segmentation.
+"""Query clustering for Production traffic segmentation.
 
 Uses TF-IDF + agglomerative clustering on query text when scikit-learn is available
 (semantic similarity without per-trace embedding storage). Falls back to

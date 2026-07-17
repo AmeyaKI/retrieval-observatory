@@ -295,13 +295,13 @@ def generate_testset(
     k: int = 10,
     validate: bool = True,
 ):
-    """Synthesize a benchmark test set (queries + ground truth) from your corpus via Forge.
+    """Synthesize a benchmark test set (queries + ground truth) from your corpus via Test Sets.
 
     Returns an in-memory dataset object usable directly as `benchmark(..., dataset=<here>)`.
     The default `query_types` are rule-based and need no API key; pass `provider=` (and an
     api key / env var) to enable LLM query types like paraphrase/temporal/adversarial.
 
-    When ``validate=True`` (default), Forge expands extractive qrels with an LLM judge when
+    When ``validate=True`` (default), Test Sets expands extractive qrels with an LLM judge when
     a provider or ``GOOGLE_API_KEY`` / ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` is available.
     """
     return _run_sync(
@@ -413,7 +413,7 @@ async def _generate_testset_async(
 
 
 def _to_forge_corpus(corpus: Any) -> Dict[str, Dict]:
-    """Normalize a corpus into Forge's {doc_id: {"text": ...}} shape."""
+    """Normalize a corpus into Test Sets's {doc_id: {"text": ...}} shape."""
     if isinstance(corpus, dict):
         out: Dict[str, Dict] = {}
         for doc_id, value in corpus.items():

@@ -27,7 +27,7 @@ class Recommendation:
     rationale: str
     evidence: List[str]
     priority: int
-    # --- Advisor Evolution (Pillar 5): make each recommendation a planning input. ---
+    # --- Findings Evolution (Pillar 5): make each recommendation a planning input. ---
     # All optional: when a value cannot be estimated it stays None and the UI renders
     # "not estimated" rather than a fabricated number (Trust principle).
     estimated_quality_improvement: Optional[float] = None  # delta in `quality_metric` units

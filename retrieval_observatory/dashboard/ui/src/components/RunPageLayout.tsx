@@ -1,4 +1,6 @@
 import { Run } from '../api'
+import { useDashboardContext } from '../context/DashboardContext'
+import { serializeDashboardQuery } from '../context/dashboardQuery'
 
 // Shared page template (RETOBS_FINER_PLAN_PHASE2.md, Item B step 5): a plain wrapper
 // component, not a router feature -- one level of shared layout doesn't need router
@@ -17,9 +19,12 @@ export const RUN_PAGES: RunPage[] = [
   { id: 'tradeoffs', label: 'Tradeoffs' },
   { id: 'queries', label: 'Queries' },
   { id: 'documents', label: 'Documents' },
+  { id: 'analysis/gates', label: 'Analysis' },
 ]
 
 function RunNav({ runId, activePage }: { runId: string; activePage: string }) {
+  const { selection } = useDashboardContext()
+  const context = serializeDashboardQuery({ ...selection, run: runId })
   return (
     <nav
       className="sticky top-12 z-20 -mx-6 px-6 py-2 mb-4 bg-canvas/95 backdrop-blur border-b border-gray-200 dark:border-slate-700 overflow-x-auto"
@@ -27,8 +32,8 @@ function RunNav({ runId, activePage }: { runId: string; activePage: string }) {
     >
       <div className="flex gap-1 min-w-max">
         {RUN_PAGES.map((p) => {
-          const href = `#/runs/${encodeURIComponent(runId)}${p.id ? `/${p.id}` : ''}`
-          const active = p.id === activePage
+          const href = `#/runs/${encodeURIComponent(runId)}${p.id ? `/${p.id}` : ''}?${context}`
+          const active = p.id === activePage || p.id.startsWith(`${activePage}/`)
           return (
             <a
               key={p.id || 'overview'}

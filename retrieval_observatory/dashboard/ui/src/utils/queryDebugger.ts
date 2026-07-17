@@ -1,4 +1,4 @@
-import { RetrievalTraceV2 } from '../api'
+import { RetrievalTrace } from '../api'
 
 export interface RelevantDocumentOutcome {
   docId: string
@@ -12,14 +12,14 @@ export interface RelevantDocumentOutcome {
 }
 
 export function relevantDocumentOutcomes(
-  traces: RetrievalTraceV2[],
+  traces: RetrievalTrace[],
   relevantDocIds: string[],
 ): RelevantDocumentOutcome[] {
   return traces.flatMap((trace) => relevantDocIds.map((docId) => {
     let observed = false
     for (const span of trace.spans) {
-      const input = span.inputs.find((candidate) => candidate.doc_id === docId)
-      const output = span.outputs.find((candidate) => candidate.doc_id === docId)
+      const input = (span.inputs ?? []).find((candidate) => candidate.doc_id === docId)
+      const output = (span.outputs ?? []).find((candidate) => candidate.doc_id === docId)
       if (output) observed = true
       if (input && !output) {
         return {
@@ -35,7 +35,7 @@ export function relevantDocumentOutcomes(
       }
     }
     const finalSpan = trace.spans.find((span) => span.op_id === trace.final_op_id)
-    const finalCandidate = finalSpan?.outputs.find((candidate) => candidate.doc_id === docId)
+    const finalCandidate = (finalSpan?.outputs ?? []).find((candidate) => candidate.doc_id === docId)
     return {
       docId,
       traceId: trace.trace_id,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { fetchPipelineGraphs, fetchRunTraces, GraphMetricValue, PipelineGraph, PipelineGraphNode, RetrievalTraceV2 } from '../api'
+import { fetchPipelineGraphs, fetchRunTraces, GraphMetricValue, PipelineGraph, PipelineGraphNode, RetrievalTrace } from '../api'
 import { layoutPipelineGraph, LaidOutNode } from '../utils/dagLayout'
 import { fmtQuality, fmtLatencyMs } from '../utils/format'
 import { OP_ACCENT, OP_LABEL } from '../utils/opTypeColors'
@@ -17,15 +17,11 @@ function ci(v: GraphMetricValue | null | undefined): string {
 
 function MetricLine({ label, v, latency }: { label: string; v: GraphMetricValue | null | undefined; latency?: boolean }) {
   if (!v || v.mean == null) return null
-  const bounds = ci(v)
   return (
-    <div className="flex items-baseline justify-between gap-2 leading-tight">
-      <span className="text-ink-faint">{label}</span>
-      <span className="text-right">
-        <span className="font-mono tabular-nums text-ink">
-          {latency ? `${fmtLatencyMs(v.mean)} ms` : fmtQuality(v.mean)}
-        </span>
-        {bounds && <span className="block font-mono tabular-nums text-[9px] text-ink-faint">{bounds}</span>}
+    <div className="flex items-baseline justify-between gap-2 leading-tight whitespace-nowrap">
+      <span className="text-ink-faint shrink-0">{label}</span>
+      <span className="font-mono tabular-nums text-ink truncate" title={ci(v) || undefined}>
+        {latency ? `${fmtLatencyMs(v.mean)} ms` : fmtQuality(v.mean)}
       </span>
     </div>
   )
@@ -43,32 +39,47 @@ function NodeCard({
   const accent = OP_ACCENT[node.op_type] ?? OP_ACCENT.TRANSFORM
   const recallLabel = node.metrics.recall?.k ? `Recall@${node.metrics.recall.k}` : 'Recall'
   const status = Object.entries(node.status_counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'UNOBSERVED'
+  const tip = [
+    node.label,
+    `${node.op_type}${node.is_merge ? ' · merge' : ''}`,
+    status,
+    node.metrics['ndcg@10']?.mean != null ? `NDCG@10 ${fmtQuality(node.metrics['ndcg@10'].mean)}${ci(node.metrics['ndcg@10']) ? ` ${ci(node.metrics['ndcg@10'])}` : ''}` : null,
+    node.metrics.recall?.mean != null ? `${recallLabel} ${fmtQuality(node.metrics.recall.mean)}${ci(node.metrics.recall) ? ` ${ci(node.metrics.recall)}` : ''}` : null,
+    node.metrics.latency_p50?.mean != null ? `P50 ${fmtLatencyMs(node.metrics.latency_p50.mean)} ms` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
   return (
-    <foreignObject x={node.x} y={node.y} width={node.w} height={node.h}>
+    <foreignObject x={node.x} y={node.y} width={node.w} height={node.h} style={{ overflow: 'visible' }}>
       <button
         type="button"
         onClick={() => onSelect(node.node_id)}
-        className="h-full w-full rounded-xl px-3 py-2 flex flex-col gap-1 overflow-hidden text-left transition-shadow"
+        className="box-border h-full w-full rounded-xl px-2.5 py-2 flex flex-col gap-0.5 text-left transition-shadow"
         style={{
           background: accent.fill,
           border: `${selected ? 2.5 : 1.5}px solid ${selected ? accent.text : accent.stroke}`,
           boxShadow: selected ? `0 0 0 2px ${accent.fill}` : undefined,
+          width: node.w,
+          height: node.h,
         }}
-        title={`${node.op_type}${node.is_merge ? ' · merge point' : ''}`}
+        title={tip}
       >
-        <div className="flex items-center justify-between gap-1">
-          <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: accent.text }}>
+        <div className="flex items-center justify-between gap-1 min-w-0">
+          <span className="text-[9px] font-bold uppercase tracking-wide truncate" style={{ color: accent.text }}>
             {OP_LABEL[node.op_type] ?? node.op_type}
           </span>
           {node.is_merge && (
-            <span className="text-[8px] font-semibold rounded px-1 py-px" style={{ background: accent.stroke, color: '#fff' }}>
+            <span className="shrink-0 text-[8px] font-semibold rounded px-1 py-px" style={{ background: accent.stroke, color: '#fff' }}>
               MERGE
             </span>
           )}
         </div>
-        <div className="text-xs font-semibold text-ink truncate">{node.label}</div>
-        <div className="text-[9px] text-ink-muted">{status} · fire {(node.fire_rate * 100).toFixed(0)}%{node.cache_hits ? ` · ${node.cache_hits} cache hit(s)` : ''}</div>
-        <div className="text-[10px] space-y-0.5 mt-auto">
+        <div className="text-xs font-semibold text-ink leading-snug break-words line-clamp-2">{node.label}</div>
+        <div className="text-[9px] text-ink-muted truncate">
+          {status} · fire {(node.fire_rate * 100).toFixed(0)}%
+          {node.cache_hits ? ` · ${node.cache_hits} cache` : ''}
+        </div>
+        <div className="text-[10px] space-y-0.5 mt-auto min-w-0">
           <MetricLine label="NDCG@10" v={node.metrics['ndcg@10']} />
           <MetricLine label={recallLabel} v={node.metrics.recall} />
           <MetricLine label="P50" v={node.metrics.latency_p50} latency />
@@ -128,8 +139,15 @@ function GraphSvg({
   const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.node_id, n])), [graph.nodes])
 
   return (
-    <div className="overflow-x-auto">
-      <svg width={layout.width} height={layout.height} className="min-w-max" role="img" aria-label={`Pipeline graph for ${graph.pipeline_id}`}>
+    <div className="overflow-x-auto overflow-y-visible pb-2">
+      <svg
+        width={layout.width}
+        height={layout.height}
+        viewBox={`0 0 ${layout.width} ${layout.height}`}
+        className="min-w-max block"
+        role="img"
+        aria-label={`Pipeline graph for ${graph.pipeline_id}`}
+      >
         <defs>
           <marker id={`dag-arrow-${graph.pipeline_id}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
             <path d="M0,0 L8,4 L0,8 Z" fill="rgb(var(--ink-faint))" />
@@ -192,7 +210,7 @@ export default function PipelineDagView({ dbId, runId }: Props) {
   const [graphs, setGraphs] = useState<PipelineGraph[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [selectedByPipeline, setSelectedByPipeline] = useState<Record<string, string>>({})
-  const [traceOptions, setTraceOptions] = useState<RetrievalTraceV2[]>([])
+  const [traceOptions, setTraceOptions] = useState<RetrievalTrace[]>([])
   const [selectedTraceId, setSelectedTraceId] = useState('')
 
   useEffect(() => {

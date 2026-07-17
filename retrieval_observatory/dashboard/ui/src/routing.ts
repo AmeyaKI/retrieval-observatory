@@ -11,20 +11,6 @@ export interface RouteMatch {
   query: Record<string, string>
 }
 
-/** Translate legacy product-module hashes to the unified task navigation. */
-export function migrateLegacyPath(path: string): string {
-  const normalized = path.replace(/^#\/?/, '').replace(/^\//, '')
-  if (normalized === 'benchmarks') return 'runs'
-  if (normalized.startsWith('benchmarks/run/')) return `runs/${normalized.slice('benchmarks/run/'.length)}`
-  if (normalized === 'forge') return 'test-sets'
-  if (normalized.startsWith('forge/')) return `test-sets/${normalized.slice('forge/'.length)}`
-  if (normalized === 'tracelens') return 'production'
-  if (normalized.startsWith('tracelens/')) return `production/${normalized.slice('tracelens/'.length)}`
-  if (normalized === 'advisor' || normalized.startsWith('advisor/')) return 'runs'
-  if (normalized.startsWith('query/')) return `queries/${normalized.slice('query/'.length)}`
-  return normalized
-}
-
 interface RouteDef {
   routeId: string
   segments: string[] // literal segments, or ":param" for a captured segment

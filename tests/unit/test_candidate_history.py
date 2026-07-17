@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from retrieval_observatory.tracing.candidate_history import candidate_history
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+from dataclasses import replace
+
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
 
-def _fusion_rerank_trace() -> RetrievalTraceV2:
+def _fusion_rerank_trace() -> RetrievalTrace:
     """arm_a introduces d1,d2; arm_b introduces d2,d3; fuse merges; rerank keeps d2 only."""
     arm_a = OperatorSpan(
         op_id="arm_a", op_type="SOURCE", op_name="bm25", parent_ids=[],
@@ -36,9 +38,9 @@ def _fusion_rerank_trace() -> RetrievalTraceV2:
         status="FIRED", deterministic=False, replay_policy="OBSERVED_ABLATION", latency_ms=1.0,
         outputs=[Candidate(doc_id="d2", score=2.0, rank=1, origin_op_ids=["arm_a", "arm_b"])],
     )
-    return RetrievalTraceV2(
-        trace_id="t1", run_id="r1", query_id="q1", query_text="q", pipeline_id="p1",
-        spans=[arm_a, arm_b, fuse, rerank], total_latency_ms=4.0, final_op_id="rerank",
+    return RetrievalTrace(
+        trace_id="t1", service_id="test", run_id="r1", query_id="q1", query_text="q", pipeline_id="p1",
+        spans=[arm_a, arm_b, fuse, rerank], timing=TraceTiming(4.0, 4.0, 4.0), final_op_ids=("rerank",),
     )
 
 
@@ -74,7 +76,10 @@ def test_introduced_by_correct_arm():
 def test_explicit_drop_reason_is_honored():
     trace = _fusion_rerank_trace()
     # Stamp an explicit drop reason on d1 as it enters rerank.
-    trace.spans[3].inputs = [Candidate(doc_id="d1", score=0.3, rank=2, drop_reason="filtered")]
+    trace.spans = (*trace.spans[:3], replace(
+        trace.spans[3],
+        input_groups={"fuse": (Candidate(doc_id="d1", score=0.3, rank=2, drop_reason="filtered"),)},
+    ))
     hist = candidate_history(trace, "d1")
     drop = [e for e in hist.events if e.event == "dropped"][0]
     assert drop.drop_reason == "filtered"

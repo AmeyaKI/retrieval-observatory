@@ -1,4 +1,4 @@
-// Fixed difficulty ramp reused identically across Forge and TraceLens so a color
+// Fixed difficulty ramp reused identically across Test Sets and Production so a color
 // never means two things. easy → extreme = green → amber → orange → red.
 export const DIFFICULTY_ORDER = ['easy', 'medium', 'hard', 'extreme'] as const
 export type Difficulty = (typeof DIFFICULTY_ORDER)[number]

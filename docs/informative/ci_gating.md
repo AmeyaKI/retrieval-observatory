@@ -51,6 +51,6 @@ retobs compare "$GOLDEN_RUN" "$CANDIDATE" --db .retobs/results.db --fail-on regr
 This is the value-preserving form: multi-stage runs keep per-stage contribution and
 `candidate_miss` / `reranker_drop` diagnostics. If your production pipeline is a single opaque
 HTTP service, start with the black-box harness in
-[`examples/integrations/http_quickstart/`](../../examples/integrations/http_quickstart/) (final top-K only), then graduate to
+[`examples/integrations/http_evaluation/`](../../examples/integrations/http_evaluation/) (final top-K only), then graduate to
 emitting per-stage snapshots (see "multi-snapshot" in the SDK docs) to recover stage-level
 diagnostics.

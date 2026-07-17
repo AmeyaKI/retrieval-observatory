@@ -1,6 +1,7 @@
 """MCP integration ergonomics: describe_integration, verify_integration, config normalize."""
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -46,10 +47,10 @@ async def test_verify_integration_empty_db(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_normalize_descriptor_shape(tmp_path):
+async def test_evaluate_config_accepts_canonical_shape(tmp_path):
     db = str(tmp_path / "norm.db")
-    descriptor = {
-        "name": "desc-test",
+    config = {
+        "experiment": {"name": "mcp-test"},
         "dataset": {
             "type": "custom",
             "name": "custom",
@@ -58,7 +59,7 @@ async def test_normalize_descriptor_shape(tmp_path):
         },
         "pipelines": [{"id": "bm25", "stages": [{"type": "adapter.bm25", "retriever_id": "bm25"}]}],
     }
-    out = await server._benchmark_config(descriptor, max_queries=3, db_path=db)
+    out = await server._benchmark_config(config, max_queries=3, db_path=db)
     assert out["run_id"]
     verify = await server._verify_integration(db_path=db, run_id=out["run_id"])
     assert verify["status"] in ("ready", "partially_instrumented")
@@ -93,23 +94,12 @@ async def test_benchmark_config_file_relative_paths(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_project_writes_files(tmp_path):
-    root = tmp_path / "my-rag"
-    out = await server._bootstrap_project(str(root), framework="python")
-    assert (root / "retobs" / "config.yaml").exists()
-    assert (root / "retobs-mcp.yaml").exists()
-    assert (root / "retobs" / "retriever.py").exists()
-    assert (root / ".retobs" / "manifest.yaml").exists()
-    assert out.get("deprecated")
-
-
-@pytest.mark.asyncio
 async def test_push_traces_roundtrip(tmp_path):
     from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace
 
     db = str(tmp_path / "traces.db")
-    descriptor = {
-        "name": "trace-push",
+    config = {
+        "experiment": {"name": "trace-push"},
         "dataset": {
             "type": "custom",
             "name": "custom",
@@ -118,7 +108,7 @@ async def test_push_traces_roundtrip(tmp_path):
         },
         "pipelines": [{"id": "bm25", "stages": [{"type": "adapter.bm25", "retriever_id": "bm25"}]}],
     }
-    bench = await server._benchmark_config(descriptor, max_queries=1, db_path=db)
+    bench = await server._benchmark_config(config, max_queries=1, db_path=db)
     run_id = bench["run_id"]
 
     @observe("SOURCE", op_id="demo_source")
@@ -142,12 +132,35 @@ async def test_build_server_includes_integration_tools():
     srv = server.build_server()
     tools = await srv.list_tools()
     names = {t.name for t in tools}
-    assert "describe_integration" in names
-    assert "plan_integration" in names
+    assert "integrate_project" in names
     assert "verify_integration" in names
-    assert "bootstrap_project" in names
-    assert "wire_project" in names
     assert "push_traces" in names
-    assert "benchmark_config_file" in names
     assert "get_pipeline_graph" in names
     assert {"evaluate", "evaluate_file", "compare", "inspect_query", "get_report"} <= names
+
+
+@pytest.mark.asyncio
+async def test_integrate_project_tool_uses_canonical_service(tmp_path, monkeypatch):
+    calls = []
+
+    async def fake_integrate(project_root, phase, options):
+        calls.append((project_root, phase, options))
+        return SimpleNamespace(to_dict=lambda: {"phase": phase.value, "status": "planned"})
+
+    monkeypatch.setattr("retrieval_observatory.integrations.service.integrate_project", fake_integrate)
+    result = await server._integrate_project(str(tmp_path), phase="plan")
+
+    assert result == {"phase": "plan", "status": "planned"}
+    assert calls[0][0] == tmp_path.resolve()
+    assert calls[0][1].value == "plan"
+    assert calls[0][2].plan is None
+
+
+def test_removed_mcp_functions_do_not_exist():
+    for name in (
+        "_bootstrap_project",
+        "_wire_project",
+        "_plan_integration",
+        "_benchmark_pipeline_descriptor",
+    ):
+        assert not hasattr(server, name)

@@ -1,4 +1,4 @@
-"""Unit tests for the Advisor MVP."""
+"""Unit tests for the Findings MVP."""
 import os
 import tempfile
 
@@ -6,9 +6,9 @@ import pytest
 
 from retrieval_observatory.advisor.regression import detect_regressions
 from retrieval_observatory.advisor.recommend import recommend, compute_reliability
-from retrieval_observatory.metrics.diagnostics import build_query_diagnostics
+from retrieval_observatory.diagnostics.model import DiagnosticEvidence, DiagnosticFinding, FindingAvailability
 from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
+from retrieval_observatory.types import StageSnapshot
 
 
 def _snap(docs, idx=0):
@@ -40,10 +40,6 @@ async def test_regression_detects_quality_drop():
 
     for i in range(20):
         qid = f"q{i}"
-        good = PipelineResult(qid, "bm25", [_snap([Document("d1", "", 0.9, 1)])], 10.0, "OK")
-        bad = PipelineResult(qid, "bm25", [_snap([])], 10.0, "OK")
-        await store.save_result("base", good)
-        await store.save_result("cand", bad)
         await store.save_metric("base", "bm25", qid, 0, "recall", 10, 1.0)
         await store.save_metric("cand", "bm25", qid, 0, "recall", 10, 0.0)
 
@@ -57,11 +53,9 @@ async def test_regression_quiet_on_identical_runs():
     d = tempfile.mkdtemp()
     store = SQLiteStore(os.path.join(d, "adv2.db"))
     await store.init_db()
-    result = PipelineResult("q1", "bm25", [_snap([Document("d1", "", 0.9, 1)])], 10.0, "OK")
     for rid in ("base", "cand"):
         await store.save_run(rid, "exp", "{}")
         await store.save_run_manifest(rid, _comparison_manifest())
-        await store.save_result(rid, result)
         await store.save_metric(rid, "bm25", "q1", 0, "recall", 10, 0.8)
     findings = await detect_regressions("base", "cand", store)
     assert findings == []
@@ -74,20 +68,17 @@ async def test_recommend_candidate_miss():
     await store.init_db()
     await store.save_run("r1", "exp", "{}")
     await store.save_run_manifest("r1", {})
-    qrels = {"q1": {"d1": 2}, "q2": {"d2": 2}}
-    results = [
-        PipelineResult("q1", "bm25", [_snap([])], 10.0, "OK"),
-        PipelineResult("q2", "bm25", [_snap([Document("d2", "", 0.9, 1)])], 10.0, "OK"),
-    ]
-    rows = build_query_diagnostics("r1", results, qrels)
-    await store.save_query_diagnostics(rows)
+    finding = DiagnosticFinding("source_miss", FindingAvailability.SUPPORTED, DiagnosticEvidence(
+        "measured_candidate_transition", "candidate_transition", "1.0", trace_ids=("t",), operator_ids=("source",), document_ids=("d1",), cutoff=10,
+    ))
+    await store.save_diagnostics("r1", "q1", (finding,))
     await store.save_metric("r1", "bm25", "q1", 0, "recall", 10, 0.0)
     await store.save_metric("r1", "bm25", "q2", 0, "recall", 10, 1.0)
     recs = await recommend("r1", store)
     actions = " ".join(r.action for r in recs)
     assert "retriever" in actions.lower() or "first-stage" in actions.lower()
-    # Advisor Evolution: the candidate_miss recommendation carries grounded estimates.
-    cand = next(r for r in recs if "candidate_miss" in r.affected_query_categories)
+    # Findings Evolution: the candidate_miss recommendation carries grounded estimates.
+    cand = next(r for r in recs if "source_miss" in r.affected_query_categories)
     assert cand.estimated_quality_improvement is not None
     assert cand.quality_metric == "recall@10"
     assert cand.confidence is not None
@@ -113,7 +104,7 @@ async def test_recommendations_ranked_by_expected_value():
 
 def test_simulate_operator_removal_reranker_hurts():
     from retrieval_observatory.advisor.simulate import simulate_operator_removal
-    from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan, RetrievalTraceV2
+    from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
     def _trace(qid):
         # SOURCE surfaces gold d_gold at rank 1; a bad RERANK buries it below the good doc.
@@ -128,12 +119,12 @@ def test_simulate_operator_removal_reranker_hurts():
         rerank = OperatorSpan(
             op_id="rr", op_type="RERANK", op_name="bad_rerank", parent_ids=["src"],
             status="FIRED", deterministic=False, replay_policy="OBSERVED_ABLATION", latency_ms=1.0,
-            inputs=source.outputs,
+            input_groups={"src": tuple(source.outputs)},
             outputs=[Candidate(doc_id="d_bad", score=2.0, rank=1, origin_op_ids=["rr"])],
         )
-        return RetrievalTraceV2(trace_id=f"t{qid}", run_id="r", query_id=qid, query_text="q",
-                                pipeline_id="p", spans=[source, rerank], total_latency_ms=2.0,
-                                final_op_id="rr")
+        return RetrievalTrace(service_id="test", trace_id=f"t{qid}", run_id="r", query_id=qid, query_text="q",
+                                pipeline_id="p", spans=[source, rerank], timing=TraceTiming(2.0, 2.0, 2.0),
+                                final_op_ids=("rr",))
 
     traces = [_trace(f"q{i}") for i in range(5)]
     qrels = {f"q{i}": {"d_gold": 1} for i in range(5)}

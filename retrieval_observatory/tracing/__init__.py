@@ -1,8 +1,9 @@
-from retrieval_observatory.tracing.types import RetrievalTrace
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
-from retrieval_observatory.tracing.recorder import TraceRecorder, TraceRecorderV2, LegacyTraceRecorder
-from retrieval_observatory.tracing.sink import StoreSink, HTTPSink, MemorySink, TraceSink
-from retrieval_observatory.tracing.enrich import enrich, predict_difficulty, detect_suspected_failures
+from retrieval_observatory.tracing.config import PayloadLimits, RedactionRule, TelemetryConfig
+from retrieval_observatory.tracing.exporters import HTTPExporter, MemoryExporter, StoreExporter, TraceExporter
+from retrieval_observatory.tracing.model import RetrievalTrace
+from retrieval_observatory.tracing.recorder import TraceRecorder
+from retrieval_observatory.tracing.sink import BufferedTraceSink
+from retrieval_observatory.store.base import InstrumentationHealth
 
 
 def init(
@@ -10,44 +11,33 @@ def init(
     db: str = ".retobs/prod.db",
     *,
     sample_rate: float = 1.0,
-    latency_budget_ms: float = 2000.0,
-    v2: bool = True,
-):
-    """One-line production tracing setup.
+    config: TelemetryConfig | None = None,
+    exporter: TraceExporter | None = None,
+) -> TraceRecorder:
+    effective = config or TelemetryConfig(sample_rate=sample_rate)
+    store = None
+    if exporter is None:
+        from retrieval_observatory.store.sqlite import SQLiteStore
 
-    Wires a SQLite-backed store + sink into a ready-to-use recorder::
-
-        recorder = retobs.init(service="search-api")
-        instrument_fastapi(app, recorder)
-
-    When ``v2=True`` (default), returns a ``TraceRecorderV2`` that emits
-    V2 traces (OperatorSpan DAG).  Pass ``v2=False`` for the legacy
-    ``TraceRecorder`` that emits V1 ``RetrievalTrace`` objects.
-    """
-    from retrieval_observatory.store.sqlite import SQLiteStore
-
-    store = SQLiteStore(db_path=db)
-    sink = StoreSink(store, latency_budget_ms=latency_budget_ms)
-    if v2:
-        recorder = TraceRecorderV2(service=service, sink=sink, sample_rate=sample_rate)
-    else:
-        recorder = TraceRecorder(service=service, sink=sink, sample_rate=sample_rate)  # type: ignore[assignment]
-    recorder.store = store  # type: ignore[attr-defined]
+        store = SQLiteStore(db_path=db)
+        exporter = StoreExporter(store)
+    sink = BufferedTraceSink(exporter, effective, service_id=service)
+    recorder = TraceRecorder(service, sink, effective.sample_rate)
+    if store is not None:
+        recorder.store = store
     return recorder
 
 
 __all__ = [
+    "BufferedTraceSink",
+    "HTTPExporter",
+    "InstrumentationHealth",
+    "MemoryExporter",
+    "PayloadLimits",
+    "RedactionRule",
     "RetrievalTrace",
-    "RetrievalTraceV2",
+    "StoreExporter",
+    "TelemetryConfig",
     "TraceRecorder",
-    "TraceRecorderV2",
-    "LegacyTraceRecorder",
-    "StoreSink",
-    "HTTPSink",
-    "MemorySink",
-    "TraceSink",
-    "enrich",
-    "predict_difficulty",
-    "detect_suspected_failures",
     "init",
 ]

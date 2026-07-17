@@ -1,29 +1,21 @@
-# Product concepts
+# Concepts
 
-## Run
+## Run and query evidence
 
-A Run is one reproducible evaluation attempt: manifest, queries, qrels, per-query metrics, diagnostics, and complete/partial traces. The manifest records dataset hashes, labeling method, execution settings, models, packages, and source state when available.
+A Run is a persisted evaluation with manifest identity, queries, labels, metrics, and complete or partial traces. `query_id` links a scoped query to its Run; it does not justify joining unrelated databases, services, or time windows.
 
-## Query lineage
+## Operators and candidates
 
-`query_id` connects Test Set origin, run evidence, production matches, findings, and validation history. Every evidence request is explicitly scoped to a database and Run before lineage is joined.
+An observed retrieval pipeline is a DAG of typed operators. Candidate origins and transitions record what an integration emitted; missing inputs, outputs, or branches remain unavailable rather than reconstructed from a diagram.
 
-## Operator and candidate transition
+## Integration readiness
 
-A retrieval pipeline is a DAG of typed operators: source, fusion, transform, filter, rerank, boost, and gate. Candidate origin is immutable. Each transition records inputs/outputs, ranks, scores, add/drop reasons, fired/skipped status, cache status, and parent relationships when available.
+An integration plan declares operators, candidate mappings, and verification scenarios. `ready` requires observed topology, candidate, and telemetry evidence. `partially_instrumented`, `not_verified`, and `failed` name different limits and should not be treated as ready.
 
-## Aggregate and exact graph
+## Comparison and production evidence
 
-The aggregate PipelineGraphV2 is the union of observed nodes and real edges across a Run. An exact graph projects one trace and its status. Neither projection invents an edge from topological proximity.
+Comparison requires compatible query, corpus, qrel, and labeling identity. Production trace summaries report sampled operational evidence; without ground-truth linkage they are not recall, ranking quality, or causal proof.
 
-## Comparison validity
+## Instrumentation health
 
-Required axes are query hash, corpus hash, qrel hash, and labeling identity. Optional execution/model/source differences remain visible warnings. Statistics use paired query alignment, BH correction, effect thresholds, and a minimum-power state.
-
-## Test Set
-
-A Test Set has one versioned summary and per-query provenance. Rule-based, extractive, LLM-generated, judge-labeled, and human-validated evidence remain distinct. Generated qrels are not gold by default.
-
-## Production finding
-
-A production hotspot or drift finding states method, sample, denominator, time window, baseline, threshold, evidence class, and supporting trace IDs. Without explicit ground-truth joining it is a proxy signal, not retrieval quality.
+Telemetry health reports accepted/exported traces, sampling, queue drops, serialization failures, retries, and permanent export failures. It explains capture limits without changing application responses.

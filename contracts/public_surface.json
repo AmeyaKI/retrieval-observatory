@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "cli_commands": ["compare", "demo", "evaluate", "inspect-query", "integrate", "production", "report", "serve", "testsets"],
+  "mcp_tools": ["compare", "describe_config", "evaluate", "evaluate_file", "get_pipeline_graph", "get_report", "inspect_query", "integrate_project", "push_traces", "validate_config", "verify_integration"],
+  "sdk_exports": ["Comparison", "Document", "IntegrationOptions", "Query", "QueryEvidence", "RetrievalTrace", "Run", "TestSet", "TraceRecorder", "compare", "evaluate", "generate_testset", "init", "inspect_query"],
+  "documentation": ["README.md", "docs/START.md", "docs/WORKFLOW.md", "docs/CONCEPTS.md", "docs/REFERENCE.md", "docs/INTEGRATIONS.md", "docs/integrations/AGENT_QUICKSTART.md", "docs/integrations/mcp.md", "docs/integrations/api.md", "docs/PRIVACY.md", "docs/RELEASE_CHECKLIST.md"],
+  "first_class_integrations": ["python", "http", "fastapi", "langchain", "llamaindex"],
+  "supported_example_integrations": ["dspy", "haystack", "openai-agents"],
+  "optional_extras": ["beir", "classifier", "cohere", "dashboard", "demo", "dense", "dev", "dspy", "haystack", "hf", "langchain", "llamaindex", "llm-judge", "mcp", "openai-agents", "pgvector", "postgres", "qdrant"]
+}

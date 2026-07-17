@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { DemoContext, fetchDbs, fetchDemoContext } from '../api'
-import { migrateLegacyPath } from '../routing'
+import { DemoContext, fetchDemoContext } from '../api'
+import { useDashboardContext } from '../context/DashboardContext'
+import GlobalContextBar from './GlobalContextBar'
 import DemoQuickLinks from './DemoQuickLinks'
 import HomeWorkspace from './HomeWorkspace'
 import ModeRail, { Mode, ShellMode } from './ModeRail'
@@ -15,12 +16,12 @@ const TraceLensWorkspace = lazy(() => import('./TraceLensWorkspace'))
 const VALID_MODES: Mode[] = ['home', 'runs', 'compare', 'queries', 'production', 'test-sets']
 
 function parseHash(): { mode: ShellMode; rest: string } {
-  const raw = window.location.hash.replace(/^#\/?/, '')
-  const migrated = migrateLegacyPath(raw)
-  if (migrated !== raw) {
-    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/${migrated}`)
+  let raw = window.location.hash.replace(/^#\/?/, '')
+  if (raw.startsWith('benchmarks/run/')) {
+    raw = raw.replace(/^benchmarks\/run\//, 'runs/')
+    window.history.replaceState(null, '', `#/${raw}`)
   }
-  const [modePart, ...rest] = migrated.split('/')
+  const [path] = raw.split('?'); const [modePart, ...rest] = path.split('/')
   if (modePart === 'glossary') return { mode: 'glossary', rest: '' }
   const mode = (VALID_MODES as string[]).includes(modePart) ? (modePart as Mode) : 'home'
   return { mode, rest: rest.join('/') }
@@ -30,7 +31,7 @@ export default function AppShell() {
   const [{ mode, rest }, setRoute] = useState(parseHash)
   const [demoContext, setDemoContext] = useState<DemoContext | null>(null)
   const [tourOpen, setTourOpen] = useState(false)
-  const [dbId, setDbId] = useState<string | null>(null)
+  const { selection } = useDashboardContext(); const dbId = selection.db
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash())
@@ -39,7 +40,6 @@ export default function AppShell() {
   }, [])
 
   useEffect(() => {
-    fetchDbs().then((databases) => setDbId(databases[0]?.db_id ?? null)).catch(() => setDbId(null))
     fetchDemoContext().then(setDemoContext).catch(() => setDemoContext(null))
   }, [])
 
@@ -51,6 +51,7 @@ export default function AppShell() {
       <ModeRail mode={mode} onSelect={selectMode} onOpenTour={() => setTourOpen(true)} showTourLink={Boolean(demoContext?.baseline_run_id)} />
       <div className="flex flex-1 flex-col min-w-0 pb-16 sm:pb-0">
         {showDemoBar && demoContext && <DemoQuickLinks context={demoContext} onOpenTour={() => setTourOpen(true)} />}
+        <GlobalContextBar />
         <Suspense fallback={<div className="p-6 text-sm text-ink-muted" role="status">Loading workspace…</div>}>
           {mode === 'home' && <HomeWorkspace context={demoContext} />}
           {mode === 'runs' && <BenchmarksWorkspace demoContext={demoContext} route={rest} view="runs" />}

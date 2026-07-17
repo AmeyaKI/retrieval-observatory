@@ -38,9 +38,9 @@ CORPUS = [
     "Empty result sets are a common failure mode: the retriever returns no candidates for rare queries.",
     "Candidate churn measures how much the document set changes between pipeline stages.",
     "Query difficulty classification helps predict which queries a pipeline will struggle with.",
-    "Forge generates corpus-specific stress-test queries targeting known retrieval failure scenarios.",
-    "TraceLens captures per-request retrieval traces to diagnose production reliability issues.",
-    "The Advisor compares benchmark runs and surfaces statistically significant regressions.",
+    "Test Sets generates corpus-specific stress-test queries targeting known retrieval failure scenarios.",
+    "Production captures per-request retrieval traces to diagnose production reliability issues.",
+    "The Findings compares benchmark runs and surfaces statistically significant regressions.",
 ]
 
 DB_PATH = ".retobs/langchain_demo.db"

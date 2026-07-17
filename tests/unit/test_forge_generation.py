@@ -1,4 +1,4 @@
-"""Unit tests for Forge generation layer — mocked LLM, no API key needed."""
+"""Unit tests for Test Sets generation layer — mocked LLM, no API key needed."""
 from __future__ import annotations
 
 import asyncio

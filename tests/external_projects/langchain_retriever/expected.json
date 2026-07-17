@@ -1,0 +1,17 @@
+{
+  "service_id": "external-langchain-retriever",
+  "pipeline_id": "langchain-search-v1",
+  "required_operator_ids": ["langchain_retriever"],
+  "required_edges": [],
+  "scenario_ids": ["current", "history"],
+  "expected_final_doc_ids": {
+    "current": ["d-langchain-current", "d-langchain-history"],
+    "history": ["d-langchain-history", "d-langchain-current"]
+  },
+  "required_capabilities": [
+    "candidate_transitions",
+    "operator_debugging",
+    "production_investigation",
+    "stable_topology"
+  ]
+}

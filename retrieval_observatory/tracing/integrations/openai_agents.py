@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from retrieval_observatory.tracing.integrations._duck_typed import wrap_callable
+from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry
 
 # Duck-typed OpenAI Agents SDK integration: no import of the `agents` package here, so
 # this module stays importable (and unit-testable) without it installed -- see
@@ -15,6 +16,9 @@ def wrap_retrieval_tool(
     tool_fn: Callable[..., Any],
     *,
     op_id: Optional[str] = None,
+    parent_ids: Sequence[str] = (),
+    registry: OperatorRegistry | None = None,
+    component_path: str | None = None,
     result_key: Optional[str] = None,
     deterministic: bool = False,
     replay_policy: str = "NOT_REPLAYABLE",
@@ -47,6 +51,9 @@ def wrap_retrieval_tool(
         tool_fn,
         op_type="SOURCE",
         op_id=op_id,
+        parent_ids=parent_ids,
+        registry=registry,
+        component_path=component_path or op_id,
         op_name=getattr(tool_fn, "__name__", "retrieval_tool"),
         result_key=result_key,
         deterministic=deterministic,

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from retrieval_observatory.tracing.integrations._duck_typed import wrap_callable
+from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry
 
 # Duck-typed Haystack integration: no import of `haystack` here, so this module stays
 # importable (and unit-testable) without the `haystack-ai` package installed -- see
@@ -16,6 +17,9 @@ def wrap_haystack_component(
     *,
     op_type: str = "SOURCE",
     op_id: Optional[str] = None,
+    parent_ids: Sequence[str] = (),
+    registry: OperatorRegistry | None = None,
+    component_path: str | None = None,
     documents_key: str = "documents",
     deterministic: bool = False,
     replay_policy: str = "NOT_REPLAYABLE",
@@ -52,6 +56,9 @@ def wrap_haystack_component(
         component.run,
         op_type=op_type,
         op_id=op_id,
+        parent_ids=parent_ids,
+        registry=registry,
+        component_path=component_path or op_id,
         op_name=component.__class__.__name__,
         result_key=documents_key,
         deterministic=deterministic,

@@ -1,6 +1,6 @@
-"""Forge: Synthetic Retrieval Evaluation Dataset Generation.
+"""Test Sets: Synthetic Retrieval Evaluation Dataset Generation.
 
-Forge addresses benchmark blindness — the gap between what static datasets test
+Test Sets addresses benchmark blindness — the gap between what static datasets test
 and what production retrieval systems actually encounter. It scans your corpus for
 structural failure patterns (temporal confusion, alias mismatches), generates targeted
 hard queries using an LLM, builds extractive ground truth, and packages everything as

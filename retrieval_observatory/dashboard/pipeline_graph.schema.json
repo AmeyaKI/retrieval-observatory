@@ -58,7 +58,7 @@
       "type": "object",
       "required": [
         "node_id", "label", "op_type", "depth", "branch_id",
-        "candidate_count", "input_candidate_count", "metrics", "is_merge",
+        "candidate_count", "input_candidate_count", "parent_candidate_counts", "metrics", "is_merge",
         "source", "observed_count", "trace_coverage", "fire_rate",
         "status_counts", "cache_hits", "latency", "is_final_output",
         "final_output_count", "configured", "availability"
@@ -75,6 +75,10 @@
         "branch_id": { "type": ["string", "null"] },
         "candidate_count": { "type": "number", "minimum": 0 },
         "input_candidate_count": { "type": "number", "minimum": 0 },
+        "parent_candidate_counts": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0 }
+        },
         "is_merge": { "type": "boolean" },
         "source": { "$ref": "#/definitions/evidenceClass" },
         "observed_count": { "type": "integer", "minimum": 0 },

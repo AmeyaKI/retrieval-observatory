@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from retrieval_observatory.tracing.model_v2 import RetrievalTraceV2
+from retrieval_observatory.tracing.model import RetrievalTrace
 
 
-def export_trace_to_otel(trace: RetrievalTraceV2, tracer: Any) -> None:
-    """Export a RetrievalTraceV2 into OpenTelemetry spans.
+def export_trace_to_otel(trace: RetrievalTrace, tracer: Any) -> None:
+    """Export a RetrievalTrace into OpenTelemetry spans.
 
     `tracer` is an OpenTelemetry tracer instance (from `trace.get_tracer(...)`).
     """
@@ -18,7 +18,7 @@ def export_trace_to_otel(trace: RetrievalTraceV2, tracer: Any) -> None:
             "retobs.query_id": trace.query_id,
             "retobs.pipeline_id": trace.pipeline_id,
             "retobs.status": trace.status,
-            "retobs.trace_format_version": trace.trace_format_version,
+            "retobs.trace_schema_version": trace.schema_version,
         },
     ) as root:
         for span in trace.spans:
