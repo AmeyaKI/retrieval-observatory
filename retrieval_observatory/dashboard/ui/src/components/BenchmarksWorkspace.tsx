@@ -86,21 +86,53 @@ export default function BenchmarksWorkspace({
       setRuns([])
       return
     }
-    fetchRuns(activeDbId)
-      .then(setRuns)
-      .catch((e) => setError(e.message))
+    let cancelled = false
+    const load = () => {
+      fetchRuns(activeDbId)
+        .then((next) => {
+          if (!cancelled) {
+            setRuns(next)
+            setError(null)
+          }
+        })
+        .catch((e) => {
+          if (!cancelled) setError(e.message)
+        })
+    }
+    load()
+    const onFocus = () => load()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') load()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [activeDbId])
 
   useEffect(() => {
-    if (!activeDbId || deepLink) return
+    if (!activeDbId || deepLink || !runs[0]) return
     if (view === 'compare' && demoContext?.baseline_run_id && demoContext.candidate_run_id) {
       setSelected([
         { dbId: activeDbId, runId: demoContext.baseline_run_id },
         { dbId: activeDbId, runId: demoContext.candidate_run_id },
       ])
-    } else if (view === 'queries' && runs[0]) {
-      setSelected([{ dbId: activeDbId, runId: runs[0].run_id }])
+      return
     }
+    // Single-run default: auto-select the most recent run (API is newest-first).
+    setSelected((prev) => {
+      if (prev.length === 1) {
+        const stillThere = runs.some(
+          (r) => r.run_id === prev[0].runId && (r.db_id ?? activeDbId) === prev[0].dbId,
+        )
+        if (stillThere) return prev
+      }
+      if (prev.length >= 2 && view === 'compare') return prev
+      return [{ dbId: activeDbId, runId: runs[0].run_id }]
+    })
   }, [demoContext, activeDbId, view, runs, deepLink])
 
   useEffect(() => {
@@ -122,12 +154,15 @@ export default function BenchmarksWorkspace({
       .catch((e) => setError(e.message))
   }, [selected, runs, activeDbId])
 
-  const toggleSelect = (dbId: string, runId: string) => {
+  /** Primary click replaces selection (single-run). Shift/meta or checkbox multi-select for compare. */
+  const selectRun = (dbId: string, runId: string, multi = false) => {
     const key = selectionKey({ dbId, runId })
     setSelected((prev) => {
+      if (!multi) return [{ dbId, runId }]
       const exists = prev.some((s) => selectionKey(s) === key)
       if (exists) {
-        return prev.filter((s) => selectionKey(s) !== key)
+        const next = prev.filter((s) => selectionKey(s) !== key)
+        return next.length === 0 ? [{ dbId, runId }] : next
       }
       return [...prev, { dbId, runId }]
     })
@@ -147,7 +182,7 @@ export default function BenchmarksWorkspace({
             <h1 className="text-lg font-bold text-gray-900 dark:text-slate-100">{view === 'compare' ? 'Compare' : view === 'queries' ? 'Queries' : 'Runs'}</h1>
             <WorkspaceGlossaryLink className="text-[11px] text-indigo-700 underline decoration-indigo-300" />
           </div>
-          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">{view === 'compare' ? 'Select baseline first, then candidate' : view === 'queries' ? 'Inspect query-level evidence' : 'Review retrieval evaluations'}</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">{view === 'compare' ? 'Select baseline first, then candidate (opt-in multi-run)' : view === 'queries' ? 'Diagnose queries for the selected run' : 'Analyze one pipeline run at a time'}</p>
         </div>
         {error && (
           <div className="m-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 min-w-[18rem]">
@@ -158,7 +193,7 @@ export default function BenchmarksWorkspace({
         <RunsSidebar
           runs={runs}
           selectedKeys={selectedKeys}
-          onToggle={toggleSelect}
+          onSelect={selectRun}
           activeDbId={activeDbId}
         />
       </aside>
@@ -195,13 +230,21 @@ export default function BenchmarksWorkspace({
           <div className="flex items-center justify-center h-[calc(100%-3rem)]">
             <div className="text-center max-w-sm">
               <div className="text-4xl mb-4 select-none" role="img" aria-label="Runs icon" title="Runs icon">▥</div>
-              <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">Select a run to explore</p>
-              <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
-                Click any run in the sidebar to view its metrics, charts, and query-level diagnostics.
-              </p>
-              <p className="text-sm text-gray-400 dark:text-slate-500 mt-3 leading-relaxed">
-                Check two or more runs to compare them side-by-side with significance tests.
-              </p>
+              {runs.length === 0 ? (
+                <>
+                  <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">No runs in this database</p>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
+                    Run a benchmark or demo, then return here — the newest run loads automatically.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-semibold text-gray-700 dark:text-slate-200">Loading run…</p>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-2 leading-relaxed">
+                    Selecting the most recent run.
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

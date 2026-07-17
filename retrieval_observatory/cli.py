@@ -122,6 +122,7 @@ def evaluate_cmd(
 ) -> None:
     """Evaluate a Python retrieval callable, or an advanced YAML config with --config."""
     import retrieval_observatory as ro
+    from retrieval_observatory.sdk import run_from_config
 
     try:
         if bool(target) == bool(config):
@@ -130,7 +131,7 @@ def evaluate_cmd(
             import yaml
 
             payload = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
-            report = ro.run_from_config(
+            report = run_from_config(
                 payload,
                 db_path=db,
                 max_queries=max_queries,

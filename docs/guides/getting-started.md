@@ -20,6 +20,32 @@ retobs demo
 benchmark, seeds a few production traces, and opens the dashboard at
 `http://localhost:4000`. When it finishes you are looking at a real run.
 
+The newest run loads automatically on the Runs page — you should not need to
+refresh and click before Overview appears.
+
+### Longer multi-stage demo (<10 minutes)
+
+For candidate-flow diagnosis you need a pipeline that actually filters documents
+(single-stage BM25 alone is a weak showcase). Prefer the SciFact hybrid smoke:
+
+```bash
+pip install -e ".[dense,dashboard]"
+# SciFact + max_queries:50 — typically a few minutes; first dense index is the slow part
+retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_scifact.yaml
+retobs serve --db .retobs/hybrid_scifact_demo.db
+```
+
+Alternatively (no BEIR download): `retobs demo --full`, then
+`retobs serve --db .retobs/demo/results.db` (adds a BM25→rerank ablation on the synthetic corpus).
+
+**Public CLI reminder:** use `retobs evaluate --config …` (not `retobs run`, which is removed).
+Other common commands: `retobs demo`, `retobs serve --db …`, `retobs compare`,
+`retobs inspect-query`, `retobs production demo`.
+
+**60-second click path after serve:** Runs (auto-selected) → Architecture (DAG boxes readable) →
+Queries → open a low-recall query → click an FN row → **Play** on the stage flowchart →
+Production tab (services/summary load as JSON, not HTML errors).
+
 ## 2. Understand overall performance (the Overview)
 
 The dashboard opens on the run overview. Read it top-down — it is designed so the most
@@ -35,27 +61,26 @@ You should not need to open another page to know whether the run is good.
 
 ## 3. Find a failing query
 
-From the overview, open the **Query Explorer**. Filter to failures (toggle *Mismatches
-only*, or search). Pick a query with low recall — one where a relevant document did not make
-the final top-k.
+From the overview, open **Queries**. The list leads with **query text** (not opaque IDs).
+Filter to failures (toggle *Mismatches only*, or search). Pick a query with a weak
+outcome — one where a relevant chunk did not make the final top-k.
 
 ## 4. Locate the responsible stage (candidate flow)
 
-This is the core debugging move. On a failing query row, click **⇄ flow** and enter the
-`doc_id` of the relevant document that was missed. The **candidate flow** panel shows that
-document's journey through every pipeline:
+This is the core debugging move. Open a failing query. The page leads with diagnosis:
 
-- where it was **introduced** (which retrieval arm found it),
-- how its rank **changed** at each operator,
-- and, if it disappeared, exactly **where it was dropped and why** (e.g. `reranked_out`,
-  `filtered`, `truncated`).
+1. A **stage flowchart** at the top animates how a selected chunk moves through each
+   operator (introduced → passed → dropped/survived). Use **Play** / Prev / Next.
+2. Below it, an **expected vs retrieved** table labels every seen candidate as
+   **TP / FP / FN / TN** (seen-candidate universe — not corpus-wide negatives). Rows show
+   chunk preview, pipeline, where it was lost, and why. Click a row to drive the flowchart.
 
-If the drop reason was not explicitly recorded, the panel says so and marks the reason as
-*inferred* — retobs never fabricates an explanation.
+If the drop reason was not explicitly recorded, the UI marks it as *inferred* — retobs never
+fabricates an explanation. Replay assumptions for the dropping operator remain inspectable
+under the table.
 
-The panel also exposes **replay verification**: how a counterfactual "what if this operator
-weren't here" would be constructed, so you can judge the attribution rather than trust it
-blindly.
+Deep-link a specific document with
+`#/runs/<run>/queries/<query>/candidates/<doc_id>`.
 
 ## 5. Confirm the cause (attribution)
 

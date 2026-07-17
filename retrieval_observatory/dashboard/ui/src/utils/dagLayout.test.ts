@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutPipelineGraph, NODE_W, COL_GAP, PAD } from './dagLayout'
+import { layoutPipelineGraph, NODE_W, NODE_H, COL_GAP, PAD, nodeCardHeight } from './dagLayout'
 import type { PipelineGraph } from '../api'
 
 const emptyMetrics = { 'ndcg@10': null, recall: null, latency_p50: null }
@@ -38,12 +38,35 @@ describe('layoutPipelineGraph', () => {
     expect(byId.fuse.x).toBeGreaterThan(byId.bm25.x)
     expect(byId.rerank.x).toBeGreaterThan(byId.fuse.x)
     expect(byId.fuse.is_merge).toBe(true)
+    expect(byId.bm25.h).toBeGreaterThanOrEqual(NODE_H)
+  })
+
+  it('grows node height when metrics are present', () => {
+    const withMetrics: PipelineGraph = {
+      ...FIXTURE,
+      nodes: FIXTURE.nodes.map((n) =>
+        n.node_id === 'rerank'
+          ? {
+              ...n,
+              metrics: {
+                'ndcg@10': { mean: 0.5, ci_low: 0.4, ci_high: 0.6, k: 10 },
+                recall: { mean: 0.7, ci_low: 0.6, ci_high: 0.8, k: 10 },
+                latency_p50: { mean: 12, ci_low: null, ci_high: null, k: null },
+              },
+            }
+          : n,
+      ),
+    }
+    const layout = layoutPipelineGraph(withMetrics)
+    const byId = Object.fromEntries(layout.nodes.map((n) => [n.node_id, n]))
+    expect(byId.rerank.h).toBeGreaterThan(byId.bm25.h)
+    expect(byId.rerank.h).toBeGreaterThanOrEqual(nodeCardHeight(withMetrics.nodes.find((n) => n.node_id === 'rerank')!))
   })
 
   it('is deterministic pure function of graph input', () => {
     const a = layoutPipelineGraph(FIXTURE)
     const b = layoutPipelineGraph(FIXTURE)
-    expect(a.nodes.map((n) => [n.node_id, n.x, n.y])).toEqual(b.nodes.map((n) => [n.node_id, n.x, n.y]))
+    expect(a.nodes.map((n) => [n.node_id, n.x, n.y, n.h])).toEqual(b.nodes.map((n) => [n.node_id, n.x, n.y, n.h]))
     expect(a.width).toBe(PAD * 2 + 3 * NODE_W + 2 * COL_GAP)
   })
 })

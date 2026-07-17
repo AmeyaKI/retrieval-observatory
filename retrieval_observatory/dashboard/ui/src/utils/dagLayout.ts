@@ -4,11 +4,12 @@ import { PipelineGraph, PipelineGraphNode } from '../api'
 // nodes sharing a depth are stacked vertically and centered. Output is a pure function of the
 // input graph so it can be unit-tested (rendered geometry == computed geometry).
 
-export const NODE_W = 184
-export const NODE_H = 96
-export const COL_GAP = 72
-export const ROW_GAP = 28
-export const PAD = 16
+export const NODE_W = 200
+/** Compact card height: type + label + status + up to 3 single-line metrics. */
+export const NODE_H = 118
+export const COL_GAP = 80
+export const ROW_GAP = 36
+export const PAD = 20
 
 export interface LaidOutNode extends PipelineGraphNode {
   x: number
@@ -31,6 +32,17 @@ export interface DagLayout {
   height: number
 }
 
+/** Card height fits type/label/status plus one line per present metric (no CI on card). */
+export function nodeCardHeight(node: PipelineGraphNode): number {
+  let metrics = 0
+  if (node.metrics['ndcg@10']?.mean != null) metrics += 1
+  if (node.metrics.recall?.mean != null) metrics += 1
+  if (node.metrics.latency_p50?.mean != null) metrics += 1
+  // header block (~58) + metric rows; empty-metric nodes stay at NODE_H
+  if (metrics === 0) return NODE_H
+  return 58 + metrics * 22
+}
+
 export function layoutPipelineGraph(graph: PipelineGraph): DagLayout {
   const byDepth = new Map<number, PipelineGraphNode[]>()
   for (const node of graph.nodes) {
@@ -43,22 +55,36 @@ export function layoutPipelineGraph(graph: PipelineGraph): DagLayout {
   }
 
   const depths = [...byDepth.keys()].sort((a, b) => a - b)
-  const maxRows = Math.max(1, ...[...byDepth.values()].map((l) => l.length))
-  const colHeight = maxRows * NODE_H + (maxRows - 1) * ROW_GAP
+  const heightsByDepth = new Map<number, number[]>()
+  for (const [depth, list] of byDepth) {
+    heightsByDepth.set(
+      depth,
+      list.map((n) => nodeCardHeight(n)),
+    )
+  }
+
+  const stackHeight = (hs: number[]) =>
+    hs.reduce((a, b) => a + b, 0) + Math.max(0, hs.length - 1) * ROW_GAP
+
+  const colHeights = depths.map((d) => stackHeight(heightsByDepth.get(d) ?? [NODE_H]))
+  const colHeight = Math.max(1, ...colHeights, NODE_H)
 
   const positioned = new Map<string, LaidOutNode>()
   depths.forEach((depth, colIdx) => {
     const list = byDepth.get(depth)!
-    const stackH = list.length * NODE_H + (list.length - 1) * ROW_GAP
-    const yOffset = PAD + (colHeight - stackH) / 2
+    const heights = heightsByDepth.get(depth)!
+    const stackH = stackHeight(heights)
+    let y = PAD + (colHeight - stackH) / 2
     list.forEach((node, rowIdx) => {
+      const h = heights[rowIdx]
       positioned.set(node.node_id, {
         ...node,
         x: PAD + colIdx * (NODE_W + COL_GAP),
-        y: yOffset + rowIdx * (NODE_H + ROW_GAP),
+        y,
         w: NODE_W,
-        h: NODE_H,
+        h,
       })
+      y += h + ROW_GAP
     })
   })
 

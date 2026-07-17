@@ -35,6 +35,31 @@ function dbBase(dbId: string): string {
   return `${BASE}/dbs/${encodeURIComponent(dbId)}`
 }
 
+/** Parse JSON from a fetch Response; fail clearly when SPA HTML is returned instead of an API payload. */
+async function parseJson<T>(res: Response, label: string): Promise<T> {
+  const contentType = res.headers.get('content-type') || ''
+  const text = await res.text()
+  const trimmed = text.trimStart()
+  if (
+    contentType.includes('text/html') ||
+    trimmed.startsWith('<!DOCTYPE') ||
+    trimmed.startsWith('<!doctype') ||
+    trimmed.startsWith('<html')
+  ) {
+    throw new Error(
+      `${label}: got HTML instead of JSON (likely a missing API route; SPA fallback served index.html)`,
+    )
+  }
+  if (!res.ok) {
+    throw new Error(`${label}: ${res.status} ${res.statusText}${trimmed ? ` — ${trimmed.slice(0, 200)}` : ''}`)
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(`${label}: response was not valid JSON`)
+  }
+}
+
 export interface MetricEntry {
   pipeline_id: string
   stage_index: number
@@ -463,6 +488,8 @@ export interface CandidateFlow {
   run_id: string
   query_id: string
   doc_id: string
+  relevant?: boolean
+  grade?: number | null
   pipelines: CandidateFlowPipeline[]
 }
 
@@ -476,6 +503,46 @@ export async function fetchCandidateFlow(
     `${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}/candidates/${encodeURIComponent(docId)}`,
   )
   if (!res.ok) throw new Error(`Failed to fetch candidate flow for ${docId}`)
+  return res.json()
+}
+
+export interface CandidateJourneyRow {
+  query_id: string
+  query_text: string | null
+  doc_id: string
+  doc_preview: string | null
+  pipeline_id: string
+  trace_id: string
+  relevant: boolean
+  grade: number | null
+  survived: boolean
+  final_rank: number | null
+  introduced_at: string | null
+  dropped_at: string | null
+  drop_reason: string | null
+  drop_reason_inferred: boolean
+  miss_type: string | null
+  evidence_class: string
+}
+
+export interface CandidateJourneys {
+  run_id: string
+  query_id: string
+  query_text: string | null
+  k: number
+  rows: CandidateJourneyRow[]
+}
+
+export async function fetchCandidateJourneys(
+  dbId: string,
+  runId: string,
+  queryId: string,
+  k: number = 10,
+): Promise<CandidateJourneys> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}/candidate-journeys?k=${k}`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch candidate journeys for ${queryId}`)
   return res.json()
 }
 
@@ -1019,15 +1086,13 @@ function windowParams(service: string, since?: string): string {
 }
 
 export async function fetchTraceServices(dbId: string): Promise<TraceService[]> {
-  const res = await fetch(`${dbBase(dbId)}/tracelens/services`)
-  if (!res.ok) throw new Error('Failed to fetch trace services')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/services`)
+  return parseJson(res, 'Failed to fetch trace services')
 }
 
 export async function fetchTraceSummary(dbId: string, service: string, since?: string): Promise<TraceSummary> {
-  const res = await fetch(`${dbBase(dbId)}/tracelens/summary?${windowParams(service, since)}`)
-  if (!res.ok) throw new Error('Failed to fetch trace summary')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/summary?${windowParams(service, since)}`)
+  return parseJson(res, 'Failed to fetch trace summary')
 }
 
 export async function fetchTraces(
@@ -1035,56 +1100,49 @@ export async function fetchTraces(
   service: string,
   filters: { since?: string; status?: string; difficulty?: string; suspected_only?: boolean; limit?: number; offset?: number } = {},
 ): Promise<Page<TraceRow>> {
-  const p = new URLSearchParams({ service })
+  const p = new URLSearchParams({ service_id: service })
   if (filters.since) p.set('since', filters.since)
   if (filters.status) p.set('status', filters.status)
   if (filters.difficulty) p.set('difficulty', filters.difficulty)
   if (filters.suspected_only) p.set('suspected_only', 'true')
   p.set('limit', String(filters.limit ?? 100))
   p.set('offset', String(filters.offset ?? 0))
-  const res = await fetch(`${dbBase(dbId)}/tracelens/traces?${p.toString()}`)
-  if (!res.ok) throw new Error('Failed to fetch traces')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/traces?${p.toString()}`)
+  return parseJson(res, 'Failed to fetch traces')
 }
 
 export async function fetchTopologyVariants(dbId: string, service: string, limit = 50, offset = 0): Promise<Page<TopologyVariant>> {
   const p = new URLSearchParams({ service_id: service, limit: String(limit), offset: String(offset) })
   const res = await fetch(`${dbBase(dbId)}/production/topology-variants?${p.toString()}`)
-  if (!res.ok) throw new Error('Failed to fetch topology variants')
-  return res.json()
+  return parseJson(res, 'Failed to fetch topology variants')
 }
 
 export async function fetchTraceDetail(dbId: string, traceId: string): Promise<TraceDetail> {
-  const res = await fetch(`${dbBase(dbId)}/tracelens/traces/${encodeURIComponent(traceId)}`)
-  if (!res.ok) throw new Error(`Failed to fetch trace ${traceId}`)
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/traces/${encodeURIComponent(traceId)}`)
+  return parseJson(res, `Failed to fetch trace ${traceId}`)
 }
 
 export async function fetchTraceDistribution(dbId: string, service: string, since?: string): Promise<TraceDistribution> {
-  const res = await fetch(`${dbBase(dbId)}/tracelens/distribution?${windowParams(service, since)}`)
-  if (!res.ok) throw new Error('Failed to fetch trace distribution')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/distribution?${windowParams(service, since)}`)
+  return parseJson(res, 'Failed to fetch trace distribution')
 }
 
 export async function fetchTraceDrift(dbId: string, service: string, baseline?: string, recent?: string): Promise<DriftFinding[]> {
-  const p = new URLSearchParams({ service })
+  const p = new URLSearchParams({ service_id: service })
   if (baseline) p.set('baseline', baseline)
   if (recent) p.set('recent', recent)
-  const res = await fetch(`${dbBase(dbId)}/tracelens/drift?${p.toString()}`)
-  if (!res.ok) throw new Error('Failed to fetch drift findings')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/drift?${p.toString()}`)
+  return parseJson(res, 'Failed to fetch drift findings')
 }
 
 export async function fetchTraceHotspots(dbId: string, service: string, since?: string): Promise<FailureHotspot[]> {
-  const res = await fetch(`${dbBase(dbId)}/tracelens/hotspots?${windowParams(service, since)}`)
-  if (!res.ok) throw new Error('Failed to fetch failure hotspots')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/hotspots?${windowParams(service, since)}`)
+  return parseJson(res, 'Failed to fetch failure hotspots')
 }
 
 export async function fetchTraceClusters(dbId: string, service: string, since?: string): Promise<QueryClusterRow[]> {
-  const res = await fetch(`${dbBase(dbId)}/tracelens/clusters?${windowParams(service, since)}`)
-  if (!res.ok) throw new Error('Failed to fetch query clusters')
-  return res.json()
+  const res = await fetch(`${dbBase(dbId)}/production/clusters?${windowParams(service, since)}`)
+  return parseJson(res, 'Failed to fetch query clusters')
 }
 
 export interface QueryLineageOrigin {

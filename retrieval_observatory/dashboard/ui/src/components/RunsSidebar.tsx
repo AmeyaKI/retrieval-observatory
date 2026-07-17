@@ -4,7 +4,7 @@ interface Props {
   runs: Run[]
   selectedKeys: Set<string>
   activeDbId: string | null
-  onToggle: (dbId: string, runId: string) => void
+  onSelect: (dbId: string, runId: string, multi?: boolean) => void
 }
 
 function formatDate(iso: string | null): string {
@@ -15,7 +15,7 @@ function formatDate(iso: string | null): string {
   })
 }
 
-export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }: Props) {
+export default function RunsSidebar({ runs, selectedKeys, activeDbId, onSelect }: Props) {
   if (!activeDbId) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -38,10 +38,10 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
     <div className="flex flex-col flex-1 min-h-0">
       <div className="px-4 py-2 border-b border-hairline bg-surface-muted min-w-[18rem]">
         {selectedCount === 0 && (
-          <p className="text-xs text-ink-faint">Click a run to explore it · Check two to compare</p>
+          <p className="text-xs text-ink-faint">Click a run · Shift/⌘-click or checkboxes to compare</p>
         )}
         {selectedCount === 1 && (
-          <p className="text-xs text-ink-muted font-medium">1 run selected — viewing details</p>
+          <p className="text-xs text-ink-muted font-medium">1 run selected — analyzing this pipeline</p>
         )}
         {selectedCount >= 2 && (
           <div className="flex items-center gap-2">
@@ -64,14 +64,21 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
                 selected ? 'bg-accent/10 border-l-2 border-accent' : ''
               }`}
             >
-              <label className="flex cursor-pointer items-start gap-2 px-4 py-3">
+              <div className="flex items-start gap-2 px-4 py-3">
                 <input
                   type="checkbox"
                   checked={selected}
-                  onChange={() => onToggle(dbId, run.run_id)}
+                  onChange={() => onSelect(dbId, run.run_id, true)}
+                  onClick={(e) => e.stopPropagation()}
                   className="accent-accent mt-0.5 shrink-0"
+                  title="Add to comparison"
+                  aria-label={`Compare ${run.experiment_name}`}
                 />
-                <div className="min-w-0">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={(e) => onSelect(dbId, run.run_id, e.shiftKey || e.metaKey || e.ctrlKey)}
+                >
                   <p className="text-sm font-medium text-ink truncate flex items-center gap-1.5">
                     <span className="truncate">{run.experiment_name}</span>
                     {run.golden_set && (
@@ -82,8 +89,8 @@ export default function RunsSidebar({ runs, selectedKeys, activeDbId, onToggle }
                   </p>
                   <p className="text-xs text-ink-muted font-mono truncate">{run.run_id}</p>
                   <p className="text-xs text-ink-faint">{formatDate(run.started_at)}</p>
-                </div>
-              </label>
+                </button>
+              </div>
             </li>
           )
         })}

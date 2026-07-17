@@ -6,8 +6,15 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-07-17 [PyPI]
+
+Dashboard single-run diagnosis polish, Production API client fix, `evaluate --config` repair, and the remaining audit-remediation surface that landed after 0.5.0.
+
 ### Added
 
+- `dashboard` query diagnosis — TP/FP/FN/TN seen-candidate table + animated stage flowchart on Query detail; Queries list prioritizes query text.
+- `docs/guides/getting-started.md` — SciFact hybrid <10 min multi-stage demo via `retobs evaluate --config` (not removed `retobs run`).
+- `dashboard` candidate-flow diagnosis — `GET .../candidate-journeys` joins qrels + drop history; Query detail shows a per-pipeline path simulator and miss overview table.
 - `tracing/model.py` — define one service-scoped trace identity for production and evaluation with parent-grouped candidate evidence.
 - `integrations/model.py` — add deterministic plan, manifest, phase-specific result, check, patch, and verification contracts.
 - `diagnostics/model.py` — add versioned evidence contracts for supported, limited, unavailable, and not-observed retrieval findings.
@@ -28,6 +35,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+- `dashboard` BenchmarksWorkspace / RunsSidebar — auto-select newest run; refetch on focus; click selects one run (checkbox/modifier for Compare).
+- `dashboard` ModeRail — demote Compare below primary single-run modes.
+- `dashboard` PipelineDagView / dagLayout — taller content-aware nodes, compact single-line metrics, no clipped foreignObject text.
 - `examples/` and bundled SciFact config — rename active quickstart paths to evaluation-oriented names.
 - CI and retrieval comparison workflows — separate source PR gates from wheel-only release-candidate evidence and record tested wheel digests.
 - Public documentation and package metadata — center the installed-wheel `integrate plan/apply/verify` workflow, active task vocabulary, evidence limits, and loopback safety boundary.
@@ -39,9 +49,6 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `dashboard/ui/src/context/DashboardContext.tsx` — add URL-backed database, service, run, time-window, cohort, and filter context.
 - `analysis/` and `dashboard/analysis_api.py` — add cohort-scoped router, branch, score, latency, corpus, ground-truth, instrumentation, baseline, regression-check, and local-alert analysis products using one evidence contract.
 - `store/sqlite.py` and `store/postgres.py` — add versioned cohort, corpus snapshot, judgment, baseline, check, and alert persistence.
-
-### Changed
-
 - `config/operators.py` — replace generic DAG nodes with validated operator-specific graph specifications.
 - `tracing/`, `store/`, `dashboard/api.py` — isolate trace export behind a bounded queue and expose measured capture health.
 - `cli.py` — bind `retobs serve` to `127.0.0.1` by default and warn on remote exposure.
@@ -53,6 +60,8 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `cli.py` `evaluate --config` — import `run_from_config` from `sdk` (was `ro.run_from_config`, missing on package root).
+- `dashboard/ui/src/api.ts` — Production TraceLens clients call `/production/*` with `service_id` (was `/tracelens/*` → SPA HTML → JSON parse error).
 - `store/postgres.py` — deserialize JSONB trace payloads returned as strings before reconstructing traces.
 - `tracing/sink.py` and `scripts/generate_release_evidence.py` — retain telemetry and release-evidence behavior on Python 3.10.
 - `cli.py` — create requested integration-plan output directories and resolve project-root callable modules for the documented installed-wheel commands.

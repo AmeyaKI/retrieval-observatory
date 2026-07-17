@@ -20,8 +20,12 @@ Requires the `[dense]` extra (`sentence-transformers`, `faiss-cpu`):
 pip install -e ".[dense,dashboard]"
 chmod +x examples/advanced/hybrid_fiqa_demo/run_demo.sh
 ./examples/advanced/hybrid_fiqa_demo/run_demo.sh
-retobs serve --db .retobs/hybrid_fiqa_demo.db
+# or one dataset:
+# retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_scifact.yaml
+retobs serve --db .retobs/hybrid_scifact_demo.db
 ```
+
+(`retobs run` is removed — use `retobs evaluate --config`.)
 
 Each config defaults to `max_queries: 50` for a ~2–15 minute smoke run (FiQA dense indexing dominates first run). Remove or raise `max_queries` for full BEIR test splits.
 
@@ -70,7 +74,7 @@ docs the cross-encoder may have dropped. Run it and open the Architecture sectio
 `fuse_hybrid` and `fuse_final` rendered as `MERGE` nodes with `bm25` fanning out to both:
 
 ```bash
-retobs run --config examples/advanced/hybrid_fiqa_demo/config_scifact_graph.yaml
+retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_scifact_graph.yaml
 retobs serve --db .retobs/hybrid_scifact_graph_demo.db
 ```
 

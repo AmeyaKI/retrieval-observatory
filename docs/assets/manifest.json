@@ -11,7 +11,7 @@
     "retrieval-debugging-loop.webm": "d12eafad3fc5b47746096294d39cc7035220d3a3b8ca84edc12f93426ff610c0",
     "validated-fix.png": "dc6dc43c4402dc3e5aceb99c7739b6e0e3120d8ac5ab204c528a506ff39e295c"
   },
-  "retobs_version": "0.5.0",
+  "retobs_version": "0.5.1",
   "schema_version": 1,
   "source": "scripts/generate_demo_assets.py"
 }

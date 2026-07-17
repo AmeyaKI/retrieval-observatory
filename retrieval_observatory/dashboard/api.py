@@ -855,6 +855,50 @@ def create_app(
             ],
         }
 
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidate-journeys")
+    async def get_candidate_journeys(
+        db_id: str, run_id: str, query_id: str, k: int = 10,
+    ) -> Dict[str, Any]:
+        """Miss-overview rows for one query: relevant docs + docs dropped mid-pipeline.
+
+        Joins qrels, candidate_history, and miss attribution so the Query-detail table
+        does not N+1 the per-doc flow endpoint.
+        """
+        if not 1 <= k <= 100:
+            raise HTTPException(status_code=422, detail="k must be 1..100")
+        from retrieval_observatory.tracing.candidate_journeys import build_candidate_journeys
+
+        store = _store_for(db_id)
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
+        query_traces = [t for t in traces if t.query_id == query_id]
+        if not query_traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No traces for query '{query_id}' in run '{run_id}' (candidate journeys need trace data)",
+            )
+        qrels = await _resolve_qrels(store, run_id)
+        qrels_for_query = qrels.get(query_id, {})
+        query_text = query_traces[0].query_text
+        if hasattr(store, "get_run_queries"):
+            for row in await store.get_run_queries(run_id):
+                if row.get("query_id") == query_id and row.get("query_text"):
+                    query_text = row["query_text"]
+                    break
+        rows = await build_candidate_journeys(
+            query_traces,
+            query_id=query_id,
+            query_text=query_text,
+            qrels_for_query=qrels_for_query,
+            k=k,
+        )
+        return {
+            "run_id": run_id,
+            "query_id": query_id,
+            "query_text": query_text,
+            "k": k,
+            "rows": rows,
+        }
+
     @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{doc_id}")
     async def get_candidate_flow(db_id: str, run_id: str, query_id: str, doc_id: str) -> Dict[str, Any]:
         """Candidate Flow Visualization backend (Pillar 2): one document's full journey
@@ -871,6 +915,10 @@ def create_app(
                 status_code=404,
                 detail=f"No traces for query '{query_id}' in run '{run_id}' (candidate flow needs trace data)",
             )
+        qrels = await _resolve_qrels(store, run_id)
+        qrels_for_query = qrels.get(query_id, {})
+        grade = qrels_for_query.get(doc_id)
+        relevant = grade is not None and int(grade) > 0
         pipelines: List[Dict[str, Any]] = []
         for trace in query_traces:
             history = candidate_history(trace, doc_id)
@@ -890,7 +938,14 @@ def create_app(
                     "drop_replay_assumptions": assumptions,
                 }
             )
-        return {"run_id": run_id, "query_id": query_id, "doc_id": doc_id, "pipelines": pipelines}
+        return {
+            "run_id": run_id,
+            "query_id": query_id,
+            "doc_id": doc_id,
+            "relevant": relevant,
+            "grade": int(grade) if relevant and grade is not None else None,
+            "pipelines": pipelines,
+        }
 
     @db_router.get("/runs/{run_id}/stage-matrix")
     async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
