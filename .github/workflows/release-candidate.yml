@@ -375,14 +375,14 @@ jobs:
       - name: Install package for release surface checks
         run: |
           WHEEL=$(ls dist/retrieval_observatory-*.whl | head -1)
-          python -m pip install "${WHEEL}[mcp]"
+          python -m pip install "${WHEEL}[mcp]" pytest
           python -c "import retrieval_observatory; import importlib.metadata as m; print(m.version('retrieval-observatory'))"
       - name: Generate and verify release evidence
         run: |
           WHEEL=$(ls dist/retrieval_observatory-*.whl | head -1)
           python scripts/generate_release_evidence.py --results-dir results --dist dist --output-json artifacts/release-evidence.json --output-markdown artifacts/release-evidence.md
           python scripts/check_release.py --require-assets --require-wheel "$WHEEL" --require-evidence artifacts/release-evidence.json
-          pytest tests/contracts/test_release_evidence.py -v --tb=short
+          python -m pytest tests/contracts/test_release_evidence.py -v --tb=short
           cat artifacts/release-evidence.md >> "$GITHUB_STEP_SUMMARY"
       - name: Assemble release-evidence artifact
         run: |
