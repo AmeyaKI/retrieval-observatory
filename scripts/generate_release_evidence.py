@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from email.parser import Parser
 import hashlib
 import json
@@ -141,7 +141,7 @@ def generate(results_dir: Path, dist: Path) -> dict[str, Any]:
     evidence = {
         "version": _wheel_version(wheel),
         "source_commit": _source_commit(),
-        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "distribution": {
             "path": str(wheel),
             "sha256": wheel_digest,

@@ -82,8 +82,9 @@ class BufferedTraceSink:
     async def _export(self, batch: list[NormalizedTrace]) -> None:
         for attempt in range(self.config.max_retries + 1):
             try:
-                async with asyncio.timeout(self.config.export_timeout_s):
-                    await self.exporter.export(batch)
+                await asyncio.wait_for(
+                    self.exporter.export(batch), timeout=self.config.export_timeout_s
+                )
                 self.counters.exported(len(batch))
                 return
             except asyncio.CancelledError:

@@ -54,6 +54,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ### Fixed
 
 - `store/postgres.py` — deserialize JSONB trace payloads returned as strings before reconstructing traces.
+- `tracing/sink.py` and `scripts/generate_release_evidence.py` — retain telemetry and release-evidence behavior on Python 3.10.
 - `cli.py` — create requested integration-plan output directories and resolve project-root callable modules for the documented installed-wheel commands.
 
 ### Removed
