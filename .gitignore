@@ -25,8 +25,6 @@ TODO
 
 # Docs (project-specific)
 *.md
-!retobs_audit_remediation/
-!retobs_audit_remediation/**/*.md
 !README.md
 !RESULTS.md
 !GOALS.md
@@ -41,6 +39,7 @@ TODO
 !docs/guides/*.md
 
 # Keep internal / work-in-progress docs untracked
+retobs_audit_remediation/
 docs/PRODUCT_AUDIT_AND_REDESIGN.md
 docs/verification/
 
