@@ -26,6 +26,12 @@ def _bm25_config() -> dict:
             "queries_path": os.path.join(FIXTURES, "tiny_queries.jsonl"),
             "corpus_path": os.path.join(FIXTURES, "tiny_corpus.jsonl"),
         },
+        "release_identity": {
+            "service_id": "support-search",
+            "deployment_revision": "api-roundtrip-1",
+            "corpus_revision": "tiny-corpus-1",
+            "index_build_id": "bm25-index-1",
+        },
         "pipelines": [{"id": "bm25", "stages": [{"type": "adapter.bm25", "retriever_id": "bm25"}]}],
     }
 
@@ -59,6 +65,15 @@ def test_trigger_wait_and_read(tmp_path):
         # output, not the deleted heuristic _build_diagram shape.
         assert "depth" in node
         assert "branch_id" in node
+
+        overview = client.get(f"/dbs/{db_id}/runs/{run_id}/overview")
+        assert overview.status_code == 200
+        manifest = overview.json()["manifest"]
+        assert manifest["release_identity"]["index_build_id"] == "bm25-index-1"
+        assert manifest["run_window"]["started_at"]
+        assert manifest["run_window"]["finished_at"]
+        assert manifest["evidence_profile"]["lineage"]["trace_coverage"] == 1.0
+        assert manifest["evidence_profile"]["telemetry"] is None
 
 
 def test_bad_config_rejected(tmp_path):

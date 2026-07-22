@@ -72,6 +72,7 @@ def build_run_manifest(
         "execution": _execution_manifest(config, seed),
         "labeling": _label_manifest(config),
         "models": _model_inventory(config),
+        "release_identity": _release_identity_manifest(config),
         "environment": {
             "python": sys.version,
             "platform": platform.platform(),
@@ -93,6 +94,15 @@ def build_run_manifest(
     if golden_set is not None:
         manifest["golden_set"] = golden_set
     return manifest
+
+
+def _release_identity_manifest(config: Any) -> Dict[str, Any]:
+    identity = getattr(config, "release_identity", None)
+    if identity is None:
+        return {}
+    if hasattr(identity, "model_dump"):
+        return identity.model_dump(mode="json")
+    return dict(identity)
 
 
 def _stage_label(stage: Any) -> str:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -56,6 +57,7 @@ async def execute_benchmark(
     from retrieval_observatory.runner.manifest import build_run_manifest, detect_forge_dataset_id
 
     _log = log or (lambda *a, **k: None)
+    run_started_at = datetime.now(timezone.utc)
 
     # Detect filter-ignorance early so the warning appears before any queries run.
     filter_warnings: list[str] = []
@@ -246,6 +248,18 @@ async def execute_benchmark(
             "critical_path_ms": "longest observed dependency path",
             "operator_sum_ms": "sum of observed operator durations",
         }
+        run_finished_at = datetime.now(timezone.utc)
+        manifest["run_window"] = {
+            "started_at": run_started_at.isoformat(),
+            "finished_at": run_finished_at.isoformat(),
+        }
+        from retrieval_observatory.release.evidence import EvidenceProfile
+
+        health = None
+        service_id = (manifest.get("release_identity") or {}).get("service_id")
+        if service_id and hasattr(store, "get_instrumentation_health"):
+            health = await store.get_instrumentation_health(service_id)
+        manifest["evidence_profile"] = EvidenceProfile.from_run(manifest, traces, health).model_dump(mode="json")
         await store.save_run_manifest(run_id, manifest)
     await store.finish_run(run_id)
 
