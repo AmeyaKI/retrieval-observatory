@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Literal, Optional, Sequence, Set
 
 from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
@@ -196,12 +196,17 @@ def _find_final_span(trace: RetrievalTrace) -> Optional[OperatorSpan]:
     return trace.spans[-1]
 
 
-def _rrf_merge(arm_outputs: List[List[Candidate]], k: int = 60) -> List[Candidate]:
+def _rrf_merge(
+    arm_outputs: List[List[Candidate]],
+    k: int = 60,
+    observed_outputs: Sequence[Candidate] = (),
+) -> List[Candidate]:
     """Reciprocal rank fusion across multiple arms."""
     scores: Dict[str, float] = {}
     origins: Dict[str, List[str]] = {}
     components: Dict[str, Dict[str, float]] = {}
     candidate_map: Dict[str, Candidate] = {}
+    parent_candidate_ids: Dict[str, List[str]] = {}
     for arm_candidates in arm_outputs:
         for rank_pos, c in enumerate(arm_candidates, start=1):
             rrf_score = 1.0 / (k + rank_pos)
@@ -212,18 +217,26 @@ def _rrf_merge(arm_outputs: List[List[Candidate]], k: int = 60) -> List[Candidat
                 components[c.doc_id][oid] = rrf_score
             if c.doc_id not in candidate_map:
                 candidate_map[c.doc_id] = c
+            if c.candidate_id not in parent_candidate_ids.setdefault(c.doc_id, []):
+                parent_candidate_ids[c.doc_id].append(c.candidate_id)
+    observed_map = {candidate.doc_id: candidate for candidate in observed_outputs}
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     result: List[Candidate] = []
     for rank_pos, (doc_id, score) in enumerate(ranked, start=1):
-        base = candidate_map[doc_id]
-        result.append(Candidate(
-            doc_id=doc_id,
+        base = observed_map.get(doc_id, candidate_map[doc_id])
+        result.append(replace(
+            base,
             score=score,
             rank=rank_pos,
-            origin_op_ids=sorted(set(origins.get(doc_id, []))),
+            output_rank=rank_pos,
+            origin_op_ids=tuple(sorted(set(origins.get(doc_id, [])))),
             score_components=components.get(doc_id, {}),
             add_reason="fused",
             metadata=dict(base.metadata),
+            parent_candidate_ids=tuple(parent_candidate_ids.get(doc_id, ())),
+            identity_evidence=base.identity_evidence if doc_id in observed_map else "legacy_inferred",
+            decision_reason="fused",
+            decision_evidence="legacy_inferred",
         ))
     return result
 
@@ -254,14 +267,11 @@ def without_operator(trace: RetrievalTrace, op_id: str) -> RetrievalTrace:
             pre = candidate.score_components.get("pre_boost")
             if pre is None:
                 continue
-            restored.append(Candidate(
-                doc_id=candidate.doc_id,
+            restored.append(replace(
+                candidate,
                 score=float(pre),
-                rank=candidate.rank,
-                origin_op_ids=list(candidate.origin_op_ids),
+                origin_op_ids=tuple(candidate.origin_op_ids),
                 score_components=dict(candidate.score_components),
-                add_reason=candidate.add_reason,
-                drop_reason=candidate.drop_reason,
                 metadata=dict(candidate.metadata),
             ))
         replacement_output = sorted(restored, key=lambda c: c.score, reverse=True)
@@ -293,7 +303,11 @@ def without_operator(trace: RetrievalTrace, op_id: str) -> RetrievalTrace:
                 remaining_arm_outputs.append(list(span.outputs))
         rrf_k = fuse_child.params.get("k", 60)
         if remaining_arm_outputs:
-            counterfactual_outputs[fuse_child.op_id] = _rrf_merge(remaining_arm_outputs, k=rrf_k)
+            counterfactual_outputs[fuse_child.op_id] = _rrf_merge(
+                remaining_arm_outputs,
+                k=rrf_k,
+                observed_outputs=fuse_child.outputs,
+            )
         else:
             counterfactual_outputs[fuse_child.op_id] = []
     elif replacement_output is not None:
@@ -364,6 +378,7 @@ def without_operator(trace: RetrievalTrace, op_id: str) -> RetrievalTrace:
         metadata=metadata,
         error_traceback=trace.error_traceback,
         final_op_ids=final_op_ids,
+        schema_version=trace.schema_version,
     )
 
 

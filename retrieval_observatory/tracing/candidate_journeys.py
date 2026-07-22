@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 
 from retrieval_observatory.tracing.candidate_history import candidate_history
+from retrieval_observatory.tracing.lineage import build_candidate_lineage
 from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.tracing.replay import MissAttribution, attribute_miss
 
@@ -59,8 +60,9 @@ async def build_candidate_journeys(
     query_text: Optional[str],
     qrels_for_query: Mapping[str, int],
     k: int = 10,
+    qrel_chunk_mapping_complete: bool = False,
 ) -> List[Dict[str, Any]]:
-    """Return one row per (pipeline, doc) for relevant docs and docs that were dropped."""
+    """Return evidence-aware compatibility rows for observed and qrel candidates."""
     relevant_ids = {doc_id for doc_id, grade in qrels_for_query.items() if grade > 0}
     rows: List[Dict[str, Any]] = []
 
@@ -68,6 +70,11 @@ async def build_candidate_journeys(
         if trace.query_id != query_id:
             continue
         seen = _doc_ids_seen(trace)
+        graph = build_candidate_lineage(
+            trace,
+            qrels_for_query=qrels_for_query,
+            qrel_chunk_mapping_complete=qrel_chunk_mapping_complete,
+        )
         # Docs of interest: all relevant + any seen doc (we'll keep rows that are
         # relevant or that were dropped in this pipeline).
         candidates = set(relevant_ids) | seen
@@ -78,12 +85,28 @@ async def build_candidate_journeys(
             history = candidate_history(trace, doc_id)
             relevant = doc_id in relevant_ids
             grade = int(qrels_for_query.get(doc_id, 0)) if relevant else None
-            dropped = history.dropped_at is not None and not history.survived
-            # Skip non-relevant docs that never appeared or never dropped.
-            if not relevant and not dropped and history.introduced_at is None:
+            if history.introduced_at is None and not relevant:
                 continue
-            if not relevant and not dropped:
-                continue
+
+            passport = next(
+                (
+                    value
+                    for value in graph.candidates.values()
+                    if value.candidate_id == doc_id
+                    or value.logical_chunk_id == doc_id
+                    or value.source.document_id == doc_id
+                ),
+                None,
+            )
+            if passport is not None:
+                outcome = passport.outcome.kind
+                outcome_evidence = passport.outcome.evidence
+            elif relevant and graph.qrel_chunk_mapping_complete and graph.retrieval_entry_complete:
+                outcome = "relevant_lost_upstream"
+                outcome_evidence = "recorded"
+            else:
+                outcome = "lineage_incomplete"
+                outcome_evidence = "partial"
 
             drop_inferred = False
             if history.events:
@@ -114,6 +137,8 @@ async def build_candidate_journeys(
                     "drop_reason": history.dropped_reason if not history.survived else None,
                     "drop_reason_inferred": drop_inferred if not history.survived else False,
                     "miss_type": miss.miss_type if miss is not None else None,
+                    "outcome": outcome,
+                    "outcome_evidence": outcome_evidence,
                     "evidence_class": _evidence_class(
                         history_dropped_reason=history.dropped_reason if not history.survived else None,
                         drop_reason_inferred=drop_inferred,

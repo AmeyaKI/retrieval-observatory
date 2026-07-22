@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
+from retrieval_observatory.tracing.lineage_contract import LineageEvidence
 from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
 # When a candidate is present in an operator's inputs but absent from its outputs
@@ -28,7 +29,7 @@ class CandidateEvent:
     op_name: str
     op_type: str
     status: str
-    event: str  # "introduced" | "passed" | "dropped"
+    event: str  # "introduced" | "passed" | "dropped" | "incomplete"
     input_rank: Optional[int] = None
     output_rank: Optional[int] = None
     score: Optional[float] = None
@@ -37,6 +38,7 @@ class CandidateEvent:
     drop_reason: Optional[str] = None
     drop_reason_inferred: bool = False
     origin_op_ids: List[str] = field(default_factory=list)
+    lineage_evidence: LineageEvidence = "recorded"
     note: str = ""
 
 
@@ -51,6 +53,7 @@ class CandidateHistory:
     dropped_reason: Optional[str] = None
     survived: bool = False
     final_rank: Optional[int] = None
+    lineage_evidence: LineageEvidence = "recorded"
     events: List[CandidateEvent] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -70,12 +73,19 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
 
     Answers the five questions the vision names for Candidate Flow Visualization:
     which document disappeared, where it was removed, why, which reranker promoted
-    it, and which retrieval arm found it — using only recorded trace evidence.
+    it, and which retrieval arm found it, with legacy inference labeled explicitly.
     """
     history = CandidateHistory(doc_id=doc_id, trace_id=trace.trace_id, query_id=trace.query_id)
     introduced = False
     last_score: Optional[float] = None
     seen_in_ops: set = set()  # op_ids whose OUTPUTS carried the doc
+    trace_partial = bool(
+        trace.capture.lineage_evidence in {"partial", "unavailable"}
+        or trace.capture.candidates_truncated
+        or trace.capture.omitted_field_count
+    )
+    if trace_partial:
+        history.lineage_evidence = "partial"
 
     for span in trace.spans:
         out_c = _find(span.outputs, doc_id)
@@ -85,6 +95,8 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
         consumes = bool(in_c is not None or (set(span.parent_ids) & seen_in_ops))
 
         if out_c is not None:
+            if out_c.identity_evidence != "recorded":
+                history.lineage_evidence = out_c.identity_evidence
             if not introduced:
                 introduced = True
                 history.introduced_at = span.op_id
@@ -100,6 +112,7 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
                     score=out_c.score,
                     add_reason=str(out_c.add_reason),
                     origin_op_ids=list(out_c.origin_op_ids),
+                    lineage_evidence=out_c.identity_evidence,
                     note=f"Introduced by {', '.join(out_c.origin_op_ids) or span.op_name}",
                 )
             else:
@@ -115,17 +128,35 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
                     score=out_c.score,
                     score_delta=delta,
                     origin_op_ids=list(out_c.origin_op_ids),
+                    lineage_evidence=out_c.identity_evidence,
                 )
             last_score = out_c.score
             seen_in_ops.add(span.op_id)
             history.events.append(event)
         elif introduced and consumes:
             # Present entering this operator, gone from its outputs -> dropped here.
-            reason = in_c.drop_reason if in_c is not None else None
-            inferred = False
-            if reason is None:
-                reason = _DROP_REASON_BY_OP_TYPE.get(str(span.op_type), "unknown")
-                inferred = True
+            if trace_partial:
+                history.events.append(
+                    CandidateEvent(
+                        op_id=span.op_id,
+                        op_name=span.op_name,
+                        op_type=str(span.op_type),
+                        status=str(span.status),
+                        event="incomplete",
+                        input_rank=in_c.rank if in_c is not None else None,
+                        score=in_c.score if in_c is not None else None,
+                        lineage_evidence="partial",
+                        note="Candidate exit is unavailable because operator output capture is partial",
+                    )
+                )
+                continue
+            reason = (in_c.decision_reason or in_c.drop_reason) if in_c is not None else None
+            evidence = in_c.decision_evidence if in_c is not None else "unavailable"
+            inferred = evidence != "recorded"
+            if inferred:
+                reason = reason or _DROP_REASON_BY_OP_TYPE.get(str(span.op_type), "unknown")
+                evidence = "legacy_inferred"
+                history.lineage_evidence = "legacy_inferred"
             history.events.append(
                 CandidateEvent(
                     op_id=span.op_id,
@@ -137,6 +168,7 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
                     score=in_c.score if in_c is not None else None,
                     drop_reason=reason,
                     drop_reason_inferred=inferred,
+                    lineage_evidence=evidence,
                     note=(
                         "Drop reason not recorded; inferred from operator type"
                         if inferred

@@ -107,6 +107,17 @@ def test_without_fuse_arm_recomputes_rrf() -> None:
     assert "d3" in cf_doc_ids
 
 
+def test_replayed_fusion_preserves_lineage_fields_as_inferred() -> None:
+    cf = without_operator(_fused_trace(), "arm_bm25")
+    fused = next(span for span in cf.spans if span.op_type == "FUSE")
+    candidate = next(item for item in fused.outputs if item.doc_id == "d2")
+
+    assert candidate.logical_chunk_id == "d2"
+    assert candidate.parent_candidate_ids == ("d2",)
+    assert candidate.decision_reason == "fused"
+    assert candidate.decision_evidence == "legacy_inferred"
+
+
 def test_without_fuse_arm_removes_arm_span() -> None:
     trace = _fused_trace()
     cf = without_operator(trace, "arm_bm25")
