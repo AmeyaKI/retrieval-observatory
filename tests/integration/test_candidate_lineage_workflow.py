@@ -36,7 +36,7 @@ def _manifest(trace: RetrievalTrace) -> dict:
         "evidence_profile": {
             "release_identity": {"service_id": "search", "deployment_revision": trace.run_id, "corpus_revision": "corpus", "index_build_id": "index"},
             "run_window": {"started_at": None, "finished_at": None},
-            "lineage": {"trace_coverage": 1.0, "identity_continuity_coverage": 1.0, "input_output_coverage": 1.0, "recorded_exit_reason_coverage": 1.0, "topology_edge_coverage": 1.0, "qrel_to_chunk_mapping_coverage": 1.0, "legacy_inferred_count": 0, "partial_trace_count": 0},
+            "lineage": {"trace_coverage": 1.0, "identity_continuity_coverage": 1.0, "document_identity_coverage": 1.0, "input_output_coverage": 1.0, "recorded_exit_reason_coverage": 1.0, "topology_edge_coverage": 1.0, "qrel_to_chunk_mapping_coverage": 1.0, "legacy_inferred_count": 0, "partial_trace_count": 0},
             "topologies": [{"topology_hash": trace.topology_hash(), "operators": [{"op_id": "retrieve", "op_type": "SOURCE", "parent_ids": []}], "lineage_schema_versions": [1]}],
             "telemetry": None,
         },

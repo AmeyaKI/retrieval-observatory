@@ -80,6 +80,7 @@ def _manifest(*, corpus_revision: str | None = "corpus-v1", exit_coverage: float
             "lineage": {
                 "trace_coverage": 1.0,
                 "identity_continuity_coverage": 1.0,
+                "document_identity_coverage": 1.0,
                 "input_output_coverage": 1.0,
                 "recorded_exit_reason_coverage": exit_coverage,
                 "topology_edge_coverage": 1.0,
@@ -158,6 +159,22 @@ def test_topology_change_blocks_lineage_diff_without_blocking_promotion():
     assert assessment.readiness["lineage_diff"].status == "BLOCK"
     assert any(
         finding.code == "lineage_topology_unaligned"
+        for finding in assessment.readiness["lineage_diff"].findings
+    )
+
+
+def test_missing_document_identity_coverage_blocks_lineage_diff_only():
+    baseline = _manifest()
+    candidate = _manifest()
+    baseline["evidence_profile"]["lineage"]["document_identity_coverage"] = 0.5
+    candidate["evidence_profile"]["lineage"]["document_identity_coverage"] = 1.0
+
+    assessment = assess_evidence(_policy(), baseline, candidate)
+
+    assert assessment.readiness["promotion"].status == "READY"
+    assert assessment.readiness["lineage_diff"].status == "BLOCK"
+    assert any(
+        finding.code == "lineage_document_identity_partial"
         for finding in assessment.readiness["lineage_diff"].findings
     )
 

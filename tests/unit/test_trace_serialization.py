@@ -89,3 +89,14 @@ def test_normalize_preserves_candidate_lineage_fields() -> None:
     restored = RetrievalTrace.from_dict(normalized.payload)
 
     assert restored.spans[0].outputs[0] == candidate
+    assert restored.lineage_schema_version == 2
+
+
+def test_legacy_trace_without_lineage_version_remains_version_one() -> None:
+    payload = _trace().to_dict()
+    payload.pop("lineage_schema_version")
+
+    restored = RetrievalTrace.from_dict(payload)
+
+    assert restored.schema_version == 1
+    assert restored.lineage_schema_version == 1

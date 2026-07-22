@@ -26,6 +26,7 @@ class RunWindow(_EvidenceModel):
 class LineageCoverage(_EvidenceModel):
     trace_coverage: float | None = Field(default=None, ge=0, le=1)
     identity_continuity_coverage: float | None = Field(default=None, ge=0, le=1)
+    document_identity_coverage: float | None = Field(default=None, ge=0, le=1)
     input_output_coverage: float | None = Field(default=None, ge=0, le=1)
     recorded_exit_reason_coverage: float | None = Field(default=None, ge=0, le=1)
     topology_edge_coverage: float | None = Field(default=None, ge=0, le=1)
@@ -154,6 +155,15 @@ def _lineage_coverage(manifest: Mapping[str, Any], traces: Sequence[RetrievalTra
             sum(candidate.identity_evidence == "recorded" for candidate in candidates),
             len(candidates),
         ),
+        document_identity_coverage=_coverage(
+            sum(
+                candidate.identity_evidence == "recorded"
+                and candidate.logical_chunk_id is not None
+                and bool(candidate.document_revision or candidate.content_hash)
+                for candidate in candidates
+            ),
+            len(candidates),
+        ),
         input_output_coverage=_coverage(complete_spans, len(spans)),
         recorded_exit_reason_coverage=_coverage(
             sum(candidate.decision_evidence == "recorded" for candidate in exit_candidates),
@@ -201,7 +211,7 @@ def _topology_descriptors(traces: Sequence[RetrievalTrace]) -> list[TopologyDesc
                 TopologyOperator(op_id=span.op_id, op_type=span.op_type, parent_ids=sorted(span.parent_ids))
                 for span in sorted(items[0].spans, key=lambda item: item.op_id)
             ],
-            lineage_schema_versions=sorted({trace.schema_version for trace in items}),
+            lineage_schema_versions=sorted({trace.lineage_schema_version for trace in items}),
         )
         for topology_hash, items in sorted(grouped.items())
     ]

@@ -53,6 +53,7 @@ def _manifest(deployment: str) -> dict:
             "lineage": {
                 "trace_coverage": 1.0,
                 "identity_continuity_coverage": 1.0,
+                "document_identity_coverage": 1.0,
                 "input_output_coverage": 1.0,
                 "recorded_exit_reason_coverage": 1.0,
                 "topology_edge_coverage": 1.0,

@@ -214,6 +214,7 @@ class RetrievalTrace:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     error_traceback: str | None = None
     schema_version: int = 1
+    lineage_schema_version: int = 2
     final_op_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -254,6 +255,8 @@ class RetrievalTrace:
         object.__setattr__(self, "spans", spans)
         object.__setattr__(self, "final_op_ids", final_op_ids)
         object.__setattr__(self, "final_op_id", final_op_ids[0] if len(final_op_ids) == 1 else None)
+        if self.lineage_schema_version < 1:
+            raise ValueError("lineage schema version must be positive")
         if self.timing is None:
             object.__setattr__(self, "timing", TraceTiming.from_spans(spans))
 
@@ -278,6 +281,7 @@ class RetrievalTrace:
             "metadata": dict(self.metadata),
             "error_traceback": self.error_traceback,
             "schema_version": self.schema_version,
+            "lineage_schema_version": self.lineage_schema_version,
         }
 
     @property
@@ -333,4 +337,5 @@ class RetrievalTrace:
             metadata=dict(value.get("metadata", {})),
             error_traceback=value.get("error_traceback"),
             schema_version=int(value.get("schema_version", 1)),
+            lineage_schema_version=int(value.get("lineage_schema_version", 1)),
         )

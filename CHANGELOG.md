@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `tracing/model.py` and `release/evidence.py` — version candidate lineage independently of the trace envelope and measure document-revision identity coverage for safe run diffs.
 - `release/policy.py` and `release/assessment.py` — allow policies to make declared lineage-diagnosis readiness explicitly promotion-critical.
 - `release/policy.py` and `release/readiness.py` — add bounded local release-policy and claim-scoped evidence-readiness contracts.
 - `tracing/model.py`, `tracing/candidates.py`, and `tracing/lineage_contract.py` — add backward-compatible candidate identity, DAG parentage, and recorded-versus-inferred decision evidence.

@@ -24,6 +24,7 @@ def _manifest(*, deployment: str, corpus_revision: str | None = "corpus-v1", exi
             "run_window": {"started_at": "2026-07-22T12:00:00Z", "finished_at": "2026-07-22T12:05:00Z"},
             "lineage": {
                 "trace_coverage": 1.0, "identity_continuity_coverage": 1.0,
+                "document_identity_coverage": 1.0,
                 "input_output_coverage": 1.0, "recorded_exit_reason_coverage": exit_coverage,
                 "topology_edge_coverage": 1.0, "qrel_to_chunk_mapping_coverage": 1.0,
                 "legacy_inferred_count": 0, "partial_trace_count": 0,

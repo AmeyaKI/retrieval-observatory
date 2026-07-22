@@ -245,6 +245,19 @@ def _lineage_findings(
                     next_action="Record stable candidate and logical chunk IDs across every observed stage.",
                 )
             )
+    if scope == "lineage_diff":
+        values = [profile.lineage.document_identity_coverage for profile in complete_profiles]
+        if any(value is None or value < 1.0 for value in values):
+            findings.append(
+                _finding(
+                    "lineage_document_identity_partial",
+                    scope,
+                    observed=values,
+                    required=1.0,
+                    detail="Stable logical-chunk and document revision/content-hash identity is incomplete.",
+                    next_action="Record a document revision or content hash for every lineage candidate.",
+                )
+            )
     if requirements.min_input_output_coverage is not None:
         values = [profile.lineage.input_output_coverage for profile in complete_profiles]
         if any(value is None or value < requirements.min_input_output_coverage for value in values):

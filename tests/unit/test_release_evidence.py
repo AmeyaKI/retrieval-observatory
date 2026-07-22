@@ -79,6 +79,7 @@ def test_profile_counts_recorded_exit_coverage_not_inferred_exits():
 
     assert profile.lineage.recorded_exit_reason_coverage == 0.5
     assert profile.lineage.identity_continuity_coverage == 1.0
+    assert profile.lineage.document_identity_coverage == 0.0
     assert profile.lineage.trace_coverage == 1.0
     assert profile.lineage.legacy_inferred_count == 1
 
@@ -128,5 +129,5 @@ def test_profile_emits_sorted_topology_descriptor_without_raw_content():
     profile = EvidenceProfile.from_run(_manifest(), [_trace("q-1", recorded_exit=True)], None)
 
     assert [operator.op_id for operator in profile.topologies[0].operators] == ["filter", "source"]
-    assert profile.topologies[0].lineage_schema_versions == [1]
+    assert profile.topologies[0].lineage_schema_versions == [2]
     assert "private query" not in profile.model_dump_json()
