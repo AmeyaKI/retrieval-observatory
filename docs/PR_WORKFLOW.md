@@ -5,12 +5,14 @@ Generate reviewable artifacts from the same comparison model used by the dashboa
 ```bash
 retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" \
   --db .retobs/results.db \
+  --policy retobs/release-policy.yaml \
   --format markdown \
   --output artifacts/retobs-comparison.md \
-  --fail-on regression-or-no-decision
+  --fail-on hold-or-block-or-fail
 
 retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" \
   --db .retobs/results.db \
+  --policy retobs/release-policy.yaml \
   --format html \
   --output artifacts/retobs-comparison.html
 ```
@@ -21,8 +23,10 @@ In GitHub Actions, append the Markdown to `$GITHUB_STEP_SUMMARY` and upload the 
 
 Recommended gate policy:
 
-- `--fail-on regression` blocks only a supported decision-bearing regression.
-- `--fail-on regression-or-no-decision` also blocks invalid/underpowered comparisons and is safer for protected branches.
+- `--fail-on fail` blocks only a policy-critical proven regression.
+- `--fail-on hold-or-block-or-fail` also blocks inconclusive or invalid required evidence and is safer for protected branches.
 - `--fail-on never` generates evidence without deciding merge policy.
+
+The deprecated `regression` aliases remain compatible for one release cycle, but new workflows should use the canonical terms above. See [retrieval release decisions](guides/retrieval-release-decisions.md).
 
 Do not publish reports containing sensitive query text/document metadata without review; see [Data and privacy](PRIVACY.md).

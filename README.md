@@ -30,6 +30,17 @@ retobs evaluate mypackage.search:retrieve --queries data/queries.jsonl --qrels d
 
 Use the returned Run ID with `retobs report`, `retobs compare`, and `retobs inspect-query`. A comparison is valid only when its required identities align; a query diagnosis is limited to evidence actually recorded.
 
+## Gate a retrieval release
+
+Use a local, versioned policy to make the promotion boundary explicit:
+
+```bash
+retobs integrate . --phase verify --policy retobs/release-policy.yaml
+retobs compare BASELINE CANDIDATE --db .retobs/results.db --policy retobs/release-policy.yaml --format html --output artifacts/retobs-release.html --fail-on hold-or-block-or-fail
+```
+
+`PASS` proves bounded non-inferiority under the declared policy; `HOLD` is valid but inconclusive evidence; `BLOCK` is missing or invalid required evidence; and `FAIL` is a proven policy-critical regression. Promotion readiness and lineage-diagnosis readiness remain separate. See [retrieval release decisions](docs/guides/retrieval-release-decisions.md) and the [Candidate Lineage Explorer](docs/guides/candidate-lineage-explorer.md).
+
 ## Investigate locally
 
 ```bash
@@ -60,6 +71,8 @@ Queries, candidates, metadata, labels, and traces may be sensitive. Redaction ru
 - [Workflow](docs/WORKFLOW.md)
 - [Concepts](docs/CONCEPTS.md)
 - [CLI, SDK, and MCP reference](docs/REFERENCE.md)
+- [Retrieval release decisions](docs/guides/retrieval-release-decisions.md)
+- [Candidate Lineage Explorer](docs/guides/candidate-lineage-explorer.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Releases](https://github.com/AmeyaKI/retrieval-observatory/releases)
 

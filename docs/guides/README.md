@@ -17,6 +17,8 @@ diagnoses it:
 - [tracelens.md](tracelens.md) — observing production retrieval
 - [advisor.md](advisor.md) — from diagnostics to a prioritized plan
 - [auto-instrumentation.md](auto-instrumentation.md) — tracing without per-call-site code (LangChain proof of concept)
+- [retrieval-release-decisions.md](retrieval-release-decisions.md) — bounded local/CI promotion evidence
+- [candidate-lineage-explorer.md](candidate-lineage-explorer.md) — static recorded paths, outcomes, passports, and safe diffs
 
 For the full CLI/config reference see [../USAGE.md](../USAGE.md) and
 [../YAML_GUIDE.md](../YAML_GUIDE.md).
