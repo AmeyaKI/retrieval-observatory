@@ -27,6 +27,12 @@ Cached operators retain cache status and do not masquerade as normal execution. 
 
 Missing required identity is unknown, never equal. Invalid comparisons cannot name a winner or pass a gate. Valid paired results report candidate-minus-baseline effect, p-value, BH-corrected q-value, practical threshold, paired `n`, power state, and decision reason.
 
+## Release-policy evidence scopes
+
+Release policies are local, versioned YAML files with exact canonical metric keys and exact values on top-level query metadata fields. They do not accept expressions, regular expressions, SQL, or executable policy code.
+
+Promotion readiness and lineage-diagnosis readiness are separate claims. Missing lineage evidence blocks the `lineage_diagnosis` claim but does not block promotion unless the policy explicitly makes that evidence a promotion requirement. `PASS` means the recorded evidence supports promotion under the declared policy; `HOLD` means valid evidence is inconclusive; `BLOCK` means policy-required evidence is absent or invalid; and `FAIL` means valid evidence proves a regression beyond a declared budget. A `PASS` does not establish universal safety, deployment readiness, or a causal explanation.
+
 ## Diagnostic limits
 
 A valid relevant document missed by retrieval is a miss, not a corpus/qrel identity mismatch. `qrel_not_in_corpus` is reserved for an actually absent qrel document ID. Production quality is unavailable unless explicit labels are joined.
