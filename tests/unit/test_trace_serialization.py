@@ -57,3 +57,35 @@ def test_irreducibly_oversized_payload_fails() -> None:
         redacted_keys=frozenset(),
     )
     assert normalized.failed is True
+
+
+def test_normalize_preserves_candidate_lineage_fields() -> None:
+    candidate = Candidate(
+        "chunk:42",
+        0.9,
+        1,
+        candidate_id="fused:42",
+        logical_chunk_id="chunk:42",
+        parent_candidate_ids=("lex:42", "vec:42"),
+        document_id="doc:7",
+        document_revision="rev:3",
+        content_hash="sha256:abc",
+        char_start=10,
+        char_end=20,
+    )
+    trace = RetrievalTrace(
+        "trace",
+        "svc",
+        None,
+        "query",
+        "hello",
+        "pipeline",
+        (OperatorSpan.source("source", "source", (candidate,)),),
+        ("source",),
+        datetime.now(timezone.utc),
+    )
+
+    normalized = normalize_trace(trace, limits=PayloadLimits(), redacted_keys=frozenset())
+    restored = RetrievalTrace.from_dict(normalized.payload)
+
+    assert restored.spans[0].outputs[0] == candidate
