@@ -4,7 +4,12 @@ from retrieval_observatory.release.assessment import assess_evidence
 from retrieval_observatory.release.policy import ReleasePolicy
 
 
-def _policy(*, require_exit_reasons: bool = True, require_telemetry: bool = False) -> ReleasePolicy:
+def _policy(
+    *,
+    require_exit_reasons: bool = True,
+    require_telemetry: bool = False,
+    require_lineage_for_promotion: bool = False,
+) -> ReleasePolicy:
     promotion = {
         "required_manifest_fields": ["release_identity.corpus_revision"],
         "min_label_coverage": 1.0,
@@ -12,6 +17,8 @@ def _policy(*, require_exit_reasons: bool = True, require_telemetry: bool = Fals
     if require_telemetry:
         promotion["max_sampled_out_rate"] = 0.1
         promotion["max_dropped_rate"] = 0.01
+    if require_lineage_for_promotion:
+        promotion["require_lineage_readiness"] = True
     return ReleasePolicy.model_validate(
         {
             "id": "support-search-v2",
@@ -110,6 +117,22 @@ def test_complete_final_metrics_can_pass_promotion_while_lineage_blocks():
 
     assert assessment.readiness["promotion"].status == "READY"
     assert assessment.readiness["lineage_diagnosis"].status == "BLOCK"
+
+
+def test_policy_can_make_lineage_readiness_promotion_critical():
+    policy = _policy(require_lineage_for_promotion=True)
+    assessment = assess_evidence(
+        policy,
+        _manifest(exit_coverage=0.5),
+        _manifest(exit_coverage=0.5),
+    )
+
+    assert assessment.readiness["lineage_diagnosis"].status == "BLOCK"
+    assert assessment.readiness["promotion"].status == "BLOCK"
+    assert any(
+        finding.code == "lineage_exit_reason_unrecorded"
+        for finding in assessment.readiness["promotion"].findings
+    )
     assert assessment.readiness["lineage_diagnosis"].findings[0].code == "lineage_exit_reason_unrecorded"
 
 

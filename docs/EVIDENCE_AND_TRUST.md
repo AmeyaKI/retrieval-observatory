@@ -31,7 +31,7 @@ Missing required identity is unknown, never equal. Invalid comparisons cannot na
 
 Release policies are local, versioned YAML files with exact canonical metric keys and exact values on top-level query metadata fields. They do not accept expressions, regular expressions, SQL, or executable policy code.
 
-Promotion readiness and lineage-diagnosis readiness are separate claims. Missing lineage evidence blocks the `lineage_diagnosis` claim but does not block promotion unless the policy explicitly makes that evidence a promotion requirement. `PASS` means the recorded evidence supports promotion under the declared policy; `HOLD` means valid evidence is inconclusive; `BLOCK` means policy-required evidence is absent or invalid; and `FAIL` means valid evidence proves a regression beyond a declared budget. A `PASS` does not establish universal safety, deployment readiness, or a causal explanation.
+Promotion readiness and lineage-diagnosis readiness are separate claims. Missing lineage evidence blocks the `lineage_diagnosis` claim but does not block promotion unless `evidence.promotion.require_lineage_readiness` is explicitly true; that bounded flag applies the declared `lineage_diagnosis` requirements to promotion as well. `PASS` means the recorded evidence supports promotion under the declared policy; `HOLD` means valid evidence is inconclusive; `BLOCK` means policy-required evidence is absent or invalid; and `FAIL` means valid evidence proves a regression beyond a declared budget. A `PASS` does not establish universal safety, deployment readiness, or a causal explanation.
 
 ## Diagnostic limits
 

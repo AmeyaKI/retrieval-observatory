@@ -26,6 +26,7 @@ class PromotionEvidenceRequirements(_PolicyModel):
     min_label_coverage: float | None = Field(default=None, ge=0, le=1)
     max_sampled_out_rate: float | None = Field(default=None, ge=0, le=1)
     max_dropped_rate: float | None = Field(default=None, ge=0, le=1)
+    require_lineage_readiness: bool = False
 
     @field_validator("required_manifest_fields")
     @classmethod

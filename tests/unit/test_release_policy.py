@@ -107,6 +107,14 @@ def test_promotion_requirements_cannot_implicitly_require_lineage():
         )
 
 
+def test_promotion_can_explicitly_require_lineage_readiness():
+    policy = ReleasePolicy.model_validate(
+        _policy(evidence={"promotion": {"require_lineage_readiness": True}})
+    )
+
+    assert policy.evidence.promotion.require_lineage_readiness is True
+
+
 def test_claim_readiness_uses_scoped_non_release_statuses():
     finding = EvidenceFinding(
         code="lineage_exit_reason_unrecorded",

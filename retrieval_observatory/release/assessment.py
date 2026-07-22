@@ -31,6 +31,14 @@ def assess_evidence(
         *_for_scope(comparison_findings, "promotion"),
         *(_promotion_findings(policy, manifests, profiles) if policy is not None else []),
     ]
+    if policy is not None and policy.evidence.promotion.require_lineage_readiness:
+        promotion_findings.extend(
+            _lineage_findings(
+                profiles,
+                policy.evidence.lineage_diagnosis,
+                scope="promotion",
+            )
+        )
     aggregate_findings = _for_scope(comparison_findings, "aggregate_or_slice_evaluation")
     diagnosis_findings = _lineage_findings(
         profiles,

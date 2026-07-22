@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `release/policy.py` and `release/assessment.py` — allow policies to make declared lineage-diagnosis readiness explicitly promotion-critical.
 - `release/policy.py` and `release/readiness.py` — add bounded local release-policy and claim-scoped evidence-readiness contracts.
 - `tracing/model.py`, `tracing/candidates.py`, and `tracing/lineage_contract.py` — add backward-compatible candidate identity, DAG parentage, and recorded-versus-inferred decision evidence.
 - `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — support indexed run-and-query-scoped trace retrieval across both storage backends.
