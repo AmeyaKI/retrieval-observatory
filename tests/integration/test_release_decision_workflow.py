@@ -105,6 +105,8 @@ async def test_release_workflow_emits_expected_status(tmp_path, fixture_name, ex
     assert decision["status"] == expected
     if fixture_name == "pass_with_lineage_blocked":
         assert decision["readiness"]["lineage_diagnosis"]["status"] == "BLOCK"
+    if fixture_name == "failed_temporal_filter_slice":
+        assert decision["slices"][0]["guards"][0]["affected_query_ids"] == ["q-0", "q-1"]
 
 
 @pytest.mark.asyncio

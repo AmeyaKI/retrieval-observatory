@@ -96,6 +96,7 @@ def test_guard_interval_status_uses_noninferiority_boundary():
     assert underpowered.status == "HOLD"
     assert passing.interval_method == "paired_percentile_bootstrap"
     assert passing.adjusted_confidence_level == 0.95
+    assert failing.affected_query_ids == ["q-0", "q-1"]
 
 
 def test_lower_is_better_guard_inverts_the_regression_boundary():
@@ -112,3 +113,4 @@ def test_lower_is_better_guard_inverts_the_regression_boundary():
 
     assert passing.status == "PASS"
     assert failing.status == "FAIL"
+    assert failing.affected_query_ids == ["q-0", "q-1"]

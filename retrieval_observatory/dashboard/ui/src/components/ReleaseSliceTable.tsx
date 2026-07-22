@@ -1,4 +1,4 @@
-import { ReleaseSliceResult } from '../api'
+import { ReleaseGuardResult, ReleaseSliceResult } from '../api'
 
 export default function ReleaseSliceTable({
   slices,
@@ -6,7 +6,7 @@ export default function ReleaseSliceTable({
   canNavigate,
 }: {
   slices: ReleaseSliceResult[]
-  onGuardSelect: (metric: string) => void
+  onGuardSelect: (guard: ReleaseGuardResult) => void
   canNavigate: boolean
 }) {
   if (slices.length === 0) return null
@@ -24,7 +24,7 @@ export default function ReleaseSliceTable({
               <td className="p-2 font-semibold">{slice.status}</td>
               <td className="p-2 font-mono">{slice.paired_n}</td>
               <td className="p-2 space-x-2">{slice.guards.map(guard => (
-                <button key={guard.metric} type="button" disabled={!canNavigate || !['HOLD', 'BLOCK', 'FAIL'].includes(guard.status)} onClick={() => onGuardSelect(guard.metric)} className="underline disabled:no-underline disabled:opacity-70">
+                <button key={guard.metric} type="button" disabled={!canNavigate || !['HOLD', 'BLOCK', 'FAIL'].includes(guard.status)} onClick={() => onGuardSelect(guard)} className="underline disabled:no-underline disabled:opacity-70">
                   {guard.metric} · {guard.status}
                 </button>
               ))}</td>

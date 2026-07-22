@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `release/statistics.py` and dashboard release cards — bind each aggregate and declared-slice guard to its own most affected paired query IDs.
 - `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — support time-window-bounded instrumentation-health reads for release evidence profiles.
 - `tracing/model.py` and `release/evidence.py` — version candidate lineage independently of the trace envelope and measure document-revision identity coverage for safe run diffs.
 - `release/policy.py` and `release/assessment.py` — allow policies to make declared lineage-diagnosis readiness explicitly promotion-critical.

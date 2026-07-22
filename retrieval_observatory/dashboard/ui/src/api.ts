@@ -143,6 +143,7 @@ export interface ReleaseGuardResult {
   adjusted_confidence_level: number
   interval_method: 'paired_percentile_bootstrap'
   sample_limitation: string | null
+  affected_query_ids?: string[]
 }
 
 export interface ReleaseSliceResult {

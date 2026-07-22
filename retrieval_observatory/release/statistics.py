@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal, Sequence
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from retrieval_observatory.metrics.comparison import parse_metric_key, scores_by_query
 from retrieval_observatory.metrics.significance import paired_bootstrap_effect_ci
@@ -35,6 +35,7 @@ class GuardResult(BaseModel):
     adjusted_confidence_level: float
     interval_method: Literal["paired_percentile_bootstrap"] = "paired_percentile_bootstrap"
     sample_limitation: str | None = None
+    affected_query_ids: list[str] = Field(default_factory=list)
 
 
 def adjusted_confidence_level(policy: ReleasePolicy) -> float:
@@ -117,6 +118,22 @@ def _evaluate_guard(
         confidence_level=policy.statistics.confidence_level,
         adjusted_confidence_level=confidence,
         sample_limitation=limitation,
+        affected_query_ids=[
+            query_id
+            for query_id, _ in sorted(
+                (
+                    (
+                        query_id,
+                        candidate_by_query[query_id] - baseline_by_query[query_id],
+                    )
+                    for query_id in query_ids
+                ),
+                key=lambda item: (
+                    item[1] if guard.direction == "higher_is_better" else -item[1],
+                    item[0],
+                ),
+            )[:20]
+        ],
     )
 
 

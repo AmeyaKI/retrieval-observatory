@@ -12,7 +12,7 @@ function statusClass(status: ReleaseDecision['status']): string {
   return 'border-red-400 bg-red-50 dark:bg-red-950/20'
 }
 
-function GuardRows({ guards, onSelect, canNavigate }: { guards: ReleaseGuardResult[]; onSelect: (metric: string) => void; canNavigate: boolean }) {
+function GuardRows({ guards, onSelect, canNavigate }: { guards: ReleaseGuardResult[]; onSelect: (guard: ReleaseGuardResult) => void; canNavigate: boolean }) {
   if (guards.length === 0) return <p className="text-xs text-ink-muted">No policy guards were evaluated.</p>
   return <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
     <table className="min-w-full text-xs">
@@ -22,7 +22,7 @@ function GuardRows({ guards, onSelect, canNavigate }: { guards: ReleaseGuardResu
       <tbody>{guards.map(guard => {
         const actionable = ['HOLD', 'BLOCK', 'FAIL'].includes(guard.status)
         return <tr key={guard.metric} className="border-t border-slate-200 dark:border-slate-700">
-          <td className="p-2 font-mono">{actionable && canNavigate ? <button type="button" onClick={() => onSelect(guard.metric)} className="text-left underline">{guard.metric}</button> : guard.metric}</td>
+          <td className="p-2 font-mono">{actionable && canNavigate ? <button type="button" onClick={() => onSelect(guard)} className="text-left underline">{guard.metric}</button> : guard.metric}</td>
           <td className="p-2 font-semibold">{guard.status}</td>
           <td className="p-2 font-mono">[{fmt(guard.ci_low)}, {fmt(guard.ci_high)}]</td>
           <td className="p-2 font-mono">{guard.direction === 'higher_is_better' ? '≥ -' : '≤ '}{guard.max_regression}</td>
@@ -40,9 +40,10 @@ export default function ReleaseDecisionCard({
   decision: ReleaseDecision
   onQueryMetricSelect: (metric: string, queryId: string) => void
 }) {
-  const affectedQuery = decision.investigation.affected_query_ids[0]
-  const selectGuard = (metric: string) => {
-    if (affectedQuery) onQueryMetricSelect(metric, affectedQuery)
+  const fallbackAffectedQuery = decision.investigation.affected_query_ids[0]
+  const selectGuard = (guard: ReleaseGuardResult) => {
+    const affectedQuery = guard.affected_query_ids?.[0] ?? fallbackAffectedQuery
+    if (affectedQuery) onQueryMetricSelect(guard.metric, affectedQuery)
   }
   return (
     <section aria-labelledby="release-decision-heading" className={`mb-4 rounded-lg border-l-4 p-4 space-y-4 ${statusClass(decision.status)}`}>
@@ -61,11 +62,11 @@ export default function ReleaseDecisionCard({
       <ReleaseEvidenceMatrix readiness={decision.readiness} />
       <section aria-labelledby="paired-intervals-heading" className="space-y-2">
         <h3 id="paired-intervals-heading" className="text-sm font-semibold text-ink">Paired policy intervals</h3>
-        <GuardRows guards={decision.aggregate_guards} onSelect={selectGuard} canNavigate={Boolean(affectedQuery)} />
+        <GuardRows guards={decision.aggregate_guards} onSelect={selectGuard} canNavigate={Boolean(fallbackAffectedQuery || decision.aggregate_guards.some(guard => guard.affected_query_ids?.length))} />
       </section>
-      <ReleaseSliceTable slices={decision.slices} onGuardSelect={selectGuard} canNavigate={Boolean(affectedQuery)} />
+      <ReleaseSliceTable slices={decision.slices} onGuardSelect={selectGuard} canNavigate={Boolean(fallbackAffectedQuery || decision.slices.some(slice => slice.guards.some(guard => guard.affected_query_ids?.length)))} />
       <p className="text-xs"><span className="font-semibold">Next action:</span> {decision.next_action}</p>
-      {!affectedQuery && decision.aggregate_guards.some(guard => ['HOLD', 'BLOCK', 'FAIL'].includes(guard.status)) ? (
+      {!fallbackAffectedQuery && !decision.aggregate_guards.some(guard => guard.affected_query_ids?.length) && decision.aggregate_guards.some(guard => ['HOLD', 'BLOCK', 'FAIL'].includes(guard.status)) ? (
         <p className="text-xs text-ink-muted">No affected query reference is available for these guards.</p>
       ) : null}
     </section>
