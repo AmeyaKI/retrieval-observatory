@@ -153,3 +153,26 @@ async def test_postgres_query_scope_and_index_sql_without_live_server():
     assert "run_id = $1" in sql
     assert "query_id = $2" in sql
     assert params[:2] == ("run-a", "q-1")
+
+
+@pytest.mark.asyncio
+async def test_postgres_health_query_uses_requested_time_window():
+    from datetime import datetime, timezone
+
+    class HealthConnection(_Connection):
+        async def fetchrow(self, sql, *params):
+            self.fetch_call = (sql, params)
+            return None
+
+    connection = HealthConnection()
+    store = PostgresStore("postgresql://unused")
+    store._pool = _Pool(connection)
+    since = datetime(2026, 7, 22, 12, 0, tzinfo=timezone.utc)
+    until = datetime(2026, 7, 22, 12, 5, tzinfo=timezone.utc)
+
+    await store.get_instrumentation_health("svc", since=since, until=until)
+
+    sql, params = connection.fetch_call
+    assert "observed_at >= $2" in sql
+    assert "observed_at <= $3" in sql
+    assert params == ("svc", since, until)

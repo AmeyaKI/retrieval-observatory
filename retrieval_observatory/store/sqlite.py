@@ -454,12 +454,28 @@ class SQLiteStore:
             )
             await db.commit()
 
-    async def get_instrumentation_health(self, service_id: str) -> Optional[InstrumentationHealth]:
+    async def get_instrumentation_health(
+        self,
+        service_id: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> Optional[InstrumentationHealth]:
         await self._ensure_schema()
+        clauses = ["service_id = ?"]
+        params: list[str] = [service_id]
+        if since is not None:
+            clauses.append("observed_at >= ?")
+            params.append(since.isoformat())
+        if until is not None:
+            clauses.append("observed_at <= ?")
+            params.append(until.isoformat())
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT health_json FROM instrumentation_health WHERE service_id = ? ORDER BY observed_at DESC LIMIT 1",
-                (service_id,),
+                "SELECT health_json FROM instrumentation_health WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY observed_at DESC LIMIT 1",
+                tuple(params),
             ) as cursor:
                 row = await cursor.fetchone()
         if not row:

@@ -920,12 +920,28 @@ class PostgresStore:
                 snapshot.service_id, observed_at, json.dumps(payload, sort_keys=True),
             )
 
-    async def get_instrumentation_health(self, service_id: str) -> Optional[InstrumentationHealth]:
+    async def get_instrumentation_health(
+        self,
+        service_id: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> Optional[InstrumentationHealth]:
+        clauses = ["service_id = $1"]
+        params: list = [service_id]
+        if since is not None:
+            params.append(since)
+            clauses.append(f"observed_at >= ${len(params)}")
+        if until is not None:
+            params.append(until)
+            clauses.append(f"observed_at <= ${len(params)}")
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT health_json FROM instrumentation_health WHERE service_id = $1 ORDER BY observed_at DESC LIMIT 1",
-                service_id,
+                "SELECT health_json FROM instrumentation_health WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY observed_at DESC LIMIT 1",
+                *params,
             )
         if not row:
             return None

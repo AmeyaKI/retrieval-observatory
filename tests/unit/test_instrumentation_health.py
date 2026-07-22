@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -36,3 +36,28 @@ async def test_health_snapshot_round_trips_last_export_time(tmp_path) -> None:
     assert isinstance(restored.last_export_at, datetime)
     assert restored.last_export_at.tzinfo == timezone.utc
     assert restored.last_flush_latency_ms == 2.5
+
+
+@pytest.mark.asyncio
+async def test_health_snapshot_query_is_bounded_to_run_window(tmp_path) -> None:
+    store = SQLiteStore(str(tmp_path / "health-window.db"))
+    start = datetime(2026, 7, 22, 12, 0, tzinfo=timezone.utc)
+    for offset, accepted in ((-1, 1), (1, 2), (6, 3)):
+        from retrieval_observatory.store.base import InstrumentationHealth
+
+        await store.save_instrumentation_health(
+            InstrumentationHealth(
+                service_id="svc",
+                accepted=accepted,
+                observed_at=start + timedelta(minutes=offset),
+            )
+        )
+
+    restored = await store.get_instrumentation_health(
+        "svc",
+        since=start,
+        until=start + timedelta(minutes=5),
+    )
+
+    assert restored is not None
+    assert restored.accepted == 2

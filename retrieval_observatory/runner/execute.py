@@ -258,7 +258,11 @@ async def execute_benchmark(
         health = None
         service_id = (manifest.get("release_identity") or {}).get("service_id")
         if service_id and hasattr(store, "get_instrumentation_health"):
-            health = await store.get_instrumentation_health(service_id)
+            health = await store.get_instrumentation_health(
+                service_id,
+                since=run_started_at,
+                until=run_finished_at,
+            )
         manifest["evidence_profile"] = EvidenceProfile.from_run(manifest, traces, health).model_dump(mode="json")
         await store.save_run_manifest(run_id, manifest)
     await store.finish_run(run_id)
