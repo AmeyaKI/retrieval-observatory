@@ -29,6 +29,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `dashboard/api.py` candidate-lineage diff — block ambiguous multi-trace pairing and preserve every unpaired recorded graph instead of selecting an arbitrary trace.
 - `pipeline/dag.py` and `tracing/model.py` — preserve native operator drop reasons as recorded decision evidence and persist explicit branch identity on spans.
 
 ### Removed

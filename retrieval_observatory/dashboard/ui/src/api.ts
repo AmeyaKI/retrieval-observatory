@@ -741,6 +741,10 @@ export interface CandidateLineageDiffResponse {
   query_id: string
   readiness: ClaimReadiness
   diffs: CandidateLineageDiffEntry[]
+  unpaired: {
+    baseline: CandidateLineageGraphSnapshot[]
+    candidate: CandidateLineageGraphSnapshot[]
+  }
 }
 
 export async function fetchCandidateLineageDiff(

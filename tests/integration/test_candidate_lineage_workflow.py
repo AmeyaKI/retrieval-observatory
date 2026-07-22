@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from fastapi.testclient import TestClient
 import pytest
 
@@ -73,6 +74,28 @@ async def test_redacted_preview_never_leaves_local_lineage_api(tmp_path):
 
     assert "PRIVATE-CHUNK" not in str(payload)
     assert payload["graph"]["nodes"][0]["source"]["preview"] is None
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_trace_instances_block_diff_without_selecting_one(tmp_path):
+    store = SQLiteStore(db_path=str(tmp_path / "ambiguous.db")); await store.init_db()
+    baseline = _linear_trace("baseline")
+    duplicate = replace(baseline, trace_id="trace-baseline-duplicate")
+    candidate = _linear_trace("candidate")
+    for run_id, traces in (("baseline", (baseline, duplicate)), ("candidate", (candidate,))):
+        await store.save_run(run_id, run_id, "{}")
+        await store.save_traces(traces)
+        await store.save_run_manifest(run_id, _manifest(traces[0]))
+    registry = DbRegistry([store.db_path]); db_id = registry.list_db_ids()[0]
+
+    payload = TestClient(create_app(registry=registry, enable_uploads=False)).get(
+        f"/dbs/{db_id}/runs/candidate/queries/q-1/candidate-lineage-diff?against=baseline"
+    ).json()
+
+    assert payload["readiness"]["status"] == "BLOCK"
+    assert payload["diffs"] == []
+    assert len(payload["unpaired"]["baseline"]) == 2
+    assert len(payload["unpaired"]["candidate"]) == 1
 
 
 def test_routed_fusion_unknown_production_and_partial_capture_boundaries():

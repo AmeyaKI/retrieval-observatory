@@ -947,23 +947,61 @@ def create_app(
                 == 1.0
             )
 
-        baseline_by_pipeline = {trace.pipeline_id: trace for trace in baseline_traces}
-        candidate_by_pipeline = {trace.pipeline_id: trace for trace in candidate_traces}
-        common_pipelines = sorted(
-            baseline_by_pipeline.keys() & candidate_by_pipeline.keys()
-        )
+        baseline_by_pipeline: Dict[str, List[RetrievalTrace]] = defaultdict(list)
+        candidate_by_pipeline: Dict[str, List[RetrievalTrace]] = defaultdict(list)
+        for trace in baseline_traces:
+            baseline_by_pipeline[trace.pipeline_id].append(trace)
+        for trace in candidate_traces:
+            candidate_by_pipeline[trace.pipeline_id].append(trace)
+
+        trace_pairs: list[tuple[RetrievalTrace, RetrievalTrace]] = []
+        unpaired_baseline: list[RetrievalTrace] = []
+        unpaired_candidate: list[RetrievalTrace] = []
+        pairing_reasons: list[str] = []
+        for pipeline_id in sorted(
+            baseline_by_pipeline.keys() | candidate_by_pipeline.keys()
+        ):
+            baseline_items = baseline_by_pipeline[pipeline_id]
+            candidate_items = candidate_by_pipeline[pipeline_id]
+            if len(baseline_items) == len(candidate_items) == 1:
+                trace_pairs.append((baseline_items[0], candidate_items[0]))
+                continue
+            baseline_requests = {
+                trace.request_id: trace for trace in baseline_items if trace.request_id
+            }
+            candidate_requests = {
+                trace.request_id: trace for trace in candidate_items if trace.request_id
+            }
+            request_pairing_is_complete = (
+                len(baseline_requests) == len(baseline_items)
+                and len(candidate_requests) == len(candidate_items)
+                and baseline_requests.keys() == candidate_requests.keys()
+            )
+            if request_pairing_is_complete:
+                trace_pairs.extend(
+                    (baseline_requests[request_id], candidate_requests[request_id])
+                    for request_id in sorted(baseline_requests)
+                )
+                continue
+            unpaired_baseline.extend(baseline_items)
+            unpaired_candidate.extend(candidate_items)
+            pairing_reasons.append(
+                f"Pipeline {pipeline_id} has ambiguous trace instances; record a unique shared request_id for cross-run pairing."
+            )
+
+        def graph_for(trace: RetrievalTrace, *, baseline: bool):
+            manifest = baseline_manifest if baseline else candidate_manifest
+            qrels = baseline_qrels if baseline else candidate_qrels
+            return build_candidate_lineage(
+                trace,
+                qrels_for_query=qrels,
+                qrel_chunk_mapping_complete=mapping_complete(manifest),
+            )
+
         diffs = []
-        for pipeline_id in common_pipelines:
-            baseline_graph = build_candidate_lineage(
-                baseline_by_pipeline[pipeline_id],
-                qrels_for_query=baseline_qrels,
-                qrel_chunk_mapping_complete=mapping_complete(baseline_manifest),
-            )
-            candidate_graph = build_candidate_lineage(
-                candidate_by_pipeline[pipeline_id],
-                qrels_for_query=candidate_qrels,
-                qrel_chunk_mapping_complete=mapping_complete(candidate_manifest),
-            )
+        for baseline_trace, candidate_trace in trace_pairs:
+            baseline_graph = graph_for(baseline_trace, baseline=True)
+            candidate_graph = graph_for(candidate_trace, baseline=False)
             diffs.append(
                 asdict(
                     diff_candidate_lineage(
@@ -975,18 +1013,14 @@ def create_app(
             )
 
         readiness_payload = readiness.model_dump(mode="json")
-        blocked_reasons = list(
+        blocked_reasons = [*pairing_reasons, *list(
             dict.fromkeys(
                 reason
                 for item in diffs
                 if item["status"] == "BLOCK" and readiness.status != "BLOCK"
                 for reason in item["reasons"]
             )
-        )
-        if not common_pipelines:
-            blocked_reasons.append(
-                "The selected runs have no aligned pipeline identity for this query."
-            )
+        )]
         if blocked_reasons:
             readiness_payload = {
                 **readiness_payload,
@@ -1014,6 +1048,10 @@ def create_app(
             "query_id": query_id,
             "readiness": readiness_payload,
             "diffs": diffs,
+            "unpaired": {
+                "baseline": [asdict(graph_for(trace, baseline=True)) for trace in unpaired_baseline],
+                "candidate": [asdict(graph_for(trace, baseline=False)) for trace in unpaired_candidate],
+            },
         }
 
     @db_router.get("/runs/{run_id}/queries/{query_id}/lineage-accounting")
