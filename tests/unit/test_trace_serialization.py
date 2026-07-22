@@ -100,3 +100,14 @@ def test_legacy_trace_without_lineage_version_remains_version_one() -> None:
 
     assert restored.schema_version == 1
     assert restored.lineage_schema_version == 1
+
+
+def test_operator_branch_identity_round_trips_explicitly() -> None:
+    trace = _trace()
+    trace.spans = (
+        OperatorSpan.source("source", "source", (), branch_id="lexical"),
+    )
+
+    restored = RetrievalTrace.from_dict(trace.to_dict())
+
+    assert restored.spans[0].branch_id == "lexical"

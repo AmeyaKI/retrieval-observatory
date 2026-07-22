@@ -96,6 +96,7 @@ class OperatorSpan:
     input_variant: str = "raw"
     error: str | None = None
     inputs: tuple[Candidate, ...] = ()
+    branch_id: str | None = None
 
     def __post_init__(self) -> None:
         groups = {key: tuple(value) for key, value in self.input_groups.items()}
@@ -113,9 +114,23 @@ class OperatorSpan:
 
     @classmethod
     def source(
-        cls, op_id: str, op_name: str, outputs: Sequence[Candidate], parent_ids: tuple[str, ...] = ()
+        cls,
+        op_id: str,
+        op_name: str,
+        outputs: Sequence[Candidate],
+        parent_ids: tuple[str, ...] = (),
+        branch_id: str | None = None,
     ) -> "OperatorSpan":
-        return cls(op_id, "SOURCE", op_name, parent_ids, "FIRED", 0.0, outputs=tuple(outputs))
+        return cls(
+            op_id,
+            "SOURCE",
+            op_name,
+            parent_ids,
+            "FIRED",
+            0.0,
+            outputs=tuple(outputs),
+            branch_id=branch_id,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -146,6 +161,7 @@ class OperatorSpan:
             gate_values=dict(value.get("gate_values", {})),
             input_variant=str(value.get("input_variant", "raw")),
             error=value.get("error"),
+            branch_id=value.get("branch_id"),
         )
 
 

@@ -29,6 +29,8 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `pipeline/dag.py` and `tracing/model.py` — preserve native operator drop reasons as recorded decision evidence and persist explicit branch identity on spans.
+
 ### Removed
 
 ## [0.5.1] — 2026-07-17 [PyPI]

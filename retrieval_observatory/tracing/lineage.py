@@ -120,7 +120,7 @@ def _preview(candidate: Candidate, trace: RetrievalTrace) -> str | None:
 
 
 def _branch(span: OperatorSpan) -> str | None:
-    value = span.params.get("branch_id")
+    value = span.branch_id if span.branch_id is not None else span.params.get("branch_id")
     return str(value) if value is not None else None
 
 
