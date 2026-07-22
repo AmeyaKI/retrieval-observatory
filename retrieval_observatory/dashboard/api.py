@@ -342,6 +342,11 @@ async def _build_comparison(
                 "diff_route_template": (
                     f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
                     f"{quote(str(baseline_run_id), safe='')}"
+                    + (
+                        f"&policy_path={quote(policy_path, safe='')}"
+                        if policy_path
+                        else ""
+                    )
                 ),
             },
         }
@@ -945,11 +950,16 @@ def create_app(
 
     @db_router.get("/runs/{run_id}/queries/{query_id}/candidate-lineage-diff")
     async def get_candidate_lineage_diff(
-        db_id: str, run_id: str, query_id: str, against: str
+        db_id: str,
+        run_id: str,
+        query_id: str,
+        against: str,
+        policy_path: str | None = None,
     ) -> Dict[str, Any]:
         from dataclasses import asdict
 
         from retrieval_observatory.release.assessment import assess_evidence
+        from retrieval_observatory.release.policy import load_release_policy
         from retrieval_observatory.tracing.lineage import build_candidate_lineage
         from retrieval_observatory.tracing.lineage_diff import diff_candidate_lineage
 
@@ -968,8 +978,15 @@ def create_app(
 
         baseline_manifest = await store.get_run_manifest(against) or {}
         candidate_manifest = await store.get_run_manifest(run_id) or {}
+        try:
+            policy = load_release_policy(policy_path) if policy_path else None
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid local release policy: {exc}",
+            ) from exc
         readiness = assess_evidence(
-            None, baseline_manifest, candidate_manifest
+            policy, baseline_manifest, candidate_manifest
         ).readiness["lineage_diff"]
         baseline_qrels = (await _resolve_qrels(store, against)).get(query_id, {})
         candidate_qrels = (await _resolve_qrels(store, run_id)).get(query_id, {})

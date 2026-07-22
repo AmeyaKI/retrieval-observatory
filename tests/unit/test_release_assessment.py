@@ -9,6 +9,7 @@ def _policy(
     require_exit_reasons: bool = True,
     require_telemetry: bool = False,
     require_lineage_for_promotion: bool = False,
+    equivalent_stages: list[dict] | None = None,
 ) -> ReleasePolicy:
     promotion = {
         "required_manifest_fields": ["release_identity.corpus_revision"],
@@ -35,6 +36,7 @@ def _policy(
                     "min_input_output_coverage": 1.0,
                     "require_recorded_exit_reasons": require_exit_reasons,
                     "require_topology_alignment_for_diff": True,
+                    "equivalent_stages": equivalent_stages or [],
                 },
             },
             "statistics": {
@@ -152,6 +154,7 @@ def test_required_corpus_revision_blocks_promotion():
 def test_topology_change_blocks_lineage_diff_without_blocking_promotion():
     candidate = deepcopy(_manifest())
     candidate["evidence_profile"]["topologies"][0]["topology_hash"] = "topology-b"
+    candidate["evidence_profile"]["topologies"][0]["operators"][0]["op_id"] = "source-v2"
 
     assessment = assess_evidence(_policy(), _manifest(), candidate)
 
@@ -161,6 +164,24 @@ def test_topology_change_blocks_lineage_diff_without_blocking_promotion():
         finding.code == "lineage_topology_unaligned"
         for finding in assessment.readiness["lineage_diff"].findings
     )
+
+
+def test_reviewed_stage_equivalence_allows_semantically_mapped_diff():
+    candidate = deepcopy(_manifest())
+    candidate["evidence_profile"]["topologies"][0]["topology_hash"] = "topology-b"
+    candidate["evidence_profile"]["topologies"][0]["operators"][0]["op_id"] = "source-v2"
+
+    assessment = assess_evidence(
+        _policy(
+            equivalent_stages=[
+                {"baseline_op_id": "source", "candidate_op_id": "source-v2"}
+            ]
+        ),
+        _manifest(),
+        candidate,
+    )
+
+    assert assessment.readiness["lineage_diff"].status == "READY"
 
 
 def test_missing_document_identity_coverage_blocks_lineage_diff_only():

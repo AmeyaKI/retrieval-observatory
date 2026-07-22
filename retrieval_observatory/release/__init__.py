@@ -7,6 +7,7 @@ from retrieval_observatory.release.policy import (
     PromotionEvidenceRequirements,
     ReleasePolicy,
     SliceGuard,
+    StageEquivalence,
     StatisticsPolicy,
     load_release_policy,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "ReleaseIdentity",
     "SliceGuard",
     "SliceResult",
+    "StageEquivalence",
     "StatisticsPolicy",
     "assess_evidence",
     "decide_release",

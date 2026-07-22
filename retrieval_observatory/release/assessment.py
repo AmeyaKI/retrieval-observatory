@@ -51,7 +51,14 @@ def assess_evidence(
         scope="lineage_diff",
         require_identity=True,
     )
-    topology_signatures = tuple(_topology_signatures(profile) for profile in profiles)
+    stage_mapping = {
+        mapping.candidate_op_id: mapping.baseline_op_id
+        for mapping in evidence_requirements.lineage_diff.equivalent_stages
+    }
+    topology_signatures = (
+        _topology_signatures(profiles[0]),
+        _topology_signatures(profiles[1], stage_mapping),
+    )
     if (
         all(profile is not None for profile in profiles)
         and evidence_requirements.lineage_diff.require_topology_alignment_for_diff
@@ -425,16 +432,24 @@ def _dropped_rate(accepted: int, dropped: int) -> float | None:
     return dropped / attempted if attempted else None
 
 
-def _topology_signatures(profile: EvidenceProfile | None) -> set[tuple[Any, ...]]:
+def _topology_signatures(
+    profile: EvidenceProfile | None,
+    stage_mapping: Mapping[str, str] | None = None,
+) -> set[tuple[Any, ...]]:
     if profile is None:
         return set()
+    mapping = stage_mapping or {}
     return {
-        (
-            topology.topology_hash,
-            tuple(
-                (operator.op_id, operator.op_type, tuple(operator.parent_ids))
-                for operator in topology.operators
-            ),
+        tuple(
+            (
+                mapping.get(operator.op_id, operator.op_id),
+                operator.op_type,
+                tuple(sorted(mapping.get(parent, parent) for parent in operator.parent_ids)),
+            )
+            for operator in sorted(
+                topology.operators,
+                key=lambda item: mapping.get(item.op_id, item.op_id),
+            )
         )
         for topology in profile.topologies
     }

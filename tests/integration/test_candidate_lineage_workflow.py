@@ -31,6 +31,10 @@ def _linear_trace(run_id: str, *, revision: str = "rev-1", redacted: bool = Fals
 
 
 def _manifest(trace: RetrievalTrace) -> dict:
+    operators = [
+        {"op_id": span.op_id, "op_type": span.op_type, "parent_ids": list(span.parent_ids)}
+        for span in trace.spans
+    ]
     return {
         "dataset": {"query_hash": "queries", "corpus_hash": "corpus", "qrel_hash": "qrels"},
         "labeling": {"method": "gold", "judge": None, "model": None, "version": None},
@@ -38,7 +42,7 @@ def _manifest(trace: RetrievalTrace) -> dict:
             "release_identity": {"service_id": "search", "deployment_revision": trace.run_id, "corpus_revision": "corpus", "index_build_id": "index"},
             "run_window": {"started_at": None, "finished_at": None},
             "lineage": {"trace_coverage": 1.0, "identity_continuity_coverage": 1.0, "document_identity_coverage": 1.0, "input_output_coverage": 1.0, "recorded_exit_reason_coverage": 1.0, "topology_edge_coverage": 1.0, "qrel_to_chunk_mapping_coverage": 1.0, "legacy_inferred_count": 0, "partial_trace_count": 0},
-            "topologies": [{"topology_hash": trace.topology_hash(), "operators": [{"op_id": "retrieve", "op_type": "SOURCE", "parent_ids": []}], "lineage_schema_versions": [1]}],
+            "topologies": [{"topology_hash": trace.topology_hash(), "operators": operators, "lineage_schema_versions": [trace.lineage_schema_version]}],
             "telemetry": None,
         },
     }
@@ -96,6 +100,51 @@ async def test_ambiguous_trace_instances_block_diff_without_selecting_one(tmp_pa
     assert payload["diffs"] == []
     assert len(payload["unpaired"]["baseline"]) == 2
     assert len(payload["unpaired"]["candidate"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_reviewed_stage_mapping_flows_through_lineage_diff_endpoint(tmp_path):
+    store = SQLiteStore(db_path=str(tmp_path / "mapped.db")); await store.init_db()
+    baseline = _linear_trace("baseline")
+    source = _candidate("candidate-candidate")
+    candidate = RetrievalTrace(
+        trace_id="trace-candidate",
+        service_id="search",
+        run_id="candidate",
+        query_id="q-1",
+        query_text="PRIVATE-QUERY",
+        pipeline_id="pipeline",
+        spans=(OperatorSpan.source("retrieve-v2", "retrieve-v2", (source,)),),
+        final_op_ids=("retrieve-v2",),
+    )
+    for trace in (baseline, candidate):
+        await store.save_run(trace.run_id, trace.run_id, "{}")
+        await store.save_trace(trace)
+        await store.save_run_manifest(trace.run_id, _manifest(trace))
+    policy_path = tmp_path / "mapped-policy.yaml"
+    policy_path.write_text(
+        """id: mapped-v2
+schema_version: 2
+evidence:
+  lineage_diff:
+    equivalent_stages:
+      - baseline_op_id: retrieve
+        candidate_op_id: retrieve-v2
+statistics: {confidence_level: 0.95, familywise_alpha: 0.05, resamples: 100, seed: 7}
+metrics:
+  - {metric: pipeline|stage0|recall@10, direction: higher_is_better, max_regression: 0.01, min_paired_n: 1}
+""",
+        encoding="utf-8",
+    )
+    registry = DbRegistry([store.db_path]); db_id = registry.list_db_ids()[0]
+
+    payload = TestClient(create_app(registry=registry, enable_uploads=False)).get(
+        f"/dbs/{db_id}/runs/candidate/queries/q-1/candidate-lineage-diff",
+        params={"against": "baseline", "policy_path": str(policy_path)},
+    ).json()
+
+    assert payload["readiness"]["status"] == "READY"
+    assert payload["diffs"][0]["status"] == "READY"
 
 
 def test_routed_fusion_unknown_production_and_partial_capture_boundaries():

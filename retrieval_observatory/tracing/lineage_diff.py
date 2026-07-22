@@ -112,9 +112,6 @@ def diff_candidate_lineage(
         alignment_reasons.append("Baseline and candidate query IDs are not aligned.")
     if baseline.pipeline_id != candidate.pipeline_id:
         alignment_reasons.append("Baseline and candidate pipeline IDs are not aligned.")
-    if baseline.topology_hash != candidate.topology_hash:
-        alignment_reasons.append("Recorded topology differs; stage-aligned lineage comparison is blocked.")
-
     baseline_index, baseline_identity_reasons = _index(baseline)
     candidate_index, candidate_identity_reasons = _index(candidate)
     alignment_reasons.extend(baseline_identity_reasons)

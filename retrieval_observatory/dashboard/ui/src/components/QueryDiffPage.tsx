@@ -8,11 +8,13 @@ export default function QueryDiffPage({
   runId,
   againstRunId,
   queryId,
+  policyPath,
 }: {
   dbId: string
   runId: string
   againstRunId: string
   queryId: string
+  policyPath?: string
 }) {
   const [response, setResponse] = useState<CandidateLineageDiffResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -20,10 +22,10 @@ export default function QueryDiffPage({
   useEffect(() => {
     setResponse(null)
     setError(null)
-    fetchCandidateLineageDiff(dbId, runId, againstRunId, queryId)
+    fetchCandidateLineageDiff(dbId, runId, againstRunId, queryId, policyPath)
       .then(setResponse)
       .catch(e => setError(e.message))
-  }, [dbId, runId, againstRunId, queryId])
+  }, [dbId, runId, againstRunId, queryId, policyPath])
 
   if (error) return <StatusPanel kind="unavailable" title="Candidate lineage diff unavailable" message={error} />
   if (!response) return <StatusPanel kind="loading" message="Loading evidence-qualified candidate lineage diff…" />

@@ -504,6 +504,11 @@ async def load_comparison_report(
             "diff_route_template": (
                 f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
                 f"{quote(str(baseline_run_id), safe='')}"
+                + (
+                    f"&policy_path={quote(policy_source, safe='')}"
+                    if policy_source
+                    else ""
+                )
             ),
         },
     }

@@ -759,9 +759,10 @@ export async function fetchCandidateLineageDiff(
   candidateRunId: string,
   baselineRunId: string,
   queryId: string,
+  policyPath?: string,
 ): Promise<CandidateLineageDiffResponse> {
   const res = await fetch(
-    `${runBase(dbId, candidateRunId)}/queries/${encodeURIComponent(queryId)}/candidate-lineage-diff?against=${encodeURIComponent(baselineRunId)}`,
+    `${runBase(dbId, candidateRunId)}/queries/${encodeURIComponent(queryId)}/candidate-lineage-diff?against=${encodeURIComponent(baselineRunId)}${policyPath ? `&policy_path=${encodeURIComponent(policyPath)}` : ''}`,
   )
   if (!res.ok) throw new Error(`Failed to fetch candidate lineage diff for ${queryId}`)
   return res.json()

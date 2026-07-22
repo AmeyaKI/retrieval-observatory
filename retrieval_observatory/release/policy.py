@@ -38,11 +38,30 @@ class PromotionEvidenceRequirements(_PolicyModel):
         return fields
 
 
+class StageEquivalence(_PolicyModel):
+    baseline_op_id: str = Field(min_length=1, pattern=r"^\S+$")
+    candidate_op_id: str = Field(min_length=1, pattern=r"^\S+$")
+
+
 class LineageRequirements(_PolicyModel):
     require_stable_candidate_identity: bool = False
     min_input_output_coverage: float | None = Field(default=None, ge=0, le=1)
     require_recorded_exit_reasons: bool = False
     require_topology_alignment_for_diff: bool = True
+    equivalent_stages: list[StageEquivalence] = Field(default_factory=list)
+
+    @field_validator("equivalent_stages")
+    @classmethod
+    def validate_equivalent_stages(
+        cls, mappings: list[StageEquivalence]
+    ) -> list[StageEquivalence]:
+        baseline_ids = [mapping.baseline_op_id for mapping in mappings]
+        candidate_ids = [mapping.candidate_op_id for mapping in mappings]
+        if len(baseline_ids) != len(set(baseline_ids)) or len(candidate_ids) != len(
+            set(candidate_ids)
+        ):
+            raise ValueError("equivalent stage mappings must be one-to-one")
+        return mappings
 
 
 class EvidenceRequirements(_PolicyModel):

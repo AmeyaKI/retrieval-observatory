@@ -115,6 +115,19 @@ def test_promotion_can_explicitly_require_lineage_readiness():
     assert policy.evidence.promotion.require_lineage_readiness is True
 
 
+def test_stage_equivalence_mappings_are_bounded_and_one_to_one():
+    mapping = {"baseline_op_id": "retrieve", "candidate_op_id": "retrieve-v2"}
+    policy = ReleasePolicy.model_validate(
+        _policy(evidence={"lineage_diff": {"equivalent_stages": [mapping]}})
+    )
+
+    assert policy.evidence.lineage_diff.equivalent_stages[0].candidate_op_id == "retrieve-v2"
+    with pytest.raises(ValidationError, match="one-to-one"):
+        ReleasePolicy.model_validate(
+            _policy(evidence={"lineage_diff": {"equivalent_stages": [mapping, mapping]}})
+        )
+
+
 def test_claim_readiness_uses_scoped_non_release_statuses():
     finding = EvidenceFinding(
         code="lineage_exit_reason_unrecorded",

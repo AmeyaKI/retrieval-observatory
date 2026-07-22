@@ -37,6 +37,8 @@ Promotion, aggregate/slice evaluation, lineage diagnosis, lineage diff, and prod
 
 Document-level qrels do not silently become chunk-level labels. Relevant-retained or relevant-dropped outcomes require a validated qrel-to-chunk mapping; otherwise the Explorer reports unknown relevance or incomplete lineage.
 
+When an intentional topology revision only renames equivalent operators, declare exact one-to-one `evidence.lineage_diff.equivalent_stages` entries with `baseline_op_id` and `candidate_op_id`. RetObs applies only those reviewed mappings; undeclared topology changes continue to block a stage-aligned diff.
+
 ## CI
 
 The [example workflow](../../examples/ci/retrieval-ci.yml) evaluates the candidate, compares it with a repository-selected baseline, publishes Markdown/HTML artifacts, and exits nonzero on `HOLD`, `BLOCK`, or `FAIL`. It requires no hosted RetObs service or RetObs secret. Your dataset, model, or external provider may have separate credentials and data-handling requirements.
