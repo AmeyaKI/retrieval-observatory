@@ -93,15 +93,20 @@ def test_golden_workflow_is_responsive_and_semantic(page: Page, tmp_path: Path, 
     page.screenshot(path=tmp_path / f"run-{width}.png", full_page=True)
 
     page.goto(f"{BASE_URL}/#/runs/{baseline}/queries/{query_id}?window=all")
-    expect(page.get_by_role("heading", name="Candidate flow diagnosis")).to_be_visible()
-    expect(page.get_by_role("heading", name="Expected vs retrieved chunks")).to_be_visible()
-    expect(page.get_by_text("Stage flowchart", exact=False).first).to_be_visible()
+    expect(page.get_by_role("heading", name="Candidate lineage explorer")).to_be_visible()
+    expect(page.get_by_role("heading", name="Static candidate lineage")).to_be_visible()
+    expect(page.get_by_role("heading", name="Candidate outcomes")).to_be_visible()
+    expect(page.get_by_role("heading", name="Candidate passport", exact=False)).to_be_visible()
+    expect(page.get_by_text("Replay recorded transitions", exact=True)).to_be_visible()
     assert _semantic_violations(page) == []
     assert _wcag_aa_violations(page) == []
 
     page.goto(f"{BASE_URL}/#/compare?window=all")
     expect(page.get_by_text("Baseline", exact=False).first).to_be_visible()
     expect(page.get_by_text("Candidate", exact=False).first).to_be_visible()
+    expect(page.get_by_text("Release decision", exact=True)).to_be_visible()
+    expect(page.get_by_role("heading", name="HOLD")).to_be_visible()
+    expect(page.get_by_role("heading", name="Raw comparison metrics")).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
     assert _wcag_aa_violations(page) == []
 

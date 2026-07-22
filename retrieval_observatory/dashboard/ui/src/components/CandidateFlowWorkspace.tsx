@@ -3,152 +3,88 @@ import {
   CandidateFlow,
   CandidateJourneyRow,
   CandidateJourneys,
+  CandidateLineageResponse,
   fetchCandidateFlow,
   fetchCandidateJourneys,
+  fetchCandidateLineage,
 } from '../api'
+import CandidateLineageGraph from './CandidateLineageGraph'
 import CandidateMissTable from './CandidateMissTable'
+import CandidatePassport from './CandidatePassport'
 import DocumentPathSimulator from './DocumentPathSimulator'
+import StageLossAccounting from './StageLossAccounting'
 import StatusPanel from './StatusPanel'
 import SectionHeading from './SectionHeading'
 
 function defaultDocId(rows: CandidateJourneyRow[]): string | null {
-  const relevantDrop = rows.find((r) => r.relevant && r.dropped_at && !r.survived)
-  if (relevantDrop) return relevantDrop.doc_id
-  const anyDrop = rows.find((r) => r.dropped_at && !r.survived)
-  if (anyDrop) return anyDrop.doc_id
-  return rows[0]?.doc_id ?? null
+  const diagnostic = rows.find(row => row.outcome && !['relevant_retained', 'irrelevant_removed'].includes(row.outcome))
+  return diagnostic?.doc_id ?? rows[0]?.doc_id ?? null
 }
 
-/**
- * Hero candidate-flow workspace: path simulator + miss overview table.
- * Used on Query detail and the /candidates/:docId deep link.
- */
 export default function CandidateFlowWorkspace({
-  dbId,
-  runId,
-  queryId,
-  initialDocId = null,
-  syncUrl = false,
+  dbId, runId, queryId, initialDocId = null, syncUrl = false,
 }: {
-  dbId: string
-  runId: string
-  queryId: string
-  initialDocId?: string | null
-  /** When true, selecting a doc updates the hash to .../candidates/:docId */
-  syncUrl?: boolean
+  dbId: string; runId: string; queryId: string; initialDocId?: string | null; syncUrl?: boolean
 }) {
   const [journeys, setJourneys] = useState<CandidateJourneys | null>(null)
-  const [journeysError, setJourneysError] = useState<string | null>(null)
+  const [lineage, setLineage] = useState<CandidateLineageResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedDocId, setSelectedDocId] = useState<string | null>(initialDocId)
   const [flow, setFlow] = useState<CandidateFlow | null>(null)
   const [flowError, setFlowError] = useState<string | null>(null)
 
   useEffect(() => {
-    setJourneys(null)
-    setJourneysError(null)
-    fetchCandidateJourneys(dbId, runId, queryId)
-      .then((data) => {
-        setJourneys(data)
-        setSelectedDocId((prev) => {
-          if (initialDocId && data.rows.some((r) => r.doc_id === initialDocId)) return initialDocId
-          if (prev && data.rows.some((r) => r.doc_id === prev)) return prev
-          return defaultDocId(data.rows)
-        })
+    setJourneys(null); setLineage(null); setError(null)
+    Promise.all([fetchCandidateJourneys(dbId, runId, queryId), fetchCandidateLineage(dbId, runId, queryId)])
+      .then(([journeyData, lineageData]) => {
+        setJourneys(journeyData); setLineage(lineageData)
+        const requested = initialDocId ?? defaultDocId(journeyData.rows)
+        const node = lineageData.graph.nodes.find(item => item.candidate_id === requested) ?? lineageData.graph.nodes[0]
+        setSelectedNodeId(node?.node_id ?? null); setSelectedDocId(node?.candidate_id ?? requested)
       })
-      .catch((e) => setJourneysError(e.message))
+      .catch(e => setError(e.message))
   }, [dbId, runId, queryId, initialDocId])
 
   useEffect(() => {
-    if (!selectedDocId) {
-      setFlow(null)
-      return
-    }
-    setFlow(null)
-    setFlowError(null)
-    fetchCandidateFlow(dbId, runId, queryId, selectedDocId)
-      .then(setFlow)
-      .catch((e) => setFlowError(e.message))
+    if (!selectedDocId) { setFlow(null); return }
+    setFlow(null); setFlowError(null)
+    fetchCandidateFlow(dbId, runId, queryId, selectedDocId).then(setFlow).catch(e => setFlowError(e.message))
   }, [dbId, runId, queryId, selectedDocId])
 
-  const selectDoc = (docId: string) => {
-    setSelectedDocId(docId)
-    if (syncUrl) {
-      const href = `#/runs/${encodeURIComponent(runId)}/queries/${encodeURIComponent(queryId)}/candidates/${encodeURIComponent(docId)}`
-      if (window.location.hash !== href) {
-        window.location.hash = href
-      }
-    }
+  const selectedCandidate = lineage?.graph.nodes.find(node => node.node_id === selectedNodeId) ?? null
+  const eventDetail = useMemo(() => flow?.pipelines.map(pipeline => ({ pipelineId: pipeline.pipeline_id, assumptions: pipeline.drop_replay_assumptions })) ?? [], [flow])
+
+  const selectNode = (nodeId: string) => {
+    const node = lineage?.graph.nodes.find(item => item.node_id === nodeId)
+    if (!node) return
+    setSelectedNodeId(nodeId); setSelectedDocId(node.candidate_id)
+    if (syncUrl) window.location.hash = `#/runs/${encodeURIComponent(runId)}/queries/${encodeURIComponent(queryId)}/candidates/${encodeURIComponent(node.candidate_id)}`
   }
 
-  const eventDetail = useMemo(() => {
-    if (!flow) return null
-    return flow.pipelines.map((p) => ({
-      pipelineId: p.pipeline_id,
-      survived: p.history.survived,
-      droppedAt: p.history.dropped_at,
-      reason: p.history.dropped_reason,
-      assumptions: p.drop_replay_assumptions,
-    }))
-  }, [flow])
-
-  if (journeysError) {
-    return (
-      <StatusPanel
-        kind="unavailable"
-        title="Candidate journeys unavailable"
-        message={journeysError}
-      />
-    )
-  }
-  if (!journeys) {
-    return <StatusPanel kind="loading" message="Loading candidate journeys…" />
+  const selectJourney = (docId: string, pipelineId: string, traceId: string) => {
+    const node = lineage?.graph.nodes.find(item => item.candidate_id === docId && item.pipeline_id === pipelineId && item.trace_id === traceId)
+      ?? lineage?.graph.nodes.find(item => item.candidate_id === docId)
+    if (node) selectNode(node.node_id)
   }
 
-  return (
-    <section aria-labelledby="candidate-flow-hero-heading" className="space-y-4">
-      <div>
-        <SectionHeading title="Candidate flow diagnosis" />
-        <p id="candidate-flow-hero-heading" className="text-xs text-ink-muted -mt-1">
-          Flowchart shows where a selected chunk travels through each stage. The table classifies
-          expected vs retrieved chunks (TP / FP / FN / TN over the seen-candidate universe).
-        </p>
+  if (error) return <StatusPanel kind="unavailable" title="Candidate lineage unavailable" message={error} />
+  if (!journeys || !lineage) return <StatusPanel kind="loading" message="Loading recorded candidate lineage…" />
+
+  return <section aria-labelledby="candidate-flow-hero-heading" className="space-y-5">
+    <div><SectionHeading title="Candidate lineage explorer" /><p id="candidate-flow-hero-heading" className="text-xs text-ink-muted -mt-1">Inspect the static recorded DAG, evidence-aware outcomes, stage counts, and trace-qualified candidate passport.</p></div>
+    {lineage.readiness.status !== 'READY' ? <StatusPanel kind="partial" title={`Lineage diagnosis · ${lineage.readiness.status}`} message="The selected capture cannot support every lineage claim. Unknown and partial states remain explicit below." /> : null}
+    <CandidateLineageGraph nodes={lineage.graph.nodes} edges={lineage.graph.edges} selectedNodeId={selectedNodeId} onSelect={selectNode} />
+    <StageLossAccounting accounting={lineage.accounting} />
+    <CandidateMissTable rows={journeys.rows} queryText={journeys.query_text} selectedDocId={selectedDocId} onSelect={selectJourney} />
+    <CandidatePassport candidate={selectedCandidate} />
+    <details className="rounded border border-slate-200 dark:border-slate-700 p-3">
+      <summary className="cursor-pointer text-sm font-semibold">Replay recorded transitions</summary>
+      <div className="mt-3 space-y-3">
+        {flowError ? <StatusPanel kind="partial" title="Recorded replay partial" message={flowError} /> : null}
+        <DocumentPathSimulator flow={flow} />
+        {eventDetail.some(detail => detail.assumptions) ? <details className="text-xs"><summary className="cursor-pointer text-ink-muted">Replay assumptions for legacy drop operators</summary><ul className="mt-2 space-y-2">{eventDetail.filter(detail => detail.assumptions).map(detail => <li key={detail.pipelineId}><span className="font-mono font-semibold">{detail.pipelineId}</span> · strategy <span className="font-mono">{detail.assumptions?.strategy}</span><ul className="list-disc pl-4 text-ink-faint">{(detail.assumptions?.caveats ?? []).map(caveat => <li key={caveat}>{caveat}</li>)}</ul></li>)}</ul></details> : null}
       </div>
-
-      {flowError && (
-        <StatusPanel kind="partial" title="Path simulator partial" message={flowError} />
-      )}
-      <DocumentPathSimulator flow={flow} />
-
-      <CandidateMissTable
-        rows={journeys.rows}
-        queryText={journeys.query_text}
-        selectedDocId={selectedDocId}
-        onSelect={(docId) => selectDoc(docId)}
-      />
-
-      {eventDetail && eventDetail.some((d) => d.assumptions) && (
-        <details className="text-xs rounded border border-slate-200 dark:border-slate-700 p-3">
-          <summary className="cursor-pointer text-ink-muted">
-            Replay assumptions for drop operators
-          </summary>
-          <ul className="mt-2 space-y-2">
-            {eventDetail
-              .filter((d) => d.assumptions)
-              .map((d) => (
-                <li key={d.pipelineId}>
-                  <span className="font-mono font-semibold">{d.pipelineId}</span>
-                  {' · '}
-                  strategy <span className="font-mono">{d.assumptions?.strategy}</span>
-                  <ul className="list-disc pl-4 text-ink-faint">
-                    {(d.assumptions?.caveats ?? []).map((c) => (
-                      <li key={c}>{c}</li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-          </ul>
-        </details>
-      )}
-    </section>
-  )
+    </details>
+  </section>
 }
