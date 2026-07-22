@@ -1,9 +1,17 @@
 from __future__ import annotations
 
-from retrieval_observatory.metrics.comparison import compare_paired_metrics, comparison_validity
+from retrieval_observatory.metrics.comparison import (
+    REQUIRED_COMPARISON_AXES,
+    compare_paired_metrics,
+    comparison_validity,
+)
 
 
 METRIC = "pipeline|stage0|recall@10"
+
+
+def test_required_comparison_axes_are_a_stable_public_contract() -> None:
+    assert REQUIRED_COMPARISON_AXES == ("query_hash", "corpus_hash", "qrel_hash", "labeling")
 
 
 def _manifest(dataset: str = "same") -> dict:
