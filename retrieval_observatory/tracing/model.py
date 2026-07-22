@@ -41,6 +41,8 @@ class Candidate:
     identity_evidence: LineageEvidence = "recorded"
     decision_reason: str | None = None
     decision_evidence: LineageEvidence = "unavailable"
+    score_type: str | None = None
+    score_model: str | None = None
 
     def __post_init__(self) -> None:
         self.candidate_id = self.candidate_id or self.doc_id

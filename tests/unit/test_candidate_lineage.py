@@ -72,6 +72,7 @@ def test_graph_preserves_two_routes_into_a_fused_candidate() -> None:
         ("lex:42", "fused:42"),
         ("vec:42", "fused:42"),
     }
+    assert all(route.stages[-1].output_rank == 1 for route in passport.routes)
     assert passport.outcome.kind == "relevant_retained"
     assert {(edge.source_candidate_id, edge.target_candidate_id) for edge in graph.edges} == {
         ("lex:42", "fused:42"),

@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- Candidate Lineage Explorer — add branch, stage, outcome, evidence, and source filters; aggregate route widths; and complete passport rank, score, exit, and source evidence.
 - `dashboard/api.py` and Compare UI — accept an explicit local policy path and render the canonical configured-policy decision without browser-side status logic.
 - `release/statistics.py` and dashboard release cards — bind each aggregate and declared-slice guard to its own most affected paired query IDs.
 - `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — support time-window-bounded instrumentation-health reads for release evidence profiles.

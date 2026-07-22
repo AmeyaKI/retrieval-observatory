@@ -37,6 +37,10 @@ class CandidateStage:
     rank: int
     score: float
     score_components: Mapping[str, float]
+    input_rank: int | None = None
+    output_rank: int | None = None
+    score_type: str | None = None
+    score_model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -261,6 +265,10 @@ def build_candidate_lineage(
                 candidate.output_rank if candidate.output_rank is not None else candidate.rank,
                 candidate.score,
                 dict(candidate.score_components),
+                candidate.input_rank,
+                candidate.output_rank if candidate.output_rank is not None else candidate.rank,
+                candidate.score_type,
+                candidate.score_model,
             )
             for span, candidate, _ in sorted(
                 output_occurrences, key=lambda item: span_index[item[0].op_id]

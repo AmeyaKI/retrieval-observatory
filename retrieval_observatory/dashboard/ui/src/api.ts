@@ -572,6 +572,10 @@ export interface CandidateLineageStage {
   rank: number
   score: number
   score_components: Record<string, number>
+  input_rank?: number | null
+  output_rank?: number | null
+  score_type?: string | null
+  score_model?: string | null
 }
 
 export interface CandidateRoute {
@@ -744,7 +748,7 @@ export interface CandidateLineageDiffResponse {
   query_id: string
   readiness: ClaimReadiness
   diffs: CandidateLineageDiffEntry[]
-  unpaired: {
+  unpaired?: {
     baseline: CandidateLineageGraphSnapshot[]
     candidate: CandidateLineageGraphSnapshot[]
   }

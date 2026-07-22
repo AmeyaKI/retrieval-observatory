@@ -47,5 +47,7 @@ describe('CandidateLineageGraph', () => {
     expect(html).toContain('lexical')
     expect(html).toContain('dense')
     expect(html).toContain('<button')
+    expect(html).toContain('Filter by branch')
+    expect(html).toContain('Showing 2 of 2 candidates')
   })
 })

@@ -58,6 +58,8 @@ def _candidate(value: Mapping[str, Any]) -> tuple[Candidate | None, bool]:
         identity_evidence=value.get("identity_evidence", "recorded" if explicit_identity else "partial"),
         decision_reason=str(decision) if decision is not None else None,
         decision_evidence=decision_evidence,
+        score_type=str(value["score_type"]) if value.get("score_type") else None,
+        score_model=str(value["score_model"]) if value.get("score_model") else None,
         metadata=dict(value.get("metadata") or {}),
     )
     return candidate, explicit_identity and not missing_derived_parents

@@ -71,6 +71,8 @@ class _CandidateFields:
     decision_reason: str | None = None
     decision_evidence: str | None = None
     add_reason: str | None = None
+    score_type: str | None = None
+    score_model: str | None = None
 
 
 def _item_value(item: Any, key: str, default: Any = None) -> Any:
@@ -102,6 +104,8 @@ def _item_fields(item: Any, index: int) -> _CandidateFields:
         decision_reason=_item_value(item, "decision_reason"),
         decision_evidence=_item_value(item, "decision_evidence"),
         add_reason=_item_value(item, "add_reason"),
+        score_type=_item_value(item, "score_type"),
+        score_model=_item_value(item, "score_model"),
     )
 
 
@@ -130,6 +134,8 @@ def to_candidates(value: Any, op_id: str) -> List[Candidate]:
                 identity_evidence=fields.identity_evidence or "recorded",
                 decision_reason=fields.decision_reason,
                 decision_evidence=fields.decision_evidence or "unavailable",
+                score_type=fields.score_type,
+                score_model=fields.score_model,
             )
         )
     return candidates
@@ -246,6 +252,8 @@ def build_candidate_transition(
                 identity_evidence=row.identity_evidence or ("partial" if len(matches) > 1 and row.candidate_id is None else "recorded"),
                 decision_reason=row.decision_reason,
                 decision_evidence=(row.decision_evidence or "recorded") if row.decision_reason else "unavailable",
+                score_type=row.score_type or (source.score_type if source else None),
+                score_model=row.score_model or (source.score_model if source else None),
             )
         )
 
