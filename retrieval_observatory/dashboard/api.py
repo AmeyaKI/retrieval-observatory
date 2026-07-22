@@ -80,6 +80,7 @@ try:
 
     class CompareRequest(_BaseModel):
         run_ids: List[str]
+        policy_path: Optional[str] = None
 
     class RunSelection(_BaseModel):
         db_id: str
@@ -88,6 +89,7 @@ try:
 
     class MultiCompareRequest(_BaseModel):
         selections: List[RunSelection]
+        policy_path: Optional[str] = None
 
     class EdgeRequest(_BaseModel):
         src_doc_id: str
@@ -253,6 +255,7 @@ async def _build_comparison(
     selections: List[tuple],
     registry: DbRegistry,
     engine: MetricsEngine,
+    policy_path: str | None = None,
 ) -> Dict[str, Any]:
     """Compare runs across one or more databases. selections: [(db_id, run_id), ...]."""
     if len(selections) < 2:
@@ -310,9 +313,23 @@ async def _build_comparison(
     if len(selections) == 2:
         from retrieval_observatory.release.assessment import assess_evidence
         from retrieval_observatory.release.decision import decide_release
+        from retrieval_observatory.release.policy import load_release_policy
+        from retrieval_observatory.release.slices import evaluate_declared_slices
+        from retrieval_observatory.release.statistics import evaluate_metric_guards
 
-        assessment = assess_evidence(None, manifests[0] or {}, manifests[1] or {})
-        decision = decide_release(None, assessment, [], [])
+        policy = load_release_policy(policy_path) if policy_path else None
+        assessment = assess_evidence(policy, manifests[0] or {}, manifests[1] or {})
+        aggregate_guards = (
+            evaluate_metric_guards(policy, metric_rows[keys[0]], metric_rows[keys[1]])
+            if policy is not None
+            else []
+        )
+        slices = (
+            evaluate_declared_slices(policy, metric_rows[keys[0]], metric_rows[keys[1]])
+            if policy is not None
+            else []
+        )
+        decision = decide_release(policy, assessment, aggregate_guards, slices)
         candidate_run_id = selections[1][1]
         baseline_run_id = selections[0][1]
         affected_query_ids = [row["query_id"] for row in (query_diffs or {}).get("rows", [])]
@@ -427,6 +444,7 @@ def create_app(
     async def compare_runs_endpoint(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
         if "selections" in body:
             parsed = MultiCompareRequest.model_validate(body)
+            policy_path = parsed.policy_path
             if len(parsed.selections) < 2:
                 raise HTTPException(status_code=400, detail="Provide at least 2 run selections")
             roles = [selection.role for selection in parsed.selections if selection.role]
@@ -447,6 +465,7 @@ def create_app(
                     detail="run_ids compare requires a single loaded database; use selections with db_id",
                 )
             parsed_legacy = CompareRequest.model_validate(body)
+            policy_path = parsed_legacy.policy_path
             if len(parsed_legacy.run_ids) < 2:
                 raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
             sole = registry.default_db_id
@@ -455,7 +474,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="Provide selections or run_ids")
         for db_id, _ in selections:
             _store_for(db_id)
-        result = await _build_comparison(selections, registry, engine)
+        try:
+            result = await _build_comparison(
+                selections,
+                registry,
+                engine,
+                policy_path=policy_path,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid local release policy: {exc}") from exc
         if "run_ids" in body and registry.is_single:
             result["run_ids"] = body["run_ids"]
         return result
@@ -556,7 +583,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
         _store_for(db_id)
         selections = [(db_id, run_id) for run_id in req.run_ids]
-        return await _build_comparison(selections, registry, engine)
+        try:
+            return await _build_comparison(
+                selections,
+                registry,
+                engine,
+                policy_path=req.policy_path,
+            )
+        except (OSError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid local release policy: {exc}") from exc
 
     @db_router.get("/runs/{run_id}/metrics")
     async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:

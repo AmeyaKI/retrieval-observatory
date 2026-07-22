@@ -145,3 +145,46 @@ async def test_lineage_endpoint_is_database_scoped(tmp_path: Path) -> None:
     assert first.status_code == 200
     assert first.json()["traces"][0]["trace_id"] == "first-trace"
     assert second.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_dashboard_compare_accepts_explicit_local_policy_path(tmp_path: Path) -> None:
+    db_path = tmp_path / "release.db"
+    await _seed_run(db_path, "baseline", "same")
+    await _seed_run(db_path, "candidate", "same")
+    policy_path = tmp_path / "release-policy.yaml"
+    policy_path.write_text(
+        """id: dashboard-v2
+schema_version: 2
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 100
+  seed: 7
+metrics:
+  - metric: bm25|stage0|recall@10
+    direction: higher_is_better
+    max_regression: 0.01
+    min_paired_n: 1
+""",
+        encoding="utf-8",
+    )
+    registry = DbRegistry([str(db_path)])
+    db_id = registry.list_db_ids()[0]
+    client = TestClient(create_app(registry=registry, enable_uploads=False))
+
+    response = client.post(
+        "/compare",
+        json={
+            "selections": [
+                {"db_id": db_id, "run_id": "baseline", "role": "baseline"},
+                {"db_id": db_id, "run_id": "candidate", "role": "candidate"},
+            ],
+            "policy_path": str(policy_path),
+        },
+    )
+
+    assert response.status_code == 200
+    decision = response.json()["release_decision"]
+    assert decision["status"] == "PASS"
+    assert decision["policy"]["id"] == "dashboard-v2"

@@ -18,6 +18,8 @@ retobs serve --db .retobs/results.db
 
 The dashboard binds to `127.0.0.1` by default. The HTML artifact is standalone; review it before uploading because run IDs and other recorded metadata may be sensitive.
 
+To evaluate a configured policy in the local dashboard, enter its local filesystem path in **Local release-policy path** and select **Evaluate policy**. The RetObs process reads the file locally and returns the same canonical decision used by CLI, SDK, MCP, and CI; the browser does not derive a release status.
+
 ## Interpret the decision
 
 | Status | Bounded meaning |

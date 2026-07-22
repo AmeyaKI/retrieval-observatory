@@ -100,6 +100,8 @@ export default function ComparePanel({ selections }: Props) {
   const [queryDiffs, setQueryDiffs] = useState<QueryDiffs | null>(null)
   const [releaseDecision, setReleaseDecision] = useState<ReleaseDecision | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [policyPath, setPolicyPath] = useState('')
+  const [appliedPolicyPath, setAppliedPolicyPath] = useState('')
 
   const runKeys = selections.map((s) => `${s.dbId}/${s.runId}`)
 
@@ -110,7 +112,7 @@ export default function ComparePanel({ selections }: Props) {
     setQueryDiffs(null)
     setReleaseDecision(null)
     setError(null)
-    fetchComparison(selections)
+    fetchComparison(selections, appliedPolicyPath || undefined)
       .then((data) => {
         setComparison(data.comparison)
         setWarnings(data.warnings ?? [])
@@ -119,7 +121,7 @@ export default function ComparePanel({ selections }: Props) {
         setReleaseDecision(data.release_decision ?? null)
       })
       .catch((e) => setError(e.message))
-  }, [selections.map(selectionKey).join(',')])
+  }, [selections.map(selectionKey).join(','), appliedPolicyPath])
 
   if (error) {
     return <div className="p-6"><StatusPanel kind="error" title="Comparison could not be loaded" message={error} /></div>
@@ -205,6 +207,15 @@ export default function ComparePanel({ selections }: Props) {
           </span>
         ))}
       </div>
+
+      {twoRuns ? <form className="mb-4 flex flex-wrap items-end gap-2 rounded border border-slate-200 dark:border-slate-700 p-3" onSubmit={event => { event.preventDefault(); setAppliedPolicyPath(policyPath.trim()) }}>
+        <label className="min-w-[18rem] flex-1 text-xs text-ink-muted">Local release-policy path
+          <input value={policyPath} onChange={event => setPolicyPath(event.target.value)} placeholder="retobs/release-policy.yaml" className="mt-1 w-full rounded border border-slate-300 bg-surface px-2 py-1.5 font-mono text-xs text-ink dark:border-slate-600" />
+        </label>
+        <button type="submit" className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white">Evaluate policy</button>
+        {appliedPolicyPath ? <button type="button" onClick={() => { setPolicyPath(''); setAppliedPolicyPath('') }} className="rounded border border-slate-300 px-3 py-1.5 text-xs">Clear policy</button> : null}
+        <p className="basis-full text-[10px] text-ink-faint">The path is read locally by this RetObs process; policy content is not sent to an external service.</p>
+      </form> : null}
 
       {twoRuns && releaseDecision ? (
         <ReleaseDecisionCard

@@ -215,6 +215,7 @@ export interface QueryDiffs {
 
 export async function fetchComparison(
   selections: RunSelection[],
+  policyPath?: string,
 ): Promise<{
   comparison: ComparisonEntry[]
   selections: Array<{ db_id: string; run_id: string }>
@@ -233,6 +234,7 @@ export async function fetchComparison(
         run_id: s.runId,
         role: index === 0 ? 'baseline' : index === 1 ? 'candidate' : 'reference',
       })),
+      ...(policyPath ? { policy_path: policyPath } : {}),
     }),
   })
   if (!res.ok) {
