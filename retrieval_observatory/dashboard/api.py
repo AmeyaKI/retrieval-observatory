@@ -8,6 +8,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
+from urllib.parse import quote
 
 from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
@@ -305,6 +306,28 @@ async def _build_comparison(
         comparison.append(entry)
 
     query_diffs = await _query_diffs(selections, registry, all_metric_keys) if validity.decision_allowed else None
+    release_decision = None
+    if len(selections) == 2:
+        from retrieval_observatory.release.assessment import assess_evidence
+        from retrieval_observatory.release.decision import decide_release
+
+        assessment = assess_evidence(None, manifests[0] or {}, manifests[1] or {})
+        decision = decide_release(None, assessment, [], [])
+        candidate_run_id = selections[1][1]
+        baseline_run_id = selections[0][1]
+        affected_query_ids = [row["query_id"] for row in (query_diffs or {}).get("rows", [])]
+        release_decision = {
+            "schema_version": 1,
+            **decision.model_dump(mode="json"),
+            "investigation": {
+                "affected_query_ids": affected_query_ids,
+                "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
+                "diff_route_template": (
+                    f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
+                    f"{quote(str(baseline_run_id), safe='')}"
+                ),
+            },
+        }
 
     return {
         "comparison": comparison,
@@ -321,6 +344,7 @@ async def _build_comparison(
         "warnings": warnings,
         "comparability": comparability,
         "query_diffs": query_diffs,
+        "release_decision": release_decision,
     }
 
 
@@ -855,6 +879,162 @@ def create_app(
             ],
         }
 
+    async def _query_lineage_payload(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
+        from retrieval_observatory.dashboard.analysis_api import build_query_lineage_payload
+
+        store = _store_for(db_id)
+        traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id))
+        if not traces:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No traces for query '{query_id}' in run '{run_id}'",
+            )
+        qrels = await _resolve_qrels(store, run_id)
+        manifest = await store.get_run_manifest(run_id) or {}
+        mapping_coverage = (
+            ((manifest.get("evidence_profile") or {}).get("lineage") or {}).get(
+                "qrel_to_chunk_mapping_coverage"
+            )
+        )
+        return build_query_lineage_payload(
+            run_id=run_id,
+            query_id=query_id,
+            traces=traces,
+            qrels_for_query=qrels.get(query_id, {}),
+            qrel_chunk_mapping_complete=mapping_coverage == 1.0,
+        )
+
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidate-lineage")
+    async def get_candidate_lineage(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
+        return await _query_lineage_payload(db_id, run_id, query_id)
+
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidate-lineage-diff")
+    async def get_candidate_lineage_diff(
+        db_id: str, run_id: str, query_id: str, against: str
+    ) -> Dict[str, Any]:
+        from dataclasses import asdict
+
+        from retrieval_observatory.release.assessment import assess_evidence
+        from retrieval_observatory.tracing.lineage import build_candidate_lineage
+        from retrieval_observatory.tracing.lineage_diff import diff_candidate_lineage
+
+        store = _store_for(db_id)
+        candidate_traces = await store.list_traces(
+            TraceQuery(run_id=run_id, query_id=query_id)
+        )
+        baseline_traces = await store.list_traces(
+            TraceQuery(run_id=against, query_id=query_id)
+        )
+        if not candidate_traces or not baseline_traces:
+            raise HTTPException(
+                status_code=404,
+                detail="Both selected runs must contain traces for the paired query.",
+            )
+
+        baseline_manifest = await store.get_run_manifest(against) or {}
+        candidate_manifest = await store.get_run_manifest(run_id) or {}
+        readiness = assess_evidence(
+            None, baseline_manifest, candidate_manifest
+        ).readiness["lineage_diff"]
+        baseline_qrels = (await _resolve_qrels(store, against)).get(query_id, {})
+        candidate_qrels = (await _resolve_qrels(store, run_id)).get(query_id, {})
+
+        def mapping_complete(manifest: Dict[str, Any]) -> bool:
+            return (
+                ((manifest.get("evidence_profile") or {}).get("lineage") or {}).get(
+                    "qrel_to_chunk_mapping_coverage"
+                )
+                == 1.0
+            )
+
+        baseline_by_pipeline = {trace.pipeline_id: trace for trace in baseline_traces}
+        candidate_by_pipeline = {trace.pipeline_id: trace for trace in candidate_traces}
+        common_pipelines = sorted(
+            baseline_by_pipeline.keys() & candidate_by_pipeline.keys()
+        )
+        diffs = []
+        for pipeline_id in common_pipelines:
+            baseline_graph = build_candidate_lineage(
+                baseline_by_pipeline[pipeline_id],
+                qrels_for_query=baseline_qrels,
+                qrel_chunk_mapping_complete=mapping_complete(baseline_manifest),
+            )
+            candidate_graph = build_candidate_lineage(
+                candidate_by_pipeline[pipeline_id],
+                qrels_for_query=candidate_qrels,
+                qrel_chunk_mapping_complete=mapping_complete(candidate_manifest),
+            )
+            diffs.append(
+                asdict(
+                    diff_candidate_lineage(
+                        baseline_graph,
+                        candidate_graph,
+                        readiness=readiness,
+                    )
+                )
+            )
+
+        readiness_payload = readiness.model_dump(mode="json")
+        blocked_reasons = list(
+            dict.fromkeys(
+                reason
+                for item in diffs
+                if item["status"] == "BLOCK" and readiness.status != "BLOCK"
+                for reason in item["reasons"]
+            )
+        )
+        if not common_pipelines:
+            blocked_reasons.append(
+                "The selected runs have no aligned pipeline identity for this query."
+            )
+        if blocked_reasons:
+            readiness_payload = {
+                **readiness_payload,
+                "status": "BLOCK",
+                "findings": [
+                    *readiness_payload["findings"],
+                    {
+                        "code": "lineage_candidate_identity_unaligned",
+                        "scope": "lineage_diff",
+                        "status": "BLOCK",
+                        "observed": blocked_reasons,
+                        "required": (
+                            "matching query, pipeline, logical chunk, document revision/content hash, "
+                            "and topology identity"
+                        ),
+                        "detail": "Candidate paths cannot be aligned for a stage-level diff.",
+                        "next_action": "Inspect the recorded paths side by side without attributing cause.",
+                    },
+                ],
+            }
+
+        return {
+            "baseline_run_id": against,
+            "candidate_run_id": run_id,
+            "query_id": query_id,
+            "readiness": readiness_payload,
+            "diffs": diffs,
+        }
+
+    @db_router.get("/runs/{run_id}/queries/{query_id}/lineage-accounting")
+    async def get_lineage_accounting(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
+        payload = await _query_lineage_payload(db_id, run_id, query_id)
+        return {
+            "run_id": run_id,
+            "query_id": query_id,
+            "readiness": payload["readiness"],
+            "evidence_warnings": payload["evidence_warnings"],
+            "accounting": payload["accounting"],
+            "traces": [
+                {
+                    "trace_id": item["trace_id"],
+                    "pipeline_id": item["pipeline_id"],
+                    "accounting": item["accounting"],
+                }
+                for item in payload["traces"]
+            ],
+        }
+
     @db_router.get("/runs/{run_id}/queries/{query_id}/candidate-journeys")
     async def get_candidate_journeys(
         db_id: str, run_id: str, query_id: str, k: int = 10,
@@ -869,8 +1049,7 @@ def create_app(
         from retrieval_observatory.tracing.candidate_journeys import build_candidate_journeys
 
         store = _store_for(db_id)
-        traces = await store.list_traces(TraceQuery(run_id=run_id))
-        query_traces = [t for t in traces if t.query_id == query_id]
+        query_traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id))
         if not query_traces:
             raise HTTPException(
                 status_code=404,
@@ -878,6 +1057,12 @@ def create_app(
             )
         qrels = await _resolve_qrels(store, run_id)
         qrels_for_query = qrels.get(query_id, {})
+        manifest = await store.get_run_manifest(run_id) or {}
+        mapping_coverage = (
+            ((manifest.get("evidence_profile") or {}).get("lineage") or {}).get(
+                "qrel_to_chunk_mapping_coverage"
+            )
+        )
         query_text = query_traces[0].query_text
         if hasattr(store, "get_run_queries"):
             for row in await store.get_run_queries(run_id):
@@ -890,6 +1075,7 @@ def create_app(
             query_text=query_text,
             qrels_for_query=qrels_for_query,
             k=k,
+            qrel_chunk_mapping_complete=mapping_coverage == 1.0,
         )
         return {
             "run_id": run_id,
@@ -899,29 +1085,103 @@ def create_app(
             "rows": rows,
         }
 
-    @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{doc_id}")
-    async def get_candidate_flow(db_id: str, run_id: str, query_id: str, doc_id: str) -> Dict[str, Any]:
-        """Candidate Flow Visualization backend (Pillar 2): one document's full journey
-        through every pipeline that ran this query — where it was introduced, promoted,
-        and (if it disappeared) exactly where and why."""
+    @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{candidate_id}")
+    async def get_candidate_flow(
+        db_id: str, run_id: str, query_id: str, candidate_id: str
+    ) -> Dict[str, Any]:
+        """Candidate passport with one-release document-flow compatibility aliases."""
         from retrieval_observatory.tracing.candidate_history import candidate_history
         from retrieval_observatory.tracing.replay import replay_assumptions
 
         store = _store_for(db_id)
-        traces = await store.list_traces(TraceQuery(run_id=run_id))
-        query_traces = [t for t in traces if t.query_id == query_id]
-        if not query_traces:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No traces for query '{query_id}' in run '{run_id}' (candidate flow needs trace data)",
-            )
+        query_traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id))
+        payload = await _query_lineage_payload(db_id, run_id, query_id)
         qrels = await _resolve_qrels(store, run_id)
         qrels_for_query = qrels.get(query_id, {})
-        grade = qrels_for_query.get(doc_id)
-        relevant = grade is not None and int(grade) > 0
+        exact_matches = [
+            node for node in payload["graph"]["nodes"] if node["candidate_id"] == candidate_id
+        ]
+        matches = exact_matches or [
+            node
+            for node in payload["graph"]["nodes"]
+            if node.get("logical_chunk_id") == candidate_id
+            or (node.get("source") or {}).get("document_id") == candidate_id
+        ]
+        if len(matches) > 1:
+            payload["evidence_warnings"].append(
+                {
+                    "code": "candidate_present_in_multiple_traces",
+                    "candidate_id": candidate_id,
+                    "trace_ids": [node["trace_id"] for node in matches],
+                }
+            )
+        if matches:
+            primary = matches[0]
+            history_doc_id = (primary.get("source") or {}).get("document_id") or candidate_id
+            relevance = primary["relevance"]
+            grade = relevance.get("grade")
+            relevant = (
+                True
+                if relevance["kind"] == "relevant"
+                else False
+                if relevance["kind"] == "irrelevant"
+                else None
+            )
+        else:
+            history_doc_id = candidate_id
+            grade = qrels_for_query.get(candidate_id)
+            relevant = None if grade is None else int(grade) > 0
+            primary = {
+                "candidate_id": candidate_id,
+                "logical_chunk_id": None,
+                "source": {
+                    "document_id": None,
+                    "document_revision": None,
+                    "content_hash": None,
+                    "char_start": None,
+                    "char_end": None,
+                    "preview": None,
+                },
+                "parent_candidate_ids": [],
+                "routes": [],
+                "relevance": {
+                    "kind": "unknown" if grade is None else "relevant" if relevant else "irrelevant",
+                    "grade": int(grade) if grade is not None else None,
+                    "evidence": "unavailable" if grade is None else "validated",
+                },
+                "outcome": {
+                    "kind": "lineage_incomplete",
+                    "evidence": "unavailable",
+                    "operator_id": None,
+                    "branch_id": None,
+                    "reason": "candidate was not observed in query traces",
+                },
+                "lineage_evidence": "unavailable",
+                "final_context_member": False,
+                "removed_at": None,
+                "removal_branch_id": None,
+                "removal_reason": None,
+                "removal_evidence": "unavailable",
+                "derived_child_ids": [],
+            }
+            payload["readiness"] = {
+                "scope": "lineage_diagnosis",
+                "status": "BLOCK",
+                "findings": [
+                    {
+                        "code": "candidate_not_observed",
+                        "scope": "lineage_diagnosis",
+                        "status": "BLOCK",
+                        "observed": candidate_id,
+                        "required": "candidate present in query-scoped traces",
+                        "detail": "The requested candidate was not observed.",
+                        "next_action": "Inspect an observed candidate ID or increase trace coverage.",
+                    }
+                ],
+            }
         pipelines: List[Dict[str, Any]] = []
         for trace in query_traces:
-            history = candidate_history(trace, doc_id)
+            history = candidate_history(trace, history_doc_id)
             assumptions = None
             # If the doc was dropped, expose how a counterfactual replay of the dropping
             # operator would be constructed, so the drop explanation is inspectable.
@@ -939,11 +1199,15 @@ def create_app(
                 }
             )
         return {
+            **primary,
             "run_id": run_id,
             "query_id": query_id,
-            "doc_id": doc_id,
+            "doc_id": history_doc_id,
             "relevant": relevant,
-            "grade": int(grade) if relevant and grade is not None else None,
+            "grade": int(grade) if grade is not None else None,
+            "readiness": payload["readiness"],
+            "evidence_warnings": payload["evidence_warnings"],
+            "trace_passports": matches,
             "pipelines": pipelines,
         }
 
