@@ -51,3 +51,4 @@ docs/verification/
 .prompts/
 .claude/
 *.png
+artifacts/
