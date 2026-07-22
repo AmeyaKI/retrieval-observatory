@@ -5,9 +5,13 @@ import json
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
+from urllib.parse import quote
 
 from retrieval_observatory.runner.execute import BenchmarkArtifacts
+
+if TYPE_CHECKING:
+    from retrieval_observatory.release.policy import ReleasePolicy
 
 
 @dataclass
@@ -92,6 +96,7 @@ class ReportModel:
     def _comparison_markdown(self) -> str:
         comparison = self.comparison or {}
         validity = comparison.get("validity", {})
+        decision = comparison.get("release_decision", {})
         baseline = comparison.get("baseline_run_id", "unavailable")
         candidate = comparison.get("candidate_run_id", "unavailable")
         lines = [
@@ -105,6 +110,100 @@ class ReportModel:
             self.conclusion,
             "",
         ]
+        if decision:
+            policy = decision.get("policy", {})
+            lines.extend([
+                "## Release decision",
+                "",
+                f"Artifact schema: `{decision.get('schema_version', 'unavailable')}`  ",
+                f"**Status:** `{decision.get('status', 'HOLD')}`  ",
+                f"**Policy:** `{policy.get('id') or 'not configured'}`  ",
+                f"**Policy schema:** `{policy.get('schema_version') or 'unavailable'}`  ",
+                f"**Policy digest:** `{policy.get('digest') or 'unavailable'}`",
+                "",
+                "### Claim readiness",
+                "",
+                "| Scope | Status | Findings |",
+                "|---|---|---:|",
+            ])
+            for scope, readiness in decision.get("readiness", {}).items():
+                lines.append(
+                    f"| `{scope}` | `{readiness.get('status', 'BLOCK')}` | "
+                    f"{len(readiness.get('findings', []))} |"
+                )
+            lines.append("")
+            findings = [
+                finding
+                for readiness in decision.get("readiness", {}).values()
+                for finding in readiness.get("findings", [])
+            ]
+            if findings:
+                lines.extend(["### Evidence findings", ""])
+                lines.extend(
+                    f"- `{finding.get('scope')}/{finding.get('code')}` — {finding.get('detail')} "
+                    f"Next: {finding.get('next_action')}"
+                    for finding in findings
+                )
+                lines.append("")
+            guards = decision.get("aggregate_guards", [])
+            if guards:
+                lines.extend([
+                    "### Policy guard intervals",
+                    "",
+                    "| Metric | Status | Effect | Interval | Paired n | Adjusted confidence |",
+                    "|---|---|---:|---:|---:|---:|",
+                ])
+                for guard in guards:
+                    interval = (
+                        f"{_format_number(guard.get('ci_low'))} to {_format_number(guard.get('ci_high'))}"
+                    )
+                    lines.append(
+                        f"| `{guard.get('metric')}` | `{guard.get('status')}` | "
+                        f"{_format_number(guard.get('effect'))} | {interval} | "
+                        f"{guard.get('paired_n', 0)} | "
+                        f"{_format_number(guard.get('adjusted_confidence_level'))} |"
+                    )
+                lines.append("")
+            slices = decision.get("slices", [])
+            if slices:
+                lines.extend(["### Declared slices", ""])
+                lines.extend(
+                    f"- `{item.get('id')}` (`{item.get('field')}={item.get('value')!r}`): "
+                    f"`{item.get('status')}`, paired n={item.get('paired_n', 0)}, "
+                    f"label coverage={_format_number(item.get('label_coverage'))}"
+                    for item in slices
+                )
+                lines.append("")
+            if self.affected_queries:
+                lines.extend(["### Investigation references", ""])
+                lines.extend(
+                    f"- `{item.get('query_id')}` — `{item.get('diff_route')}`"
+                    for item in self.affected_queries
+                )
+                lines.append("")
+            lines.extend([
+                "## Next action",
+                "",
+                self.next_action,
+                "",
+                "## Reproduce and inspect",
+                "",
+                f"- `{self.reproduce}`",
+                f"- Dashboard: {self.dashboard_url}",
+                "",
+            ])
+        release_provenance = comparison.get("release_provenance", {})
+        if release_provenance:
+            lines.extend(["## Provenance", ""])
+            for role in ("baseline", "candidate"):
+                value = release_provenance.get(role, {})
+                identity = json.dumps(value.get("release_identity") or {}, sort_keys=True)
+                lines.append(
+                    f"- **{role.title()}:** run `{value.get('run_id')}`, "
+                    f"manifest schema `{value.get('manifest_schema_version') or 'unavailable'}`, "
+                    f"release identity `{identity}`"
+                )
+            lines.append("")
         differences = validity.get("differences", [])
         if differences:
             lines.extend(["## Validity evidence", ""])
@@ -140,17 +239,6 @@ class ReportModel:
                     f"{_format_number(query.get('candidate'))} | {_format_number(query.get('delta'))} |"
                 )
             lines.append("")
-        lines.extend([
-            "## Next action",
-            "",
-            self.next_action,
-            "",
-            "## Reproduce and inspect",
-            "",
-            f"- `{self.reproduce}`",
-            f"- Dashboard: {self.dashboard_url}",
-            "",
-        ])
         return "\n".join(lines)
 
     def to_html(self) -> str:
@@ -307,7 +395,26 @@ async def load_run_report(run_id: str, db_path: str) -> ReportModel:
     )
 
 
-async def load_comparison_report(baseline_run_id: str, candidate_run_id: str, db_path: str) -> ReportModel:
+def _resolve_release_policy(
+    policy: str | Path | ReleasePolicy | None,
+) -> tuple[ReleasePolicy | None, str | None]:
+    from retrieval_observatory.release.policy import ReleasePolicy, load_release_policy
+
+    if policy is None:
+        return None, None
+    if isinstance(policy, ReleasePolicy):
+        return policy, None
+    policy_path = Path(policy)
+    return load_release_policy(policy_path), str(policy_path)
+
+
+async def load_comparison_report(
+    baseline_run_id: str,
+    candidate_run_id: str,
+    db_path: str,
+    *,
+    policy: str | Path | ReleasePolicy | None = None,
+) -> ReportModel:
     """Build one validity-gated report for CLI, SDK, MCP, CI, and HTML artifacts."""
     from retrieval_observatory.metrics.comparison import (
         _scores_for,
@@ -330,6 +437,28 @@ async def load_comparison_report(baseline_run_id: str, candidate_run_id: str, db
     validity = comparison_validity([baseline_manifest, candidate_manifest])
     baseline_rows = await store.get_metrics(baseline_run_id)
     candidate_rows = await store.get_metrics(candidate_run_id)
+    resolved_policy, policy_source = _resolve_release_policy(policy)
+    from retrieval_observatory.release.assessment import assess_evidence
+    from retrieval_observatory.release.decision import decide_release
+    from retrieval_observatory.release.slices import evaluate_declared_slices
+    from retrieval_observatory.release.statistics import evaluate_metric_guards
+
+    assessment = assess_evidence(
+        resolved_policy,
+        baseline_manifest or {},
+        candidate_manifest or {},
+    )
+    aggregate_guards = (
+        evaluate_metric_guards(resolved_policy, baseline_rows, candidate_rows)
+        if resolved_policy is not None
+        else []
+    )
+    slice_results = (
+        evaluate_declared_slices(resolved_policy, baseline_rows, candidate_rows)
+        if resolved_policy is not None
+        else []
+    )
+    decision = decide_release(resolved_policy, assessment, aggregate_guards, slice_results)
     engine = MetricsEngine()
     baseline_aggregate = await engine.aggregate(baseline_run_id, store)
     candidate_aggregate = await engine.aggregate(candidate_run_id, store)
@@ -338,18 +467,6 @@ async def load_comparison_report(baseline_run_id: str, candidate_run_id: str, db
 
     regressions = [result for result in results.values() if result.decision == "candidate_worse"]
     improvements = [result for result in results.values() if result.decision == "candidate_better"]
-    if not validity.decision_allowed:
-        verdict = "no_decision"
-        conclusion = "Comparison validity failed, so no winner or regression decision is reported."
-    elif regressions:
-        verdict = "regression"
-        conclusion = f"The candidate has {len(regressions)} decision-bearing regression(s) after correction and effect thresholds."
-    elif improvements:
-        verdict = "pass"
-        conclusion = f"No decision-bearing regression was found; {len(improvements)} metric(s) improved."
-    else:
-        verdict = "no_decision"
-        conclusion = "No paired metric produced a sufficiently powered, significant, and practically meaningful decision."
 
     selected = (regressions or improvements or list(results.values()))[:1]
     affected_queries: list[Dict[str, Any]] = []
@@ -360,40 +477,62 @@ async def load_comparison_report(baseline_run_id: str, candidate_run_id: str, db
         baseline_scores = _scores_for(baseline_rows, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
         candidate_scores = _scores_for(candidate_rows, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
         for query_id in set(baseline_scores) & set(candidate_scores):
+            encoded_query_id = quote(str(query_id), safe="")
+            encoded_baseline = quote(str(baseline_run_id), safe="")
+            encoded_candidate = quote(str(candidate_run_id), safe="")
             affected_queries.append({
                 "query_id": query_id,
                 "baseline": baseline_scores[query_id],
                 "candidate": candidate_scores[query_id],
                 "delta": candidate_scores[query_id] - baseline_scores[query_id],
+                "investigation_route": f"#/runs/{encoded_candidate}/queries/{encoded_query_id}",
+                "diff_route": (
+                    f"#/runs/{encoded_candidate}/queries/{encoded_query_id}/diff?against={encoded_baseline}"
+                ),
             })
         affected_queries.sort(key=lambda row: abs(row["delta"]), reverse=True)
         affected_queries = affected_queries[:20]
 
     results_dict = {key: value.to_dict() for key, value in results.items()}
     validity_dict = validity.to_dict()
-    next_action = (
-        "Fix the manifest differences and rerun before interpreting metric deltas."
-        if not validity.decision_allowed else
-        f"Inspect the first affected query for `{regressions[0].metric}` and locate its first candidate divergence."
-        if regressions else
-        "Review no-decision reasons and add paired queries before changing the retrieval configuration."
-        if verdict == "no_decision" else
-        "Validate the candidate on an independent Test Set before promotion."
+    decision_payload = {
+        "schema_version": 1,
+        **decision.model_dump(mode="json"),
+        "investigation": {
+            "affected_query_ids": [row["query_id"] for row in affected_queries],
+            "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
+            "diff_route_template": (
+                f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
+                f"{quote(str(baseline_run_id), safe='')}"
+            ),
+        },
+    }
+    policy_argument = (
+        f" --policy {policy_source}"
+        if policy_source is not None
+        else " --policy <policy-path>"
+        if resolved_policy is not None
+        else ""
     )
     return ReportModel(
         kind="comparison",
         run_id=f"{baseline_run_id}..{candidate_run_id}",
         title="Run Comparison",
-        verdict=verdict,
-        conclusion=conclusion,
-        evidence_health="ready" if validity.decision_allowed else "invalid",
-        evidence_reasons=[difference.detail for difference in validity.differences],
+        verdict=decision.status,
+        conclusion={
+            "PASS": "The recorded evidence proves non-inferiority for every declared policy guard.",
+            "HOLD": "The recorded evidence is valid but does not prove pass or fail for every declared guard.",
+            "BLOCK": "Required promotion evidence is missing or invalid; metric deltas are not decision-bearing.",
+            "FAIL": "Valid promotion evidence proves at least one policy-critical regression beyond its budget.",
+        }[decision.status],
+        evidence_health=assessment.readiness["promotion"].status.lower(),
+        evidence_reasons=decision.reasons,
         metrics=results_dict,
         dominant_issue={"label": regressions[0].metric, "query_count": len(affected_queries)} if regressions else None,
         affected_queries=affected_queries,
         provenance={"baseline_manifest": baseline_manifest, "candidate_manifest": candidate_manifest},
-        next_action=next_action,
-        reproduce=f"retobs compare {baseline_run_id} {candidate_run_id} --db {db_path}",
+        next_action=decision.next_action,
+        reproduce=f"retobs compare {baseline_run_id} {candidate_run_id} --db {db_path}{policy_argument}",
         dashboard_url="http://127.0.0.1:4000/#/compare",
         comparison={
             "baseline_run_id": baseline_run_id,
@@ -402,6 +541,19 @@ async def load_comparison_report(baseline_run_id: str, candidate_run_id: str, db
             "validity": validity_dict,
             "results": results_dict,
             "query_diff_metric": query_diff_metric,
+            "release_provenance": {
+                "baseline": {
+                    "run_id": baseline_run_id,
+                    "manifest_schema_version": (baseline_manifest or {}).get("schema_version"),
+                    "release_identity": (baseline_manifest or {}).get("release_identity"),
+                },
+                "candidate": {
+                    "run_id": candidate_run_id,
+                    "manifest_schema_version": (candidate_manifest or {}).get("schema_version"),
+                    "release_identity": (candidate_manifest or {}).get("release_identity"),
+                },
+            },
+            "release_decision": decision_payload,
         },
     )
 
@@ -530,28 +682,22 @@ class BenchmarkReport:
             baseline_run, self.run_id, store, latency_regression_pct=latency_regression_pct
         )
 
-    def compare(self, baseline: "BenchmarkReport") -> Dict[str, Any]:
-        """Validity-gated paired comparison with explicit baseline/candidate roles."""
-        from retrieval_observatory.metrics.comparison import compare_paired_metrics, comparison_validity
-        from retrieval_observatory.store.sqlite import SQLiteStore
-
-        async def _compare() -> Dict[str, Any]:
-            store = SQLiteStore(db_path=self.db_path)
-            baseline_manifest = await store.get_run_manifest(baseline.run_id)
-            candidate_manifest = await store.get_run_manifest(self.run_id)
-            validity = comparison_validity([baseline_manifest, candidate_manifest])
-            baseline_rows = await store.get_metrics(baseline.run_id)
-            candidate_rows = await store.get_metrics(self.run_id)
-            keys = sorted(set(baseline.metrics) & set(self.metrics))
-            results = compare_paired_metrics(baseline_rows, candidate_rows, keys, validity)
-            return {
-                "baseline_run_id": baseline.run_id,
-                "candidate_run_id": self.run_id,
-                "validity": validity.to_dict(),
-                "results": {key: value.to_dict() for key, value in results.items()},
-            }
-
-        return _run_sync(_compare())
+    def compare(
+        self,
+        baseline: "BenchmarkReport",
+        *,
+        policy: str | Path | ReleasePolicy | None = None,
+    ) -> Dict[str, Any]:
+        """Return the canonical comparison artifact while preserving the dictionary shape."""
+        report = _run_sync(
+            load_comparison_report(
+                baseline.run_id,
+                self.run_id,
+                self.db_path,
+                policy=policy,
+            )
+        )
+        return report.comparison or {}
 
 
 def _run_sync(coro):

@@ -360,17 +360,30 @@ def compare(
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path"),
     format: str = typer.Option("terminal", "--format", help="terminal|json|markdown|html"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the comparison artifact."),
-    fail_on: str = typer.Option("never", "--fail-on", help="never|regression|regression-or-no-decision"),
+    policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML path."),
+    fail_on: str = typer.Option("never", "--fail-on", help="never|fail|hold-or-block-or-fail"),
 ) -> None:
     """Compare an explicit baseline and candidate through the canonical validity/statistics contract."""
-    report = asyncio.run(_compare(run_id_1, run_id_2, db_path, format=format, output=output))
-    allowed = {"never", "regression", "regression-or-no-decision"}
+    report = asyncio.run(
+        _compare(run_id_1, run_id_2, db_path, format=format, output=output, policy=policy)
+    )
+    aliases = {
+        "regression": "fail",
+        "regression-or-no-decision": "hold-or-block-or-fail",
+    }
+    if fail_on in aliases:
+        replacement = aliases[fail_on]
+        console.print(
+            f"[yellow]Deprecated:[/yellow] --fail-on {fail_on}; use --fail-on {replacement}."
+        )
+        fail_on = replacement
+    allowed = {"never", "fail", "hold-or-block-or-fail"}
     if fail_on not in allowed:
         console.print(f"[red]--fail-on must be one of: {', '.join(sorted(allowed))}.[/red]")
         raise typer.Exit(2)
-    if fail_on == "regression" and report.verdict == "regression":
+    if fail_on == "fail" and report.verdict == "FAIL":
         raise typer.Exit(1)
-    if fail_on == "regression-or-no-decision" and report.verdict in {"regression", "no_decision"}:
+    if fail_on == "hold-or-block-or-fail" and report.verdict in {"HOLD", "BLOCK", "FAIL"}:
         raise typer.Exit(1)
 
 
@@ -381,11 +394,12 @@ async def _compare(
     *,
     format: str = "terminal",
     output: Optional[Path] = None,
+    policy: Optional[Path] = None,
 ):
     from retrieval_observatory.sdk.report import load_comparison_report
 
     try:
-        report = await load_comparison_report(run_id_1, run_id_2, db_path)
+        report = await load_comparison_report(run_id_1, run_id_2, db_path, policy=policy)
     except Exception as error:
         console.print(f"[red]Comparison failed:[/red] {error}")
         raise typer.Exit(1)
@@ -542,6 +556,7 @@ def integrate_cmd(
     plan_file: Optional[Path] = typer.Option(None, "--plan"),
     output: Optional[Path] = typer.Option(None, "--output"),
     db: str = typer.Option(".retobs/results.db", "--db"),
+    policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML for verify preflight."),
 ) -> None:
     """Plan, apply, or verify one canonical project integration."""
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
@@ -552,7 +567,13 @@ def integrate_cmd(
         reviewed = IntegrationPlan.from_dict(reviewed_payload.get("plan", reviewed_payload))
     else:
         reviewed = None
-    payload = asyncio.run(integrate_project(project_root, selected, IntegrationOptions(reviewed, db))).to_dict()
+    payload = asyncio.run(
+        integrate_project(
+            project_root,
+            selected,
+            IntegrationOptions(reviewed, db, str(policy) if policy else None),
+        )
+    ).to_dict()
     serialized = json.dumps(payload, indent=2)
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)

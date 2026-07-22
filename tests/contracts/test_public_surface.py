@@ -68,3 +68,13 @@ def test_mcp_tools_match_contract_exactly() -> None:
 def test_sdk_exports_match_contract_exactly() -> None:
     assert set(ro.__all__) == set(CONTRACT["sdk_exports"])
     assert REMOVED.isdisjoint(ro.__all__)
+
+
+def test_release_artifact_contract_is_explicit() -> None:
+    assert CONTRACT["schema_version"] == 2
+    assert CONTRACT["release_artifact"] == {
+        "schema_version": 1,
+        "cli_policy_option": "--policy",
+        "mcp_policy_input": "policy_path",
+        "fail_on": ["never", "fail", "hold-or-block-or-fail"],
+    }
