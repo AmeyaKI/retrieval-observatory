@@ -481,7 +481,56 @@ def verify_observed_traces(manifest: IntegrationManifest, traces: Sequence[Retri
     return IntegrationResult("verify", "ready" if available else "failed", checks=checks, capabilities=capabilities, observed_operator_ids=tuple(sorted(observed)), topology_variants=variants, errors=errors)
 
 
-async def verify_project(root, store) -> IntegrationResult:
+def _release_preflight(policy, manifest, traces, health) -> Dict[str, Any]:
+    from retrieval_observatory.release.assessment import assess_evidence
+    from retrieval_observatory.release.evidence import EvidenceProfile
+    from retrieval_observatory.release.readiness import ClaimReadiness, EvidenceFinding
+
+    profile = EvidenceProfile.from_run(
+        {
+            "release_identity": {
+                "service_id": manifest.service_id,
+                "deployment_revision": manifest.plan_id,
+            }
+        },
+        traces,
+        health,
+    )
+    preflight_manifest = {
+        "dataset": {
+            "query_hash": "integration-preflight",
+            "corpus_hash": "integration-preflight",
+            "qrel_hash": "integration-preflight",
+        },
+        "labeling": {"method": "integration-preflight-unavailable"},
+        "release_identity": profile.release_identity.model_dump(mode="json"),
+        "evidence_profile": profile.model_dump(mode="json"),
+    }
+    assessment = assess_evidence(policy, preflight_manifest, preflight_manifest)
+    promotion_findings = [
+        *assessment.readiness["promotion"].findings,
+        EvidenceFinding(
+            code="paired_metrics_unavailable",
+            scope="promotion",
+            status="HOLD",
+            observed=None,
+            required=[guard.metric for guard in policy.metrics],
+            detail="Integration preflight does not execute paired release metrics.",
+            next_action="Run a baseline/candidate comparison before making a promotion decision.",
+        ),
+    ]
+    promotion = ClaimReadiness(
+        scope="promotion",
+        status="BLOCK" if any(item.status == "BLOCK" for item in promotion_findings) else "HOLD",
+        findings=promotion_findings,
+    )
+    return {
+        "promotion": promotion.model_dump(mode="json"),
+        "lineage_diagnosis": assessment.readiness["lineage_diagnosis"].model_dump(mode="json"),
+    }
+
+
+async def verify_project(root, store, policy=None) -> IntegrationResult:
     from pathlib import Path
     from retrieval_observatory.integrations.manifest import load_manifest
     from retrieval_observatory.store.base import TraceQuery
@@ -495,4 +544,9 @@ async def verify_project(root, store) -> IntegrationResult:
     }
     if health is not None:
         telemetry_health["export_failures"] = health.permanent_failures
-    return replace(result, telemetry_health=telemetry_health)
+    release_readiness = _release_preflight(policy, manifest, traces, health) if policy is not None else {}
+    return replace(
+        result,
+        telemetry_health=telemetry_health,
+        release_readiness=release_readiness,
+    )
