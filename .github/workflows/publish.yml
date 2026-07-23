@@ -61,7 +61,14 @@ jobs:
           /tmp/testpypi-smoke/bin/pip install --index-url https://pypi.org/simple "${WHEEL}[dashboard,mcp]"
           cd /tmp
           /tmp/testpypi-smoke/bin/python "$GITHUB_WORKSPACE/release-evidence/smoke_wheel.py" --expected-version "$VERSION" --output "$GITHUB_WORKSPACE/release-evidence/testpypi-smoke.json"
-          curl -fsS "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > "$GITHUB_WORKSPACE/release-evidence/testpypi-metadata.json"
+          for i in $(seq 1 30); do
+            if curl -fsS "https://test.pypi.org/pypi/retrieval-observatory/${VERSION}/json" > "$GITHUB_WORKSPACE/release-evidence/testpypi-metadata.json"; then
+              break
+            fi
+            echo "TestPyPI JSON not ready yet (attempt $i/30); sleeping 10s"
+            sleep 10
+          done
+          test -s "$GITHUB_WORKSPACE/release-evidence/testpypi-metadata.json"
           /tmp/testpypi-smoke/bin/python -c "import json; assert json.load(open('$GITHUB_WORKSPACE/release-evidence/testpypi-metadata.json'))['info']['version'] == '$VERSION'"
 
   publish-pypi:
@@ -96,11 +103,21 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: packages/
+          # Idempotent re-runs after a successful upload + failed post-verify (JSON API lag).
+          skip-existing: true
       - name: Verify published PyPI metadata matches tested digests
         run: |
           WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           VERSION=$(python -c "import email, zipfile; z=zipfile.ZipFile('${WHEEL}'); m=[n for n in z.namelist() if n.endswith('.dist-info/METADATA')][0]; print(email.message_from_bytes(z.read(m))['Version'])")
-          curl -fsS "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > release-evidence/pypi-metadata.json
+          # PyPI's JSON API can 404 briefly after a successful upload; wait for propagation.
+          for i in $(seq 1 30); do
+            if curl -fsS "https://pypi.org/pypi/retrieval-observatory/${VERSION}/json" > release-evidence/pypi-metadata.json; then
+              break
+            fi
+            echo "PyPI JSON not ready yet (attempt $i/30); sleeping 10s"
+            sleep 10
+          done
+          test -s release-evidence/pypi-metadata.json
           python - <<'PY'
           import json
           from pathlib import Path

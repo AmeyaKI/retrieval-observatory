@@ -14,6 +14,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Removed
 
+## [0.5.4] — 2026-07-23 [PyPI]
+
+Publish workflow hardening after 0.5.3 uploaded successfully but post-upload PyPI JSON verification raced a 404.
+
+### Fixed
+
+- `.github/workflows/publish.yml` — retry TestPyPI/PyPI JSON metadata fetches until the index is visible; allow idempotent PyPI re-upload with `skip-existing`.
+
 ## [0.5.3] — 2026-07-23 [PyPI]
 
 Local release-policy decisions, claim-scoped evidence readiness, and the Candidate Lineage Explorer — plus architecture docs aligned to the current integrate → evaluate → compare → inspect surface.
