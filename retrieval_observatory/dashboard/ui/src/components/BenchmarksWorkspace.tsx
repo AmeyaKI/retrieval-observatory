@@ -72,6 +72,7 @@ export default function BenchmarksWorkspace({
       docId: match.params.docId,
       isDiff: match.routeId.endsWith('/diff'),
       against: match.query.against,
+      policyPath: match.query.policy_path,
       analysisId: match.params.analysisId,
     }
   }, [route])
@@ -264,6 +265,7 @@ export default function BenchmarksWorkspace({
                 runId={resolvedRun.run_id}
                 againstRunId={deepLink.against}
                 queryId={deepLink.queryId}
+                policyPath={deepLink.policyPath}
               />
             )}
             {deepLink?.page === 'queries' && deepLink.queryId && !deepLink.docId && !deepLink.isDiff && (

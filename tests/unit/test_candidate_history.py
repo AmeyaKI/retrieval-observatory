@@ -3,7 +3,14 @@ from __future__ import annotations
 from retrieval_observatory.tracing.candidate_history import candidate_history
 from dataclasses import replace
 
-from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
+from retrieval_observatory.tracing.candidate_journeys import build_candidate_journeys
+from retrieval_observatory.tracing.model import (
+    CaptureMetadata,
+    Candidate,
+    OperatorSpan,
+    RetrievalTrace,
+    TraceTiming,
+)
 
 
 def _fusion_rerank_trace() -> RetrievalTrace:
@@ -83,7 +90,8 @@ def test_explicit_drop_reason_is_honored():
     hist = candidate_history(trace, "d1")
     drop = [e for e in hist.events if e.event == "dropped"][0]
     assert drop.drop_reason == "filtered"
-    assert drop.drop_reason_inferred is False
+    assert drop.drop_reason_inferred is True
+    assert drop.lineage_evidence == "legacy_inferred"
 
 
 def test_unknown_doc_has_empty_history():
@@ -91,3 +99,41 @@ def test_unknown_doc_has_empty_history():
     assert hist.events == []
     assert hist.survived is False
     assert hist.introduced_at is None
+
+
+def test_partial_output_is_incomplete_not_an_inferred_drop():
+    trace = _fusion_rerank_trace()
+    trace.capture = CaptureMetadata(candidates_truncated=True, lineage_evidence="partial")
+
+    hist = candidate_history(trace, "d1")
+
+    assert hist.dropped_at is None
+    assert hist.lineage_evidence == "partial"
+    assert hist.events[-1].event == "incomplete"
+
+
+async def test_unlabeled_production_journey_uses_unknown_relevance_outcome():
+    candidate = Candidate(
+        "doc-1",
+        1.0,
+        1,
+        candidate_id="candidate-1",
+        logical_chunk_id="chunk-1",
+    )
+    trace = RetrievalTrace(
+        trace_id="production",
+        service_id="search",
+        run_id=None,
+        query_id="q1",
+        query_text="",
+        pipeline_id="pipeline",
+        spans=(OperatorSpan.source("retrieve", "retrieve", (candidate,)),),
+        final_op_ids=("retrieve",),
+    )
+
+    rows = await build_candidate_journeys(
+        [trace], query_id="q1", query_text=None, qrels_for_query={}
+    )
+
+    assert rows[0]["outcome"] == "unknown_relevance"
+    assert rows[0]["outcome_evidence"] == "recorded"

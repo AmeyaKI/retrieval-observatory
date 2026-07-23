@@ -1,5 +1,6 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "release_artifact": {"schema_version": 1, "cli_policy_option": "--policy", "mcp_policy_input": "policy_path", "fail_on": ["never", "fail", "hold-or-block-or-fail"]},
   "cli_commands": ["compare", "demo", "evaluate", "inspect-query", "integrate", "production", "report", "serve", "testsets"],
   "mcp_tools": ["compare", "describe_config", "evaluate", "evaluate_file", "get_pipeline_graph", "get_report", "inspect_query", "integrate_project", "push_traces", "validate_config", "verify_integration"],
   "sdk_exports": ["Comparison", "Document", "IntegrationOptions", "Query", "QueryEvidence", "RetrievalTrace", "Run", "TestSet", "TraceRecorder", "compare", "evaluate", "generate_testset", "init", "inspect_query"],

@@ -50,6 +50,10 @@ def test_release_evidence_has_every_passing_gate(release_evidence_path: Path) ->
     assert all(gates[name]["artifacts"] for name in REQUIRED_GATES)
     assert evidence["distribution"]["sha256"]
     assert evidence["version"] == evidence["distribution"]["version"]
+    assert {proof["id"] for proof in evidence["workflow_proofs"]} == {
+        "retrieval_release_decision",
+        "candidate_lineage_workflow",
+    }
 
 
 def test_generator_rejects_missing_or_mismatched_gate_results(tmp_path: Path) -> None:
@@ -139,4 +143,6 @@ def test_generator_writes_digest_bound_evidence(tmp_path: Path) -> None:
     evidence = json.loads(output_json.read_text(encoding="utf-8"))
     assert evidence["distribution"]["sha256"] == digest
     assert {gate["id"] for gate in evidence["gates"]} == REQUIRED_GATES
+    assert {proof["gate"] for proof in evidence["workflow_proofs"]} == {"python_integration"}
+    assert all(proof["tests"] for proof in evidence["workflow_proofs"])
     assert output_markdown.read_text(encoding="utf-8").startswith("# retobs release evidence\n")

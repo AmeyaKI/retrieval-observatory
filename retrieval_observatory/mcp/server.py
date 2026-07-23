@@ -165,11 +165,17 @@ async def _compare_runs(
     candidate_run_id: str,
     format: str = "json",
     db_path: str = DEFAULT_DB_PATH,
+    policy_path: Optional[str] = None,
 ) -> Dict[str, Any] | str:
-    """Validity-gated comparison with explicit baseline/candidate orientation."""
+    """Release comparison using an optional explicit local policy path."""
     from retrieval_observatory.sdk.report import load_comparison_report
 
-    report = await load_comparison_report(baseline_run_id, candidate_run_id, db_path)
+    report = await load_comparison_report(
+        baseline_run_id,
+        candidate_run_id,
+        db_path,
+        policy=policy_path,
+    )
     if format == "json":
         return report.to_dict()
     if format in {"markdown", "md", "terminal"}:

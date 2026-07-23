@@ -265,7 +265,7 @@ export default function DocumentPathSimulator({ flow }: { flow: CandidateFlow | 
   }, [playing, flow])
 
   if (!flow) {
-    return <NoData label="Select a chunk in the table below to animate its path through each stage." />
+    return <NoData label="Select a candidate above to replay its captured transitions." />
   }
   if (flow.pipelines.length === 0) {
     return <NoData label="No pipeline traces available for this document." />
@@ -292,18 +292,22 @@ export default function DocumentPathSimulator({ flow }: { flow: CandidateFlow | 
         <div>
           <h3 className="text-sm font-semibold text-ink">
             Stage flowchart · <span className="font-mono">{flow.doc_id}</span>
-            {flow.relevant ? (
+            {flow.relevance.kind === 'relevant' ? (
               <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                relevant{flow.grade != null ? ` · grade ${flow.grade}` : ''}
+                relevant{flow.relevance.grade != null ? ` · grade ${flow.relevance.grade}` : ''}
+              </span>
+            ) : flow.relevance.kind === 'irrelevant' ? (
+              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                validated irrelevant
               </span>
             ) : (
-              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                not in qrels
+              <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+                relevance unavailable
               </span>
             )}
           </h3>
           <p className="text-xs text-ink-muted mt-0.5">
-            Play animates the chunk through each retrieval stage — where it was introduced, passed, or filtered out.
+            Replays captured events for inspection. This does not re-execute the retrieval pipeline.
           </p>
         </div>
         <div className="flex items-center gap-1.5">

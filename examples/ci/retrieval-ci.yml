@@ -22,8 +22,8 @@ jobs:
         env:
           BASELINE_RUN: ${{ vars.RETOBS_BASELINE_RUN }}
         run: |
-          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --format markdown --output artifacts/retobs-comparison.md --fail-on regression-or-no-decision
-          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --format html --output artifacts/retobs-comparison.html
+          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --policy examples/ci/release-policy.yaml --format markdown --output artifacts/retobs-comparison.md --fail-on hold-or-block-or-fail
+          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --policy examples/ci/release-policy.yaml --format html --output artifacts/retobs-comparison.html
           cat artifacts/retobs-comparison.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

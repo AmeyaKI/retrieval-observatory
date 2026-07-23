@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union
 
 from retrieval_observatory.sdk.report import BenchmarkReport, ReportModel, _run_sync
 from retrieval_observatory.sdk.wrappers import as_retriever
+
+if TYPE_CHECKING:
+    from retrieval_observatory.release.policy import ReleasePolicy
 
 # Code-first entry point. Mirrors `retobs run` but takes live Python objects instead of YAML,
 # routing through the same shared executor so artifacts + query lineage are identical.
@@ -162,6 +166,7 @@ def compare(
     candidate: BenchmarkReport | str,
     *,
     db_path: Optional[str] = None,
+    policy: str | Path | ReleasePolicy | None = None,
 ) -> ReportModel:
     """Compare explicit baseline/candidate Runs and return the canonical report model."""
     from retrieval_observatory.sdk.report import load_comparison_report
@@ -173,7 +178,14 @@ def compare(
         resolved_db = candidate.db_path
     if resolved_db is None and isinstance(baseline, BenchmarkReport):
         resolved_db = baseline.db_path
-    return _run_sync(load_comparison_report(baseline_id, candidate_id, resolved_db or ".retobs/results.db"))
+    return _run_sync(
+        load_comparison_report(
+            baseline_id,
+            candidate_id,
+            resolved_db or ".retobs/results.db",
+            policy=policy,
+        )
+    )
 
 
 def inspect_query(

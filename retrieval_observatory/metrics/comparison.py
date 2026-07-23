@@ -54,7 +54,7 @@ class StatisticalComparison:
         return asdict(self)
 
 
-_REQUIRED_COMPARISON_AXES = ("query_hash", "corpus_hash", "qrel_hash", "labeling")
+REQUIRED_COMPARISON_AXES = ("query_hash", "corpus_hash", "qrel_hash", "labeling")
 
 
 def comparison_validity(manifests: List[Dict[str, Any] | None]) -> ComparisonValidity:
@@ -75,7 +75,7 @@ def comparison_validity(manifests: List[Dict[str, Any] | None]) -> ComparisonVal
             ]
         return [((manifest or {}).get("dataset", {}) or {}).get(axis) for manifest in manifests]
 
-    for axis in _REQUIRED_COMPARISON_AXES:
+    for axis in REQUIRED_COMPARISON_AXES:
         values = values_for(axis)
         missing = any(value is None or (axis == "labeling" and value[0] is None) for value in values)
         if missing:
@@ -124,13 +124,16 @@ def comparison_validity(manifests: List[Dict[str, Any] | None]) -> ComparisonVal
                 values=values,
             ))
 
-    invalid = any(difference.status in {"invalid", "unknown"} and difference.axis in _REQUIRED_COMPARISON_AXES for difference in differences)
+    invalid = any(
+        difference.status in {"invalid", "unknown"} and difference.axis in REQUIRED_COMPARISON_AXES
+        for difference in differences
+    )
     outcome: Literal["valid", "warning", "invalid"] = "invalid" if invalid else "warning" if differences else "valid"
     return ComparisonValidity(
         outcome=outcome,
         decision_allowed=not invalid,
         differences=differences,
-        required_axes=list(_REQUIRED_COMPARISON_AXES),
+        required_axes=list(REQUIRED_COMPARISON_AXES),
     )
 
 
@@ -238,8 +241,8 @@ def paired_scores_by_query(metrics_a: List[Dict], metrics_b: List[Dict], metric_
     metric_key format matches aggregate keys: pipeline|stageN|metric@k.
     """
     pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(metric_key)
-    a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
-    b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    a = scores_by_query(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+    b = scores_by_query(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
     query_ids = sorted(set(a) & set(b))
     return [a[qid] for qid in query_ids], [b[qid] for qid in query_ids], len(query_ids)
 
@@ -257,7 +260,7 @@ def parse_metric_key(key: str) -> MetricKey:
     return pipeline_id, stage_index, metric_name, int(k_text), branch_id
 
 
-def _scores_for(
+def scores_by_query(
     metrics: List[Dict],
     pipeline_id: str,
     stage_index: int,
@@ -277,3 +280,7 @@ def _scores_for(
         and row["k"] == k
         and row.get("branch_id") == branch_id
     }
+
+
+# Backward-compatible internal alias used by the existing dashboard comparison path.
+_scores_for = scores_by_query

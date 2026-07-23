@@ -105,6 +105,80 @@ export interface ComparisonEntry {
   [runKey: string]: RunMetricValues | ComparisonEntry['statistics'] | string | number | null | undefined
 }
 
+export type ReleaseStatus = 'PASS' | 'HOLD' | 'BLOCK' | 'FAIL'
+export type ReadinessStatus = 'READY' | 'HOLD' | 'BLOCK'
+
+export interface EvidenceFinding {
+  code: string
+  scope: string
+  status: ReadinessStatus
+  observed: unknown
+  required: unknown
+  detail: string
+  next_action: string
+}
+
+export interface ClaimReadiness {
+  scope: string
+  status: ReadinessStatus
+  findings: EvidenceFinding[]
+}
+
+export interface ReleaseGuardResult {
+  metric: string
+  status: ReleaseStatus
+  direction: 'higher_is_better' | 'lower_is_better'
+  max_regression: number
+  estimator: 'mean' | 'p50' | 'p95' | 'p99'
+  baseline_estimate: number | null
+  candidate_estimate: number | null
+  effect: number | null
+  ci_low: number | null
+  ci_high: number | null
+  paired_n: number
+  min_paired_n: number
+  seed: number
+  resamples: number
+  confidence_level: number
+  adjusted_confidence_level: number
+  interval_method: 'paired_percentile_bootstrap'
+  sample_limitation: string | null
+  affected_query_ids?: string[]
+}
+
+export interface ReleaseSliceResult {
+  id: string
+  field: string
+  value: unknown
+  status: ReleaseStatus
+  paired_n: number
+  label_coverage: number | null
+  adjusted_confidence_level: number
+  sample_limitation: string | null
+  guards: ReleaseGuardResult[]
+}
+
+export interface ReleaseDecision {
+  schema_version: number
+  status: ReleaseStatus
+  reasons: string[]
+  readiness: Record<string, ClaimReadiness>
+  aggregate_guards: ReleaseGuardResult[]
+  slices: ReleaseSliceResult[]
+  next_action: string
+  policy: {
+    configured: boolean
+    id?: string | null
+    schema_version?: number | null
+    digest?: string | null
+  }
+  investigation: {
+    affected_query_ids: string[]
+    query_route_template: string
+    diff_route_template: string
+  }
+}
+
 export async function fetchDbs(): Promise<DbSource[]> {
   const res = await fetch(`${BASE}/dbs`)
   if (!res.ok) throw new Error('Failed to fetch databases')
@@ -141,6 +215,7 @@ export interface QueryDiffs {
 
 export async function fetchComparison(
   selections: RunSelection[],
+  policyPath?: string,
 ): Promise<{
   comparison: ComparisonEntry[]
   selections: Array<{ db_id: string; run_id: string }>
@@ -148,6 +223,7 @@ export async function fetchComparison(
   warnings: string[]
   comparability?: ComparabilityReport
   query_diffs?: QueryDiffs | null
+  release_decision?: ReleaseDecision | null
 }> {
   const res = await fetch(`${BASE}/compare`, {
     method: 'POST',
@@ -158,6 +234,7 @@ export async function fetchComparison(
         run_id: s.runId,
         role: index === 0 ? 'baseline' : index === 1 ? 'candidate' : 'reference',
       })),
+      ...(policyPath ? { policy_path: policyPath } : {}),
     }),
   })
   if (!res.ok) {
@@ -442,7 +519,7 @@ export interface CandidateEvent {
   op_name: string
   op_type: string
   status: string
-  event: 'introduced' | 'passed' | 'dropped'
+  event: 'introduced' | 'passed' | 'dropped' | 'incomplete'
   input_rank: number | null
   output_rank: number | null
   score: number | null
@@ -451,6 +528,7 @@ export interface CandidateEvent {
   drop_reason: string | null
   drop_reason_inferred: boolean
   origin_op_ids: string[]
+  lineage_evidence: LineageEvidence
   note: string
 }
 
@@ -464,7 +542,242 @@ export interface CandidateHistory {
   dropped_reason: string | null
   survived: boolean
   final_rank: number | null
+  lineage_evidence: LineageEvidence
   events: CandidateEvent[]
+}
+
+export type LineageEvidence = 'recorded' | 'legacy_inferred' | 'partial' | 'unavailable'
+export type CandidateOutcomeKind =
+  | 'relevant_retained'
+  | 'irrelevant_removed'
+  | 'irrelevant_retained'
+  | 'relevant_lost_upstream'
+  | 'relevant_dropped_at_stage'
+  | 'unknown_relevance'
+  | 'lineage_incomplete'
+
+export interface CandidateSource {
+  document_id: string | null
+  document_revision: string | null
+  content_hash: string | null
+  char_start: number | null
+  char_end: number | null
+  preview: string | null
+}
+
+export interface CandidateLineageStage {
+  op_id: string
+  op_type: string
+  branch_id: string | null
+  rank: number
+  score: number
+  score_components: Record<string, number>
+  input_rank?: number | null
+  output_rank?: number | null
+  score_type?: string | null
+  score_model?: string | null
+}
+
+export interface CandidateRoute {
+  candidate_ids: string[]
+  operator_ids: string[]
+  branch_ids: string[]
+  stages: CandidateLineageStage[]
+  lineage_evidence: LineageEvidence
+}
+
+export interface CandidateRelevance {
+  kind: 'relevant' | 'irrelevant' | 'unknown'
+  grade: number | null
+  evidence: 'validated' | 'unavailable'
+}
+
+export interface CandidateOutcome {
+  kind: CandidateOutcomeKind
+  evidence: LineageEvidence
+  operator_id: string | null
+  branch_id: string | null
+  reason: string | null
+}
+
+export interface CandidatePassport {
+  candidate_id: string
+  logical_chunk_id: string | null
+  source: CandidateSource
+  parent_candidate_ids: string[]
+  routes: CandidateRoute[]
+  relevance: CandidateRelevance
+  outcome: CandidateOutcome
+  lineage_evidence: LineageEvidence
+  final_context_member: boolean
+  removed_at: string | null
+  removal_branch_id: string | null
+  removal_reason: string | null
+  removal_evidence: LineageEvidence
+  derived_child_ids: string[]
+}
+
+export interface LineageReadiness {
+  scope: 'lineage_diagnosis'
+  status: 'READY' | 'HOLD' | 'BLOCK'
+  findings: Array<Record<string, unknown>>
+}
+
+export interface CandidateLineageNode extends CandidatePassport {
+  node_id: string
+  trace_id: string
+  pipeline_id: string
+}
+
+export interface CandidateLineageEdge {
+  source_candidate_id: string
+  target_candidate_id: string
+  op_id: string
+  evidence: LineageEvidence
+  trace_id: string
+  pipeline_id: string
+  source_node_id: string
+  target_node_id: string
+}
+
+export interface OutcomeCounts {
+  relevant_retained: number
+  irrelevant_removed: number
+  irrelevant_retained: number
+  relevant_lost_upstream: number
+  relevant_dropped_at_stage: number
+  unknown_relevance: number
+  lineage_incomplete: number
+  unknown_relevance_count?: number
+  incomplete_lineage_count?: number
+}
+
+export interface StageLossAccounting extends OutcomeCounts {
+  by_operator: Record<string, OutcomeCounts>
+  by_branch: Record<string, OutcomeCounts>
+  by_evidence: Record<string, OutcomeCounts>
+  unknown_relevance_count: number
+  incomplete_lineage_count: number
+}
+
+export interface CandidateLineageResponse {
+  run_id: string
+  query_id: string
+  readiness: LineageReadiness
+  evidence_warnings: Array<Record<string, unknown>>
+  graph: {
+    nodes: CandidateLineageNode[]
+    edges: CandidateLineageEdge[]
+    candidate_ids: Array<{ trace_id: string; pipeline_id: string; candidate_id: string }>
+  }
+  accounting: StageLossAccounting
+  traces: Array<{
+    trace_id: string
+    pipeline_id: string
+    graph: Record<string, unknown>
+    accounting: StageLossAccounting
+  }>
+}
+
+export interface LineageAccountingResponse {
+  run_id: string
+  query_id: string
+  readiness: LineageReadiness
+  evidence_warnings: Array<Record<string, unknown>>
+  accounting: StageLossAccounting
+  traces: Array<{
+    trace_id: string
+    pipeline_id: string
+    accounting: StageLossAccounting
+  }>
+}
+
+export async function fetchCandidateLineage(
+  dbId: string,
+  runId: string,
+  queryId: string,
+): Promise<CandidateLineageResponse> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}/candidate-lineage`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch candidate lineage for ${queryId}`)
+  return res.json()
+}
+
+export type LineageChangeKind =
+  | 'newly_surfaced'
+  | 'newly_dropped'
+  | 'newly_retained'
+  | 'rank_shifted'
+  | 'branch_changed'
+  | 'exit_changed'
+
+export interface CandidateLineageGraphSnapshot {
+  trace_id: string
+  run_id: string | null
+  query_id: string
+  pipeline_id: string
+  topology_hash: string
+  candidates: Record<string, CandidatePassport>
+  edges: Array<{
+    source_candidate_id: string
+    target_candidate_id: string
+    op_id: string
+    evidence: LineageEvidence
+  }>
+}
+
+export interface CandidateLineageDiffEntry {
+  status: ReadinessStatus
+  reasons: string[]
+  baseline: CandidateLineageGraphSnapshot
+  candidate: CandidateLineageGraphSnapshot
+  changed: Array<{
+    kind: LineageChangeKind
+    logical_chunk_id: string
+    document_identity: string
+    baseline_candidate_id: string | null
+    candidate_candidate_id: string | null
+    detail: string
+  }>
+}
+
+export interface CandidateLineageDiffResponse {
+  baseline_run_id: string
+  candidate_run_id: string
+  query_id: string
+  readiness: ClaimReadiness
+  diffs: CandidateLineageDiffEntry[]
+  unpaired?: {
+    baseline: CandidateLineageGraphSnapshot[]
+    candidate: CandidateLineageGraphSnapshot[]
+  }
+}
+
+export async function fetchCandidateLineageDiff(
+  dbId: string,
+  candidateRunId: string,
+  baselineRunId: string,
+  queryId: string,
+  policyPath?: string,
+): Promise<CandidateLineageDiffResponse> {
+  const res = await fetch(
+    `${runBase(dbId, candidateRunId)}/queries/${encodeURIComponent(queryId)}/candidate-lineage-diff?against=${encodeURIComponent(baselineRunId)}${policyPath ? `&policy_path=${encodeURIComponent(policyPath)}` : ''}`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch candidate lineage diff for ${queryId}`)
+  return res.json()
+}
+
+export async function fetchLineageAccounting(
+  dbId: string,
+  runId: string,
+  queryId: string,
+): Promise<LineageAccountingResponse> {
+  const res = await fetch(
+    `${runBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}/lineage-accounting`,
+  )
+  if (!res.ok) throw new Error(`Failed to fetch lineage accounting for ${queryId}`)
+  return res.json()
 }
 
 export interface ReplayAssumptions {
@@ -484,12 +797,15 @@ export interface CandidateFlowPipeline {
   drop_replay_assumptions: ReplayAssumptions | null
 }
 
-export interface CandidateFlow {
+export interface CandidateFlow extends CandidatePassport {
   run_id: string
   query_id: string
   doc_id: string
-  relevant?: boolean
+  relevant?: boolean | null
   grade?: number | null
+  readiness: LineageReadiness
+  evidence_warnings: Array<Record<string, unknown>>
+  trace_passports: CandidateLineageNode[]
   pipelines: CandidateFlowPipeline[]
 }
 
@@ -513,7 +829,7 @@ export interface CandidateJourneyRow {
   doc_preview: string | null
   pipeline_id: string
   trace_id: string
-  relevant: boolean
+  relevant: boolean | null
   grade: number | null
   survived: boolean
   final_rank: number | null
@@ -522,6 +838,8 @@ export interface CandidateJourneyRow {
   drop_reason: string | null
   drop_reason_inferred: boolean
   miss_type: string | null
+  outcome?: CandidateOutcomeKind
+  outcome_evidence?: LineageEvidence
   evidence_class: string
 }
 

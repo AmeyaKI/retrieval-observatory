@@ -1,14 +1,19 @@
-"""Postgres store tests — skipped unless RETOBS_POSTGRES_DSN is set."""
+"""Postgres store tests; live round trips require RETOBS_POSTGRES_DSN."""
 import os
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
+from retrieval_observatory.store.base import TraceQuery
+from retrieval_observatory.store.postgres import PostgresStore
+
+
+requires_postgres = pytest.mark.skipif(
     not os.getenv("RETOBS_POSTGRES_DSN"),
     reason="RETOBS_POSTGRES_DSN not set — skipping Postgres tests",
 )
 
 
+@requires_postgres
 @pytest.mark.asyncio
 async def test_postgres_roundtrip():
     from retrieval_observatory.store.postgres import PostgresStore
@@ -41,6 +46,7 @@ async def test_postgres_roundtrip():
     await store.close()
 
 
+@requires_postgres
 @pytest.mark.asyncio
 async def test_postgres_forge_trace_lineage_roundtrip():
     from retrieval_observatory.store.postgres import PostgresStore
@@ -79,6 +85,7 @@ async def test_postgres_forge_trace_lineage_roundtrip():
     await store.close()
 
 
+@requires_postgres
 @pytest.mark.asyncio
 async def test_postgres_reliability_snapshot_roundtrip():
     from retrieval_observatory.store.postgres import PostgresStore
@@ -98,3 +105,74 @@ async def test_postgres_reliability_snapshot_roundtrip():
     assert history[0]["components"]["recall10"] == pytest.approx(0.75)
 
     await store.close()
+
+
+class _Connection:
+    def __init__(self):
+        self.executed = []
+        self.fetch_call = None
+
+    async def execute(self, sql, *params):
+        self.executed.append((sql, params))
+
+    async def fetch(self, sql, *params):
+        self.fetch_call = (sql, params)
+        return []
+
+
+class _Acquire:
+    def __init__(self, connection):
+        self.connection = connection
+
+    async def __aenter__(self):
+        return self.connection
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _Pool:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def acquire(self):
+        return _Acquire(self.connection)
+
+
+@pytest.mark.asyncio
+async def test_postgres_query_scope_and_index_sql_without_live_server():
+    connection = _Connection()
+    store = PostgresStore("postgresql://unused")
+    store._pool = _Pool(connection)
+
+    await store.init_db()
+    await store.list_traces(TraceQuery(run_id="run-a", query_id="q-1"))
+
+    assert any("idx_traces_run_query" in sql for sql, _ in connection.executed)
+    sql, params = connection.fetch_call
+    assert "run_id = $1" in sql
+    assert "query_id = $2" in sql
+    assert params[:2] == ("run-a", "q-1")
+
+
+@pytest.mark.asyncio
+async def test_postgres_health_query_uses_requested_time_window():
+    from datetime import datetime, timezone
+
+    class HealthConnection(_Connection):
+        async def fetchrow(self, sql, *params):
+            self.fetch_call = (sql, params)
+            return None
+
+    connection = HealthConnection()
+    store = PostgresStore("postgresql://unused")
+    store._pool = _Pool(connection)
+    since = datetime(2026, 7, 22, 12, 0, tzinfo=timezone.utc)
+    until = datetime(2026, 7, 22, 12, 5, tzinfo=timezone.utc)
+
+    await store.get_instrumentation_health("svc", since=since, until=until)
+
+    sql, params = connection.fetch_call
+    assert "observed_at >= $2" in sql
+    assert "observed_at <= $3" in sql
+    assert params == ("svc", since, until)

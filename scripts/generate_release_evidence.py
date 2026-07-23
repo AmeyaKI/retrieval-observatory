@@ -33,6 +33,17 @@ REQUIRED_GATES = {
     "artifact_digest",
 }
 
+WORKFLOW_PROOFS = {
+    "retrieval_release_decision": {
+        "gate": "python_integration",
+        "tests": ["tests/integration/test_release_decision_workflow.py"],
+    },
+    "candidate_lineage_workflow": {
+        "gate": "python_integration",
+        "tests": ["tests/integration/test_candidate_lineage_workflow.py"],
+    },
+}
+
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -132,6 +143,9 @@ def _markdown(evidence: dict[str, Any]) -> str:
         command = gate["command"].replace("|", "\\|")
         artifacts = "<br>".join(gate["artifacts"])
         lines.append(f"| {gate['id']} | {gate['status']} | `{command}` | {artifacts} |")
+    lines.extend(["", "## Workflow proofs", ""])
+    for proof in evidence["workflow_proofs"]:
+        lines.append(f"- `{proof['id']}` — `{proof['gate']}`: {', '.join(proof['tests'])}")
     return "\n".join(lines) + "\n"
 
 
@@ -148,6 +162,10 @@ def generate(results_dir: Path, dist: Path) -> dict[str, Any]:
             "version": _wheel_version(wheel),
         },
         "gates": _validate_gates(_result_files(results_dir), wheel_digest),
+        "workflow_proofs": [
+            {"id": proof_id, **proof}
+            for proof_id, proof in sorted(WORKFLOW_PROOFS.items())
+        ],
     }
     return evidence
 

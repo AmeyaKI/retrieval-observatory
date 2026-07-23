@@ -50,7 +50,13 @@ class BaseStore(Protocol):
     async def list_topology_variants(self, query: TraceQuery) -> List[TopologyVariant]:
         ...
 
-    async def get_instrumentation_health(self, service_id: str) -> InstrumentationHealth | None:
+    async def get_instrumentation_health(
+        self,
+        service_id: str,
+        *,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> InstrumentationHealth | None:
         ...
 
     async def save_instrumentation_health(self, snapshot: InstrumentationHealth) -> None:

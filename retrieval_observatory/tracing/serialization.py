@@ -124,8 +124,8 @@ def normalize_trace(
 ) -> NormalizedTrace:
     """Return a deterministic, JSON-safe trace or a failed envelope.
 
-    Payload reduction is deliberately limited to candidate detail. Identity,
-    topology, timing, and capture metadata are never discarded.
+    Payload reduction is deliberately limited to candidate detail. Candidate
+    identity and parentage, topology, timing, and capture metadata are never discarded.
     """
     report = _MutableReport()
     keys = frozenset(key.lower() for key in redacted_keys)

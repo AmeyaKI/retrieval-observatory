@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from retrieval_observatory.dashboard.api import create_app
 from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
 
 async def _seed_run(db_path: Path, run_id: str, dataset_name: str) -> None:
@@ -90,6 +91,8 @@ async def test_cross_db_compare_warns_on_different_datasets(two_db_registry: DbR
     assert body["comparability"]["decision_allowed"] is False
     assert "comparison" in body
     assert body["comparison"]
+    assert body["release_decision"]["status"] == "HOLD"
+    assert body["release_decision"]["policy"]["configured"] is False
 
 
 @pytest.mark.asyncio
@@ -103,3 +106,85 @@ async def test_legacy_single_db_runs_alias(tmp_path: Path) -> None:
     runs = client.get("/runs").json()
     assert len(runs) == 1
     assert runs[0]["run_id"] == "cccccccc"
+
+
+@pytest.mark.asyncio
+async def test_lineage_endpoint_is_database_scoped(tmp_path: Path) -> None:
+    db_a = tmp_path / "first.db"
+    db_b = tmp_path / "second.db"
+    await _seed_run(db_a, "run-a", "first")
+    await _seed_run(db_b, "run-a", "second")
+    first_store = SQLiteStore(db_path=str(db_a))
+    await first_store.init_db()
+    candidate = Candidate(
+        "doc-1", 1.0, 1, candidate_id="candidate-1", logical_chunk_id="chunk-1"
+    )
+    await first_store.save_trace(
+        RetrievalTrace(
+            trace_id="first-trace",
+            service_id="search",
+            run_id="run-a",
+            query_id="q-1",
+            query_text="private",
+            pipeline_id="pipeline",
+            spans=(OperatorSpan.source("retrieve", "retrieve", (candidate,)),),
+            final_op_ids=("retrieve",),
+        )
+    )
+    registry = DbRegistry([str(db_a), str(db_b)])
+    db_ids = registry.list_db_ids()
+    client = TestClient(create_app(registry=registry, enable_uploads=False))
+
+    first = client.get(
+        f"/dbs/{db_ids[0]}/runs/run-a/queries/q-1/candidate-lineage"
+    )
+    second = client.get(
+        f"/dbs/{db_ids[1]}/runs/run-a/queries/q-1/candidate-lineage"
+    )
+
+    assert first.status_code == 200
+    assert first.json()["traces"][0]["trace_id"] == "first-trace"
+    assert second.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_dashboard_compare_accepts_explicit_local_policy_path(tmp_path: Path) -> None:
+    db_path = tmp_path / "release.db"
+    await _seed_run(db_path, "baseline", "same")
+    await _seed_run(db_path, "candidate", "same")
+    policy_path = tmp_path / "release-policy.yaml"
+    policy_path.write_text(
+        """id: dashboard-v2
+schema_version: 2
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 100
+  seed: 7
+metrics:
+  - metric: bm25|stage0|recall@10
+    direction: higher_is_better
+    max_regression: 0.01
+    min_paired_n: 1
+""",
+        encoding="utf-8",
+    )
+    registry = DbRegistry([str(db_path)])
+    db_id = registry.list_db_ids()[0]
+    client = TestClient(create_app(registry=registry, enable_uploads=False))
+
+    response = client.post(
+        "/compare",
+        json={
+            "selections": [
+                {"db_id": db_id, "run_id": "baseline", "role": "baseline"},
+                {"db_id": db_id, "run_id": "candidate", "role": "candidate"},
+            ],
+            "policy_path": str(policy_path),
+        },
+    )
+
+    assert response.status_code == 200
+    decision = response.json()["release_decision"]
+    assert decision["status"] == "PASS"
+    assert decision["policy"]["id"] == "dashboard-v2"

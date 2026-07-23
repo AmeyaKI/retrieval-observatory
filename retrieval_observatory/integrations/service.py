@@ -14,7 +14,9 @@ async def integrate_project(project_root: Path, phase: IntegrationPhase, options
             raise ValueError("apply requires a reviewed plan")
         return apply_integration_plan(options.plan)
     from retrieval_observatory.integrations.verify import verify_project
+    from retrieval_observatory.release.policy import load_release_policy
     from retrieval_observatory.store.sqlite import SQLiteStore
     store = SQLiteStore(options.db_path)
     await store.init_db()
-    return await verify_project(root, store)
+    policy = load_release_policy(options.policy_path) if options.policy_path else None
+    return await verify_project(root, store, policy=policy)

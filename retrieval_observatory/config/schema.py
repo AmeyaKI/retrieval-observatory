@@ -164,6 +164,16 @@ class OutputConfig(BaseModel):
     dashboard: bool = False
 
 
+class ReleaseIdentityConfig(BaseModel):
+    service_id: str | None = None
+    deployment_revision: str | None = None
+    corpus_revision: str | None = None
+    index_build_id: str | None = None
+    chunking_revision: str | None = None
+    embedding_model_revision: str | None = None
+    reranker_model_revision: str | None = None
+
+
 class ExperimentConfig(BaseModel):
     experiment: ExperimentMeta
     dataset: DatasetConfig
@@ -177,6 +187,7 @@ class ExperimentConfig(BaseModel):
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
+    release_identity: ReleaseIdentityConfig = Field(default_factory=ReleaseIdentityConfig)
 
     @model_validator(mode="after")
     def expand_combinations(self) -> "ExperimentConfig":

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import DataQualityWarnings from './DataQualityWarnings'
-import { fetchComparison, ComparabilityReport, ComparisonEntry, QueryDiffs, RunSelection, selectionKey } from '../api'
+import { fetchComparison, ComparabilityReport, ComparisonEntry, QueryDiffs, ReleaseDecision, RunSelection, selectionKey } from '../api'
 import { formatMetricKey } from '../utils/formatMetricKey'
 import { MetricTooltip } from './MetricTooltip'
 import { METRIC_GLOSSARY } from '../utils/metricGlossary'
 import RunComparisonDeepDiffs from './RunComparisonDeepDiffs'
 import StatusPanel from './StatusPanel'
+import ReleaseDecisionCard from './ReleaseDecisionCard'
 
 interface Props {
   selections: RunSelection[]
@@ -92,72 +93,15 @@ function SectionHeader({ title, note }: { title: string; note?: string }) {
   )
 }
 
-function SummaryBanner({
-  comparison,
-  runKeys,
-}: {
-  comparison: ComparisonEntry[]
-  runKeys: string[]
-}) {
-  if (runKeys.length !== 2) return null
-
-  let aWins = 0
-  let bWins = 0
-  for (const row of comparison) {
-    const isLatency = isLatencyMetric(row.metric)
-    const winner = determineWinner(row, runKeys, isLatency)
-    if (winner === 'left') aWins++
-    else if (winner === 'right') bWins++
-  }
-
-  const total = aWins + bWins
-  if (total === 0) return null
-
-  const overallWinner = aWins > bWins ? 'A' : bWins > aWins ? 'B' : null
-
-  return (
-    <div className={`mb-4 p-3 rounded-lg border text-sm ${
-      overallWinner === 'A'
-        ? 'bg-green-50 border-green-200 text-green-800'
-        : overallWinner === 'B'
-        ? 'bg-blue-50 border-blue-200 text-blue-800'
-        : 'bg-gray-50 dark:bg-slate-800/60 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200'
-    }`}>
-      <span className="font-semibold">
-        {overallWinner
-        ? `${overallWinner === 'B' ? 'Candidate improves' : 'Candidate regresses'} on the decision-bearing metrics`
-          : 'No decision-bearing metric difference'}
-      </span>
-      <span className="ml-2 text-xs opacity-75">
-        (baseline better on {aWins} · candidate better on {bWins}; BH-corrected and effect-thresholded)
-      </span>
-    </div>
-  )
-}
-
-function DecisionDimensions({ comparison, releaseAllowed }: { comparison: ComparisonEntry[]; releaseAllowed: boolean }) {
-  const tested = comparison.filter(row => row.statistics)
-  const statistical = tested.filter(row => row.statistics?.significant === true).length
-  const practical = tested.filter(row => row.statistics?.decision !== 'no_decision').length
-  const powered = tested.filter(row => row.statistics?.low_power === false).length
-  const release = releaseAllowed && practical > 0 && powered === tested.length
-  const dimensions = [
-    ['Statistical evidence', `${statistical}/${tested.length} metrics pass corrected significance`],
-    ['Practical effect', `${practical}/${tested.length} metrics exceed declared effect thresholds`],
-    ['Power', `${powered}/${tested.length} metrics have adequate paired samples`],
-    ['Release decision', release ? 'Eligible for release review' : 'Blocked or no decision'],
-  ]
-  return <div className="grid grid-cols-1 md:grid-cols-4 gap-2 mb-4" aria-label="Decision dimensions">
-    {dimensions.map(([title, detail]) => <div key={title} className="border rounded p-2"><div className="text-xs font-semibold">{title}</div><div className="text-[11px] text-gray-500">{detail}</div></div>)}
-  </div>
-}
-
 export default function ComparePanel({ selections }: Props) {
   const [comparison, setComparison] = useState<ComparisonEntry[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
   const [comparability, setComparability] = useState<ComparabilityReport | null>(null)
   const [queryDiffs, setQueryDiffs] = useState<QueryDiffs | null>(null)
+  const [releaseDecision, setReleaseDecision] = useState<ReleaseDecision | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [policyPath, setPolicyPath] = useState('')
+  const [appliedPolicyPath, setAppliedPolicyPath] = useState('')
 
   const runKeys = selections.map((s) => `${s.dbId}/${s.runId}`)
 
@@ -166,16 +110,18 @@ export default function ComparePanel({ selections }: Props) {
     setWarnings([])
     setComparability(null)
     setQueryDiffs(null)
+    setReleaseDecision(null)
     setError(null)
-    fetchComparison(selections)
+    fetchComparison(selections, appliedPolicyPath || undefined)
       .then((data) => {
         setComparison(data.comparison)
         setWarnings(data.warnings ?? [])
         setComparability(data.comparability ?? null)
         setQueryDiffs(data.query_diffs ?? null)
+        setReleaseDecision(data.release_decision ?? null)
       })
       .catch((e) => setError(e.message))
-  }, [selections.map(selectionKey).join(',')])
+  }, [selections.map(selectionKey).join(','), appliedPolicyPath])
 
   if (error) {
     return <div className="p-6"><StatusPanel kind="error" title="Comparison could not be loaded" message={error} /></div>
@@ -262,13 +208,32 @@ export default function ComparePanel({ selections }: Props) {
         ))}
       </div>
 
+      {twoRuns ? <form className="mb-4 flex flex-wrap items-end gap-2 rounded border border-slate-200 dark:border-slate-700 p-3" onSubmit={event => { event.preventDefault(); setAppliedPolicyPath(policyPath.trim()) }}>
+        <label className="min-w-[18rem] flex-1 text-xs text-ink-muted">Local release-policy path
+          <input value={policyPath} onChange={event => setPolicyPath(event.target.value)} placeholder="retobs/release-policy.yaml" className="mt-1 w-full rounded border border-slate-300 bg-surface px-2 py-1.5 font-mono text-xs text-ink dark:border-slate-600" />
+        </label>
+        <button type="submit" className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white">Evaluate policy</button>
+        {appliedPolicyPath ? <button type="button" onClick={() => { setPolicyPath(''); setAppliedPolicyPath('') }} className="rounded border border-slate-300 px-3 py-1.5 text-xs">Clear policy</button> : null}
+        <p className="basis-full text-[10px] text-ink-faint">The path is read locally by this RetObs process; policy content is not sent to an external service.</p>
+      </form> : null}
+
+      {twoRuns && releaseDecision ? (
+        <ReleaseDecisionCard
+          decision={releaseDecision}
+          onQueryMetricSelect={(_metric, queryId) => {
+            const route = releaseDecision.investigation.diff_route_template.replace('{query_id}', encodeURIComponent(queryId))
+            window.location.hash = route.startsWith('#') ? route.slice(1) : route
+          }}
+        />
+      ) : twoRuns ? (
+        <div className="mb-4"><StatusPanel kind="unavailable" title="Release decision unavailable" message="This comparison response does not contain the canonical release-decision artifact." /></div>
+      ) : null}
+
       {comparability && <ComparabilityBanner report={comparability} />}
 
-      {twoRuns && <DecisionDimensions comparison={comparison} releaseAllowed={comparability?.decision_allowed !== false} />}
-
-      {twoRuns && <SummaryBanner comparison={comparison} runKeys={runKeys} />}
-
       <DataQualityWarnings warnings={warnings} />
+
+      <h2 className="mb-2 mt-4 text-sm font-semibold text-ink">Raw comparison metrics</h2>
 
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">

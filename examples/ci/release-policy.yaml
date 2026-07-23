@@ -1,0 +1,35 @@
+id: retrieval-release-v2
+schema_version: 2
+
+evidence:
+  promotion:
+    required_manifest_fields:
+      - release_identity.index_build_id
+      - release_identity.corpus_revision
+    min_label_coverage: 1.0
+  lineage_diagnosis:
+    require_stable_candidate_identity: true
+    min_input_output_coverage: 1.0
+    require_recorded_exit_reasons: true
+  lineage_diff:
+    require_stable_candidate_identity: true
+    min_input_output_coverage: 1.0
+    require_recorded_exit_reasons: true
+    require_topology_alignment_for_diff: true
+
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 2000
+  seed: 17
+
+metrics:
+  - metric: pipeline|stage0|recall@10
+    direction: higher_is_better
+    max_regression: 0.02
+    min_paired_n: 30
+
+slices:
+  - id: temporal
+    field: scenario
+    value: temporal

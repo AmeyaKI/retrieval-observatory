@@ -1,0 +1,20 @@
+id: support-search-v2
+schema_version: 2
+evidence:
+  promotion:
+    required_manifest_fields: [release_identity.index_build_id, release_identity.corpus_revision]
+    min_label_coverage: 0.95
+  lineage_diagnosis:
+    require_stable_candidate_identity: true
+    min_input_output_coverage: 0.99
+    require_recorded_exit_reasons: true
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 10000
+  seed: 42
+metrics:
+  - metric: hybrid__rerank|stage1|ndcg@10
+    direction: higher_is_better
+    max_regression: 0.01
+    min_paired_n: 100

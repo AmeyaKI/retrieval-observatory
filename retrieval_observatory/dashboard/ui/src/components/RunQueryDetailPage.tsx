@@ -244,12 +244,7 @@ function RegressionHistorySection({ lineage, runId, queryId }: { lineage: QueryL
                 <span className="text-ink-faint font-mono">{ev.run_id}</span>{' '}
                 <span className="text-ink-faint">· {ev.started_at}</span>
               </span>
-              <a
-                href={`#/runs/${encodeURIComponent(runId)}/queries/${encodeURIComponent(queryId)}/diff?against=${encodeURIComponent(ev.run_id)}`}
-                className="text-indigo-700 underline underline-offset-2"
-              >
-                diff against this run →
-              </a>
+              <span className="text-ink-faint">Open an affected query from Compare for an evidence-qualified lineage diff.</span>
             </div>
           ))}
         </div>

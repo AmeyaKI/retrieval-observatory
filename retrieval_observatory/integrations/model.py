@@ -243,6 +243,7 @@ class IntegrationResult:
     topology_variants: tuple[Mapping[str, Any], ...] = ()
     telemetry_health: Mapping[str, Any] = field(default_factory=dict)
     errors: tuple[str, ...] = ()
+    release_readiness: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         def normalize(value: Any) -> Any:
@@ -268,6 +269,7 @@ class IntegrationResult:
                 "observed_operator_ids": tuple(value.get("observed_operator_ids", ())),
                 "topology_variants": tuple(dict(x) for x in value.get("topology_variants", ())),
                 "telemetry_health": dict(value.get("telemetry_health", {})),
+                "release_readiness": dict(value.get("release_readiness", {})),
                 "errors": tuple(value.get("errors", ())),
             }
         )
@@ -277,6 +279,7 @@ class IntegrationResult:
 class IntegrationOptions:
     plan: IntegrationPlan | None = None
     db_path: str = ".retobs/results.db"
+    policy_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -286,4 +289,5 @@ class IntegrationOptions:
         return cls(
             IntegrationPlan.from_dict(value["plan"]) if value.get("plan") else None,
             str(value.get("db_path", ".retobs/results.db")),
+            str(value["policy_path"]) if value.get("policy_path") else None,
         )

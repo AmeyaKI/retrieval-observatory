@@ -8,9 +8,33 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `release/policy.py` and `release/assessment.py` — support exact one-to-one reviewed stage mappings for semantically aligned lineage diffs across renamed topology nodes.
+- Candidate Lineage Explorer — add branch, stage, outcome, evidence, and source filters; aggregate route widths; and complete passport rank, score, exit, and source evidence.
+- `dashboard/api.py` and Compare UI — accept an explicit local policy path and render the canonical configured-policy decision without browser-side status logic.
+- `release/statistics.py` and dashboard release cards — bind each aggregate and declared-slice guard to its own most affected paired query IDs.
+- `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — support time-window-bounded instrumentation-health reads for release evidence profiles.
+- `tracing/model.py` and `release/evidence.py` — version candidate lineage independently of the trace envelope and measure document-revision identity coverage for safe run diffs.
+- `release/policy.py` and `release/assessment.py` — allow policies to make declared lineage-diagnosis readiness explicitly promotion-critical.
+- `release/policy.py` and `release/readiness.py` — add bounded local release-policy and claim-scoped evidence-readiness contracts.
+- `tracing/model.py`, `tracing/candidates.py`, and `tracing/lineage_contract.py` — add backward-compatible candidate identity, DAG parentage, and recorded-versus-inferred decision evidence.
+- `store/base.py`, `store/sqlite.py`, and `store/postgres.py` — support indexed run-and-query-scoped trace retrieval across both storage backends.
+- `release/evidence.py` and `runner/execute.py` — persist run-window-scoped release identity, lineage coverage, topology, and telemetry evidence in completed manifests.
+- `release/assessment.py` and `metrics/comparison.py` — assess promotion, evaluation, lineage, diff, and production-trace evidence independently with stable findings.
+- `release/statistics.py`, `release/slices.py`, and `release/decision.py` — add paired effect intervals, exact declared-slice guards, and PASS/HOLD/BLOCK/FAIL decision precedence.
+- `sdk/report.py`, `sdk/api.py`, `cli.py`, and `mcp/server.py` — expose one schema-versioned release decision artifact with local policy inputs and canonical CI exit modes.
+- `integrations/verify.py` and `tracing/adapters/otel.py` — preflight local release-policy lineage capture and map explicit OpenTelemetry retrieval attributes without an SDK dependency.
+- `tracing/lineage.py` and `tracing/lineage_accounting.py` — derive immutable candidate routes, evidence-aware operational outcomes, and stage loss accounting from recorded trace lineage.
+- `dashboard/api.py`, `dashboard/analysis_api.py`, and `dashboard/ui/src/api.ts` — expose query-scoped lineage graphs, candidate passports, accounting, and claim readiness with privacy-safe compatibility aliases.
+- `dashboard` Compare and Candidate Lineage Explorer — present canonical release decisions before raw metrics and replace confusion labels with static, evidence-aware candidate routes, outcomes, accounting, passports, and optional recorded replay.
+- `tracing/lineage_diff.py` and dashboard query diff — compare stable candidate identities only when query, document revision, and topology evidence align; otherwise preserve side-by-side recorded paths with blocked readiness.
+- `docs/guides`, `examples/ci`, and release-evidence contracts — publish and prove the local/CI release-decision and candidate-lineage workflow with deterministic, no-secret fixtures.
+
 ### Changed
 
 ### Fixed
+
+- `dashboard/api.py` candidate-lineage diff — block ambiguous multi-trace pairing and preserve every unpaired recorded graph instead of selecting an arbitrary trace.
+- `pipeline/dag.py` and `tracing/model.py` — preserve native operator drop reasons as recorded decision evidence and persist explicit branch identity on spans.
 
 ### Removed
 

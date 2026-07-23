@@ -153,7 +153,11 @@ class DAGPipeline:
             executor = self.executors[spec.op_type]
             result = await executor.execute(spec, groups, ExecutionContext(query, self.adapters))
             transition = build_candidate_transition(
-                input_groups=groups, output_items=result.outputs, op_id=spec.op_id, op_type=spec.op_type
+                input_groups=groups,
+                output_items=result.outputs,
+                op_id=spec.op_id,
+                op_type=spec.op_type,
+                decision_reasons=result.drop_reasons,
             )
             return _Execution(spec, result, transition, (time.perf_counter() - started) * 1000)
         except asyncio.CancelledError:
@@ -187,6 +191,7 @@ class DAGPipeline:
             params={**dict(execution.spec.params), **dict(execution.result.metadata)},
             gate_values=dict(execution.result.gate_values),
             error=execution.error,
+            branch_id=execution.spec.params.get("branch_id"),
         )
 
     async def run(self, query: Query | str, *, query_id: str | None = None) -> PipelineResult:

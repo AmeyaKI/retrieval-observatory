@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import random
-from typing import List, Tuple
+from typing import List, Literal, Sequence, Tuple
+
+import numpy as np
 
 
 def benjamini_hochberg(p_values: List[float], fdr: float = 0.05) -> List[float]:
@@ -66,6 +68,46 @@ def paired_bootstrap_test(
             count_extreme += 1
 
     return count_extreme / n_resamples
+
+
+def paired_bootstrap_effect_ci(
+    baseline: Sequence[float],
+    candidate: Sequence[float],
+    *,
+    estimator: Literal["mean", "p50", "p95", "p99"],
+    n_resamples: int,
+    confidence_level: float,
+    seed: int,
+) -> tuple[float | None, float | None]:
+    """Return a paired percentile-bootstrap interval for candidate minus baseline."""
+    if len(baseline) != len(candidate):
+        raise ValueError("baseline and candidate must have equal length")
+    if not baseline:
+        return None, None
+    if n_resamples < 1:
+        raise ValueError("n_resamples must be positive")
+    if not 0 < confidence_level < 1:
+        raise ValueError("confidence_level must be between 0 and 1")
+
+    baseline_values = np.asarray(baseline, dtype=float)
+    candidate_values = np.asarray(candidate, dtype=float)
+    rng = np.random.default_rng(seed)
+    effects = np.empty(n_resamples, dtype=float)
+    for index in range(n_resamples):
+        sampled_indices = rng.integers(0, len(baseline_values), size=len(baseline_values))
+        effects[index] = _estimate(candidate_values[sampled_indices], estimator) - _estimate(
+            baseline_values[sampled_indices], estimator
+        )
+
+    alpha = (1.0 - confidence_level) / 2.0
+    low, high = np.quantile(effects, [alpha, 1.0 - alpha])
+    return float(low), float(high)
+
+
+def _estimate(values: np.ndarray, estimator: Literal["mean", "p50", "p95", "p99"]) -> float:
+    if estimator == "mean":
+        return float(np.mean(values))
+    return float(np.quantile(values, {"p50": 0.50, "p95": 0.95, "p99": 0.99}[estimator]))
 
 
 def _quantile(values: List[float], q: float) -> float:

@@ -31,7 +31,7 @@ def _graph() -> PipelineGraphSpec:
         (
             SourceSpec("bm25", (), adapter="bm25"),
             SourceSpec("dense", (), adapter="dense"),
-            FilterSpec("recent", ("bm25", "dense"), predicate="recent"),
+            FilterSpec("recent", ("bm25", "dense"), {"branch_id": "fresh"}, predicate="recent"),
         ),
         ("recent",),
     )
@@ -45,7 +45,11 @@ async def test_filter_receives_all_declared_parent_groups() -> None:
     ).run(Query("policy", query_id="q"))
     assert filter_.received == ["b1", "d1"]
     assert tuple(result.trace.span("recent").input_groups) == ("bm25", "dense")
-    assert result.trace.span("recent").input_groups["dense"][0].drop_reason == "filtered"
+    dropped = result.trace.span("recent").input_groups["dense"][0]
+    assert dropped.drop_reason == "filtered"
+    assert dropped.decision_reason == "filtered"
+    assert dropped.decision_evidence == "recorded"
+    assert result.trace.span("recent").branch_id == "fresh"
 
 
 def test_missing_filter_executor_fails_at_build_time() -> None:
