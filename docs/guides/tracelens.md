@@ -7,10 +7,10 @@ behaving on real traffic and links those observations back to the same query deb
 
 ## How it works
 
-Your production pipeline emits `RetrievalTraceV2` traces via a framework adapter (LangChain,
+Your production pipeline emits `RetrievalTrace` records via a framework adapter (LangChain,
 LlamaIndex, FastAPI, or the raw `@observe` SDK — see
 [../../retrieval_observatory/integrations/registry.py] and `describe_integration`). Each trace
-is the same operator-DAG structure as a benchmark trace, so every retobs view works on
+is the same operator-DAG structure as an evaluation Run, so every retobs view works on
 production data too.
 
 ## What you get
@@ -23,15 +23,14 @@ production data too.
 
 ## Verifying the integration
 
-After wiring an adapter, run:
+After applying an integration plan, verify observed evidence:
 
 ```bash
-retobs doctor
+retobs integrate . --phase verify --plan retobs/integration-plan.json
 ```
 
-`doctor` runs the integration checklist — traces present, metadata completeness, unsupported
-operators, error/timeout rate, sampling signal — so you know instrumentation is healthy
-*before* you rely on the data (`verify_integration` in
+Verify checks observed topology, candidate evidence, and telemetry health so you know
+instrumentation is healthy *before* you rely on the data (`verify_integration` in
 `retrieval_observatory/integrations/verify.py`).
 
 ## Monitoring as the end of the loop

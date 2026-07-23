@@ -2,7 +2,7 @@
 
 Production retrieval is rarely a straight line. Queries get routed by difficulty or type;
 some branches are skipped; multiple retrieval lanes run in parallel and fuse. retobs models
-these as a real operator DAG (`RetrievalTraceV2`), not a flat stage list, so it can trace and
+these as a real operator DAG (`RetrievalTrace`), not a flat stage list, so it can trace and
 attribute them accurately.
 
 ## Gates and skipped branches

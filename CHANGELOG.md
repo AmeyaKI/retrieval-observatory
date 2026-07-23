@@ -8,6 +8,18 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.5.3] — 2026-07-23 [PyPI]
+
+Local release-policy decisions, claim-scoped evidence readiness, and the Candidate Lineage Explorer — plus architecture docs aligned to the current integrate → evaluate → compare → inspect surface.
+
+### Added
+
 - `release/policy.py` and `release/assessment.py` — support exact one-to-one reviewed stage mappings for semantically aligned lineage diffs across renamed topology nodes.
 - Candidate Lineage Explorer — add branch, stage, outcome, evidence, and source filters; aggregate route widths; and complete passport rank, score, exit, and source evidence.
 - `dashboard/api.py` and Compare UI — accept an explicit local policy path and render the canonical configured-policy decision without browser-side status logic.
@@ -30,6 +42,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `docs/guides`, `examples/ci`, and release-evidence contracts — publish and prove the local/CI release-decision and candidate-lineage workflow with deterministic, no-secret fixtures.
 
 ### Changed
+
+- `docs/ARCHITECTURE.md` and `docs/CONCEPTS.md` — document the current evidence path, release/lineage contracts, claim-scoped readiness, and public task surface.
+- `contracts/public_surface.json` — include Architecture and the release/lineage guides in the release-gated documentation set.
 
 ### Fixed
 

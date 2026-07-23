@@ -20,7 +20,8 @@ Evaluate a callable with explicit inputs:
 
 ```bash
 retobs evaluate mypackage.search:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl --corpus data/corpus.jsonl
+retobs compare BASELINE CANDIDATE --db .retobs/results.db --policy retobs/release-policy.yaml
 retobs serve --db .retobs/results.db
 ```
 
-The dashboard is loopback-only by default. Continue with the [workflow](WORKFLOW.md) and [integration support matrix](INTEGRATIONS.md).
+The dashboard is loopback-only by default. Continue with the [workflow](WORKFLOW.md), [retrieval release decisions](guides/retrieval-release-decisions.md), and [integration support matrix](INTEGRATIONS.md).

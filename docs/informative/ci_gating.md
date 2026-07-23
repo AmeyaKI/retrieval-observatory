@@ -42,8 +42,8 @@ For YAML-defined pipelines, use the canonical comparison gate — see
 
 ```bash
 retobs evaluate --config bench.yaml
-retobs compare "$GOLDEN_RUN" "$CANDIDATE" --db .retobs/results.db --fail-on regression-or-no-decision
-# non-zero exit on a regression or unsupported decision
+retobs compare "$GOLDEN_RUN" "$CANDIDATE" --db .retobs/results.db --policy retobs/release-policy.yaml --fail-on hold-or-block-or-fail
+# non-zero exit on HOLD, BLOCK, or FAIL
 ```
 
 ## Where this fits

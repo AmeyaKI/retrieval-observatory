@@ -38,6 +38,6 @@ informed decision-making, not perfect prediction.
 
 ## Using it
 
-Open a Run, Compare, or Query page to read its **Recommended next steps**. For CI regression
-decisions, use `retobs compare BASELINE CANDIDATE --fail-on regression`. Each recommendation
+Open a Run, Compare, or Query page to read its **Recommended next steps**. For CI release
+decisions, use `retobs compare BASELINE CANDIDATE --policy retobs/release-policy.yaml --fail-on hold-or-block-or-fail`. Each recommendation
 links to its evidence, affected queries, limitations, and a validation step.
