@@ -13,7 +13,7 @@ export default function ReleaseSliceTable({
   return (
     <section aria-labelledby="declared-slices-heading" className="space-y-2">
       <h3 id="declared-slices-heading" className="text-sm font-semibold text-ink">Declared slices</h3>
-      <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+      <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700" tabIndex={0}>
         <table className="min-w-full text-xs">
           <thead className="bg-surface-muted text-left text-ink-faint"><tr>
             <th className="p-2">Slice</th><th className="p-2">Status</th><th className="p-2">Paired n</th><th className="p-2">Guards</th>

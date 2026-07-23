@@ -14,7 +14,7 @@ function statusClass(status: ReleaseDecision['status']): string {
 
 function GuardRows({ guards, onSelect, canNavigate }: { guards: ReleaseGuardResult[]; onSelect: (guard: ReleaseGuardResult) => void; canNavigate: boolean }) {
   if (guards.length === 0) return <p className="text-xs text-ink-muted">No policy guards were evaluated.</p>
-  return <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+  return <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700" tabIndex={0}>
     <table className="min-w-full text-xs">
       <thead className="bg-surface-muted text-left text-ink-faint"><tr>
         <th className="p-2">Metric</th><th className="p-2">Status</th><th className="p-2">Paired interval</th><th className="p-2">Budget</th><th className="p-2">Paired n</th>

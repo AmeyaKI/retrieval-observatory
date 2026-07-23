@@ -118,10 +118,12 @@ def observe(
                 if (span := next((item for item in trace.spans if item.op_id == parent), None)) is not None
             }
             observed_parents = tuple(groups)
+            raw_output = getattr(result, "documents", result)
+            output_items = raw_output if isinstance(raw_output, (list, tuple)) else []
             transition = (
                 build_candidate_transition(
                     input_groups=groups,
-                    output_items=getattr(result, "documents", result) or [],
+                    output_items=output_items,
                     op_id=op_id,
                     op_type=op_type,
                 )

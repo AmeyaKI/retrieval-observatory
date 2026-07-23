@@ -12,7 +12,7 @@ export default function StageLossAccounting({ accounting }: { accounting: Accoun
     .sort((left, right) => right[1].relevant_dropped_at_stage - left[1].relevant_dropped_at_stage)[0]
   return <section aria-labelledby="stage-loss-heading" className="space-y-2">
     <div><h3 id="stage-loss-heading" className="text-sm font-semibold">Stage loss accounting</h3><p className="text-xs text-ink-muted">Recorded counts by operator. These counts identify investigation points; they do not establish causality.</p></div>
-    <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700"><table className="min-w-full text-xs">
+    <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700" tabIndex={0}><table className="min-w-full text-xs">
       <thead className="bg-surface-muted text-left text-ink-faint"><tr><th className="p-2">Operator</th>{OUTCOMES.map(([, label]) => <th key={label} className="p-2">{label}</th>)}</tr></thead>
       <tbody>{Object.entries(accounting.by_operator).map(([operator, counts]) => <tr key={operator} className="border-t border-slate-200 dark:border-slate-700"><td className="p-2 font-mono">{operator}</td>{OUTCOMES.map(([key]) => <td key={key} className="p-2 font-mono">{counts[key] ?? 0}</td>)}</tr>)}</tbody>
     </table></div>
