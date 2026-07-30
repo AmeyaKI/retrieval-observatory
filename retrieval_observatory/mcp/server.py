@@ -478,14 +478,26 @@ async def _push_traces(
     return {"run_id": run_id, "trace_ids": stored, "count": len(stored)}
 
 
-def build_server(config_path: Optional[str] = None):
-    """Construct the FastMCP server with all retobs tools registered."""
+def _mcp_server_cls():
+    """Resolve the installed MCP server class (1.x FastMCP or 2.x MCPServer)."""
     try:
         from mcp.server.fastmcp import FastMCP
-    except ImportError:  # pragma: no cover - exercised only without the extra
-        FastMCP = _FallbackFastMCP
 
-    server = FastMCP("retrieval-observatory")
+        return FastMCP
+    except ImportError:
+        pass
+    try:
+        # mcp>=2 removed FastMCP; MCPServer is the compatible replacement.
+        from mcp.server.mcpserver import MCPServer
+
+        return MCPServer
+    except ImportError:  # pragma: no cover - exercised only without the extra
+        return _FallbackFastMCP
+
+
+def build_server(config_path: Optional[str] = None):
+    """Construct the FastMCP/MCPServer with all retobs tools registered."""
+    server = _mcp_server_cls()("retrieval-observatory")
     # Task-oriented public tools. These nouns and result contracts match CLI/SDK/UI.
     server.tool(name="evaluate")(_with_config_defaults(config_path, _benchmark_config))
     server.tool(name="evaluate_file")(_with_config_defaults(config_path, _benchmark_config_file))

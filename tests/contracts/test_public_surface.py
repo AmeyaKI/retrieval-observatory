@@ -37,7 +37,7 @@ REMOVED = {
 
 
 def _mcp_tool_names() -> set[str]:
-    tools = build_server()._tool_manager.list_tools()
+    tools = build_server().list_tools()
     if inspect.isawaitable(tools):
         tools = asyncio.run(tools)
     return {tool.name for tool in tools}

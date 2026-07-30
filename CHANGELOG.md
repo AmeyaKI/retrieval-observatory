@@ -10,7 +10,11 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+- `mcp/server.py` — resolve `mcp` 2.x `MCPServer` when 1.x `FastMCP` is unavailable.
+
 ### Fixed
+
+- `scripts/check_public_surface.py`, `tests/contracts/test_public_surface.py` — list MCP tools via public `list_tools()` so source-gates work under `mcp` 2.0 (no `_tool_manager` on fallback).
 
 ### Removed
 

@@ -14,13 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def actual_surface() -> dict[str, list[str]]:
-    cli = set(get_command(app).commands)
-    server = build_server()
-    manager = server._tool_manager
-    tools = manager.list_tools()
-    if hasattr(tools, "__await__"):
-        import asyncio
+    import asyncio
 
+    cli = set(get_command(app).commands)
+    tools = build_server().list_tools()
+    if hasattr(tools, "__await__"):
         tools = asyncio.run(tools)
     return {
         "cli_commands": sorted(cli),
