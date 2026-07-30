@@ -226,6 +226,25 @@ def test_comparison_identity_findings_are_json_safe():
     ]
 
 
+def test_release_identity_mismatch_blocks_promotion_and_aggregate_evaluation():
+    candidate = _manifest()
+    candidate["release_identity"]["embedding_model_revision"] = "embed-v2"
+    baseline = _manifest()
+    baseline["release_identity"]["embedding_model_revision"] = "embed-v1"
+
+    assessment = assess_evidence(_policy(), baseline, candidate)
+
+    aggregate = assessment.readiness["aggregate_or_slice_evaluation"]
+    assert aggregate.status == "BLOCK"
+    finding = next(item for item in aggregate.findings if item.code == "release_identity_mismatch")
+    assert finding.observed == ["embed-v1", "embed-v2"]
+    assert "embedding_model_revision" in finding.detail
+
+    promotion = assessment.readiness["promotion"]
+    assert promotion.status == "BLOCK"
+    assert any(item.code == "release_identity_mismatch" for item in promotion.findings)
+
+
 def test_incomplete_qrel_chunk_mapping_blocks_supported_lineage_claims():
     candidate = _manifest()
     candidate["evidence_profile"]["lineage"]["qrel_to_chunk_mapping_coverage"] = 0.5

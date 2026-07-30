@@ -15,3 +15,10 @@ def test_doctor_command_is_removed():
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code != 0
     assert "No such command" in result.output
+
+
+def test_mcp_and_classifier_subcommands_are_registered_and_help_works():
+    for name in ("mcp", "classifier"):
+        result = runner.invoke(app, [name, "--help"])
+        assert result.exit_code == 0, result.output
+        assert "No such command" not in result.output

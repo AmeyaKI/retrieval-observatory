@@ -39,9 +39,11 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
         "env_vars": [],
         "snippet": (
             "import retrieval_observatory as ro\n"
-            "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallbackV2\n\n"
+            "from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback\n"
+            "from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry\n\n"
             "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
-            "cb = RetobsLangChainCallbackV2(recorder)\n"
+            "registry = OperatorRegistry.explicit(component_path='retriever', op_id='retrieve', op_type='SOURCE')\n"
+            "cb = RetobsLangChainCallback(recorder, registry)\n"
             "docs = retriever.invoke(query, config={'callbacks': [cb]})\n"
             "# Push traces: MCP push_traces(run_id=..., traces=[...]) or REST POST /dbs/{id}/runs/{run_id}/traces"
         ),
@@ -54,9 +56,11 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
         "snippet": (
             "import retrieval_observatory as ro\n"
             "from llama_index.core.callbacks import CallbackManager\n"
-            "from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallbackV2\n\n"
+            "from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback\n"
+            "from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry\n\n"
             "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
-            "handler = RetobsLlamaIndexCallbackV2(recorder)\n"
+            "registry = OperatorRegistry.explicit(component_path='retrieve', op_id='retrieve', op_type='SOURCE')\n"
+            "handler = RetobsLlamaIndexCallback(recorder, registry)\n"
             "engine = index.as_query_engine(callback_manager=CallbackManager([handler]))\n"
             "engine.query(q)"
         ),

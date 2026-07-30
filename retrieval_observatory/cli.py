@@ -24,6 +24,8 @@ testsets_app = typer.Typer(name="testsets", help="Generate, inspect, and list re
 production_app = typer.Typer(name="production", help="Inspect sampled production retrieval traces and findings.")
 app.add_typer(testsets_app, name="testsets")
 app.add_typer(production_app, name="production")
+app.add_typer(mcp_app, name="mcp")
+app.add_typer(classifier_app, name="classifier")
 console = Console()
 
 

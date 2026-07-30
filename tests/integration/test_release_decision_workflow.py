@@ -7,7 +7,13 @@ from retrieval_observatory.sdk.report import load_comparison_report
 from retrieval_observatory.store.sqlite import SQLiteStore
 
 
-def _manifest(*, deployment: str, corpus_revision: str | None = "corpus-v1", exit_coverage: float = 1.0) -> dict:
+def _manifest(
+    *,
+    deployment: str,
+    corpus_revision: str | None = "corpus-v1",
+    embedding_model_revision: str | None = None,
+    exit_coverage: float = 1.0,
+) -> dict:
     return {
         "dataset": {"query_hash": "queries", "corpus_hash": "corpus", "qrel_hash": "qrels"},
         "labeling": {"method": "gold", "judge": None, "model": None, "version": None},
@@ -15,11 +21,13 @@ def _manifest(*, deployment: str, corpus_revision: str | None = "corpus-v1", exi
         "release_identity": {
             "service_id": "search", "deployment_revision": deployment,
             "corpus_revision": corpus_revision, "index_build_id": "index-v1",
+            "embedding_model_revision": embedding_model_revision,
         },
         "evidence_profile": {
             "release_identity": {
                 "service_id": "search", "deployment_revision": deployment,
                 "corpus_revision": corpus_revision, "index_build_id": "index-v1",
+                "embedding_model_revision": embedding_model_revision,
             },
             "run_window": {"started_at": "2026-07-22T12:00:00Z", "finished_at": "2026-07-22T12:05:00Z"},
             "lineage": {
@@ -64,6 +72,7 @@ async def _run_fixture_and_compare(tmp_path, fixture_name: str):
         "pass_with_lineage_blocked": ([1.0] * 6, [1.0] * 6),
         "held_underpowered_slice": ([1.0] * 6, [1.0] * 6),
         "blocked_corpus_identity": ([1.0] * 6, [1.0] * 6),
+        "blocked_embedding_revision_mismatch": ([1.0] * 6, [1.0] * 6),
         "failed_temporal_filter_slice": ([1.0] * 6, [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]),
     }[fixture_name]
     for run_id, deployment, run_values in (
@@ -75,6 +84,11 @@ async def _run_fixture_and_compare(tmp_path, fixture_name: str):
             _manifest(
                 deployment=deployment,
                 corpus_revision=None if fixture_name == "blocked_corpus_identity" and run_id == "candidate" else "corpus-v1",
+                embedding_model_revision=(
+                    {"baseline": "embed-v1", "candidate": "embed-v2"}[run_id]
+                    if fixture_name == "blocked_embedding_revision_mismatch"
+                    else "embed-v1"
+                ),
                 exit_coverage=0.5 if fixture_name == "pass_with_lineage_blocked" else 1.0,
             ),
         )
@@ -97,6 +111,7 @@ async def _run_fixture_and_compare(tmp_path, fixture_name: str):
     ("pass_with_lineage_blocked", "PASS"),
     ("held_underpowered_slice", "HOLD"),
     ("blocked_corpus_identity", "BLOCK"),
+    ("blocked_embedding_revision_mismatch", "BLOCK"),
     ("failed_temporal_filter_slice", "FAIL"),
 ])
 async def test_release_workflow_emits_expected_status(tmp_path, fixture_name, expected):
@@ -107,6 +122,14 @@ async def test_release_workflow_emits_expected_status(tmp_path, fixture_name, ex
         assert decision["readiness"]["lineage_diagnosis"]["status"] == "BLOCK"
     if fixture_name == "failed_temporal_filter_slice":
         assert decision["slices"][0]["guards"][0]["affected_query_ids"] == ["q-0", "q-1"]
+    if fixture_name == "blocked_embedding_revision_mismatch":
+        aggregate = decision["readiness"]["aggregate_or_slice_evaluation"]
+        assert aggregate["status"] == "BLOCK"
+        finding = next(
+            item for item in aggregate["findings"] if item["code"] == "release_identity_mismatch"
+        )
+        assert finding["observed"] == ["embed-v1", "embed-v2"]
+        assert "embedding_model_revision" in finding["detail"]
 
 
 @pytest.mark.asyncio

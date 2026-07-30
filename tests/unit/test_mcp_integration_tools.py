@@ -27,9 +27,11 @@ def test_describe_integration_snippets_use_real_apis():
         assert "observe_operator" not in snippet
         assert "push-traces" not in snippet
     lc = describe_integration("langchain")["snippet"]
-    assert "RetobsLangChainCallbackV2" in lc
+    assert "RetobsLangChainCallback" in lc
+    assert "RetobsLangChainCallbackV2" not in lc
     li = describe_integration("llamaindex")["snippet"]
-    assert "RetobsLlamaIndexCallbackV2" in li
+    assert "RetobsLlamaIndexCallback" in li
+    assert "RetobsLlamaIndexCallbackV2" not in li
 
 
 def test_describe_integration_single_framework():

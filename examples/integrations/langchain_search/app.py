@@ -19,10 +19,9 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.embeddings import FakeEmbeddings
 from langchain_core.runnables import RunnableLambda
 
+import retrieval_observatory as ro
 from retrieval_observatory.tracing.integrations.langchain import RetobsLangChainCallback
-from retrieval_observatory.tracing.recorder import TraceRecorder
-from retrieval_observatory.tracing.sink import StoreSink
-from retrieval_observatory.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry
 
 # Small local corpus — no API keys needed
 CORPUS = [
@@ -55,12 +54,13 @@ QUERIES = [
 
 async def main() -> None:
     os.makedirs(".retobs", exist_ok=True)
-    store = SQLiteStore(DB_PATH)
-    await store.init_db()
+    recorder = ro.init(service="langchain-demo", db=DB_PATH)
+    await recorder.sink.start()
 
-    sink = StoreSink(store, latency_budget_ms=500.0)
-    recorder = TraceRecorder(service="langchain-demo", sink=sink)
-    cb = RetobsLangChainCallback(recorder, pipeline_id="faiss-fake-embed")
+    # LangChain doesn't pass a stable serialized component name through a piped
+    # RunnableLambda chain, so the retriever span reports as component_path="retriever".
+    registry = OperatorRegistry.explicit(component_path="retriever", op_id="retrieve", op_type="SOURCE")
+    cb = RetobsLangChainCallback(recorder, registry, pipeline_id="faiss-fake-embed")
 
     # Build a FAISS vectorstore with deterministic fake embeddings (no API key)
     embeddings = FakeEmbeddings(size=64)
@@ -75,14 +75,10 @@ async def main() -> None:
 
     print(f"Running {len(QUERIES)} queries through LangChain chain with RetobsLangChainCallback …")
     for query in QUERIES:
-        try:
-            result = chain.invoke(query, config={"callbacks": [cb]})
-            print(f"  ✓ {query!r}  ({len(result.splitlines())} doc lines)")
-        except Exception as exc:
-            print(f"  ✗ {query!r}: {exc}")
+        result = chain.invoke(query, config={"callbacks": [cb]})
+        print(f"  ✓ {query!r}  ({len(result.splitlines())} doc lines)")
 
-    # Yield to the event loop so fire-and-forget flush tasks complete
-    await asyncio.sleep(0.1)
+    await recorder.sink.shutdown()
 
     print(f"\nTraces written to {DB_PATH}")
     print(f"Run: retobs serve --db {DB_PATH}")

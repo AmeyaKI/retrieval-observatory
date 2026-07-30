@@ -18,10 +18,9 @@ from llama_index.core import Document, Settings, VectorStoreIndex
 from llama_index.core.callbacks import CallbackManager
 from llama_index.core.embeddings.mock_embed_model import MockEmbedding
 
+import retrieval_observatory as ro
 from retrieval_observatory.tracing.integrations.llamaindex import RetobsLlamaIndexCallback
-from retrieval_observatory.tracing.recorder import TraceRecorder
-from retrieval_observatory.tracing.sink import StoreSink
-from retrieval_observatory.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.integrations.operator_registry import OperatorRegistry
 
 # Small local corpus — no API keys needed
 CORPUS_TEXTS = [
@@ -49,12 +48,12 @@ QUERIES = [
 
 async def main() -> None:
     os.makedirs(".retobs", exist_ok=True)
-    store = SQLiteStore(DB_PATH)
-    await store.init_db()
+    recorder = ro.init(service="llamaindex-demo", db=DB_PATH)
+    await recorder.sink.start()
 
-    sink = StoreSink(store, latency_budget_ms=500.0)
-    recorder = TraceRecorder(service="llamaindex-demo", sink=sink)
-    cb = RetobsLlamaIndexCallback(recorder, pipeline_id="vector-store-mock")
+    # LlamaIndex reports the retrieval event's component_path as "retrieve".
+    registry = OperatorRegistry.explicit(component_path="retrieve", op_id="retrieve", op_type="SOURCE")
+    cb = RetobsLlamaIndexCallback(recorder, registry, pipeline_id="vector-store-mock")
 
     # Use mock embeddings — no API key needed
     Settings.embed_model = MockEmbedding(embed_dim=64)
@@ -67,15 +66,11 @@ async def main() -> None:
 
     print(f"Running {len(QUERIES)} queries through LlamaIndex query engine with RetobsLlamaIndexCallback …")
     for query in QUERIES:
-        try:
-            response = query_engine.query(query)
-            node_count = len(response.source_nodes) if hasattr(response, "source_nodes") else "?"
-            print(f"  ✓ {query!r}  ({node_count} source nodes)")
-        except Exception as exc:
-            print(f"  ✗ {query!r}: {exc}")
+        response = query_engine.query(query)
+        node_count = len(response.source_nodes) if hasattr(response, "source_nodes") else "?"
+        print(f"  ✓ {query!r}  ({node_count} source nodes)")
 
-    # Yield to the event loop so fire-and-forget flush tasks complete
-    await asyncio.sleep(0.1)
+    await recorder.sink.shutdown()
 
     print(f"\nTraces written to {DB_PATH}")
     print(f"Run: retobs serve --db {DB_PATH}")

@@ -10,11 +10,28 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+### Fixed
+
+### Removed
+
+## [0.5.5] — 2026-07-30 [PyPI]
+
+Release-identity comparability enforcement, restored `mcp`/`classifier` CLI subcommands, and working LangChain/LlamaIndex tracing examples.
+
+### Added
+
+- `cli.py` — register `retobs mcp` and `retobs classifier`, which were defined but never attached to the root command and returned "No such command". `contracts/public_surface.json` now lists both in `cli_commands`.
+
+### Changed
+
 - `mcp/server.py` — resolve `mcp` 2.x `MCPServer` when 1.x `FastMCP` is unavailable.
+- `integrations/registry.py` — `describe_integration("langchain"|"llamaindex")` snippets now reference the real `RetobsLangChainCallback`/`RetobsLlamaIndexCallback` classes (and construct the required `OperatorRegistry`) instead of nonexistent `...CallbackV2` classes.
 
 ### Fixed
 
+- `release/assessment.py` — a release-identity field (`corpus_revision`, `index_build_id`, `chunking_revision`, `embedding_model_revision`, `reranker_model_revision`) that is present but differs between baseline and candidate now BLOCKs the release decision, matching the existing dataset-hash-mismatch behavior. Previously only presence was checked, not equality.
 - `scripts/check_public_surface.py`, `tests/contracts/test_public_surface.py` — list MCP tools via public `list_tools()` so source-gates work under `mcp` 2.0 (no `_tool_manager` on fallback).
+- `examples/integrations/langchain_search/app.py`, `examples/integrations/llamaindex_search/app.py` — fix `ImportError: StoreSink` (renamed to `BufferedTraceSink`) and use `ro.init()` plus an `OperatorRegistry` binding, matching the real callback constructors. Both examples now run end-to-end and produce real trace rows.
 
 ### Removed
 

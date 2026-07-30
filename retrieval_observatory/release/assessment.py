@@ -125,6 +125,41 @@ def _comparison_findings(manifests: tuple[Mapping[str, Any], Mapping[str, Any]])
                 ),
             )
         )
+    findings.extend(_release_identity_findings(manifests))
+    return findings
+
+
+RELEASE_IDENTITY_COMPARISON_FIELDS = (
+    "corpus_revision",
+    "index_build_id",
+    "chunking_revision",
+    "embedding_model_revision",
+    "reranker_model_revision",
+)
+
+
+def _release_identity_findings(manifests: tuple[Mapping[str, Any], Mapping[str, Any]]) -> list[EvidenceFinding]:
+    """Block on a mismatched release-identity field between two present, differing values.
+
+    Missing values are handled separately by policy-declared required_manifest_fields;
+    this only fires when both runs recorded the field and it disagrees.
+    """
+    findings = []
+    for field in RELEASE_IDENTITY_COMPARISON_FIELDS:
+        values = [((manifest or {}).get("release_identity") or {}).get(field) for manifest in manifests]
+        if any(value is None for value in values):
+            continue
+        if len({value for value in values}) > 1:
+            findings.append(
+                _finding(
+                    "release_identity_mismatch",
+                    "aggregate_or_slice_evaluation",
+                    observed=values,
+                    required=f"equal recorded release_identity.{field} values",
+                    detail=f"Runs differ on release identity field '{field}'.",
+                    next_action=f"Compare runs with the same {field}.",
+                )
+            )
     return findings
 
 
