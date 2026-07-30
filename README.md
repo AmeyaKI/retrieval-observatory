@@ -1,6 +1,6 @@
 # retobs
 
-[![PyPI](https://img.shields.io/pypi/v/retrieval-observatory)](https://pypi.org/project/retrieval-observatory/)
+[PyPI](https://pypi.org/project/retrieval-observatory/)
 
 retobs is a local-first reliability layer for retrieval pipelines. It helps you integrate observable retrieval stages, evaluate a callable, compare Runs under a local release policy, and inspect recorded query and candidate-lineage evidence. It is not an answer evaluator or a leaderboard: when identity, topology, candidates, telemetry, or ground truth are unavailable, retobs reports that limit instead of inferring a conclusion.
 
