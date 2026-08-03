@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple
 
 from retrieval_observatory.metrics.significance import benjamini_hochberg, paired_bootstrap_test
 
@@ -258,6 +258,54 @@ def parse_metric_key(key: str) -> MetricKey:
     if len(parts) >= 4 and parts[3].startswith("branch="):
         branch_id = parts[3].split("=", 1)[1]
     return pipeline_id, stage_index, metric_name, int(k_text), branch_id
+
+
+QUALITY_METRIC_ORDER = ("recall", "ndcg", "precision", "mrr", "map")
+
+
+def rank_metric_keys(keys: Iterable[str], *, policy_metrics: Iterable[str] = ()) -> List[str]:
+    """Order metric keys by how much they bear on a release decision, most first.
+
+    Sorting metric keys as plain strings puts ``stage-1`` ahead of ``stage0``…``stage8``,
+    because '-' precedes digits — so a comparison table opens on run-level operational rows
+    (dropout_count, failure_rate, timeout_rate, latency) while the terminal-stage quality
+    that actually answers "did this get worse?" sorts last, behind a hundred other rows.
+
+    Tiers: policy-guarded metrics, then terminal-stage quality, then the rest of the quality
+    funnel (spine before per-branch rows, which only cover the queries routed down that
+    branch), then operational.
+    """
+    guarded = set(policy_metrics)
+    parsed: Dict[str, MetricKey] = {}
+    for key in keys:
+        try:
+            parsed[key] = parse_metric_key(key)
+        except (TypeError, ValueError, IndexError):
+            continue
+    unparsed = [key for key in keys if key not in parsed]
+
+    quality_stages = [
+        stage for _p, stage, name, _k, branch in parsed.values()
+        if name in QUALITY_METRIC_ORDER and branch is None
+    ]
+    final_stage = max(quality_stages, default=None)
+
+    def rank(key: str) -> tuple:
+        _pipeline, stage_index, metric_name, k, branch_id = parsed[key]
+        is_quality = metric_name in QUALITY_METRIC_ORDER
+        quality_rank = QUALITY_METRIC_ORDER.index(metric_name) if is_quality else len(QUALITY_METRIC_ORDER)
+        if key in guarded:
+            tier = 0
+        elif is_quality and branch_id is None and stage_index == final_stage:
+            tier = 1
+        elif is_quality:
+            tier = 2
+        else:
+            tier = 3
+        # Within the funnel, later stages first: they are closer to what the caller ships.
+        return (tier, -stage_index if tier == 2 else 0, branch_id is not None, quality_rank, k, key)
+
+    return sorted(parsed, key=rank) + sorted(unparsed)
 
 
 def scores_by_query(

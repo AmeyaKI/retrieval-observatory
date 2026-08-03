@@ -141,6 +141,21 @@ def to_candidates(value: Any, op_id: str) -> List[Candidate]:
     return candidates
 
 
+def _identity_evidence(op_type: str, matches: Sequence[Any], row: _CandidateFields) -> str:
+    """Grade how confidently one output row can be traced back to the inputs it came from.
+
+    Matching several inputs normally means the origin is ambiguous. At a fan-in operator it
+    means the opposite: merging a lexical and a dense arm exists precisely so that a document
+    found by both becomes one output. Grading that `partial` downgraded every document the
+    arms agreed on — the highest-confidence candidates in a hybrid pipeline — which surfaced
+    as a permanent `lineage_capture_partial` BLOCK on fully instrumented runs. Both parents
+    are recorded on `parent_candidate_ids`, so the lineage is known, not inferred.
+    """
+    if row.candidate_id is not None or len(matches) <= 1:
+        return "recorded"
+    return "recorded" if op_type == "FUSE" else "partial"
+
+
 def build_candidate_transition(
     *,
     input_groups: Mapping[str, Sequence[Candidate]],
@@ -249,7 +264,7 @@ def build_candidate_transition(
                 char_start=row.char_start if row.char_start is not None else source.char_start if source else None,
                 char_end=row.char_end if row.char_end is not None else source.char_end if source else None,
                 parent_candidate_ids=parent_candidate_ids,
-                identity_evidence=row.identity_evidence or ("partial" if len(matches) > 1 and row.candidate_id is None else "recorded"),
+                identity_evidence=row.identity_evidence or _identity_evidence(op_type, matches, row),
                 decision_reason=row.decision_reason,
                 decision_evidence=(row.decision_evidence or "recorded") if row.decision_reason else "unavailable",
                 score_type=row.score_type or (source.score_type if source else None),

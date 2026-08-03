@@ -279,7 +279,18 @@ async def _build_comparison(
         aggregated[key] = await engine.aggregate(run_id, store)
         metric_rows[key] = await store.get_metrics(run_id)
 
-    all_metric_keys = sorted(set().union(*(agg.keys() for agg in aggregated.values())))
+    # Decision-relevant rows first: a plain sort buries terminal-stage quality behind every
+    # run-level operational row. Policy-guarded metrics lead when a policy is attached.
+    policy_metrics: list[str] = []
+    if policy_path:
+        try:
+            policy_metrics = [guard.metric for guard in load_release_policy(policy_path).metrics]
+        except (OSError, ValueError):
+            policy_metrics = []
+    all_metric_keys = rank_metric_keys(
+        set().union(*(agg.keys() for agg in aggregated.values())),
+        policy_metrics=policy_metrics,
+    )
     comparison = []
     paired_results = {}
     if len(selections) == 2:

@@ -281,13 +281,48 @@ def _format_number(value: Any) -> str:
     return str(value)
 
 
+#: Retrieval quality, best first. An allow-list rather than "anything that isn't latency":
+#: the negative test let operational counters (dropout_count, failure_rate, timeout_rate)
+#: pass as quality and fill the headline with zeros.
+_QUALITY_METRICS = ("recall", "ndcg", "precision", "mrr", "map")
+
+
 def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
-    end_to_end = {key: value for key, value in metrics.items() if "|stage-1|" in key}
-    selected = end_to_end or metrics
-    quality = [key for key in selected if not any(token in key for token in ("latency", "cost", "profile"))]
-    operational = [key for key in selected if any(token in key for token in ("latency", "cost"))]
-    keys = (quality[:3] + operational[:2]) or list(selected)[:5]
-    return {key: selected[key] for key in keys}
+    """Pick the few numbers that answer "did retrieval work, and what did it cost?".
+
+    Quality is reported at the pipeline's terminal stage — the result the caller actually
+    ships. Selecting on ``stage-1`` instead (as this once did) could never surface recall or
+    ndcg on a multi-stage pipeline: stage -1 carries only run-level operational rows, and
+    quality is recorded per stage because recall is a property of a point in the funnel.
+    Single-stage pipelines emit no stage -1 rows at all, which is why the gap stayed hidden.
+    """
+    from retrieval_observatory.metrics.comparison import parse_metric_key
+
+    parsed: Dict[str, tuple[int, str, Any]] = {}
+    for key in metrics:
+        try:
+            _pipeline, stage_index, metric_name, _k, branch_id = parse_metric_key(key)
+        except (TypeError, ValueError, IndexError):
+            continue
+        parsed[key] = (stage_index, metric_name, branch_id)
+
+    quality_keys = [key for key, (_s, name, _b) in parsed.items() if name in _QUALITY_METRICS]
+    # Prefer the spine (a stage with one operator) over per-branch rows, which report only
+    # the queries routed down that branch and read low for reasons unrelated to quality.
+    spine = [key for key in quality_keys if parsed[key][2] is None] or quality_keys
+    final_stage = max((parsed[key][0] for key in spine), default=None)
+    quality = sorted(
+        (key for key in spine if parsed[key][0] == final_stage),
+        key=lambda key: _QUALITY_METRICS.index(parsed[key][1]),
+    )
+
+    operational = sorted(
+        (key for key in metrics if any(token in key for token in ("latency", "cost"))),
+        key=lambda key: (parsed.get(key, (0,))[0] != -1, key),
+    )
+
+    keys = quality[:3] + operational[:2]
+    return {key: metrics[key] for key in keys} if keys else dict(list(metrics.items())[:5])
 
 
 def build_run_report(
