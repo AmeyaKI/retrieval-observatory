@@ -1,2 +1,7 @@
-# Regenerable via `python build_corpus.py` — fingerprints are recorded in the demo README.
+# Regenerable via `python build_corpus.py` — fingerprints are recorded in dataset_manifest.json.
 data/
+
+# Run database: ~1.2 GB for five 400-query runs. Regenerable via run_demo.sh.
+.retobs/
+
+# reports/ IS committed — it is the deliverable.

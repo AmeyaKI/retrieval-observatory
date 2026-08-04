@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `results/flagship_demo/` — HotpotQA flagship demo: eleven-operator gated DAG, release policy, five runs, and decision reports for four scenarios (improvement, regression, provenance contradiction, stale index) plus a per-query lineage read-out. One command, no API keys.
 - `metrics/comparison.py` — `rank_metric_keys()` orders metric keys by release-decision relevance (policy-guarded, terminal-stage quality, funnel, operational).
 
 ### Changed

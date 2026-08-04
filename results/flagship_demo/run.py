@@ -121,6 +121,11 @@ def main() -> int:
     )
     parser.add_argument("--embedding-model", default=None, help="override the dense lane's model")
     parser.add_argument(
+        "--stale-query-encoder",
+        default=None,
+        help="encode queries with this model against the index built by the original one",
+    )
+    parser.add_argument(
         "--claim-index-build-id",
         default=None,
         help="record this index_build_id regardless of what was actually searched",
@@ -131,6 +136,7 @@ def main() -> int:
         bm25_lane_enabled=not args.no_bm25,
         **({"rerank_candidates": args.merge_width} if args.merge_width else {}),
         **({"dense_model": args.embedding_model} if args.embedding_model else {}),
+        **({"stale_query_encoder": args.stale_query_encoder} if args.stale_query_encoder else {}),
     )
     artifacts, queries, _ = asyncio.run(
         run(
@@ -140,6 +146,10 @@ def main() -> int:
             db_path=args.db,
             max_queries=args.max_queries,
             index_build_id_override=args.claim_index_build_id,
+            # A stale index records the truth on both fields: the embedding model really did
+            # change, and the index really was not rebuilt, so its id is legitimately the
+            # baseline's. Nothing here is falsified — that is what makes it dangerous.
+            embedding_model_revision=args.stale_query_encoder,
         )
     )
     print(f"\nrun_id: {artifacts.run_id}")

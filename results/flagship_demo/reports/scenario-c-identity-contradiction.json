@@ -1,0 +1,5046 @@
+{
+  "affected_queries": [
+    {
+      "baseline": 156.84133407194167,
+      "candidate": 426.6917919740081,
+      "delta": 269.8504579020664,
+      "diff_route": "#/runs/6fe66dac/queries/5ab981555542996be2020532/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ab981555542996be2020532",
+      "query_id": "5ab981555542996be2020532"
+    },
+    {
+      "baseline": 164.00824999436736,
+      "candidate": 370.86433300282806,
+      "delta": 206.8560830084607,
+      "diff_route": "#/runs/6fe66dac/queries/5adcceda5542990d50227d31/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5adcceda5542990d50227d31",
+      "query_id": "5adcceda5542990d50227d31"
+    },
+    {
+      "baseline": 159.85429205466062,
+      "candidate": 350.4715000744909,
+      "delta": 190.6172080198303,
+      "diff_route": "#/runs/6fe66dac/queries/5a7d61645542997cc2c47455/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5a7d61645542997cc2c47455",
+      "query_id": "5a7d61645542997cc2c47455"
+    },
+    {
+      "baseline": 123.20158293005079,
+      "candidate": 301.80800007656217,
+      "delta": 178.60641714651138,
+      "diff_route": "#/runs/6fe66dac/queries/5a7cef5d55429909bec768ac/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5a7cef5d55429909bec768ac",
+      "query_id": "5a7cef5d55429909bec768ac"
+    },
+    {
+      "baseline": 155.10724997147918,
+      "candidate": 332.90350006427616,
+      "delta": 177.79625009279698,
+      "diff_route": "#/runs/6fe66dac/queries/5ae0aefe554299603e418437/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ae0aefe554299603e418437",
+      "query_id": "5ae0aefe554299603e418437"
+    },
+    {
+      "baseline": 153.83762505371124,
+      "candidate": 331.28383301664144,
+      "delta": 177.4462079629302,
+      "diff_route": "#/runs/6fe66dac/queries/5ac119335542992a796dede4/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ac119335542992a796dede4",
+      "query_id": "5ac119335542992a796dede4"
+    },
+    {
+      "baseline": 163.4422909701243,
+      "candidate": 337.8675419371575,
+      "delta": 174.4252509670332,
+      "diff_route": "#/runs/6fe66dac/queries/5a7140585542994082a3e6fa/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5a7140585542994082a3e6fa",
+      "query_id": "5a7140585542994082a3e6fa"
+    },
+    {
+      "baseline": 187.59795895311981,
+      "candidate": 360.0613750750199,
+      "delta": 172.46341612190008,
+      "diff_route": "#/runs/6fe66dac/queries/5adf4a275542993a75d26498/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5adf4a275542993a75d26498",
+      "query_id": "5adf4a275542993a75d26498"
+    },
+    {
+      "baseline": 172.3441669018939,
+      "candidate": 344.71891704015434,
+      "delta": 172.37475013826042,
+      "diff_route": "#/runs/6fe66dac/queries/5ac1a3fa5542991316484b7d/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ac1a3fa5542991316484b7d",
+      "query_id": "5ac1a3fa5542991316484b7d"
+    },
+    {
+      "baseline": 131.11616706009954,
+      "candidate": 303.0870839720592,
+      "delta": 171.97091691195965,
+      "diff_route": "#/runs/6fe66dac/queries/5ae54eea5542993aec5ec19d/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ae54eea5542993aec5ec19d",
+      "query_id": "5ae54eea5542993aec5ec19d"
+    },
+    {
+      "baseline": 197.3437089473009,
+      "candidate": 366.9650830561295,
+      "delta": 169.6213741088286,
+      "diff_route": "#/runs/6fe66dac/queries/5a84c4135542994c784dda31/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5a84c4135542994c784dda31",
+      "query_id": "5a84c4135542994c784dda31"
+    },
+    {
+      "baseline": 162.69295802339911,
+      "candidate": 330.1482080714777,
+      "delta": 167.4552500480786,
+      "diff_route": "#/runs/6fe66dac/queries/5a75fa14554299109176e5dc/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5a75fa14554299109176e5dc",
+      "query_id": "5a75fa14554299109176e5dc"
+    },
+    {
+      "baseline": 184.67166693881154,
+      "candidate": 349.790291977115,
+      "delta": 165.11862503830343,
+      "diff_route": "#/runs/6fe66dac/queries/5a877e5d5542993e715abf7d/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5a877e5d5542993e715abf7d",
+      "query_id": "5a877e5d5542993e715abf7d"
+    },
+    {
+      "baseline": 213.78474996890873,
+      "candidate": 377.4498749990016,
+      "delta": 163.6651250300929,
+      "diff_route": "#/runs/6fe66dac/queries/5ae47df15542996836b02cba/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ae47df15542996836b02cba",
+      "query_id": "5ae47df15542996836b02cba"
+    },
+    {
+      "baseline": 151.1241669068113,
+      "candidate": 306.05220899451524,
+      "delta": 154.92804208770394,
+      "diff_route": "#/runs/6fe66dac/queries/5ab808ea5542991d3222380e/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ab808ea5542991d3222380e",
+      "query_id": "5ab808ea5542991d3222380e"
+    },
+    {
+      "baseline": 167.35608305316418,
+      "candidate": 317.53791600931436,
+      "delta": 150.18183295615017,
+      "diff_route": "#/runs/6fe66dac/queries/5abba584554299642a094afa/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5abba584554299642a094afa",
+      "query_id": "5abba584554299642a094afa"
+    },
+    {
+      "baseline": 155.09749995544553,
+      "candidate": 299.52266602776945,
+      "delta": 144.42516607232392,
+      "diff_route": "#/runs/6fe66dac/queries/5abce9ca554299114383a193/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5abce9ca554299114383a193",
+      "query_id": "5abce9ca554299114383a193"
+    },
+    {
+      "baseline": 144.68529191799462,
+      "candidate": 289.0787080395967,
+      "delta": 144.39341612160206,
+      "diff_route": "#/runs/6fe66dac/queries/5ae1e9fd5542997f29b3c1a1/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ae1e9fd5542997f29b3c1a1",
+      "query_id": "5ae1e9fd5542997f29b3c1a1"
+    },
+    {
+      "baseline": 219.9451670749113,
+      "candidate": 362.31866595335305,
+      "delta": 142.37349887844175,
+      "diff_route": "#/runs/6fe66dac/queries/5ab78edc5542995dae37e95c/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5ab78edc5542995dae37e95c",
+      "query_id": "5ab78edc5542995dae37e95c"
+    },
+    {
+      "baseline": 194.0132500603795,
+      "candidate": 334.40825005527586,
+      "delta": 140.39499999489635,
+      "diff_route": "#/runs/6fe66dac/queries/5abd94525542992ac4f382d2/diff?against=4b5be1ce",
+      "investigation_route": "#/runs/6fe66dac/queries/5abd94525542992ac4f382d2",
+      "query_id": "5abd94525542992ac4f382d2"
+    }
+  ],
+  "comparison": {
+    "baseline_run_id": "4b5be1ce",
+    "candidate_run_id": "6fe66dac",
+    "effect_orientation": "candidate_minus_baseline",
+    "query_diff_metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane",
+    "release_decision": {
+      "aggregate_guards": [
+        {
+          "adjusted_confidence_level": 0.9875,
+          "affected_query_ids": [
+            "5a7363ec5542991f29ee2dd7",
+            "5a73d951554299623ed4ac77",
+            "5a75f0bf5542994ccc91866b",
+            "5a7a6c1a5542994f819ef1d5",
+            "5a7faa215542995d8a8ddee8",
+            "5a81f85d55429926c1cdadca",
+            "5a85fa815542996432c57155",
+            "5a8c30f6554299240d9c20d1",
+            "5a8f799d55429918e830d22d",
+            "5ab4475c5542996a3a969f6c",
+            "5ab6bb575542995eadef0088",
+            "5abc091555429965836003f6",
+            "5abf10b75542997719eab659",
+            "5ac199955542994ab5c67d8c",
+            "5ade8802554299728e26c72d",
+            "5ae10df355429920d52342ac",
+            "5ae352285542994393b9e685",
+            "5ae383e15542992f92d822fb",
+            "5a70f1685542994082a3e40f",
+            "5a70f39c5542994082a3e429"
+          ],
+          "baseline_estimate": 0.875,
+          "candidate_estimate": 0.875,
+          "ci_high": 0.018750000000000044,
+          "ci_low": -0.01750000000000007,
+          "confidence_level": 0.95,
+          "direction": "higher_is_better",
+          "effect": 0.0,
+          "estimator": "mean",
+          "interval_method": "paired_percentile_bootstrap",
+          "max_regression": 0.02,
+          "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
+          "min_paired_n": 30,
+          "paired_n": 400,
+          "resamples": 2000,
+          "sample_limitation": null,
+          "seed": 17,
+          "status": "PASS"
+        }
+      ],
+      "investigation": {
+        "affected_query_ids": [
+          "5ab981555542996be2020532",
+          "5adcceda5542990d50227d31",
+          "5a7d61645542997cc2c47455",
+          "5a7cef5d55429909bec768ac",
+          "5ae0aefe554299603e418437",
+          "5ac119335542992a796dede4",
+          "5a7140585542994082a3e6fa",
+          "5adf4a275542993a75d26498",
+          "5ac1a3fa5542991316484b7d",
+          "5ae54eea5542993aec5ec19d",
+          "5a84c4135542994c784dda31",
+          "5a75fa14554299109176e5dc",
+          "5a877e5d5542993e715abf7d",
+          "5ae47df15542996836b02cba",
+          "5ab808ea5542991d3222380e",
+          "5abba584554299642a094afa",
+          "5abce9ca554299114383a193",
+          "5ae1e9fd5542997f29b3c1a1",
+          "5ab78edc5542995dae37e95c",
+          "5abd94525542992ac4f382d2"
+        ],
+        "diff_route_template": "#/runs/6fe66dac/queries/{query_id}/diff?against=4b5be1ce&policy_path=%2FUsers%2Fameyakiwalkar%2FDocuments%2Fretrieval-observatory%2Fresults%2Fflagship_demo%2Frelease-policy.yaml",
+        "query_route_template": "#/runs/6fe66dac/queries/{query_id}"
+      },
+      "next_action": "Resolve missing or invalid required evidence, then rerun the comparison.",
+      "policy": {
+        "configured": true,
+        "digest": "sha256:5b22419daa098a342c68adb17007fe8ed90c461e51c61193b07a849e2c9209de",
+        "id": "hotpotqa-flagship-demo",
+        "schema_version": 2
+      },
+      "readiness": {
+        "aggregate_or_slice_evaluation": {
+          "findings": [
+            {
+              "code": "release_identity_mismatch",
+              "detail": "Runs differ on release identity field 'embedding_model_revision'.",
+              "next_action": "Compare runs with the same embedding_model_revision.",
+              "observed": [
+                "sentence-transformers/all-MiniLM-L6-v2",
+                "sentence-transformers/all-MiniLM-L12-v2"
+              ],
+              "required": "equal recorded release_identity.embedding_model_revision values",
+              "scope": "aggregate_or_slice_evaluation",
+              "status": "BLOCK"
+            }
+          ],
+          "scope": "aggregate_or_slice_evaluation",
+          "status": "BLOCK"
+        },
+        "lineage_diagnosis": {
+          "findings": [],
+          "scope": "lineage_diagnosis",
+          "status": "READY"
+        },
+        "lineage_diff": {
+          "findings": [
+            {
+              "code": "lineage_document_identity_partial",
+              "detail": "Stable logical-chunk and document revision/content-hash identity is incomplete.",
+              "next_action": "Record a document revision or content hash for every lineage candidate.",
+              "observed": [
+                0.0,
+                0.0
+              ],
+              "required": 1.0,
+              "scope": "lineage_diff",
+              "status": "BLOCK"
+            }
+          ],
+          "scope": "lineage_diff",
+          "status": "BLOCK"
+        },
+        "production_trace": {
+          "findings": [
+            {
+              "code": "telemetry_window_unavailable",
+              "detail": "Production trace health is unavailable for at least one run window.",
+              "next_action": "Capture instrumentation health inside each run window.",
+              "observed": [
+                false,
+                false
+              ],
+              "required": "run-window telemetry for both runs",
+              "scope": "production_trace",
+              "status": "BLOCK"
+            }
+          ],
+          "scope": "production_trace",
+          "status": "BLOCK"
+        },
+        "promotion": {
+          "findings": [
+            {
+              "code": "release_identity_mismatch",
+              "detail": "Runs differ on release identity field 'embedding_model_revision'.",
+              "next_action": "Compare runs with the same embedding_model_revision.",
+              "observed": [
+                "sentence-transformers/all-MiniLM-L6-v2",
+                "sentence-transformers/all-MiniLM-L12-v2"
+              ],
+              "required": "equal recorded release_identity.embedding_model_revision values",
+              "scope": "promotion",
+              "status": "BLOCK"
+            }
+          ],
+          "scope": "promotion",
+          "status": "BLOCK"
+        }
+      },
+      "reasons": [
+        "release_identity_mismatch",
+        "release_identity_mismatch"
+      ],
+      "schema_version": 1,
+      "slices": [
+        {
+          "adjusted_confidence_level": 0.9875,
+          "field": "type",
+          "guards": [
+            {
+              "adjusted_confidence_level": 0.9875,
+              "affected_query_ids": [
+                "5a7363ec5542991f29ee2dd7",
+                "5a73d951554299623ed4ac77",
+                "5a7a6c1a5542994f819ef1d5",
+                "5a7faa215542995d8a8ddee8",
+                "5a81f85d55429926c1cdadca",
+                "5a85fa815542996432c57155",
+                "5ab4475c5542996a3a969f6c",
+                "5ab6bb575542995eadef0088",
+                "5abc091555429965836003f6",
+                "5abf10b75542997719eab659",
+                "5ac199955542994ab5c67d8c",
+                "5ade8802554299728e26c72d",
+                "5ae10df355429920d52342ac",
+                "5ae352285542994393b9e685",
+                "5a70f1685542994082a3e40f",
+                "5a70f39c5542994082a3e429",
+                "5a7140585542994082a3e6fa",
+                "5a7150c75542994082a3e7be",
+                "5a7265815542990c210a411b",
+                "5a729e7b5542992359bc313d"
+              ],
+              "baseline_estimate": 0.8557692307692307,
+              "candidate_estimate": 0.8525641025641025,
+              "ci_high": 0.016025641025641024,
+              "ci_low": -0.022435897435897467,
+              "confidence_level": 0.95,
+              "direction": "higher_is_better",
+              "effect": -0.0032051282051281937,
+              "estimator": "mean",
+              "interval_method": "paired_percentile_bootstrap",
+              "max_regression": 0.02,
+              "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
+              "min_paired_n": 30,
+              "paired_n": 312,
+              "resamples": 2000,
+              "sample_limitation": null,
+              "seed": 17,
+              "status": "HOLD"
+            }
+          ],
+          "id": "type-bridge",
+          "label_coverage": 1.0,
+          "paired_n": 312,
+          "sample_limitation": null,
+          "status": "HOLD",
+          "value": "bridge"
+        },
+        {
+          "adjusted_confidence_level": 0.9875,
+          "field": "type",
+          "guards": [
+            {
+              "adjusted_confidence_level": 0.9875,
+              "affected_query_ids": [
+                "5a75f0bf5542994ccc91866b",
+                "5a8c30f6554299240d9c20d1",
+                "5a8f799d55429918e830d22d",
+                "5ae383e15542992f92d822fb",
+                "5a7199725542994082a3e88f",
+                "5a726b0f5542997f827839be",
+                "5a74f5155542993748c89750",
+                "5a7555215542996c70cfaee1",
+                "5a7647505542992d0ec06089",
+                "5a7652785542992db9473760",
+                "5a77474855429972597f14e4",
+                "5a774c0155429966f1a36ce2",
+                "5a7769a35542993569682d8f",
+                "5a77a7db5542995d8318124d",
+                "5a78bc6b554299148911f979",
+                "5a7933b255429907847277eb",
+                "5a7a27ce5542996c55b2dd28",
+                "5a7a2be25542996a35c17118",
+                "5a7b1023554299042af8f6c2",
+                "5a7b24fe55429931da12c9f7"
+              ],
+              "baseline_estimate": 0.9431818181818182,
+              "candidate_estimate": 0.9545454545454546,
+              "ci_high": 0.05681818181818177,
+              "ci_low": -0.034090909090909116,
+              "confidence_level": 0.95,
+              "direction": "higher_is_better",
+              "effect": 0.011363636363636354,
+              "estimator": "mean",
+              "interval_method": "paired_percentile_bootstrap",
+              "max_regression": 0.02,
+              "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
+              "min_paired_n": 30,
+              "paired_n": 88,
+              "resamples": 2000,
+              "sample_limitation": null,
+              "seed": 17,
+              "status": "HOLD"
+            }
+          ],
+          "id": "type-comparison",
+          "label_coverage": 1.0,
+          "paired_n": 88,
+          "sample_limitation": null,
+          "status": "HOLD",
+          "value": "comparison"
+        },
+        {
+          "adjusted_confidence_level": 0.9875,
+          "field": "level",
+          "guards": [
+            {
+              "adjusted_confidence_level": 0.9875,
+              "affected_query_ids": [
+                "5a7363ec5542991f29ee2dd7",
+                "5a73d951554299623ed4ac77",
+                "5a75f0bf5542994ccc91866b",
+                "5a7a6c1a5542994f819ef1d5",
+                "5a7faa215542995d8a8ddee8",
+                "5a81f85d55429926c1cdadca",
+                "5a85fa815542996432c57155",
+                "5a8c30f6554299240d9c20d1",
+                "5a8f799d55429918e830d22d",
+                "5ab4475c5542996a3a969f6c",
+                "5ab6bb575542995eadef0088",
+                "5abc091555429965836003f6",
+                "5abf10b75542997719eab659",
+                "5ac199955542994ab5c67d8c",
+                "5ade8802554299728e26c72d",
+                "5ae10df355429920d52342ac",
+                "5ae352285542994393b9e685",
+                "5ae383e15542992f92d822fb",
+                "5a70f1685542994082a3e40f",
+                "5a70f39c5542994082a3e429"
+              ],
+              "baseline_estimate": 0.875,
+              "candidate_estimate": 0.875,
+              "ci_high": 0.018750000000000044,
+              "ci_low": -0.01750000000000007,
+              "confidence_level": 0.95,
+              "direction": "higher_is_better",
+              "effect": 0.0,
+              "estimator": "mean",
+              "interval_method": "paired_percentile_bootstrap",
+              "max_regression": 0.02,
+              "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
+              "min_paired_n": 30,
+              "paired_n": 400,
+              "resamples": 2000,
+              "sample_limitation": null,
+              "seed": 17,
+              "status": "PASS"
+            }
+          ],
+          "id": "level-hard",
+          "label_coverage": 1.0,
+          "paired_n": 400,
+          "sample_limitation": null,
+          "status": "PASS",
+          "value": "hard"
+        }
+      ],
+      "status": "BLOCK"
+    },
+    "release_provenance": {
+      "baseline": {
+        "manifest_schema_version": 3,
+        "release_identity": {
+          "chunking_revision": "title-prefixed-paragraph-v1",
+          "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+          "deployment_revision": "baseline",
+          "embedding_model_revision": "sentence-transformers/all-MiniLM-L6-v2",
+          "index_build_id": "faiss-flatip-7f2133a73273",
+          "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "service_id": "retobs-flagship-demo"
+        },
+        "run_id": "4b5be1ce"
+      },
+      "candidate": {
+        "manifest_schema_version": 3,
+        "release_identity": {
+          "chunking_revision": "title-prefixed-paragraph-v1",
+          "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+          "deployment_revision": "candidate-swapped-embedding",
+          "embedding_model_revision": "sentence-transformers/all-MiniLM-L12-v2",
+          "index_build_id": "faiss-flatip-7f2133a73273",
+          "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "service_id": "retobs-flagship-demo"
+        },
+        "run_id": "6fe66dac"
+      }
+    },
+    "results": {
+      "hotpotqa_hybrid_dag|stage-1|dropout_count@0": {
+        "baseline_mean": null,
+        "candidate_mean": null,
+        "decision": "no_decision",
+        "effect": null,
+        "effect_threshold": null,
+        "low_power": true,
+        "metric": "hotpotqa_hybrid_dag|stage-1|dropout_count@0",
+        "p_value": null,
+        "paired_n": 0,
+        "q_value": null,
+        "reason": "insufficient paired samples",
+        "significant": null
+      },
+      "hotpotqa_hybrid_dag|stage-1|failure_rate@0": {
+        "baseline_mean": null,
+        "candidate_mean": null,
+        "decision": "no_decision",
+        "effect": null,
+        "effect_threshold": null,
+        "low_power": true,
+        "metric": "hotpotqa_hybrid_dag|stage-1|failure_rate@0",
+        "p_value": null,
+        "paired_n": 0,
+        "q_value": null,
+        "reason": "insufficient paired samples",
+        "significant": null
+      },
+      "hotpotqa_hybrid_dag|stage-1|latency_p50@0": {
+        "baseline_mean": 854.028023230203,
+        "candidate_mean": 871.7889416922117,
+        "decision": "no_decision",
+        "effect": 17.760918462008704,
+        "effect_threshold": 42.70140116151015,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage-1|latency_p50@0",
+        "p_value": 0.648,
+        "paired_n": 400,
+        "q_value": 0.9035492957746479,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage-1|latency_p95@0": {
+        "baseline_mean": 854.028023230203,
+        "candidate_mean": 871.7889416922117,
+        "decision": "no_decision",
+        "effect": 17.760918462008704,
+        "effect_threshold": 42.70140116151015,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage-1|latency_p95@0",
+        "p_value": 0.648,
+        "paired_n": 400,
+        "q_value": 0.9035492957746479,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage-1|latency_p99@0": {
+        "baseline_mean": 854.028023230203,
+        "candidate_mean": 871.7889416922117,
+        "decision": "no_decision",
+        "effect": 17.760918462008704,
+        "effect_threshold": 42.70140116151015,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage-1|latency_p99@0",
+        "p_value": 0.648,
+        "paired_n": 400,
+        "q_value": 0.9035492957746479,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage-1|timeout_rate@0": {
+        "baseline_mean": null,
+        "candidate_mean": null,
+        "decision": "no_decision",
+        "effect": null,
+        "effect_threshold": null,
+        "low_power": true,
+        "metric": "hotpotqa_hybrid_dag|stage-1|timeout_rate@0",
+        "p_value": null,
+        "paired_n": 0,
+        "q_value": null,
+        "reason": "insufficient paired samples",
+        "significant": null
+      },
+      "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane": {
+        "baseline_mean": 14.30142854922451,
+        "candidate_mean": 14.018085722927935,
+        "decision": "no_decision",
+        "effect": -0.28334282629657537,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane": {
+        "baseline_mean": 188.26886676688446,
+        "candidate_mean": 230.85842241562204,
+        "decision": "candidate_worse",
+        "effect": 42.58955564873759,
+        "effect_threshold": 9.413443338344223,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane": {
+        "baseline_mean": 14.30142854922451,
+        "candidate_mean": 14.018085722927935,
+        "decision": "no_decision",
+        "effect": -0.28334282629657537,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane": {
+        "baseline_mean": 188.26886676688446,
+        "candidate_mean": 230.85842241562204,
+        "decision": "candidate_worse",
+        "effect": 42.58955564873759,
+        "effect_threshold": 9.413443338344223,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane": {
+        "baseline_mean": 14.30142854922451,
+        "candidate_mean": 14.018085722927935,
+        "decision": "no_decision",
+        "effect": -0.28334282629657537,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane": {
+        "baseline_mean": 188.26886676688446,
+        "candidate_mean": 230.85842241562204,
+        "decision": "candidate_worse",
+        "effect": 42.58955564873759,
+        "effect_threshold": 9.413443338344223,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage0|map@0|branch=bm25_lane": {
+        "baseline_mean": 0.6069097358830907,
+        "candidate_mean": 0.6069097358830907,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|map@0|branch=bm25_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|map@0|branch=dense_lane": {
+        "baseline_mean": 0.64440201130983,
+        "candidate_mean": 0.6537653916191953,
+        "decision": "no_decision",
+        "effect": 0.009363380309365343,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|map@0|branch=dense_lane",
+        "p_value": 0.232,
+        "paired_n": 400,
+        "q_value": 0.4928936170212766,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|mrr@0|branch=bm25_lane": {
+        "baseline_mean": 0.827934782759511,
+        "candidate_mean": 0.827934782759511,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|mrr@0|branch=bm25_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|mrr@0|branch=dense_lane": {
+        "baseline_mean": 0.8667879318394024,
+        "candidate_mean": 0.878916514041514,
+        "decision": "no_decision",
+        "effect": 0.01212858220211166,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|mrr@0|branch=dense_lane",
+        "p_value": 0.217,
+        "paired_n": 400,
+        "q_value": 0.4774,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=bm25_lane": {
+        "baseline_mean": 0.6990980246729012,
+        "candidate_mean": 0.6990980246729012,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=bm25_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=dense_lane": {
+        "baseline_mean": 0.7299186918794119,
+        "candidate_mean": 0.74213097883903,
+        "decision": "no_decision",
+        "effect": 0.012212286959618068,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=dense_lane",
+        "p_value": 0.092,
+        "paired_n": 400,
+        "q_value": 0.2602285714285714,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|precision@10|branch=bm25_lane": {
+        "baseline_mean": 0.15525,
+        "candidate_mean": 0.15525,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|precision@10|branch=bm25_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|precision@10|branch=dense_lane": {
+        "baseline_mean": 0.15725,
+        "candidate_mean": 0.16,
+        "decision": "no_decision",
+        "effect": 0.0027500000000000024,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|precision@10|branch=dense_lane",
+        "p_value": 0.117,
+        "paired_n": 400,
+        "q_value": 0.304425,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|recall@10|branch=bm25_lane": {
+        "baseline_mean": 0.77625,
+        "candidate_mean": 0.77625,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|recall@10|branch=bm25_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage0|recall@10|branch=dense_lane": {
+        "baseline_mean": 0.78625,
+        "candidate_mean": 0.8,
+        "decision": "no_decision",
+        "effect": 0.01375000000000004,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage0|recall@10|branch=dense_lane",
+        "p_value": 0.117,
+        "paired_n": 400,
+        "q_value": 0.304425,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|latency_p50@0": {
+        "baseline_mean": 0.6954115512780845,
+        "candidate_mean": 0.6839177146321163,
+        "decision": "no_decision",
+        "effect": -0.011493836645968258,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|latency_p50@0",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|latency_p95@0": {
+        "baseline_mean": 0.6954115512780845,
+        "candidate_mean": 0.6839177146321163,
+        "decision": "no_decision",
+        "effect": -0.011493836645968258,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|latency_p95@0",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|latency_p99@0": {
+        "baseline_mean": 0.6954115512780845,
+        "candidate_mean": 0.6839177146321163,
+        "decision": "no_decision",
+        "effect": -0.011493836645968258,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|latency_p99@0",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|map@0": {
+        "baseline_mean": 0.6683564003377929,
+        "candidate_mean": 0.6794758360366058,
+        "decision": "no_decision",
+        "effect": 0.011119435698812907,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|map@0",
+        "p_value": 0.061,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|mrr@0": {
+        "baseline_mean": 0.8777641223155929,
+        "candidate_mean": 0.885111344537815,
+        "decision": "no_decision",
+        "effect": 0.007347222222222172,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|mrr@0",
+        "p_value": 0.335,
+        "paired_n": 400,
+        "q_value": 0.603,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|ndcg@10": {
+        "baseline_mean": 0.7582731563738707,
+        "candidate_mean": 0.7677295688081475,
+        "decision": "no_decision",
+        "effect": 0.00945641243427675,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|ndcg@10",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|precision@10": {
+        "baseline_mean": 0.16824999999999998,
+        "candidate_mean": 0.16949999999999998,
+        "decision": "no_decision",
+        "effect": 0.0012500000000000011,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|precision@10",
+        "p_value": 0.309,
+        "paired_n": 400,
+        "q_value": 0.5998235294117648,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage1|recall@10": {
+        "baseline_mean": 0.84125,
+        "candidate_mean": 0.8475,
+        "decision": "no_decision",
+        "effect": 0.006249999999999978,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage1|recall@10",
+        "p_value": 0.501,
+        "paired_n": 400,
+        "q_value": 0.7999838709677419,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage2|latency_p50@0": {
+        "baseline_mean": 0.7931034374632873,
+        "candidate_mean": 0.5510584620060399,
+        "decision": "no_decision",
+        "effect": -0.24204497545724735,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|latency_p50@0",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage2|latency_p95@0": {
+        "baseline_mean": 0.7931034374632873,
+        "candidate_mean": 0.5510584620060399,
+        "decision": "no_decision",
+        "effect": -0.24204497545724735,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|latency_p95@0",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage2|latency_p99@0": {
+        "baseline_mean": 0.7931034374632873,
+        "candidate_mean": 0.5510584620060399,
+        "decision": "no_decision",
+        "effect": -0.24204497545724735,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|latency_p99@0",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage2|map@0": {
+        "baseline_mean": 0.6683564003377929,
+        "candidate_mean": 0.6794758360366058,
+        "decision": "no_decision",
+        "effect": 0.011119435698812907,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|map@0",
+        "p_value": 0.061,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage2|mrr@0": {
+        "baseline_mean": 0.8777641223155929,
+        "candidate_mean": 0.885111344537815,
+        "decision": "no_decision",
+        "effect": 0.007347222222222172,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|mrr@0",
+        "p_value": 0.335,
+        "paired_n": 400,
+        "q_value": 0.603,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage2|ndcg@10": {
+        "baseline_mean": 0.7582731563738707,
+        "candidate_mean": 0.7677295688081475,
+        "decision": "no_decision",
+        "effect": 0.00945641243427675,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|ndcg@10",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage2|precision@10": {
+        "baseline_mean": 0.16824999999999998,
+        "candidate_mean": 0.16949999999999998,
+        "decision": "no_decision",
+        "effect": 0.0012500000000000011,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|precision@10",
+        "p_value": 0.309,
+        "paired_n": 400,
+        "q_value": 0.5998235294117648,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage2|recall@10": {
+        "baseline_mean": 0.84125,
+        "candidate_mean": 0.8475,
+        "decision": "no_decision",
+        "effect": 0.006249999999999978,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage2|recall@10",
+        "p_value": 0.501,
+        "paired_n": 400,
+        "q_value": 0.7999838709677419,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2": {
+        "baseline_mean": 159.43510139273712,
+        "candidate_mean": 198.35185884003295,
+        "decision": "candidate_worse",
+        "effect": 38.91675744729582,
+        "effect_threshold": 7.971755069636856,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen": {
+        "baseline_mean": 45.03032595443074,
+        "candidate_mean": 55.55137572257081,
+        "decision": "candidate_worse",
+        "effect": 10.521049768140074,
+        "effect_threshold": 2.251516297721537,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2": {
+        "baseline_mean": 159.43510139273712,
+        "candidate_mean": 198.35185884003295,
+        "decision": "candidate_worse",
+        "effect": 38.91675744729582,
+        "effect_threshold": 7.971755069636856,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen": {
+        "baseline_mean": 45.03032595443074,
+        "candidate_mean": 55.55137572257081,
+        "decision": "candidate_worse",
+        "effect": 10.521049768140074,
+        "effect_threshold": 2.251516297721537,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2": {
+        "baseline_mean": 159.43510139273712,
+        "candidate_mean": 198.35185884003295,
+        "decision": "candidate_worse",
+        "effect": 38.91675744729582,
+        "effect_threshold": 7.971755069636856,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen": {
+        "baseline_mean": 45.03032595443074,
+        "candidate_mean": 55.55137572257081,
+        "decision": "candidate_worse",
+        "effect": 10.521049768140074,
+        "effect_threshold": 2.251516297721537,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "significant paired effect exceeds the practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage3|map@0|branch=bridge_hop2": {
+        "baseline_mean": 0.4963922136110737,
+        "candidate_mean": 0.5043417569189559,
+        "decision": "no_decision",
+        "effect": 0.007949543307882168,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|map@0|branch=bridge_hop2",
+        "p_value": 0.123,
+        "paired_n": 400,
+        "q_value": 0.304425,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen": {
+        "baseline_mean": 0.17233045357420354,
+        "candidate_mean": 0.17561281760178818,
+        "decision": "no_decision",
+        "effect": 0.003282364027584639,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen",
+        "p_value": 0.234,
+        "paired_n": 400,
+        "q_value": 0.4928936170212766,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2": {
+        "baseline_mean": 0.6705766223155929,
+        "candidate_mean": 0.6798196778711484,
+        "decision": "no_decision",
+        "effect": 0.00924305555555549,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2",
+        "p_value": 0.206,
+        "paired_n": 400,
+        "q_value": 0.46349999999999997,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen": {
+        "baseline_mean": 0.2071875,
+        "candidate_mean": 0.20529166666666665,
+        "decision": "no_decision",
+        "effect": -0.0018958333333333466,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen",
+        "p_value": 0.411,
+        "paired_n": 400,
+        "q_value": 0.7265892857142857,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=bridge_hop2": {
+        "baseline_mean": 0.5701345925270226,
+        "candidate_mean": 0.5764800561723604,
+        "decision": "no_decision",
+        "effect": 0.006345463645337834,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=bridge_hop2",
+        "p_value": 0.18,
+        "paired_n": 400,
+        "q_value": 0.42428571428571427,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen": {
+        "baseline_mean": 0.18813856384684813,
+        "candidate_mean": 0.19124951263578702,
+        "decision": "no_decision",
+        "effect": 0.0031109487889388887,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen",
+        "p_value": 0.118,
+        "paired_n": 400,
+        "q_value": 0.304425,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|precision@10|branch=bridge_hop2": {
+        "baseline_mean": 0.1275,
+        "candidate_mean": 0.1275,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|precision@10|branch=bridge_hop2",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen": {
+        "baseline_mean": 0.04075,
+        "candidate_mean": 0.042,
+        "decision": "no_decision",
+        "effect": 0.0012500000000000011,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen",
+        "p_value": 0.04,
+        "paired_n": 400,
+        "q_value": 0.198,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|recall@10|branch=bridge_hop2": {
+        "baseline_mean": 0.6375,
+        "candidate_mean": 0.6375,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|recall@10|branch=bridge_hop2",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen": {
+        "baseline_mean": 0.20375,
+        "candidate_mean": 0.21,
+        "decision": "no_decision",
+        "effect": 0.0062500000000000056,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen",
+        "p_value": 0.04,
+        "paired_n": 400,
+        "q_value": 0.198,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage4|latency_p50@0": {
+        "baseline_mean": 1.7737085331464186,
+        "candidate_mean": 1.3283186563057825,
+        "decision": "no_decision",
+        "effect": -0.44538987684063613,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|latency_p50@0",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage4|latency_p95@0": {
+        "baseline_mean": 1.7737085331464186,
+        "candidate_mean": 1.3283186563057825,
+        "decision": "no_decision",
+        "effect": -0.44538987684063613,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|latency_p95@0",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage4|latency_p99@0": {
+        "baseline_mean": 1.7737085331464186,
+        "candidate_mean": 1.3283186563057825,
+        "decision": "no_decision",
+        "effect": -0.44538987684063613,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|latency_p99@0",
+        "p_value": 0.0,
+        "paired_n": 400,
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
+      },
+      "hotpotqa_hybrid_dag|stage4|map@0": {
+        "baseline_mean": 0.49761996136414255,
+        "candidate_mean": 0.5057054083616608,
+        "decision": "no_decision",
+        "effect": 0.00808544699751823,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|map@0",
+        "p_value": 0.12,
+        "paired_n": 400,
+        "q_value": 0.304425,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage4|mrr@0": {
+        "baseline_mean": 0.6705766223155929,
+        "candidate_mean": 0.6798196778711484,
+        "decision": "no_decision",
+        "effect": 0.00924305555555549,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|mrr@0",
+        "p_value": 0.206,
+        "paired_n": 400,
+        "q_value": 0.46349999999999997,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage4|ndcg@10": {
+        "baseline_mean": 0.5701345925270226,
+        "candidate_mean": 0.5764800561723604,
+        "decision": "no_decision",
+        "effect": 0.006345463645337834,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|ndcg@10",
+        "p_value": 0.18,
+        "paired_n": 400,
+        "q_value": 0.42428571428571427,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage4|precision@10": {
+        "baseline_mean": 0.1275,
+        "candidate_mean": 0.1275,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|precision@10",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage4|recall@10": {
+        "baseline_mean": 0.6375,
+        "candidate_mean": 0.6375,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage4|recall@10",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|latency_p50@0": {
+        "baseline_mean": 0.8837992811459117,
+        "candidate_mean": 0.9651840585866012,
+        "decision": "no_decision",
+        "effect": 0.0813847774406895,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|latency_p50@0",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|latency_p95@0": {
+        "baseline_mean": 0.8837992811459117,
+        "candidate_mean": 0.9651840585866012,
+        "decision": "no_decision",
+        "effect": 0.0813847774406895,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|latency_p95@0",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|latency_p99@0": {
+        "baseline_mean": 0.8837992811459117,
+        "candidate_mean": 0.9651840585866012,
+        "decision": "no_decision",
+        "effect": 0.0813847774406895,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|latency_p99@0",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|map@0": {
+        "baseline_mean": 0.6683564003377929,
+        "candidate_mean": 0.6794758360366058,
+        "decision": "no_decision",
+        "effect": 0.011119435698812907,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|map@0",
+        "p_value": 0.061,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|mrr@0": {
+        "baseline_mean": 0.8777641223155929,
+        "candidate_mean": 0.885111344537815,
+        "decision": "no_decision",
+        "effect": 0.007347222222222172,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|mrr@0",
+        "p_value": 0.335,
+        "paired_n": 400,
+        "q_value": 0.603,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|ndcg@10": {
+        "baseline_mean": 0.7582731563738707,
+        "candidate_mean": 0.7677295688081475,
+        "decision": "no_decision",
+        "effect": 0.00945641243427675,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|ndcg@10",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|precision@10": {
+        "baseline_mean": 0.16824999999999998,
+        "candidate_mean": 0.16949999999999998,
+        "decision": "no_decision",
+        "effect": 0.0012500000000000011,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|precision@10",
+        "p_value": 0.309,
+        "paired_n": 400,
+        "q_value": 0.5998235294117648,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage5|recall@10": {
+        "baseline_mean": 0.84125,
+        "candidate_mean": 0.8475,
+        "decision": "no_decision",
+        "effect": 0.006249999999999978,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage5|recall@10",
+        "p_value": 0.501,
+        "paired_n": 400,
+        "q_value": 0.7999838709677419,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|latency_p50@0": {
+        "baseline_mean": 0.5596140705165453,
+        "candidate_mean": 0.814993642270565,
+        "decision": "no_decision",
+        "effect": 0.2553795717540197,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|latency_p50@0",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|latency_p95@0": {
+        "baseline_mean": 0.5596140705165453,
+        "candidate_mean": 0.814993642270565,
+        "decision": "no_decision",
+        "effect": 0.2553795717540197,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|latency_p95@0",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|latency_p99@0": {
+        "baseline_mean": 0.5596140705165453,
+        "candidate_mean": 0.814993642270565,
+        "decision": "no_decision",
+        "effect": 0.2553795717540197,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|latency_p99@0",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|map@0": {
+        "baseline_mean": 0.6683564003377929,
+        "candidate_mean": 0.6794758360366058,
+        "decision": "no_decision",
+        "effect": 0.011119435698812907,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|map@0",
+        "p_value": 0.061,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|mrr@0": {
+        "baseline_mean": 0.8777641223155929,
+        "candidate_mean": 0.885111344537815,
+        "decision": "no_decision",
+        "effect": 0.007347222222222172,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|mrr@0",
+        "p_value": 0.335,
+        "paired_n": 400,
+        "q_value": 0.603,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|ndcg@10": {
+        "baseline_mean": 0.7582731563738707,
+        "candidate_mean": 0.7677295688081475,
+        "decision": "no_decision",
+        "effect": 0.00945641243427675,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|ndcg@10",
+        "p_value": 0.064,
+        "paired_n": 400,
+        "q_value": 0.20438709677419356,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|precision@10": {
+        "baseline_mean": 0.16824999999999998,
+        "candidate_mean": 0.16949999999999998,
+        "decision": "no_decision",
+        "effect": 0.0012500000000000011,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|precision@10",
+        "p_value": 0.309,
+        "paired_n": 400,
+        "q_value": 0.5998235294117648,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage6|recall@10": {
+        "baseline_mean": 0.84125,
+        "candidate_mean": 0.8475,
+        "decision": "no_decision",
+        "effect": 0.006249999999999978,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage6|recall@10",
+        "p_value": 0.501,
+        "paired_n": 400,
+        "q_value": 0.7999838709677419,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane": {
+        "baseline_mean": 0.3082009425270371,
+        "candidate_mean": 0.30231509532313794,
+        "decision": "no_decision",
+        "effect": -0.005885847203899175,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane",
+        "p_value": 0.557,
+        "paired_n": 400,
+        "q_value": 0.8483538461538462,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank": {
+        "baseline_mean": 426.91181676316774,
+        "candidate_mean": 354.33104124473175,
+        "decision": "no_decision",
+        "effect": -72.58077551843598,
+        "effect_threshold": 21.345590838158387,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank",
+        "p_value": 0.082,
+        "paired_n": 400,
+        "q_value": 0.23876470588235296,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane": {
+        "baseline_mean": 0.3082009425270371,
+        "candidate_mean": 0.30231509532313794,
+        "decision": "no_decision",
+        "effect": -0.005885847203899175,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane",
+        "p_value": 0.557,
+        "paired_n": 400,
+        "q_value": 0.8483538461538462,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank": {
+        "baseline_mean": 426.91181676316774,
+        "candidate_mean": 354.33104124473175,
+        "decision": "no_decision",
+        "effect": -72.58077551843598,
+        "effect_threshold": 21.345590838158387,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank",
+        "p_value": 0.082,
+        "paired_n": 400,
+        "q_value": 0.23876470588235296,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane": {
+        "baseline_mean": 0.3082009425270371,
+        "candidate_mean": 0.30231509532313794,
+        "decision": "no_decision",
+        "effect": -0.005885847203899175,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane",
+        "p_value": 0.557,
+        "paired_n": 400,
+        "q_value": 0.8483538461538462,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank": {
+        "baseline_mean": 426.91181676316774,
+        "candidate_mean": 354.33104124473175,
+        "decision": "no_decision",
+        "effect": -72.58077551843598,
+        "effect_threshold": 21.345590838158387,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank",
+        "p_value": 0.082,
+        "paired_n": 400,
+        "q_value": 0.23876470588235296,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|map@0|branch=fast_lane": {
+        "baseline_mean": 0.38091258238021003,
+        "candidate_mean": 0.3863273871703632,
+        "decision": "no_decision",
+        "effect": 0.00541480479015316,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|map@0|branch=fast_lane",
+        "p_value": 0.642,
+        "paired_n": 400,
+        "q_value": 0.9035492957746479,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|map@0|branch=rerank": {
+        "baseline_mean": 0.3725853174603174,
+        "candidate_mean": 0.37023115079365077,
+        "decision": "no_decision",
+        "effect": -0.002354166666666657,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|map@0|branch=rerank",
+        "p_value": 0.857,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|mrr@0|branch=fast_lane": {
+        "baseline_mean": 0.5149583333333333,
+        "candidate_mean": 0.5250915032679739,
+        "decision": "no_decision",
+        "effect": 0.01013316993464064,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|mrr@0|branch=fast_lane",
+        "p_value": 0.474,
+        "paired_n": 400,
+        "q_value": 0.7999838709677419,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|mrr@0|branch=rerank": {
+        "baseline_mean": 0.43736111111111114,
+        "candidate_mean": 0.4321527777777778,
+        "decision": "no_decision",
+        "effect": -0.00520833333333337,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|mrr@0|branch=rerank",
+        "p_value": 0.693,
+        "paired_n": 400,
+        "q_value": 0.952875,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=fast_lane": {
+        "baseline_mean": 0.42607033058294547,
+        "candidate_mean": 0.4308639367533111,
+        "decision": "no_decision",
+        "effect": 0.004793606170365616,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=fast_lane",
+        "p_value": 0.714,
+        "paired_n": 400,
+        "q_value": 0.9683013698630136,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=rerank": {
+        "baseline_mean": 0.4031350707038686,
+        "candidate_mean": 0.40074252084206236,
+        "decision": "no_decision",
+        "effect": -0.002392549861806259,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=rerank",
+        "p_value": 0.859,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|precision@10|branch=fast_lane": {
+        "baseline_mean": 0.08925000000000001,
+        "candidate_mean": 0.08925000000000001,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|precision@10|branch=fast_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|precision@10|branch=rerank": {
+        "baseline_mean": 0.08575,
+        "candidate_mean": 0.08575,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|precision@10|branch=rerank",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|recall@10|branch=fast_lane": {
+        "baseline_mean": 0.44625,
+        "candidate_mean": 0.44625,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|recall@10|branch=fast_lane",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage7|recall@10|branch=rerank": {
+        "baseline_mean": 0.42875,
+        "candidate_mean": 0.42875,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage7|recall@10|branch=rerank",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|latency_p50@0": {
+        "baseline_mean": 0.4400624966365285,
+        "candidate_mean": 0.5498890767921694,
+        "decision": "no_decision",
+        "effect": 0.10982658015564084,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|latency_p50@0",
+        "p_value": 0.968,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|latency_p95@0": {
+        "baseline_mean": 0.4400624966365285,
+        "candidate_mean": 0.5498890767921694,
+        "decision": "no_decision",
+        "effect": 0.10982658015564084,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|latency_p95@0",
+        "p_value": 0.968,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|latency_p99@0": {
+        "baseline_mean": 0.4400624966365285,
+        "candidate_mean": 0.5498890767921694,
+        "decision": "no_decision",
+        "effect": 0.10982658015564084,
+        "effect_threshold": 1.0,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|latency_p99@0",
+        "p_value": 0.968,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|map@0": {
+        "baseline_mean": 0.7471924603174602,
+        "candidate_mean": 0.7500873015873016,
+        "decision": "no_decision",
+        "effect": 0.0028948412698414083,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|map@0",
+        "p_value": 0.614,
+        "paired_n": 400,
+        "q_value": 0.9035492957746479,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|mrr@0": {
+        "baseline_mean": 0.9523194444444445,
+        "candidate_mean": 0.9570972222222223,
+        "decision": "no_decision",
+        "effect": 0.00477777777777777,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|mrr@0",
+        "p_value": 0.419,
+        "paired_n": 400,
+        "q_value": 0.7277368421052632,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|ndcg@10": {
+        "baseline_mean": 0.8292054012868141,
+        "candidate_mean": 0.8316064575953734,
+        "decision": "no_decision",
+        "effect": 0.0024010563085593573,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|ndcg@10",
+        "p_value": 0.627,
+        "paired_n": 400,
+        "q_value": 0.9035492957746479,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|precision@10": {
+        "baseline_mean": 0.175,
+        "candidate_mean": 0.175,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|precision@10",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      },
+      "hotpotqa_hybrid_dag|stage8|recall@10": {
+        "baseline_mean": 0.875,
+        "candidate_mean": 0.875,
+        "decision": "no_decision",
+        "effect": 0.0,
+        "effect_threshold": 0.01,
+        "low_power": false,
+        "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
+        "p_value": 1.0,
+        "paired_n": 400,
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
+      }
+    },
+    "validity": {
+      "comparable": true,
+      "decision_allowed": true,
+      "differences": [],
+      "outcome": "valid",
+      "required_axes": [
+        "query_hash",
+        "corpus_hash",
+        "qrel_hash",
+        "labeling"
+      ]
+    }
+  },
+  "conclusion": "Required promotion evidence is missing or invalid; metric deltas are not decision-bearing.",
+  "dashboard_url": "http://127.0.0.1:4000/#/compare",
+  "dominant_issue": {
+    "label": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane",
+    "query_count": 20
+  },
+  "evidence_health": "block",
+  "evidence_reasons": [
+    "release_identity_mismatch",
+    "release_identity_mismatch"
+  ],
+  "kind": "comparison",
+  "metrics": {
+    "hotpotqa_hybrid_dag|stage-1|dropout_count@0": {
+      "baseline_mean": null,
+      "candidate_mean": null,
+      "decision": "no_decision",
+      "effect": null,
+      "effect_threshold": null,
+      "low_power": true,
+      "metric": "hotpotqa_hybrid_dag|stage-1|dropout_count@0",
+      "p_value": null,
+      "paired_n": 0,
+      "q_value": null,
+      "reason": "insufficient paired samples",
+      "significant": null
+    },
+    "hotpotqa_hybrid_dag|stage-1|failure_rate@0": {
+      "baseline_mean": null,
+      "candidate_mean": null,
+      "decision": "no_decision",
+      "effect": null,
+      "effect_threshold": null,
+      "low_power": true,
+      "metric": "hotpotqa_hybrid_dag|stage-1|failure_rate@0",
+      "p_value": null,
+      "paired_n": 0,
+      "q_value": null,
+      "reason": "insufficient paired samples",
+      "significant": null
+    },
+    "hotpotqa_hybrid_dag|stage-1|latency_p50@0": {
+      "baseline_mean": 854.028023230203,
+      "candidate_mean": 871.7889416922117,
+      "decision": "no_decision",
+      "effect": 17.760918462008704,
+      "effect_threshold": 42.70140116151015,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage-1|latency_p50@0",
+      "p_value": 0.648,
+      "paired_n": 400,
+      "q_value": 0.9035492957746479,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage-1|latency_p95@0": {
+      "baseline_mean": 854.028023230203,
+      "candidate_mean": 871.7889416922117,
+      "decision": "no_decision",
+      "effect": 17.760918462008704,
+      "effect_threshold": 42.70140116151015,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage-1|latency_p95@0",
+      "p_value": 0.648,
+      "paired_n": 400,
+      "q_value": 0.9035492957746479,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage-1|latency_p99@0": {
+      "baseline_mean": 854.028023230203,
+      "candidate_mean": 871.7889416922117,
+      "decision": "no_decision",
+      "effect": 17.760918462008704,
+      "effect_threshold": 42.70140116151015,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage-1|latency_p99@0",
+      "p_value": 0.648,
+      "paired_n": 400,
+      "q_value": 0.9035492957746479,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage-1|timeout_rate@0": {
+      "baseline_mean": null,
+      "candidate_mean": null,
+      "decision": "no_decision",
+      "effect": null,
+      "effect_threshold": null,
+      "low_power": true,
+      "metric": "hotpotqa_hybrid_dag|stage-1|timeout_rate@0",
+      "p_value": null,
+      "paired_n": 0,
+      "q_value": null,
+      "reason": "insufficient paired samples",
+      "significant": null
+    },
+    "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane": {
+      "baseline_mean": 14.30142854922451,
+      "candidate_mean": 14.018085722927935,
+      "decision": "no_decision",
+      "effect": -0.28334282629657537,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane": {
+      "baseline_mean": 188.26886676688446,
+      "candidate_mean": 230.85842241562204,
+      "decision": "candidate_worse",
+      "effect": 42.58955564873759,
+      "effect_threshold": 9.413443338344223,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane": {
+      "baseline_mean": 14.30142854922451,
+      "candidate_mean": 14.018085722927935,
+      "decision": "no_decision",
+      "effect": -0.28334282629657537,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane": {
+      "baseline_mean": 188.26886676688446,
+      "candidate_mean": 230.85842241562204,
+      "decision": "candidate_worse",
+      "effect": 42.58955564873759,
+      "effect_threshold": 9.413443338344223,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane": {
+      "baseline_mean": 14.30142854922451,
+      "candidate_mean": 14.018085722927935,
+      "decision": "no_decision",
+      "effect": -0.28334282629657537,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane": {
+      "baseline_mean": 188.26886676688446,
+      "candidate_mean": 230.85842241562204,
+      "decision": "candidate_worse",
+      "effect": 42.58955564873759,
+      "effect_threshold": 9.413443338344223,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage0|map@0|branch=bm25_lane": {
+      "baseline_mean": 0.6069097358830907,
+      "candidate_mean": 0.6069097358830907,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|map@0|branch=bm25_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|map@0|branch=dense_lane": {
+      "baseline_mean": 0.64440201130983,
+      "candidate_mean": 0.6537653916191953,
+      "decision": "no_decision",
+      "effect": 0.009363380309365343,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|map@0|branch=dense_lane",
+      "p_value": 0.232,
+      "paired_n": 400,
+      "q_value": 0.4928936170212766,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|mrr@0|branch=bm25_lane": {
+      "baseline_mean": 0.827934782759511,
+      "candidate_mean": 0.827934782759511,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|mrr@0|branch=bm25_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|mrr@0|branch=dense_lane": {
+      "baseline_mean": 0.8667879318394024,
+      "candidate_mean": 0.878916514041514,
+      "decision": "no_decision",
+      "effect": 0.01212858220211166,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|mrr@0|branch=dense_lane",
+      "p_value": 0.217,
+      "paired_n": 400,
+      "q_value": 0.4774,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=bm25_lane": {
+      "baseline_mean": 0.6990980246729012,
+      "candidate_mean": 0.6990980246729012,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=bm25_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=dense_lane": {
+      "baseline_mean": 0.7299186918794119,
+      "candidate_mean": 0.74213097883903,
+      "decision": "no_decision",
+      "effect": 0.012212286959618068,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|ndcg@10|branch=dense_lane",
+      "p_value": 0.092,
+      "paired_n": 400,
+      "q_value": 0.2602285714285714,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|precision@10|branch=bm25_lane": {
+      "baseline_mean": 0.15525,
+      "candidate_mean": 0.15525,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|precision@10|branch=bm25_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|precision@10|branch=dense_lane": {
+      "baseline_mean": 0.15725,
+      "candidate_mean": 0.16,
+      "decision": "no_decision",
+      "effect": 0.0027500000000000024,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|precision@10|branch=dense_lane",
+      "p_value": 0.117,
+      "paired_n": 400,
+      "q_value": 0.304425,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|recall@10|branch=bm25_lane": {
+      "baseline_mean": 0.77625,
+      "candidate_mean": 0.77625,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|recall@10|branch=bm25_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage0|recall@10|branch=dense_lane": {
+      "baseline_mean": 0.78625,
+      "candidate_mean": 0.8,
+      "decision": "no_decision",
+      "effect": 0.01375000000000004,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage0|recall@10|branch=dense_lane",
+      "p_value": 0.117,
+      "paired_n": 400,
+      "q_value": 0.304425,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|latency_p50@0": {
+      "baseline_mean": 0.6954115512780845,
+      "candidate_mean": 0.6839177146321163,
+      "decision": "no_decision",
+      "effect": -0.011493836645968258,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|latency_p50@0",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|latency_p95@0": {
+      "baseline_mean": 0.6954115512780845,
+      "candidate_mean": 0.6839177146321163,
+      "decision": "no_decision",
+      "effect": -0.011493836645968258,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|latency_p95@0",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|latency_p99@0": {
+      "baseline_mean": 0.6954115512780845,
+      "candidate_mean": 0.6839177146321163,
+      "decision": "no_decision",
+      "effect": -0.011493836645968258,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|latency_p99@0",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|map@0": {
+      "baseline_mean": 0.6683564003377929,
+      "candidate_mean": 0.6794758360366058,
+      "decision": "no_decision",
+      "effect": 0.011119435698812907,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|map@0",
+      "p_value": 0.061,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|mrr@0": {
+      "baseline_mean": 0.8777641223155929,
+      "candidate_mean": 0.885111344537815,
+      "decision": "no_decision",
+      "effect": 0.007347222222222172,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|mrr@0",
+      "p_value": 0.335,
+      "paired_n": 400,
+      "q_value": 0.603,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|ndcg@10": {
+      "baseline_mean": 0.7582731563738707,
+      "candidate_mean": 0.7677295688081475,
+      "decision": "no_decision",
+      "effect": 0.00945641243427675,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|ndcg@10",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|precision@10": {
+      "baseline_mean": 0.16824999999999998,
+      "candidate_mean": 0.16949999999999998,
+      "decision": "no_decision",
+      "effect": 0.0012500000000000011,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|precision@10",
+      "p_value": 0.309,
+      "paired_n": 400,
+      "q_value": 0.5998235294117648,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage1|recall@10": {
+      "baseline_mean": 0.84125,
+      "candidate_mean": 0.8475,
+      "decision": "no_decision",
+      "effect": 0.006249999999999978,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage1|recall@10",
+      "p_value": 0.501,
+      "paired_n": 400,
+      "q_value": 0.7999838709677419,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage2|latency_p50@0": {
+      "baseline_mean": 0.7931034374632873,
+      "candidate_mean": 0.5510584620060399,
+      "decision": "no_decision",
+      "effect": -0.24204497545724735,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|latency_p50@0",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage2|latency_p95@0": {
+      "baseline_mean": 0.7931034374632873,
+      "candidate_mean": 0.5510584620060399,
+      "decision": "no_decision",
+      "effect": -0.24204497545724735,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|latency_p95@0",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage2|latency_p99@0": {
+      "baseline_mean": 0.7931034374632873,
+      "candidate_mean": 0.5510584620060399,
+      "decision": "no_decision",
+      "effect": -0.24204497545724735,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|latency_p99@0",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage2|map@0": {
+      "baseline_mean": 0.6683564003377929,
+      "candidate_mean": 0.6794758360366058,
+      "decision": "no_decision",
+      "effect": 0.011119435698812907,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|map@0",
+      "p_value": 0.061,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage2|mrr@0": {
+      "baseline_mean": 0.8777641223155929,
+      "candidate_mean": 0.885111344537815,
+      "decision": "no_decision",
+      "effect": 0.007347222222222172,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|mrr@0",
+      "p_value": 0.335,
+      "paired_n": 400,
+      "q_value": 0.603,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage2|ndcg@10": {
+      "baseline_mean": 0.7582731563738707,
+      "candidate_mean": 0.7677295688081475,
+      "decision": "no_decision",
+      "effect": 0.00945641243427675,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|ndcg@10",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage2|precision@10": {
+      "baseline_mean": 0.16824999999999998,
+      "candidate_mean": 0.16949999999999998,
+      "decision": "no_decision",
+      "effect": 0.0012500000000000011,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|precision@10",
+      "p_value": 0.309,
+      "paired_n": 400,
+      "q_value": 0.5998235294117648,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage2|recall@10": {
+      "baseline_mean": 0.84125,
+      "candidate_mean": 0.8475,
+      "decision": "no_decision",
+      "effect": 0.006249999999999978,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage2|recall@10",
+      "p_value": 0.501,
+      "paired_n": 400,
+      "q_value": 0.7999838709677419,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2": {
+      "baseline_mean": 159.43510139273712,
+      "candidate_mean": 198.35185884003295,
+      "decision": "candidate_worse",
+      "effect": 38.91675744729582,
+      "effect_threshold": 7.971755069636856,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen": {
+      "baseline_mean": 45.03032595443074,
+      "candidate_mean": 55.55137572257081,
+      "decision": "candidate_worse",
+      "effect": 10.521049768140074,
+      "effect_threshold": 2.251516297721537,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2": {
+      "baseline_mean": 159.43510139273712,
+      "candidate_mean": 198.35185884003295,
+      "decision": "candidate_worse",
+      "effect": 38.91675744729582,
+      "effect_threshold": 7.971755069636856,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen": {
+      "baseline_mean": 45.03032595443074,
+      "candidate_mean": 55.55137572257081,
+      "decision": "candidate_worse",
+      "effect": 10.521049768140074,
+      "effect_threshold": 2.251516297721537,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2": {
+      "baseline_mean": 159.43510139273712,
+      "candidate_mean": 198.35185884003295,
+      "decision": "candidate_worse",
+      "effect": 38.91675744729582,
+      "effect_threshold": 7.971755069636856,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen": {
+      "baseline_mean": 45.03032595443074,
+      "candidate_mean": 55.55137572257081,
+      "decision": "candidate_worse",
+      "effect": 10.521049768140074,
+      "effect_threshold": 2.251516297721537,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "significant paired effect exceeds the practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage3|map@0|branch=bridge_hop2": {
+      "baseline_mean": 0.4963922136110737,
+      "candidate_mean": 0.5043417569189559,
+      "decision": "no_decision",
+      "effect": 0.007949543307882168,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|map@0|branch=bridge_hop2",
+      "p_value": 0.123,
+      "paired_n": 400,
+      "q_value": 0.304425,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen": {
+      "baseline_mean": 0.17233045357420354,
+      "candidate_mean": 0.17561281760178818,
+      "decision": "no_decision",
+      "effect": 0.003282364027584639,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen",
+      "p_value": 0.234,
+      "paired_n": 400,
+      "q_value": 0.4928936170212766,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2": {
+      "baseline_mean": 0.6705766223155929,
+      "candidate_mean": 0.6798196778711484,
+      "decision": "no_decision",
+      "effect": 0.00924305555555549,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2",
+      "p_value": 0.206,
+      "paired_n": 400,
+      "q_value": 0.46349999999999997,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen": {
+      "baseline_mean": 0.2071875,
+      "candidate_mean": 0.20529166666666665,
+      "decision": "no_decision",
+      "effect": -0.0018958333333333466,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen",
+      "p_value": 0.411,
+      "paired_n": 400,
+      "q_value": 0.7265892857142857,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=bridge_hop2": {
+      "baseline_mean": 0.5701345925270226,
+      "candidate_mean": 0.5764800561723604,
+      "decision": "no_decision",
+      "effect": 0.006345463645337834,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=bridge_hop2",
+      "p_value": 0.18,
+      "paired_n": 400,
+      "q_value": 0.42428571428571427,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen": {
+      "baseline_mean": 0.18813856384684813,
+      "candidate_mean": 0.19124951263578702,
+      "decision": "no_decision",
+      "effect": 0.0031109487889388887,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen",
+      "p_value": 0.118,
+      "paired_n": 400,
+      "q_value": 0.304425,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|precision@10|branch=bridge_hop2": {
+      "baseline_mean": 0.1275,
+      "candidate_mean": 0.1275,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|precision@10|branch=bridge_hop2",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen": {
+      "baseline_mean": 0.04075,
+      "candidate_mean": 0.042,
+      "decision": "no_decision",
+      "effect": 0.0012500000000000011,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen",
+      "p_value": 0.04,
+      "paired_n": 400,
+      "q_value": 0.198,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|recall@10|branch=bridge_hop2": {
+      "baseline_mean": 0.6375,
+      "candidate_mean": 0.6375,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|recall@10|branch=bridge_hop2",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen": {
+      "baseline_mean": 0.20375,
+      "candidate_mean": 0.21,
+      "decision": "no_decision",
+      "effect": 0.0062500000000000056,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen",
+      "p_value": 0.04,
+      "paired_n": 400,
+      "q_value": 0.198,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage4|latency_p50@0": {
+      "baseline_mean": 1.7737085331464186,
+      "candidate_mean": 1.3283186563057825,
+      "decision": "no_decision",
+      "effect": -0.44538987684063613,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|latency_p50@0",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage4|latency_p95@0": {
+      "baseline_mean": 1.7737085331464186,
+      "candidate_mean": 1.3283186563057825,
+      "decision": "no_decision",
+      "effect": -0.44538987684063613,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|latency_p95@0",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage4|latency_p99@0": {
+      "baseline_mean": 1.7737085331464186,
+      "candidate_mean": 1.3283186563057825,
+      "decision": "no_decision",
+      "effect": -0.44538987684063613,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|latency_p99@0",
+      "p_value": 0.0,
+      "paired_n": 400,
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
+    },
+    "hotpotqa_hybrid_dag|stage4|map@0": {
+      "baseline_mean": 0.49761996136414255,
+      "candidate_mean": 0.5057054083616608,
+      "decision": "no_decision",
+      "effect": 0.00808544699751823,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|map@0",
+      "p_value": 0.12,
+      "paired_n": 400,
+      "q_value": 0.304425,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage4|mrr@0": {
+      "baseline_mean": 0.6705766223155929,
+      "candidate_mean": 0.6798196778711484,
+      "decision": "no_decision",
+      "effect": 0.00924305555555549,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|mrr@0",
+      "p_value": 0.206,
+      "paired_n": 400,
+      "q_value": 0.46349999999999997,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage4|ndcg@10": {
+      "baseline_mean": 0.5701345925270226,
+      "candidate_mean": 0.5764800561723604,
+      "decision": "no_decision",
+      "effect": 0.006345463645337834,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|ndcg@10",
+      "p_value": 0.18,
+      "paired_n": 400,
+      "q_value": 0.42428571428571427,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage4|precision@10": {
+      "baseline_mean": 0.1275,
+      "candidate_mean": 0.1275,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|precision@10",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage4|recall@10": {
+      "baseline_mean": 0.6375,
+      "candidate_mean": 0.6375,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage4|recall@10",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|latency_p50@0": {
+      "baseline_mean": 0.8837992811459117,
+      "candidate_mean": 0.9651840585866012,
+      "decision": "no_decision",
+      "effect": 0.0813847774406895,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|latency_p50@0",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|latency_p95@0": {
+      "baseline_mean": 0.8837992811459117,
+      "candidate_mean": 0.9651840585866012,
+      "decision": "no_decision",
+      "effect": 0.0813847774406895,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|latency_p95@0",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|latency_p99@0": {
+      "baseline_mean": 0.8837992811459117,
+      "candidate_mean": 0.9651840585866012,
+      "decision": "no_decision",
+      "effect": 0.0813847774406895,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|latency_p99@0",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|map@0": {
+      "baseline_mean": 0.6683564003377929,
+      "candidate_mean": 0.6794758360366058,
+      "decision": "no_decision",
+      "effect": 0.011119435698812907,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|map@0",
+      "p_value": 0.061,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|mrr@0": {
+      "baseline_mean": 0.8777641223155929,
+      "candidate_mean": 0.885111344537815,
+      "decision": "no_decision",
+      "effect": 0.007347222222222172,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|mrr@0",
+      "p_value": 0.335,
+      "paired_n": 400,
+      "q_value": 0.603,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|ndcg@10": {
+      "baseline_mean": 0.7582731563738707,
+      "candidate_mean": 0.7677295688081475,
+      "decision": "no_decision",
+      "effect": 0.00945641243427675,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|ndcg@10",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|precision@10": {
+      "baseline_mean": 0.16824999999999998,
+      "candidate_mean": 0.16949999999999998,
+      "decision": "no_decision",
+      "effect": 0.0012500000000000011,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|precision@10",
+      "p_value": 0.309,
+      "paired_n": 400,
+      "q_value": 0.5998235294117648,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage5|recall@10": {
+      "baseline_mean": 0.84125,
+      "candidate_mean": 0.8475,
+      "decision": "no_decision",
+      "effect": 0.006249999999999978,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage5|recall@10",
+      "p_value": 0.501,
+      "paired_n": 400,
+      "q_value": 0.7999838709677419,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|latency_p50@0": {
+      "baseline_mean": 0.5596140705165453,
+      "candidate_mean": 0.814993642270565,
+      "decision": "no_decision",
+      "effect": 0.2553795717540197,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|latency_p50@0",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|latency_p95@0": {
+      "baseline_mean": 0.5596140705165453,
+      "candidate_mean": 0.814993642270565,
+      "decision": "no_decision",
+      "effect": 0.2553795717540197,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|latency_p95@0",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|latency_p99@0": {
+      "baseline_mean": 0.5596140705165453,
+      "candidate_mean": 0.814993642270565,
+      "decision": "no_decision",
+      "effect": 0.2553795717540197,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|latency_p99@0",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|map@0": {
+      "baseline_mean": 0.6683564003377929,
+      "candidate_mean": 0.6794758360366058,
+      "decision": "no_decision",
+      "effect": 0.011119435698812907,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|map@0",
+      "p_value": 0.061,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|mrr@0": {
+      "baseline_mean": 0.8777641223155929,
+      "candidate_mean": 0.885111344537815,
+      "decision": "no_decision",
+      "effect": 0.007347222222222172,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|mrr@0",
+      "p_value": 0.335,
+      "paired_n": 400,
+      "q_value": 0.603,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|ndcg@10": {
+      "baseline_mean": 0.7582731563738707,
+      "candidate_mean": 0.7677295688081475,
+      "decision": "no_decision",
+      "effect": 0.00945641243427675,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|ndcg@10",
+      "p_value": 0.064,
+      "paired_n": 400,
+      "q_value": 0.20438709677419356,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|precision@10": {
+      "baseline_mean": 0.16824999999999998,
+      "candidate_mean": 0.16949999999999998,
+      "decision": "no_decision",
+      "effect": 0.0012500000000000011,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|precision@10",
+      "p_value": 0.309,
+      "paired_n": 400,
+      "q_value": 0.5998235294117648,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage6|recall@10": {
+      "baseline_mean": 0.84125,
+      "candidate_mean": 0.8475,
+      "decision": "no_decision",
+      "effect": 0.006249999999999978,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage6|recall@10",
+      "p_value": 0.501,
+      "paired_n": 400,
+      "q_value": 0.7999838709677419,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane": {
+      "baseline_mean": 0.3082009425270371,
+      "candidate_mean": 0.30231509532313794,
+      "decision": "no_decision",
+      "effect": -0.005885847203899175,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane",
+      "p_value": 0.557,
+      "paired_n": 400,
+      "q_value": 0.8483538461538462,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank": {
+      "baseline_mean": 426.91181676316774,
+      "candidate_mean": 354.33104124473175,
+      "decision": "no_decision",
+      "effect": -72.58077551843598,
+      "effect_threshold": 21.345590838158387,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank",
+      "p_value": 0.082,
+      "paired_n": 400,
+      "q_value": 0.23876470588235296,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane": {
+      "baseline_mean": 0.3082009425270371,
+      "candidate_mean": 0.30231509532313794,
+      "decision": "no_decision",
+      "effect": -0.005885847203899175,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane",
+      "p_value": 0.557,
+      "paired_n": 400,
+      "q_value": 0.8483538461538462,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank": {
+      "baseline_mean": 426.91181676316774,
+      "candidate_mean": 354.33104124473175,
+      "decision": "no_decision",
+      "effect": -72.58077551843598,
+      "effect_threshold": 21.345590838158387,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank",
+      "p_value": 0.082,
+      "paired_n": 400,
+      "q_value": 0.23876470588235296,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane": {
+      "baseline_mean": 0.3082009425270371,
+      "candidate_mean": 0.30231509532313794,
+      "decision": "no_decision",
+      "effect": -0.005885847203899175,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane",
+      "p_value": 0.557,
+      "paired_n": 400,
+      "q_value": 0.8483538461538462,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank": {
+      "baseline_mean": 426.91181676316774,
+      "candidate_mean": 354.33104124473175,
+      "decision": "no_decision",
+      "effect": -72.58077551843598,
+      "effect_threshold": 21.345590838158387,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank",
+      "p_value": 0.082,
+      "paired_n": 400,
+      "q_value": 0.23876470588235296,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|map@0|branch=fast_lane": {
+      "baseline_mean": 0.38091258238021003,
+      "candidate_mean": 0.3863273871703632,
+      "decision": "no_decision",
+      "effect": 0.00541480479015316,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|map@0|branch=fast_lane",
+      "p_value": 0.642,
+      "paired_n": 400,
+      "q_value": 0.9035492957746479,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|map@0|branch=rerank": {
+      "baseline_mean": 0.3725853174603174,
+      "candidate_mean": 0.37023115079365077,
+      "decision": "no_decision",
+      "effect": -0.002354166666666657,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|map@0|branch=rerank",
+      "p_value": 0.857,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|mrr@0|branch=fast_lane": {
+      "baseline_mean": 0.5149583333333333,
+      "candidate_mean": 0.5250915032679739,
+      "decision": "no_decision",
+      "effect": 0.01013316993464064,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|mrr@0|branch=fast_lane",
+      "p_value": 0.474,
+      "paired_n": 400,
+      "q_value": 0.7999838709677419,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|mrr@0|branch=rerank": {
+      "baseline_mean": 0.43736111111111114,
+      "candidate_mean": 0.4321527777777778,
+      "decision": "no_decision",
+      "effect": -0.00520833333333337,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|mrr@0|branch=rerank",
+      "p_value": 0.693,
+      "paired_n": 400,
+      "q_value": 0.952875,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=fast_lane": {
+      "baseline_mean": 0.42607033058294547,
+      "candidate_mean": 0.4308639367533111,
+      "decision": "no_decision",
+      "effect": 0.004793606170365616,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=fast_lane",
+      "p_value": 0.714,
+      "paired_n": 400,
+      "q_value": 0.9683013698630136,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=rerank": {
+      "baseline_mean": 0.4031350707038686,
+      "candidate_mean": 0.40074252084206236,
+      "decision": "no_decision",
+      "effect": -0.002392549861806259,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|ndcg@10|branch=rerank",
+      "p_value": 0.859,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|precision@10|branch=fast_lane": {
+      "baseline_mean": 0.08925000000000001,
+      "candidate_mean": 0.08925000000000001,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|precision@10|branch=fast_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|precision@10|branch=rerank": {
+      "baseline_mean": 0.08575,
+      "candidate_mean": 0.08575,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|precision@10|branch=rerank",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|recall@10|branch=fast_lane": {
+      "baseline_mean": 0.44625,
+      "candidate_mean": 0.44625,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|recall@10|branch=fast_lane",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage7|recall@10|branch=rerank": {
+      "baseline_mean": 0.42875,
+      "candidate_mean": 0.42875,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage7|recall@10|branch=rerank",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|latency_p50@0": {
+      "baseline_mean": 0.4400624966365285,
+      "candidate_mean": 0.5498890767921694,
+      "decision": "no_decision",
+      "effect": 0.10982658015564084,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|latency_p50@0",
+      "p_value": 0.968,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|latency_p95@0": {
+      "baseline_mean": 0.4400624966365285,
+      "candidate_mean": 0.5498890767921694,
+      "decision": "no_decision",
+      "effect": 0.10982658015564084,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|latency_p95@0",
+      "p_value": 0.968,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|latency_p99@0": {
+      "baseline_mean": 0.4400624966365285,
+      "candidate_mean": 0.5498890767921694,
+      "decision": "no_decision",
+      "effect": 0.10982658015564084,
+      "effect_threshold": 1.0,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|latency_p99@0",
+      "p_value": 0.968,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|map@0": {
+      "baseline_mean": 0.7471924603174602,
+      "candidate_mean": 0.7500873015873016,
+      "decision": "no_decision",
+      "effect": 0.0028948412698414083,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|map@0",
+      "p_value": 0.614,
+      "paired_n": 400,
+      "q_value": 0.9035492957746479,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|mrr@0": {
+      "baseline_mean": 0.9523194444444445,
+      "candidate_mean": 0.9570972222222223,
+      "decision": "no_decision",
+      "effect": 0.00477777777777777,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|mrr@0",
+      "p_value": 0.419,
+      "paired_n": 400,
+      "q_value": 0.7277368421052632,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|ndcg@10": {
+      "baseline_mean": 0.8292054012868141,
+      "candidate_mean": 0.8316064575953734,
+      "decision": "no_decision",
+      "effect": 0.0024010563085593573,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|ndcg@10",
+      "p_value": 0.627,
+      "paired_n": 400,
+      "q_value": 0.9035492957746479,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|precision@10": {
+      "baseline_mean": 0.175,
+      "candidate_mean": 0.175,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|precision@10",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    },
+    "hotpotqa_hybrid_dag|stage8|recall@10": {
+      "baseline_mean": 0.875,
+      "candidate_mean": 0.875,
+      "decision": "no_decision",
+      "effect": 0.0,
+      "effect_threshold": 0.01,
+      "low_power": false,
+      "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
+      "p_value": 1.0,
+      "paired_n": 400,
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
+    }
+  },
+  "next_action": "Resolve missing or invalid required evidence, then rerun the comparison.",
+  "provenance": {
+    "baseline_manifest": {
+      "cache_results": false,
+      "config_hash": "0e63f58318705aaff7489f4f86b79574ed0831a2f8b61cd79a67f65369fa810e",
+      "counts": {
+        "attempted": 400,
+        "completed": 400,
+        "labeled": 400,
+        "metric_eligible": 400
+      },
+      "dataset": {
+        "content_hash": "d8e2555c750f276d4cba6c194a7c507c3121913702a79d5b7fc04eeca1019249",
+        "corpus_docs": 12654,
+        "corpus_hash": "c58ac3866908dd301d1573904842ca85d770ec37ac2071e6fc134dfaadb76cf9",
+        "label_sparsity_pct": 0.0,
+        "missing_qrel_doc_id_examples": [],
+        "missing_qrel_doc_ids": 0,
+        "name": "hotpotqa-demo",
+        "qrel_doc_ids": 796,
+        "qrel_hash": "66f2677505fb5cef2a7843b093d1581c5d2adf1785ac5a0feb6f40b23e264d46",
+        "qrels": 400,
+        "queries": 400,
+        "query_hash": "8b5c26cc0cc79d6bc0e00af5ea46e34bc26833f9bd1d8d66fa6b9172c6c2c91a"
+      },
+      "duplicate_ablation_stages": [],
+      "duration_semantics": {
+        "critical_path_ms": "longest observed dependency path",
+        "operator_sum_ms": "sum of observed operator durations",
+        "total_latency_ms": "query wall clock"
+      },
+      "environment": {
+        "machine": "arm64",
+        "platform": "macOS-26.5.2-arm64-arm-64bit",
+        "processor": "arm",
+        "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]"
+      },
+      "evidence_profile": {
+        "lineage": {
+          "document_identity_coverage": 0.0,
+          "identity_continuity_coverage": 1.0,
+          "input_output_coverage": 0.815,
+          "legacy_inferred_count": 23337,
+          "partial_trace_count": 0,
+          "qrel_to_chunk_mapping_coverage": null,
+          "recorded_exit_reason_coverage": 0.0,
+          "topology_edge_coverage": 0.8292307692307692,
+          "trace_coverage": 1.0
+        },
+        "release_identity": {
+          "chunking_revision": "title-prefixed-paragraph-v1",
+          "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+          "deployment_revision": "baseline",
+          "embedding_model_revision": "sentence-transformers/all-MiniLM-L6-v2",
+          "index_build_id": "faiss-flatip-7f2133a73273",
+          "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "service_id": "retobs-flagship-demo"
+        },
+        "run_window": {
+          "finished_at": "2026-08-03T17:20:16.764606Z",
+          "started_at": "2026-08-03T17:19:25.434913Z"
+        },
+        "telemetry": null,
+        "topologies": [
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "05f8e90949ddcc90c1dbe2c585553ff537caa7b7734adb5cc44426029822ffe5"
+          },
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "4fe15fe091e6c17322e326f5714a126bfd362302cd969a35032f76ffdbcca387"
+          },
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "e4ab0ed40dc28cc0dcbe31386a773423613662e924328f2437243c5d4919c237"
+          },
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "ed1acad9b524481f6520a37f213fab6be14d03e87ff15f849cb3f7ac635baa77"
+          }
+        ]
+      },
+      "execution": {
+        "cache_results": false,
+        "concurrency": 8,
+        "nondeterminism_flags": [],
+        "observed": {
+          "cache_hits": 0,
+          "cache_misses": null,
+          "retries": null,
+          "timeouts": 0
+        },
+        "retry_attempts": 2,
+        "seed": 20260803,
+        "timeout_ms": 60000
+      },
+      "git_commit": "e421c403d5b20e233b1d0c3b78c7e1d25fdc35c1",
+      "git_dirty": true,
+      "labeling": {
+        "judge": null,
+        "method": "gold",
+        "model": null,
+        "version": null
+      },
+      "machine": "arm64",
+      "models": [
+        {
+          "model": null,
+          "operator_id": "bm25_lane",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.bm25",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "dense_lane",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.hf_biencoder",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "hybrid_fusion",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "fuse",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "type_gate",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "bridge_hop2",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "bridge_siblings",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "comparison_widen",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "route_merge",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "fuse",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "confidence_gate",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "fast_lane",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "rerank",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.hf_crossencoder",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "final_selection",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "fuse",
+          "version": null
+        }
+      ],
+      "normalized_config": {
+        "combinations": null,
+        "costs": {},
+        "dataset": {
+          "corpus_path": null,
+          "format": "jsonl",
+          "max_queries": null,
+          "metadata_fields": [],
+          "name": "hotpotqa-demo",
+          "qrels_path": null,
+          "queries_path": null,
+          "split": "test",
+          "temporal_field": null,
+          "timestamp_field": null,
+          "type": null
+        },
+        "execution": {
+          "cache_results": false,
+          "concurrency": 8,
+          "retry_attempts": 2,
+          "seed": 20260803,
+          "timeout_ms": 60000,
+          "timeout_seconds": 60
+        },
+        "experiment": {
+          "name": "baseline"
+        },
+        "graphs": [
+          {
+            "id": "hotpotqa_hybrid_dag",
+            "nodes": [
+              {
+                "config": {},
+                "id": "bm25_lane",
+                "inputs": [],
+                "model": null,
+                "op": null,
+                "op_type": "SOURCE",
+                "retriever_id": "bm25_lane",
+                "type": "adapter.bm25",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "dense_lane",
+                "inputs": [],
+                "model": null,
+                "op": null,
+                "op_type": "SOURCE",
+                "retriever_id": "dense_lane",
+                "type": "adapter.hf_biencoder",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "hybrid_fusion",
+                "inputs": [
+                  "bm25_lane",
+                  "dense_lane"
+                ],
+                "model": null,
+                "op": "fuse",
+                "op_type": "FUSE",
+                "retriever_id": "hybrid_fusion",
+                "type": null,
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "type_gate",
+                "inputs": [
+                  "hybrid_fusion"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "GATE",
+                "retriever_id": "type_gate",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "bridge_hop2",
+                "inputs": [
+                  "type_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "EXPAND",
+                "retriever_id": "bridge_hop2",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "bridge_siblings",
+                "inputs": [
+                  "bridge_hop2"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "EXPAND",
+                "retriever_id": "bridge_siblings",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "comparison_widen",
+                "inputs": [
+                  "type_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "EXPAND",
+                "retriever_id": "comparison_widen",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "route_merge",
+                "inputs": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ],
+                "model": null,
+                "op": "fuse",
+                "op_type": "FUSE",
+                "retriever_id": "route_merge",
+                "type": null,
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "confidence_gate",
+                "inputs": [
+                  "route_merge"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "GATE",
+                "retriever_id": "confidence_gate",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "fast_lane",
+                "inputs": [
+                  "confidence_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "TRANSFORM",
+                "retriever_id": "fast_lane",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "rerank",
+                "inputs": [
+                  "confidence_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "RERANK",
+                "retriever_id": "rerank",
+                "type": "adapter.hf_crossencoder",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "final_selection",
+                "inputs": [
+                  "fast_lane",
+                  "rerank"
+                ],
+                "model": null,
+                "op": "fuse",
+                "op_type": "FUSE",
+                "retriever_id": "final_selection",
+                "type": null,
+                "url": null
+              }
+            ],
+            "output": "final_selection"
+          }
+        ],
+        "labels": {
+          "cache_path": ".retobs/llm_judge_cache.db",
+          "judge": null,
+          "mode": "gold",
+          "model": null
+        },
+        "metrics": {
+          "latency_percentiles": [
+            50,
+            95,
+            99
+          ],
+          "map": true,
+          "mrr": true,
+          "ndcg_at_k": [
+            10
+          ],
+          "precision_at_k": [
+            10
+          ],
+          "recall_at_k": [
+            10
+          ],
+          "temporal_recall_at_k": []
+        },
+        "output": {
+          "dashboard": false,
+          "db_path": ".retobs/results.db",
+          "export": [],
+          "postgres_dsn": null,
+          "store": "sqlite"
+        },
+        "pipelines": [],
+        "profiling": true,
+        "release_identity": {
+          "chunking_revision": "title-prefixed-paragraph-v1",
+          "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+          "deployment_revision": "baseline",
+          "embedding_model_revision": "sentence-transformers/all-MiniLM-L6-v2",
+          "index_build_id": "faiss-flatip-7f2133a73273",
+          "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "service_id": "retobs-flagship-demo"
+        },
+        "stages": {}
+      },
+      "packages": {
+        "faiss-cpu": "1.14.2",
+        "httpx": "0.28.1",
+        "numpy": "2.4.6",
+        "pydantic": "2.13.4",
+        "rank-bm25": "0.2.2",
+        "sentence-transformers": "5.5.1"
+      },
+      "platform": "macOS-26.5.2-arm64-arm-64bit",
+      "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]",
+      "release_identity": {
+        "chunking_revision": "title-prefixed-paragraph-v1",
+        "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+        "deployment_revision": "baseline",
+        "embedding_model_revision": "sentence-transformers/all-MiniLM-L6-v2",
+        "index_build_id": "faiss-flatip-7f2133a73273",
+        "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "service_id": "retobs-flagship-demo"
+      },
+      "run_window": {
+        "finished_at": "2026-08-03T17:20:16.764606+00:00",
+        "started_at": "2026-08-03T17:19:25.434913+00:00"
+      },
+      "schema_version": 3,
+      "seed": 20260803,
+      "stage_labels": {
+        "hotpotqa_hybrid_dag": [
+          "bm25_lane",
+          "dense_lane",
+          "hybrid_fusion",
+          "type_gate",
+          "bridge_hop2",
+          "bridge_siblings",
+          "comparison_widen",
+          "route_merge",
+          "confidence_gate",
+          "fast_lane",
+          "rerank",
+          "final_selection"
+        ]
+      }
+    },
+    "candidate_manifest": {
+      "cache_results": false,
+      "config_hash": "db11a8417f20ab878414517da66ac00710e09a25687c4161008ba1fcc03aa370",
+      "counts": {
+        "attempted": 400,
+        "completed": 400,
+        "labeled": 400,
+        "metric_eligible": 400
+      },
+      "dataset": {
+        "content_hash": "d8e2555c750f276d4cba6c194a7c507c3121913702a79d5b7fc04eeca1019249",
+        "corpus_docs": 12654,
+        "corpus_hash": "c58ac3866908dd301d1573904842ca85d770ec37ac2071e6fc134dfaadb76cf9",
+        "label_sparsity_pct": 0.0,
+        "missing_qrel_doc_id_examples": [],
+        "missing_qrel_doc_ids": 0,
+        "name": "hotpotqa-demo",
+        "qrel_doc_ids": 796,
+        "qrel_hash": "66f2677505fb5cef2a7843b093d1581c5d2adf1785ac5a0feb6f40b23e264d46",
+        "qrels": 400,
+        "queries": 400,
+        "query_hash": "8b5c26cc0cc79d6bc0e00af5ea46e34bc26833f9bd1d8d66fa6b9172c6c2c91a"
+      },
+      "duplicate_ablation_stages": [],
+      "duration_semantics": {
+        "critical_path_ms": "longest observed dependency path",
+        "operator_sum_ms": "sum of observed operator durations",
+        "total_latency_ms": "query wall clock"
+      },
+      "environment": {
+        "machine": "arm64",
+        "platform": "macOS-26.5.2-arm64-arm-64bit",
+        "processor": "arm",
+        "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]"
+      },
+      "evidence_profile": {
+        "lineage": {
+          "document_identity_coverage": 0.0,
+          "identity_continuity_coverage": 1.0,
+          "input_output_coverage": 0.815,
+          "legacy_inferred_count": 23924,
+          "partial_trace_count": 0,
+          "qrel_to_chunk_mapping_coverage": null,
+          "recorded_exit_reason_coverage": 0.0,
+          "topology_edge_coverage": 0.8292307692307692,
+          "trace_coverage": 1.0
+        },
+        "release_identity": {
+          "chunking_revision": "title-prefixed-paragraph-v1",
+          "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+          "deployment_revision": "candidate-swapped-embedding",
+          "embedding_model_revision": "sentence-transformers/all-MiniLM-L12-v2",
+          "index_build_id": "faiss-flatip-7f2133a73273",
+          "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "service_id": "retobs-flagship-demo"
+        },
+        "run_window": {
+          "finished_at": "2026-08-04T04:59:42.398947Z",
+          "started_at": "2026-08-04T04:58:50.115291Z"
+        },
+        "telemetry": null,
+        "topologies": [
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "05f8e90949ddcc90c1dbe2c585553ff537caa7b7734adb5cc44426029822ffe5"
+          },
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "4fe15fe091e6c17322e326f5714a126bfd362302cd969a35032f76ffdbcca387"
+          },
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "e4ab0ed40dc28cc0dcbe31386a773423613662e924328f2437243c5d4919c237"
+          },
+          {
+            "lineage_schema_versions": [
+              2
+            ],
+            "operators": [
+              {
+                "op_id": "bm25_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "bridge_hop2",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "bridge_siblings",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "bridge_hop2"
+                ]
+              },
+              {
+                "op_id": "comparison_widen",
+                "op_type": "EXPAND",
+                "parent_ids": [
+                  "type_gate"
+                ]
+              },
+              {
+                "op_id": "confidence_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "route_merge"
+                ]
+              },
+              {
+                "op_id": "dense_lane",
+                "op_type": "SOURCE",
+                "parent_ids": []
+              },
+              {
+                "op_id": "fast_lane",
+                "op_type": "TRANSFORM",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "final_selection",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "fast_lane",
+                  "rerank"
+                ]
+              },
+              {
+                "op_id": "hybrid_fusion",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bm25_lane",
+                  "dense_lane"
+                ]
+              },
+              {
+                "op_id": "rerank",
+                "op_type": "RERANK",
+                "parent_ids": [
+                  "confidence_gate"
+                ]
+              },
+              {
+                "op_id": "route_merge",
+                "op_type": "FUSE",
+                "parent_ids": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ]
+              },
+              {
+                "op_id": "type_gate",
+                "op_type": "GATE",
+                "parent_ids": [
+                  "hybrid_fusion"
+                ]
+              }
+            ],
+            "topology_hash": "ed1acad9b524481f6520a37f213fab6be14d03e87ff15f849cb3f7ac635baa77"
+          }
+        ]
+      },
+      "execution": {
+        "cache_results": false,
+        "concurrency": 8,
+        "nondeterminism_flags": [],
+        "observed": {
+          "cache_hits": 0,
+          "cache_misses": null,
+          "retries": null,
+          "timeouts": 0
+        },
+        "retry_attempts": 2,
+        "seed": 20260803,
+        "timeout_ms": 60000
+      },
+      "git_commit": "e421c403d5b20e233b1d0c3b78c7e1d25fdc35c1",
+      "git_dirty": true,
+      "labeling": {
+        "judge": null,
+        "method": "gold",
+        "model": null,
+        "version": null
+      },
+      "machine": "arm64",
+      "models": [
+        {
+          "model": null,
+          "operator_id": "bm25_lane",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.bm25",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "dense_lane",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.hf_biencoder",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "hybrid_fusion",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "fuse",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "type_gate",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "bridge_hop2",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "bridge_siblings",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "comparison_widen",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "route_merge",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "fuse",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "confidence_gate",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "fast_lane",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.import",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "rerank",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "adapter.hf_crossencoder",
+          "version": null
+        },
+        {
+          "model": null,
+          "operator_id": "final_selection",
+          "pipeline_id": "hotpotqa_hybrid_dag",
+          "type": "fuse",
+          "version": null
+        }
+      ],
+      "normalized_config": {
+        "combinations": null,
+        "costs": {},
+        "dataset": {
+          "corpus_path": null,
+          "format": "jsonl",
+          "max_queries": null,
+          "metadata_fields": [],
+          "name": "hotpotqa-demo",
+          "qrels_path": null,
+          "queries_path": null,
+          "split": "test",
+          "temporal_field": null,
+          "timestamp_field": null,
+          "type": null
+        },
+        "execution": {
+          "cache_results": false,
+          "concurrency": 8,
+          "retry_attempts": 2,
+          "seed": 20260803,
+          "timeout_ms": 60000,
+          "timeout_seconds": 60
+        },
+        "experiment": {
+          "name": "candidate-swapped-embedding"
+        },
+        "graphs": [
+          {
+            "id": "hotpotqa_hybrid_dag",
+            "nodes": [
+              {
+                "config": {},
+                "id": "bm25_lane",
+                "inputs": [],
+                "model": null,
+                "op": null,
+                "op_type": "SOURCE",
+                "retriever_id": "bm25_lane",
+                "type": "adapter.bm25",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "dense_lane",
+                "inputs": [],
+                "model": null,
+                "op": null,
+                "op_type": "SOURCE",
+                "retriever_id": "dense_lane",
+                "type": "adapter.hf_biencoder",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "hybrid_fusion",
+                "inputs": [
+                  "bm25_lane",
+                  "dense_lane"
+                ],
+                "model": null,
+                "op": "fuse",
+                "op_type": "FUSE",
+                "retriever_id": "hybrid_fusion",
+                "type": null,
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "type_gate",
+                "inputs": [
+                  "hybrid_fusion"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "GATE",
+                "retriever_id": "type_gate",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "bridge_hop2",
+                "inputs": [
+                  "type_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "EXPAND",
+                "retriever_id": "bridge_hop2",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "bridge_siblings",
+                "inputs": [
+                  "bridge_hop2"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "EXPAND",
+                "retriever_id": "bridge_siblings",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "comparison_widen",
+                "inputs": [
+                  "type_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "EXPAND",
+                "retriever_id": "comparison_widen",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "route_merge",
+                "inputs": [
+                  "bridge_siblings",
+                  "comparison_widen"
+                ],
+                "model": null,
+                "op": "fuse",
+                "op_type": "FUSE",
+                "retriever_id": "route_merge",
+                "type": null,
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "confidence_gate",
+                "inputs": [
+                  "route_merge"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "GATE",
+                "retriever_id": "confidence_gate",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "fast_lane",
+                "inputs": [
+                  "confidence_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "TRANSFORM",
+                "retriever_id": "fast_lane",
+                "type": "adapter.import",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "rerank",
+                "inputs": [
+                  "confidence_gate"
+                ],
+                "model": null,
+                "op": null,
+                "op_type": "RERANK",
+                "retriever_id": "rerank",
+                "type": "adapter.hf_crossencoder",
+                "url": null
+              },
+              {
+                "config": {},
+                "id": "final_selection",
+                "inputs": [
+                  "fast_lane",
+                  "rerank"
+                ],
+                "model": null,
+                "op": "fuse",
+                "op_type": "FUSE",
+                "retriever_id": "final_selection",
+                "type": null,
+                "url": null
+              }
+            ],
+            "output": "final_selection"
+          }
+        ],
+        "labels": {
+          "cache_path": ".retobs/llm_judge_cache.db",
+          "judge": null,
+          "mode": "gold",
+          "model": null
+        },
+        "metrics": {
+          "latency_percentiles": [
+            50,
+            95,
+            99
+          ],
+          "map": true,
+          "mrr": true,
+          "ndcg_at_k": [
+            10
+          ],
+          "precision_at_k": [
+            10
+          ],
+          "recall_at_k": [
+            10
+          ],
+          "temporal_recall_at_k": []
+        },
+        "output": {
+          "dashboard": false,
+          "db_path": ".retobs/results.db",
+          "export": [],
+          "postgres_dsn": null,
+          "store": "sqlite"
+        },
+        "pipelines": [],
+        "profiling": true,
+        "release_identity": {
+          "chunking_revision": "title-prefixed-paragraph-v1",
+          "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+          "deployment_revision": "candidate-swapped-embedding",
+          "embedding_model_revision": "sentence-transformers/all-MiniLM-L12-v2",
+          "index_build_id": "faiss-flatip-7f2133a73273",
+          "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+          "service_id": "retobs-flagship-demo"
+        },
+        "stages": {}
+      },
+      "packages": {
+        "faiss-cpu": "1.14.2",
+        "httpx": "0.28.1",
+        "numpy": "2.4.6",
+        "pydantic": "2.13.4",
+        "rank-bm25": "0.2.2",
+        "sentence-transformers": "5.5.1"
+      },
+      "platform": "macOS-26.5.2-arm64-arm-64bit",
+      "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]",
+      "release_identity": {
+        "chunking_revision": "title-prefixed-paragraph-v1",
+        "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca",
+        "deployment_revision": "candidate-swapped-embedding",
+        "embedding_model_revision": "sentence-transformers/all-MiniLM-L12-v2",
+        "index_build_id": "faiss-flatip-7f2133a73273",
+        "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        "service_id": "retobs-flagship-demo"
+      },
+      "run_window": {
+        "finished_at": "2026-08-04T04:59:42.398947+00:00",
+        "started_at": "2026-08-04T04:58:50.115291+00:00"
+      },
+      "schema_version": 3,
+      "seed": 20260803,
+      "stage_labels": {
+        "hotpotqa_hybrid_dag": [
+          "bm25_lane",
+          "dense_lane",
+          "hybrid_fusion",
+          "type_gate",
+          "bridge_hop2",
+          "bridge_siblings",
+          "comparison_widen",
+          "route_merge",
+          "confidence_gate",
+          "fast_lane",
+          "rerank",
+          "final_selection"
+        ]
+      }
+    }
+  },
+  "reproduce": "retobs compare 4b5be1ce 6fe66dac --db /Users/ameyakiwalkar/Documents/retrieval-observatory/results/flagship_demo/.retobs/demo.db --policy /Users/ameyakiwalkar/Documents/retrieval-observatory/results/flagship_demo/release-policy.yaml",
+  "run_id": "4b5be1ce..6fe66dac",
+  "schema_version": 1,
+  "title": "Run Comparison",
+  "verdict": "BLOCK"
+}

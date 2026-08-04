@@ -1,0 +1,52 @@
+RUN 4b5be1ce  (baseline)
+  queries 400  completed 400  metric-eligible 400
+  release identity:
+    corpus_revision           sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca
+    index_build_id            faiss-flatip-7f2133a73273
+    chunking_revision         title-prefixed-paragraph-v1
+    embedding_model_revision  sentence-transformers/all-MiniLM-L6-v2
+    reranker_model_revision   cross-encoder/ms-marco-MiniLM-L-6-v2
+
+PER-STAGE QUALITY
+  stage  operator / branch       recall@10   ndcg@10     n
+  0      bm25_lane                  0.7762    0.6991   400
+  0      dense_lane                 0.7863    0.7299   400
+  1      (spine)                    0.8413    0.7583   400
+  2      (spine)                    0.8413    0.7583   400
+  3      bridge_hop2                0.6375    0.5701   400
+  3      comparison_widen           0.2037    0.1881   400
+  4      (spine)                    0.6375    0.5701   400
+  5      (spine)                    0.8413    0.7583   400
+  6      (spine)                    0.8413    0.7583   400
+  7      fast_lane                  0.4462    0.4261   400
+  7      rerank                     0.4288    0.4031   400
+  8      (spine)                    0.8750    0.8292   400
+
+ROUTING
+  type_gate           bridge=312 (78%)  comparison=88 (22%)
+  confidence_gate     agree=213 (53%)  disagree=187 (47%)
+
+OPERATOR ACTIVITY
+  operator              fired  skipped   mean candidates out
+  bm25_lane               400        0                  30.0
+  dense_lane              400        0                  30.0
+  hybrid_fusion           400        0                  40.0
+  type_gate               400        0                  40.0
+  bridge_hop2             312       88                  57.0
+  comparison_widen         88      312                  52.4
+  bridge_siblings         312       88                  57.6
+  route_merge             400        0                  40.0
+  confidence_gate         400        0                  40.0
+  fast_lane               213      187                  40.0
+  rerank                  187      213                  10.0
+  final_selection         400        0                  10.0
+
+CANDIDATE LINEAGE OUTCOMES (all candidates, all queries)
+  relevant_retained                700    2.9%
+  relevant_dropped_at_stage         86    0.4%
+  relevant_lost_upstream            14    0.1%
+  unknown_relevance             23,696   96.7%
+
+  tracing health: lineage_incomplete = 0.0%  (healthy)
+  note: unknown_relevance is high by construction — HotpotQA labels only the
+        supporting paragraphs, so every other retrieved paragraph is unjudged.

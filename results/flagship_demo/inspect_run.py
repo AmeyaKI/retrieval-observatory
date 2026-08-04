@@ -146,6 +146,7 @@ def pick_lineage_example(traces: list, qrels: dict, metrics: list[dict]) -> str 
         if isinstance(value, dict):
             metadata.setdefault(row["query_id"], value)
 
+    complete_bridge: list[str] = []
     for trace in traces:
         meta = metadata.get(trace.query_id, {})
         if meta.get("type") != "bridge" or meta.get("level") != "hard":
@@ -156,10 +157,12 @@ def pick_lineage_example(traces: list, qrels: dict, metrics: list[dict]) -> str 
         outcomes = [passport.outcome.kind for passport in graph.candidates.values()]
         if "lineage_incomplete" in outcomes:
             continue
-        accounting = build_stage_loss_accounting(graph)
-        if accounting.relevant_dropped_at_stage:
+        complete_bridge.append(trace.query_id)
+        if build_stage_loss_accounting(graph).relevant_dropped_at_stage:
             return trace.query_id
-    return None
+    # Small samples may contain no query that lost a gold document. Any completely traced
+    # bridge query still shows the full read-out; it just has less to explain.
+    return complete_bridge[0] if complete_bridge else None
 
 
 def print_trace(traces: list, qrels: dict, queries: dict, query_id: str, metrics: list[dict]) -> None:

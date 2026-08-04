@@ -94,6 +94,12 @@ class PipelineSettings:
     dense_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+    #: Encode queries with this model while leaving the index built by `dense_model`.
+    #: Reproduces the stale-index mistake: the embedding model was swapped, the index was
+    #: not rebuilt. Both models emit 384 dimensions, so nothing errors — the vectors are
+    #: simply from two unrelated spaces and similarity becomes close to noise.
+    stale_query_encoder: str | None = None
+
     #: The lane-agreement test assumes exactly two search lanes; with three, the score
     #: arithmetic below stops being a proof.
     LANE_COUNT = 2
@@ -243,6 +249,41 @@ class FixedDepthLane:
             for document in result.documents
         ]
         return result
+
+
+class StaleIndexVectorLane:
+    """A vector index left over from the previous embedding model.
+
+    The index is built by `index_model`; queries are then encoded by `query_model`. Nothing
+    raises — both models emit 384-dimensional vectors, so the search runs happily and returns
+    documents ranked by similarity between two unrelated embedding spaces. This is what
+    "swapped the model, forgot to rebuild the index" actually looks like in production: no
+    error, no warning, just quietly meaningless retrieval.
+    """
+
+    supports_filters = False
+
+    def __init__(self, corpus: dict[str, str], index_model: str, query_model: str, retriever_id: str):
+        self._adapter = HFBiEncoderAdapter(corpus, model_name=index_model, retriever_id=retriever_id)
+        self._query_model = query_model
+        self._swapped = False
+        self.retriever_id = retriever_id
+
+    def _ensure_stale(self) -> None:
+        if self._swapped:
+            return
+        from sentence_transformers import SentenceTransformer
+
+        # Build (or load) the index under the ORIGINAL model first, then replace only the
+        # query encoder. Order matters: _build_index also sets the adapter's encoder.
+        if self._adapter._index is None:
+            self._adapter._build_index()
+        self._adapter._model = SentenceTransformer(self._query_model)
+        self._swapped = True
+
+    async def retrieve(self, query: Query) -> RetrievalResult:
+        self._ensure_stale()
+        return await self._adapter.retrieve(query)
 
 
 class CorpusReranker:
@@ -488,12 +529,17 @@ def build_pipeline(corpus: DemoCorpus, settings: PipelineSettings) -> DAGPipelin
     else:
         bm25 = DisabledLane("bm25_lane")
 
-    dense = FixedDepthLane(
-        HFBiEncoderAdapter(corpus.index_text, model_name=settings.dense_model, retriever_id="dense"),
-        settings.lane_depth,
-        "dense_lane",
-        corpus.titles,
+    vector_adapter: Any = (
+        StaleIndexVectorLane(
+            corpus.index_text,
+            index_model=settings.dense_model,
+            query_model=settings.stale_query_encoder,
+            retriever_id="dense",
+        )
+        if settings.stale_query_encoder
+        else HFBiEncoderAdapter(corpus.index_text, model_name=settings.dense_model, retriever_id="dense")
     )
+    dense = FixedDepthLane(vector_adapter, settings.lane_depth, "dense_lane", corpus.titles)
     lanes = [bm25, dense]
     link_index = TitleMentionIndex(corpus.titles)
 
