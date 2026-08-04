@@ -52,3 +52,7 @@ docs/verification/
 .claude/
 *.png
 artifacts/
+scripts/export_session.py
+!SESSION_FLAGSHIP_DEMO.md
+*.jsonl
+!SESSION_FLAGSHIP_DEMO.jsonl
