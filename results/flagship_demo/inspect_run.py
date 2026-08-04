@@ -131,6 +131,37 @@ def summarize_lineage(traces: list, qrels: dict) -> None:
     print("        supporting paragraphs, so every other retrieved paragraph is unjudged.")
 
 
+def pick_lineage_example(traces: list, qrels: dict, metrics: list[dict]) -> str | None:
+    """Choose one query for the lineage deep-dive, by evidence rather than by eye.
+
+    Wanted: a two-hop (bridge) question, at HotpotQA's `hard` level, whose trace is complete
+    enough to trust — no candidate left `lineage_incomplete` — and which actually lost a gold
+    document somewhere in the pipeline. A query that simply succeeded has nothing to explain.
+    """
+    metadata: dict[str, dict] = {}
+    for row in metrics:
+        value = row.get("query_metadata_json") or row.get("query_metadata")
+        if isinstance(value, str):
+            value = json.loads(value)
+        if isinstance(value, dict):
+            metadata.setdefault(row["query_id"], value)
+
+    for trace in traces:
+        meta = metadata.get(trace.query_id, {})
+        if meta.get("type") != "bridge" or meta.get("level") != "hard":
+            continue
+        graph = build_candidate_lineage(
+            trace, qrels_for_query=qrels.get(trace.query_id, {}), qrel_chunk_mapping_complete=True
+        )
+        outcomes = [passport.outcome.kind for passport in graph.candidates.values()]
+        if "lineage_incomplete" in outcomes:
+            continue
+        accounting = build_stage_loss_accounting(graph)
+        if accounting.relevant_dropped_at_stage:
+            return trace.query_id
+    return None
+
+
 def print_trace(traces: list, qrels: dict, queries: dict, query_id: str, metrics: list[dict]) -> None:
     trace = next((t for t in traces if t.query_id == query_id), None)
     if trace is None:
@@ -207,9 +238,18 @@ def main() -> int:
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--trace", default=None, help="query_id to print a full stage read-out for")
+    parser.add_argument(
+        "--pick",
+        action="store_true",
+        help="select a bridge / level=hard query with complete tracing that lost a gold document",
+    )
     args = parser.parse_args()
 
     run_id, metrics, traces, qrels, manifest, queries = asyncio.run(_load(args.db, args.run_id))
+
+    if args.pick:
+        print(pick_lineage_example(traces, qrels, metrics) or "no matching query")
+        return 0
 
     if args.trace:
         print_trace(traces, qrels, queries, args.trace, metrics)
