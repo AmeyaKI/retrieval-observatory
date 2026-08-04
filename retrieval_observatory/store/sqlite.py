@@ -393,7 +393,7 @@ class SQLiteStore:
 
     async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
         if query is None:
-            query = TraceQuery(service_id=service, limit=limit or 200)
+            query = TraceQuery(service_id=service, limit=limit)
         await self._ensure_schema()
         clauses: list[str] = []
         params: list[object] = []
@@ -412,14 +412,20 @@ class SQLiteStore:
             clauses.append("timestamp <= ?")
             params.append(query.until.isoformat())
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id LIMIT ? OFFSET ?"
-        params.extend((query.limit, query.offset))
+        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
+        if query.limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend((query.limit, query.offset))
+        elif query.offset:
+            sql += " LIMIT -1 OFFSET ?"  # SQLite needs a LIMIT before it accepts an OFFSET
+            params.append(query.offset)
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
         return [RetrievalTrace.from_dict(json.loads(row[0])) for row in rows]
 
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
+        """Every trace for a run. Unbounded by design — callers compute run-wide statistics."""
         return await self.list_traces(TraceQuery(run_id=run_id))
 
     async def list_services(self) -> List[ServiceSummary]:

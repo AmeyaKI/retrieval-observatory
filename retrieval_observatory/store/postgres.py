@@ -860,7 +860,7 @@ class PostgresStore:
 
     async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
         if query is None:
-            query = TraceQuery(service_id=service, limit=limit or 200)
+            query = TraceQuery(service_id=service, limit=limit)
         clauses: List[str] = []
         params: List = []
         for column, value in (
@@ -881,17 +881,20 @@ class PostgresStore:
             params.append(query.until)
             clauses.append(f"timestamp <= ${len(params)}")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        params.extend((query.limit, query.offset))
-        sql = (
-            f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id "
-            f"LIMIT ${len(params) - 1} OFFSET ${len(params)}"
-        )
+        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
+        if query.limit is not None:
+            params.extend((query.limit, query.offset))
+            sql += f" LIMIT ${len(params) - 1} OFFSET ${len(params)}"
+        elif query.offset:
+            params.append(query.offset)
+            sql += f" OFFSET ${len(params)}"
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
         return [_trace_from_json(row["trace_json"]) for row in rows]
 
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
+        """Every trace for a run. Unbounded by design — callers compute run-wide statistics."""
         return await self.list_traces(TraceQuery(run_id=run_id))
 
     async def get_trace(self, trace_id: str) -> Optional[RetrievalTrace]:

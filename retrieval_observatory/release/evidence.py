@@ -187,9 +187,15 @@ def _expected_trace_count(manifest: Mapping[str, Any]) -> int | None:
 
 def _trace_is_partial(trace: RetrievalTrace) -> bool:
     candidates = [candidate for group in _candidate_sets(trace) for candidate in group]
+    # A branch a gate chose not to run has no inputs because it never executed — the handoff
+    # is recorded on the gate's own span (`gate_values`), not missing. Counting it as absent
+    # parent-stage instrumentation marked every conditionally-routed pipeline as partially
+    # captured, with a remedy its author could not act on. ERROR and TIMEOUT spans stay in
+    # scope: those genuinely failed to produce the evidence they promised.
     missing_parent_group = any(
         parent_id not in span.input_groups
         for span in trace.spans
+        if span.status != "SKIPPED_BY_GATE"
         for parent_id in span.parent_ids
     )
     return bool(

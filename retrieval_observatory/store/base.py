@@ -204,11 +204,18 @@ class TraceQuery:
     until: datetime | None = None
     status: str | None = None
     topology_hash: str | None = None
-    limit: int = 200
+    #: Page size. `None` means every matching trace.
+    #:
+    #: Defaulting this to a page size made truncation the silent behaviour and completeness
+    #: the opt-in, which is backwards: a page is a presentation concern, while a statistic
+    #: computed over "the run's traces" is a correctness one. Callers that genuinely page
+    #: (the production trace browser, query evidence) pass a limit explicitly; callers that
+    #: want a whole run were silently handed its first 200 queries.
+    limit: int | None = None
     offset: int = 0
 
     def __post_init__(self) -> None:
-        if self.limit < 1:
+        if self.limit is not None and self.limit < 1:
             raise ValueError("limit must be positive")
         if self.offset < 0:
             raise ValueError("offset must be non-negative")

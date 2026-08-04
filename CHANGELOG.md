@@ -8,9 +8,21 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `metrics/comparison.py` — `rank_metric_keys()` orders metric keys by release-decision relevance (policy-guarded, terminal-stage quality, funnel, operational).
+
 ### Changed
 
+- `store/base.py` — `TraceQuery.limit` defaults to `None` (every matching trace) instead of `200`; paging callers pass a limit explicitly. Removes the `limit=1_000_000` / `limit=100000` workarounds in `cli.py`, `dashboard/analysis_api.py`, and `dashboard/api.py`.
+- `store/sqlite.py`, `store/postgres.py` — `list_traces` omits `LIMIT` when `TraceQuery.limit` is `None`.
+- `dashboard/api.py` — comparison rows ordered by `rank_metric_keys()` instead of alphabetically, so terminal-stage quality leads instead of run-level operational rows.
+- `sdk/report.py` — `_headline_metrics` selects terminal-stage quality via `parse_metric_key` and an explicit quality allow-list; `to_markdown` preserves that order instead of re-sorting alphabetically.
+
 ### Fixed
+
+- `tracing/candidates.py` — `FUSE` outputs matching several inputs are graded `identity_evidence="recorded"`, not `"partial"`; multi-match is the defined behaviour of a fan-in, and the downgrade raised a permanent `lineage_capture_partial` BLOCK on fully instrumented hybrid pipelines.
+- `sdk/report.py` — report headline metrics no longer omit recall/ndcg on multi-stage pipelines; the previous `|stage-1|` filter could only match run-level operational rows.
+- `store/*` — `get_traces(run_id)` returns every trace for a run instead of silently truncating at 200, which had reduced run-wide statistics (notably MCP `operator_marginal_contribution` intervals and dashboard metric recomputation) to a prefix of the run.
+- `release/evidence.py` — `_trace_is_partial` ignores `SKIPPED_BY_GATE` spans when checking for absent parent input groups; a branch a gate declined to run is recorded on the gate, not missing, and counting it marked every conditionally-routed pipeline as partially captured.
 
 ### Removed
 

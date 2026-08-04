@@ -18,6 +18,7 @@ from retrieval_observatory.metrics.comparison import (
     comparison_validity,
     pipeline_pairs,
     parse_metric_key,
+    rank_metric_keys,
 )
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
@@ -283,8 +284,10 @@ async def _build_comparison(
     # run-level operational row. Policy-guarded metrics lead when a policy is attached.
     policy_metrics: list[str] = []
     if policy_path:
+        from retrieval_observatory.release.policy import load_release_policy as _load_policy
+
         try:
-            policy_metrics = [guard.metric for guard in load_release_policy(policy_path).metrics]
+            policy_metrics = [guard.metric for guard in _load_policy(policy_path).metrics]
         except (OSError, ValueError):
             policy_metrics = []
     all_metric_keys = rank_metric_keys(
@@ -2014,7 +2017,7 @@ def create_app(
                 until=datetime.fromisoformat(until) if until else None,
                 status=status or None, limit=limit, offset=offset)
             traces = await store.list_traces(base)
-            all_matches = await store.list_traces(TraceQuery(service_id=service_id, since=base.since, until=base.until, status=base.status, limit=100000))
+            all_matches = await store.list_traces(TraceQuery(service_id=service_id, since=base.since, until=base.until, status=base.status))
             total = len(all_matches)
             return {"items": [trace.to_dict() for trace in traces], "total": total, "limit": limit, "offset": offset, "next_offset": offset + len(traces) if offset + len(traces) < total else None}
         return {"items": [], "total": 0, "limit": limit, "offset": offset, "next_offset": None}

@@ -66,7 +66,9 @@ class ReportModel:
                 "",
             ])
         lines.extend(["## Headline metrics", "", "| Metric | Mean | 95% CI |", "|---|---:|---:|"])
-        for key, value in sorted(self.metrics.items()):
+        # Insertion order is decision order (see _headline_metrics); sorting alphabetically
+        # here would put latency above the quality numbers the reader came for.
+        for key, value in self.metrics.items():
             if isinstance(value, dict):
                 mean = _format_number(value.get("mean"))
                 ci = f"{_format_number(value.get('ci_low'))} to {_format_number(value.get('ci_high'))}"

@@ -201,7 +201,7 @@ def build_analysis_router(store_for: Callable[[str], Any]) -> APIRouter:
                 raise HTTPException(422, f"Unknown cohort '{cohort_id}'")
             cohort = cohort_from_record({**record, "cohort_id": cohort_id})
         traces = await store.list_traces(
-            TraceQuery(service_id=service_id, run_id=run_id, since=since, until=until, limit=100000)
+            TraceQuery(service_id=service_id, run_id=run_id, since=since, until=until)
         )
         return store, filter_traces(traces, cohort), make_scope(db_id, service_id, run_id, since, until, cohort_id)
 

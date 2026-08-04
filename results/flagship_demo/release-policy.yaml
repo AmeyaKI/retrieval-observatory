@@ -1,0 +1,55 @@
+# Release policy for the flagship demo.
+#
+# Ordering matters for honesty, so it is recorded here: the slice *sizes* were read off the
+# baseline run (bridge 312, comparison 88, level=hard 400 — every group far above
+# min_paired_n), because declaring a group that turns out to be empty or thin forces a BLOCK
+# for a sample-size reason that has nothing to do with the change under test. The regression
+# *threshold* was fixed before any candidate run existed, and has not been touched since.
+#
+# Deliberately absent: the strict lineage requirements in examples/ci/release-policy.yaml
+# (require_stable_candidate_identity, min_input_output_coverage). Reaching them needs
+# document revisions or content hashes on every candidate, which retobs' built-in FUSE
+# operator does not carry through. Findings for those scopes are still computed and reported;
+# they are simply not gating, and only the promotion and aggregate/slice scopes decide the
+# verdict.
+
+id: hotpotqa-flagship-demo
+schema_version: 2
+
+evidence:
+  promotion:
+    # Both runs must record what corpus and which index they searched. Scenario C exists to
+    # show what happens when the recorded identity and the actual model disagree.
+    required_manifest_fields:
+      - release_identity.corpus_revision
+      - release_identity.index_build_id
+      - release_identity.embedding_model_revision
+
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 2000
+  seed: 17
+
+metrics:
+  # The terminal stage: what the pipeline actually returns. Earlier stages are reported but
+  # not guarded — a candidate is free to reshape the funnel as long as the output holds up.
+  - metric: hotpotqa_hybrid_dag|stage8|recall@10
+    direction: higher_is_better
+    max_regression: 0.02
+    min_paired_n: 30
+
+slices:
+  # HotpotQA's own annotations. `type` is the axis that varies and the one the pipeline
+  # branches on; `level` is constant "hard" across the whole validation split by HotpotQA's
+  # design, so its row will mirror the aggregate. Declared anyway, and called out in the
+  # README so nobody reads the duplication as a bug.
+  - id: type-bridge
+    field: type
+    value: bridge
+  - id: type-comparison
+    field: type
+    value: comparison
+  - id: level-hard
+    field: level
+    value: hard

@@ -77,14 +77,17 @@ CHUNKING_REVISION = "title-prefixed-paragraph-v1"
 class PipelineSettings:
     """Every knob the demo exposes. Scenario variants are `dataclasses.replace` of this."""
 
-    lane_depth: int = 50           # candidates each search lane returns
+    # Widths are sized for a legible demo, not for peak retrieval accuracy. Every candidate
+    # is recorded at both ends of every operator it passes, so these values set the stored
+    # trace size (~0.6 KB per candidate slot per query) as much as they set quality.
+    lane_depth: int = 30           # candidates each search lane returns
     rrf_k: int = 60                # reciprocal-rank-fusion constant
-    fusion_top_k: int = 60         # candidates surviving the hybrid merge
+    fusion_top_k: int = 40         # candidates surviving the hybrid merge
     bridge_hop2_depth: int = 25    # candidates the second-hop re-search returns per lane
     sibling_limit: int = 10        # paragraphs the link expansion may add
     sibling_source_docs: int = 3   # how many top candidates are scanned for outgoing links
-    widen_depth: int = 100         # candidates the comparison lane re-searches to
-    rerank_candidates: int = 60    # candidates handed to the cross-encoder
+    widen_depth: int = 60          # candidates the comparison lane re-searches to
+    rerank_candidates: int = 40    # candidates handed to the cross-encoder
     final_k: int = 10              # final result size
 
     bm25_lane_enabled: bool = True

@@ -113,9 +113,25 @@ def main() -> int:
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--max-queries", type=int, default=None)
     parser.add_argument("--no-bm25", action="store_true", help="disable the keyword lane (regression variant)")
+    parser.add_argument(
+        "--merge-width",
+        type=int,
+        default=None,
+        help="candidates surviving the branch merge and handed to the reranker (default 40)",
+    )
+    parser.add_argument("--embedding-model", default=None, help="override the dense lane's model")
+    parser.add_argument(
+        "--claim-index-build-id",
+        default=None,
+        help="record this index_build_id regardless of what was actually searched",
+    )
     args = parser.parse_args()
 
-    settings = PipelineSettings(bm25_lane_enabled=not args.no_bm25)
+    settings = PipelineSettings(
+        bm25_lane_enabled=not args.no_bm25,
+        **({"rerank_candidates": args.merge_width} if args.merge_width else {}),
+        **({"dense_model": args.embedding_model} if args.embedding_model else {}),
+    )
     artifacts, queries, _ = asyncio.run(
         run(
             name=args.name,
@@ -123,6 +139,7 @@ def main() -> int:
             data_dir=args.data_dir,
             db_path=args.db,
             max_queries=args.max_queries,
+            index_build_id_override=args.claim_index_build_id,
         )
     )
     print(f"\nrun_id: {artifacts.run_id}")

@@ -3016,7 +3016,7 @@ async def _tracelens_stats(service: str, db_path: str) -> None:
 
     store = SQLiteStore(db_path=db_path)
     await store.init_db()
-    rows = await store.list_traces(service, limit=1_000_000)
+    rows = await store.list_traces(service)
     if not rows:
         console.print(f"[yellow]No traces found for service '{service}'.[/yellow]")
         return
