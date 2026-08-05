@@ -2,13 +2,15 @@
 
 ## Source
 
-| | |
-|---|---|
-| Dataset | [`hotpotqa/hotpot_qa`](https://huggingface.co/datasets/hotpotqa/hotpot_qa) |
-| Configuration | `distractor` |
-| Split used | `validation` (7,405 questions) |
-| License | **CC BY-SA 4.0** |
-| Homepage | https://hotpotqa.github.io/ |
+
+| Item          | Answer                                                                     |
+| ------------- | -------------------------------------------------------------------------- |
+| Dataset       | `[hotpotqa/hotpot_qa](https://huggingface.co/datasets/hotpotqa/hotpot_qa)` |
+| Configuration | `distractor`                                                               |
+| Split used    | `validation` (7,405 questions)                                             |
+| License       | **CC BY-SA 4.0**                                                           |
+| Homepage      | [https://hotpotqa.github.io/](https://hotpotqa.github.io/)                 |
+
 
 **Citation**
 
@@ -29,25 +31,25 @@ published dataset.
 
 ## How each artifact is derived
 
-**`queries.jsonl`** — 1,300 questions sampled from the validation split with
+`queries.jsonl` — 1,300 questions sampled from the validation split with
 `random.Random(20260803).sample(...)`, using each question's original HotpotQA `id`. HotpotQA's own
 `type` and `level` labels are carried through as query metadata; those are what the release policy's
 declared slices filter on. The train split is never used.
 
-**`corpus.jsonl`** — HotpotQA bundles 10 paragraphs with each question (the 2 supporting ones plus
+`corpus.jsonl` — HotpotQA bundles 10 paragraphs with each question (the 2 supporting ones plus
 8 automatically-selected distractors). Every paragraph across all 1,300 sampled questions is pooled
 and deduplicated by title, yielding 12,654 distinct documents. Document text is the paragraph's
 sentences joined with single spaces. Document ids are derived from the title
 (`slugified_title__sha1prefix`), so the same Wikipedia paragraph keeps the same id regardless of
 which questions were sampled.
 
-**`qrels.jsonl`** — for each question, the titles named in `supporting_facts` are mapped to their
+`qrels.jsonl` — for each question, the titles named in `supporting_facts` are mapped to their
 document ids at binary relevance (grade 1). This yields exactly 2 relevant documents per question,
 matching HotpotQA's two-hop design.
 
 ## Known characteristics and limitations
 
-**The validation split contains only `level: hard` questions.** All 7,405 of them. This is by
+**The validation split contains only** `level: hard` **questions.** All 7,405 of them. This is by
 design in HotpotQA — easy and medium questions appear only in the train split, which is excluded
 from evaluation here. The `level` slice is therefore declared and reported, but its numbers are
 identical to the overall aggregate by construction. `type` (bridge / comparison) is the axis that
