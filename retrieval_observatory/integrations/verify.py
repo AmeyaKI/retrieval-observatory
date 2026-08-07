@@ -459,11 +459,15 @@ def verify_observed_traces(manifest: IntegrationManifest, traces: Sequence[Retri
     observed = {span.op_id for trace in traces for span in trace.spans}
     expected_edges = {(parent, op.op_id) for op in manifest.operators for parent in op.parent_ids}
     observed_edges = {(parent, span.op_id) for trace in traces for span in trace.spans for parent in span.parent_ids}
+    # With no traces at all, every declared operator is trivially "missing" and every declared
+    # edge trivially absent. Reporting them that way names a symptom and hides the cause, which
+    # is that the instrumented code never ran — usually an import error or an unexercised path.
+    no_traces = "No traces recorded: the instrumented code did not run. Check that the patched modules import cleanly and that each verification scenario was executed."
     specifications = (
         ("trace_sample", bool(traces), "Run every verification scenario."),
-        ("expected_operators", declared <= observed, f"Missing operators: {sorted(declared-observed)}"),
+        ("expected_operators", declared <= observed, no_traces if not traces else f"Missing operators: {sorted(declared-observed)}"),
         ("stable_operator_identity", observed <= declared, f"Unknown operators: {sorted(observed-declared)}"),
-        ("declared_edges", expected_edges <= observed_edges, f"Missing edges: {sorted(expected_edges-observed_edges)}"),
+        ("declared_edges", expected_edges <= observed_edges, no_traces if not traces else f"Missing edges: {sorted(expected_edges-observed_edges)}"),
         ("candidate_transitions", all(not s.parent_ids or bool(s.input_groups) for t in traces for s in t.spans), "Capture parent-grouped candidates."),
         ("timing", all(t.timing is not None for t in traces), "Capture trace timing."),
     )

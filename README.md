@@ -10,6 +10,18 @@ retobs is a local-first reliability layer for retrieval pipelines. It helps you 
 pip install "retrieval-observatory[dashboard,mcp]"
 ```
 
+## See it work first
+
+One command, no arguments, no API keys. It builds a regression story end to end — a Test Set, a
+comparison, a per-query cause, and a validated fix — then hands you a dashboard to explore it.
+
+```bash
+retobs demo
+retobs serve --db .retobs/demo/results.db
+```
+
+Everything below is the same workflow pointed at your own code.
+
 ## Integrate an existing project
 
 Create and review a plan before any mutation. Apply consumes that reviewed plan; verify reports readiness only after it observes the declared topology, candidate evidence, and telemetry health.

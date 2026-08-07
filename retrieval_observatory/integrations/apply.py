@@ -1,3 +1,4 @@
+import ast
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -18,6 +19,16 @@ def apply_integration_plan(plan: IntegrationPlan) -> IntegrationResult:
             raise ValueError(f"patch escapes project root: {patch.relative_path}")
         if not target.is_file() or sha256(target.read_bytes()).hexdigest() != patch.precondition_sha256:
             raise ValueError(f"stale integration plan: {patch.relative_path}")
+        # A plan is a file on disk and may have been hand-edited between plan and apply. Never
+        # write Python that does not parse: reporting "applied" over a broken module is worse
+        # than refusing, because the failure surfaces far from its cause.
+        if target.suffix == ".py":
+            try:
+                ast.parse(patch.replacement)
+            except SyntaxError as error:
+                raise ValueError(
+                    f"patch would not compile: {patch.relative_path} line {error.lineno}: {error.msg}"
+                ) from error
         targets.append((target, patch))
         originals.append(target.read_text(encoding="utf-8"))
     staged = []

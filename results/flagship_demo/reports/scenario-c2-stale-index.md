@@ -2,8 +2,8 @@
 
 **Verdict:** `BLOCK`  
 **Validity:** `warning`  
-**Baseline:** `4b5be1ce`  
-**Candidate:** `2e9cfddc`
+**Baseline:** `0c9f6a25`  
+**Candidate:** `4838eb6e`
 
 Required promotion evidence is missing or invalid; metric deltas are not decision-bearing.
 
@@ -46,26 +46,26 @@ Artifact schema: `1`
 
 ### Investigation references
 
-- `5a7d7deb5542995f4f402282` — `#/runs/2e9cfddc/queries/5a7d7deb5542995f4f402282/diff?against=4b5be1ce`
-- `5ae0968955429924de1b7105` — `#/runs/2e9cfddc/queries/5ae0968955429924de1b7105/diff?against=4b5be1ce`
-- `5a7b24fe55429931da12c9f7` — `#/runs/2e9cfddc/queries/5a7b24fe55429931da12c9f7/diff?against=4b5be1ce`
-- `5abcff225542993a06baf9ea` — `#/runs/2e9cfddc/queries/5abcff225542993a06baf9ea/diff?against=4b5be1ce`
-- `5a8f9c3f554299458435d69a` — `#/runs/2e9cfddc/queries/5a8f9c3f554299458435d69a/diff?against=4b5be1ce`
-- `5a848b5c5542997175ce1ef2` — `#/runs/2e9cfddc/queries/5a848b5c5542997175ce1ef2/diff?against=4b5be1ce`
-- `5ae352285542994393b9e685` — `#/runs/2e9cfddc/queries/5ae352285542994393b9e685/diff?against=4b5be1ce`
-- `5ab4314955429942dd415ecd` — `#/runs/2e9cfddc/queries/5ab4314955429942dd415ecd/diff?against=4b5be1ce`
-- `5ab4475c5542996a3a969f6c` — `#/runs/2e9cfddc/queries/5ab4475c5542996a3a969f6c/diff?against=4b5be1ce`
-- `5a88e605554299206df2b39c` — `#/runs/2e9cfddc/queries/5a88e605554299206df2b39c/diff?against=4b5be1ce`
-- `5a7363ec5542991f29ee2dd7` — `#/runs/2e9cfddc/queries/5a7363ec5542991f29ee2dd7/diff?against=4b5be1ce`
-- `5ab4f7fc5542991779162d43` — `#/runs/2e9cfddc/queries/5ab4f7fc5542991779162d43/diff?against=4b5be1ce`
-- `5abf931f5542990832d3a158` — `#/runs/2e9cfddc/queries/5abf931f5542990832d3a158/diff?against=4b5be1ce`
-- `5abae3205542996cc5e49edc` — `#/runs/2e9cfddc/queries/5abae3205542996cc5e49edc/diff?against=4b5be1ce`
-- `5a83eaae55429933447460b4` — `#/runs/2e9cfddc/queries/5a83eaae55429933447460b4/diff?against=4b5be1ce`
-- `5ae4c5595542990ba0bbb123` — `#/runs/2e9cfddc/queries/5ae4c5595542990ba0bbb123/diff?against=4b5be1ce`
-- `5ab42ef55542991751b4d6d9` — `#/runs/2e9cfddc/queries/5ab42ef55542991751b4d6d9/diff?against=4b5be1ce`
-- `5ae7edee554299540e5a56ad` — `#/runs/2e9cfddc/queries/5ae7edee554299540e5a56ad/diff?against=4b5be1ce`
-- `5a85fa815542996432c57155` — `#/runs/2e9cfddc/queries/5a85fa815542996432c57155/diff?against=4b5be1ce`
-- `5a87411d5542994846c1cd37` — `#/runs/2e9cfddc/queries/5a87411d5542994846c1cd37/diff?against=4b5be1ce`
+- `5a7d7deb5542995f4f402282` — `#/runs/4838eb6e/queries/5a7d7deb5542995f4f402282/diff?against=0c9f6a25`
+- `5a7b24fe55429931da12c9f7` — `#/runs/4838eb6e/queries/5a7b24fe55429931da12c9f7/diff?against=0c9f6a25`
+- `5ae0968955429924de1b7105` — `#/runs/4838eb6e/queries/5ae0968955429924de1b7105/diff?against=0c9f6a25`
+- `5a848b5c5542997175ce1ef2` — `#/runs/4838eb6e/queries/5a848b5c5542997175ce1ef2/diff?against=0c9f6a25`
+- `5abcff225542993a06baf9ea` — `#/runs/4838eb6e/queries/5abcff225542993a06baf9ea/diff?against=0c9f6a25`
+- `5a8f9c3f554299458435d69a` — `#/runs/4838eb6e/queries/5a8f9c3f554299458435d69a/diff?against=0c9f6a25`
+- `5ab4314955429942dd415ecd` — `#/runs/4838eb6e/queries/5ab4314955429942dd415ecd/diff?against=0c9f6a25`
+- `5ab9812d554299753720f821` — `#/runs/4838eb6e/queries/5ab9812d554299753720f821/diff?against=0c9f6a25`
+- `5ae829ea5542997ec2727738` — `#/runs/4838eb6e/queries/5ae829ea5542997ec2727738/diff?against=0c9f6a25`
+- `5adf076f5542992d7e9f9277` — `#/runs/4838eb6e/queries/5adf076f5542992d7e9f9277/diff?against=0c9f6a25`
+- `5ae789615542997ec2727695` — `#/runs/4838eb6e/queries/5ae789615542997ec2727695/diff?against=0c9f6a25`
+- `5a7a6c1a5542994f819ef1d5` — `#/runs/4838eb6e/queries/5a7a6c1a5542994f819ef1d5/diff?against=0c9f6a25`
+- `5a7363ec5542991f29ee2dd7` — `#/runs/4838eb6e/queries/5a7363ec5542991f29ee2dd7/diff?against=0c9f6a25`
+- `5aba943c554299232ef4a33e` — `#/runs/4838eb6e/queries/5aba943c554299232ef4a33e/diff?against=0c9f6a25`
+- `5ab4f7fc5542991779162d43` — `#/runs/4838eb6e/queries/5ab4f7fc5542991779162d43/diff?against=0c9f6a25`
+- `5abae3205542996cc5e49edc` — `#/runs/4838eb6e/queries/5abae3205542996cc5e49edc/diff?against=0c9f6a25`
+- `5a852cd05542997b5ce3ffb0` — `#/runs/4838eb6e/queries/5a852cd05542997b5ce3ffb0/diff?against=0c9f6a25`
+- `5a78ed6855429970f5fffdd9` — `#/runs/4838eb6e/queries/5a78ed6855429970f5fffdd9/diff?against=0c9f6a25`
+- `5a8501915542997175ce1f5a` — `#/runs/4838eb6e/queries/5a8501915542997175ce1f5a/diff?against=0c9f6a25`
+- `5a83eaae55429933447460b4` — `#/runs/4838eb6e/queries/5a83eaae55429933447460b4/diff?against=0c9f6a25`
 
 ## Next action
 
@@ -73,17 +73,18 @@ Resolve missing or invalid required evidence, then rerun the comparison.
 
 ## Reproduce and inspect
 
-- `retobs compare 4b5be1ce 2e9cfddc --db /Users/ameyakiwalkar/Documents/retrieval-observatory/results/flagship_demo/.retobs/demo.db --policy /Users/ameyakiwalkar/Documents/retrieval-observatory/results/flagship_demo/release-policy.yaml`
+- `retobs compare 0c9f6a25 4838eb6e --db .retobs/demo.db --policy release-policy.yaml`
 - Dashboard: http://127.0.0.1:4000/#/compare
 
 ## Provenance
 
-- **Baseline:** run `4b5be1ce`, manifest schema `3`, release identity `{"chunking_revision": "title-prefixed-paragraph-v1", "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca", "deployment_revision": "baseline", "embedding_model_revision": "sentence-transformers/all-MiniLM-L6-v2", "index_build_id": "faiss-flatip-7f2133a73273", "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2", "service_id": "retobs-flagship-demo"}`
-- **Candidate:** run `2e9cfddc`, manifest schema `3`, release identity `{"chunking_revision": "title-prefixed-paragraph-v1", "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca", "deployment_revision": "candidate-stale-index", "embedding_model_revision": "sentence-transformers/all-MiniLM-L12-v2", "index_build_id": "faiss-flatip-7f2133a73273", "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2", "service_id": "retobs-flagship-demo"}`
+- **Baseline:** run `0c9f6a25`, manifest schema `3`, release identity `{"chunking_revision": "title-prefixed-paragraph-v1", "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca", "deployment_revision": "baseline", "embedding_model_revision": "sentence-transformers/all-MiniLM-L6-v2", "index_build_id": "faiss-flatip-7f2133a73273", "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2", "service_id": "retobs-flagship-demo"}`
+- **Candidate:** run `4838eb6e`, manifest schema `3`, release identity `{"chunking_revision": "title-prefixed-paragraph-v1", "corpus_revision": "sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca", "deployment_revision": "candidate-stale-index", "embedding_model_revision": "sentence-transformers/all-MiniLM-L12-v2", "index_build_id": "faiss-flatip-7f2133a73273", "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2", "service_id": "retobs-flagship-demo"}`
 
 ## Validity evidence
 
-- `git_commit`: Runs differ on optional comparison axis 'git_commit'.
+- `git_commit`: Optional comparison metadata 'git_commit' is missing for at least one run.
+- `git_dirty`: Optional comparison metadata 'git_dirty' is missing for at least one run.
 
 ## Paired results
 
@@ -91,16 +92,10 @@ Resolve missing or invalid required evidence, then rerun the comparison.
 |---|---:|---:|---:|---:|---:|---|
 | `hotpotqa_hybrid_dag|stage-1|dropout_count@0` | unavailable | unavailable | unavailable | unavailable | 0 | no_decision |
 | `hotpotqa_hybrid_dag|stage-1|failure_rate@0` | unavailable | unavailable | unavailable | unavailable | 0 | no_decision |
-| `hotpotqa_hybrid_dag|stage-1|latency_p50@0` | 854.0280 | 987.8827 | 133.8547 | 0.0046 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage-1|latency_p95@0` | 854.0280 | 987.8827 | 133.8547 | 0.0046 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage-1|latency_p99@0` | 854.0280 | 987.8827 | 133.8547 | 0.0046 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage-1|latency_mean@0` | 840.6314 | 1283.7704 | 443.1391 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage-1|timeout_rate@0` | unavailable | unavailable | unavailable | unavailable | 0 | no_decision |
-| `hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane` | 14.3014 | 14.1507 | -0.1507 | 0.0624 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane` | 188.2689 | 245.6596 | 57.3908 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane` | 14.3014 | 14.1507 | -0.1507 | 0.0624 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane` | 188.2689 | 245.6596 | 57.3908 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane` | 14.3014 | 14.1507 | -0.1507 | 0.0624 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane` | 188.2689 | 245.6596 | 57.3908 | 0.0000 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=bm25_lane` | 14.3702 | 20.0123 | 5.6420 | 0.0000 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=dense_lane` | 191.5777 | 343.4198 | 151.8420 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage0|map@0|branch=bm25_lane` | 0.6069 | 0.6069 | 0.0000 | 1.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage0|map@0|branch=dense_lane` | 0.6444 | 0.4723 | -0.1721 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage0|mrr@0|branch=bm25_lane` | 0.8279 | 0.8279 | 0.0000 | 1.0000 | 400 | no_decision |
@@ -111,68 +106,50 @@ Resolve missing or invalid required evidence, then rerun the comparison.
 | `hotpotqa_hybrid_dag|stage0|precision@10|branch=dense_lane` | 0.1573 | 0.1225 | -0.0348 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage0|recall@10|branch=bm25_lane` | 0.7762 | 0.7762 | 0.0000 | 1.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage0|recall@10|branch=dense_lane` | 0.7863 | 0.6125 | -0.1737 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage1|latency_p50@0` | 0.6954 | 0.6938 | -0.0016 | 0.9456 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage1|latency_p95@0` | 0.6954 | 0.6938 | -0.0016 | 0.9456 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage1|latency_p99@0` | 0.6954 | 0.6938 | -0.0016 | 0.9456 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage1|latency_mean@0` | 0.6875 | 1.3366 | 0.6491 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage1|map@0` | 0.6684 | 0.6216 | -0.0467 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage1|mrr@0` | 0.8778 | 0.8222 | -0.0556 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage1|ndcg@10` | 0.7583 | 0.7091 | -0.0492 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage1|precision@10` | 0.1682 | 0.1585 | -0.0097 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage1|recall@10` | 0.8413 | 0.7925 | -0.0488 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage2|latency_p50@0` | 0.7931 | 0.8081 | 0.0150 | 1.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage2|latency_p95@0` | 0.7931 | 0.8081 | 0.0150 | 1.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage2|latency_p99@0` | 0.7931 | 0.8081 | 0.0150 | 1.0000 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage2|latency_mean@0` | 0.7668 | 1.1239 | 0.3571 | 0.5680 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage2|map@0` | 0.6684 | 0.6216 | -0.0467 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage2|mrr@0` | 0.8778 | 0.8222 | -0.0556 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage2|ndcg@10` | 0.7583 | 0.7091 | -0.0492 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage2|precision@10` | 0.1682 | 0.1585 | -0.0097 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage2|recall@10` | 0.8413 | 0.7925 | -0.0488 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2` | 159.4351 | 207.1370 | 47.7019 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen` | 45.0303 | 58.1302 | 13.0999 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2` | 159.4351 | 207.1370 | 47.7019 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen` | 45.0303 | 58.1302 | 13.0999 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2` | 159.4351 | 207.1370 | 47.7019 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen` | 45.0303 | 58.1302 | 13.0999 | 0.0000 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=bridge_hop2` | 157.5002 | 283.1518 | 125.6516 | 0.0000 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=comparison_widen` | 43.2031 | 78.8056 | 35.6024 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage3|map@0|branch=bridge_hop2` | 0.4964 | 0.4643 | -0.0320 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen` | 0.1723 | 0.1579 | -0.0145 | 0.0016 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen` | 0.1723 | 0.1579 | -0.0145 | 0.0013 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2` | 0.6706 | 0.6277 | -0.0428 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen` | 0.2072 | 0.1945 | -0.0127 | 0.0310 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen` | 0.2072 | 0.1945 | -0.0127 | 0.0251 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage3|ndcg@10|branch=bridge_hop2` | 0.5701 | 0.5361 | -0.0340 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen` | 0.1881 | 0.1730 | -0.0151 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage3|precision@10|branch=bridge_hop2` | 0.1275 | 0.1212 | -0.0063 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen` | 0.0408 | 0.0372 | -0.0035 | 0.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage3|recall@10|branch=bridge_hop2` | 0.6375 | 0.6062 | -0.0312 | 0.0016 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage3|recall@10|branch=bridge_hop2` | 0.6375 | 0.6062 | -0.0312 | 0.0013 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen` | 0.2037 | 0.1862 | -0.0175 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage4|latency_p50@0` | 1.7737 | 1.7405 | -0.0332 | 0.9988 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage4|latency_p95@0` | 1.7737 | 1.7405 | -0.0332 | 0.9988 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage4|latency_p99@0` | 1.7737 | 1.7405 | -0.0332 | 0.9988 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage4|latency_mean@0` | 1.5936 | 1.9726 | 0.3790 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage4|map@0` | 0.4976 | 0.4657 | -0.0319 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage4|mrr@0` | 0.6706 | 0.6277 | -0.0428 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage4|ndcg@10` | 0.5701 | 0.5361 | -0.0340 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage4|precision@10` | 0.1275 | 0.1212 | -0.0063 | 0.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage4|recall@10` | 0.6375 | 0.6062 | -0.0312 | 0.0016 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage5|latency_p50@0` | 0.8838 | 0.6678 | -0.2160 | 0.8493 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage5|latency_p95@0` | 0.8838 | 0.6678 | -0.2160 | 0.8493 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage5|latency_p99@0` | 0.8838 | 0.6678 | -0.2160 | 0.8493 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage4|recall@10` | 0.6375 | 0.6062 | -0.0312 | 0.0013 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage5|latency_mean@0` | 0.8919 | 0.9627 | 0.0708 | 1.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage5|map@0` | 0.6684 | 0.6216 | -0.0467 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage5|mrr@0` | 0.8778 | 0.8222 | -0.0556 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage5|ndcg@10` | 0.7583 | 0.7091 | -0.0492 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage5|precision@10` | 0.1682 | 0.1585 | -0.0097 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage5|recall@10` | 0.8413 | 0.7925 | -0.0488 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage6|latency_p50@0` | 0.5596 | 0.5477 | -0.0119 | 0.0509 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage6|latency_p95@0` | 0.5596 | 0.5477 | -0.0119 | 0.0509 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage6|latency_p99@0` | 0.5596 | 0.5477 | -0.0119 | 0.0509 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage6|latency_mean@0` | 0.8029 | 0.7878 | -0.0150 | 1.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage6|map@0` | 0.6684 | 0.6216 | -0.0467 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage6|mrr@0` | 0.8778 | 0.8222 | -0.0556 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage6|ndcg@10` | 0.7583 | 0.7091 | -0.0492 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage6|precision@10` | 0.1682 | 0.1585 | -0.0097 | 0.0000 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage6|recall@10` | 0.8413 | 0.7925 | -0.0488 | 0.0000 | 400 | candidate_worse |
-| `hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane` | 0.3082 | 0.2366 | -0.0716 | 0.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank` | 426.9118 | 446.3192 | 19.4074 | 0.8493 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane` | 0.3082 | 0.2366 | -0.0716 | 0.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank` | 426.9118 | 446.3192 | 19.4074 | 0.8493 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane` | 0.3082 | 0.2366 | -0.0716 | 0.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank` | 426.9118 | 446.3192 | 19.4074 | 0.8493 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=fast_lane` | 0.3006 | 0.7065 | 0.4059 | 0.0471 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=rerank` | 417.8948 | 534.6035 | 116.7087 | 0.0207 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage7|map@0|branch=fast_lane` | 0.3809 | 0.3005 | -0.0804 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage7|map@0|branch=rerank` | 0.3726 | 0.4530 | 0.0804 | 0.0000 | 400 | candidate_better |
 | `hotpotqa_hybrid_dag|stage7|mrr@0|branch=fast_lane` | 0.5150 | 0.4072 | -0.1078 | 0.0000 | 400 | candidate_worse |
@@ -183,38 +160,36 @@ Resolve missing or invalid required evidence, then rerun the comparison.
 | `hotpotqa_hybrid_dag|stage7|precision@10|branch=rerank` | 0.0858 | 0.1035 | 0.0178 | 0.0000 | 400 | candidate_better |
 | `hotpotqa_hybrid_dag|stage7|recall@10|branch=fast_lane` | 0.4462 | 0.3362 | -0.1100 | 0.0000 | 400 | candidate_worse |
 | `hotpotqa_hybrid_dag|stage7|recall@10|branch=rerank` | 0.4288 | 0.5175 | 0.0887 | 0.0000 | 400 | candidate_better |
-| `hotpotqa_hybrid_dag|stage8|latency_p50@0` | 0.4401 | 0.3881 | -0.0520 | 0.6429 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage8|latency_p95@0` | 0.4401 | 0.3881 | -0.0520 | 0.6429 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage8|latency_p99@0` | 0.4401 | 0.3881 | -0.0520 | 0.6429 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage8|map@0` | 0.7472 | 0.7492 | 0.0020 | 0.9393 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage8|latency_mean@0` | 0.2047 | 0.2746 | 0.0698 | 0.0000 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage8|map@0` | 0.7472 | 0.7492 | 0.0020 | 0.8951 | 400 | no_decision |
 | `hotpotqa_hybrid_dag|stage8|mrr@0` | 0.9523 | 0.9520 | -0.0003 | 1.0000 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage8|ndcg@10` | 0.8292 | 0.8244 | -0.0048 | 0.5057 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage8|precision@10` | 0.1750 | 0.1707 | -0.0043 | 0.0016 | 400 | no_decision |
-| `hotpotqa_hybrid_dag|stage8|recall@10` | 0.8750 | 0.8538 | -0.0212 | 0.0090 | 400 | candidate_worse |
+| `hotpotqa_hybrid_dag|stage8|ndcg@10` | 0.8292 | 0.8244 | -0.0048 | 0.4380 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage8|precision@10` | 0.1750 | 0.1707 | -0.0043 | 0.0013 | 400 | no_decision |
+| `hotpotqa_hybrid_dag|stage8|recall@10` | 0.8750 | 0.8538 | -0.0212 | 0.0074 | 400 | candidate_worse |
 
 ## Most affected queries
 
-Candidate minus baseline for `hotpotqa_hybrid_dag|stage-1|latency_p50@0`.
+Candidate minus baseline for `hotpotqa_hybrid_dag|stage-1|latency_mean@0`.
 
 | Query | Baseline | Candidate | Delta |
 |---|---:|---:|---:|
-| `5a7d7deb5542995f4f402282` | 165.6370 | 8625.1875 | 8459.5505 |
-| `5ae0968955429924de1b7105` | 142.0720 | 8571.5022 | 8429.4301 |
-| `5a7b24fe55429931da12c9f7` | 169.5503 | 8479.6613 | 8310.1110 |
-| `5abcff225542993a06baf9ea` | 8469.1613 | 1154.6085 | -7314.5528 |
-| `5a8f9c3f554299458435d69a` | 8406.8707 | 1123.4366 | -7283.4341 |
-| `5a848b5c5542997175ce1ef2` | 8580.1573 | 1416.1236 | -7164.0337 |
-| `5ae352285542994393b9e685` | 8284.7152 | 9592.1005 | 1307.3853 |
-| `5ab4314955429942dd415ecd` | 94.1953 | 1121.5405 | 1027.3452 |
-| `5ab4475c5542996a3a969f6c` | 8074.9089 | 9084.0835 | 1009.1747 |
-| `5a88e605554299206df2b39c` | 8129.9334 | 9129.9587 | 1000.0253 |
-| `5a7363ec5542991f29ee2dd7` | 452.0387 | 1338.9805 | 886.9418 |
-| `5ab4f7fc5542991779162d43` | 366.1987 | 1213.1859 | 846.9871 |
-| `5abf931f5542990832d3a158` | 377.9875 | 1163.6189 | 785.6315 |
-| `5abae3205542996cc5e49edc` | 428.5604 | 1206.2120 | 777.6516 |
-| `5a83eaae55429933447460b4` | 444.8393 | 1191.3519 | 746.5126 |
-| `5ae4c5595542990ba0bbb123` | 350.2994 | 1091.7265 | 741.4272 |
-| `5ab42ef55542991751b4d6d9` | 1278.0017 | 557.9958 | -720.0059 |
-| `5ae7edee554299540e5a56ad` | 400.4716 | 1118.0602 | 717.5885 |
-| `5a85fa815542996432c57155` | 421.5592 | 1138.0435 | 716.4843 |
-| `5a87411d5542994846c1cd37` | 450.3755 | 1162.7112 | 712.3356 |
+| `5a7d7deb5542995f4f402282` | 197.6235 | 8328.5682 | 8130.9448 |
+| `5a7b24fe55429931da12c9f7` | 167.4888 | 8204.6210 | 8037.1322 |
+| `5ae0968955429924de1b7105` | 133.2212 | 8039.7307 | 7906.5095 |
+| `5a848b5c5542997175ce1ef2` | 8303.6425 | 1674.7939 | -6628.8487 |
+| `5abcff225542993a06baf9ea` | 8223.6581 | 1631.0552 | -6592.6029 |
+| `5a8f9c3f554299458435d69a` | 8029.6779 | 1637.3590 | -6392.3189 |
+| `5ab4314955429942dd415ecd` | 94.9115 | 1641.8625 | 1546.9510 |
+| `5ab9812d554299753720f821` | 521.8323 | 1835.9715 | 1314.1393 |
+| `5ae829ea5542997ec2727738` | 421.8705 | 1720.0659 | 1298.1954 |
+| `5adf076f5542992d7e9f9277` | 415.8154 | 1648.4145 | 1232.5991 |
+| `5ae789615542997ec2727695` | 378.5158 | 1585.3361 | 1206.8203 |
+| `5a7a6c1a5542994f819ef1d5` | 386.3763 | 1580.0181 | 1193.6418 |
+| `5a7363ec5542991f29ee2dd7` | 443.3988 | 1628.6016 | 1185.2027 |
+| `5aba943c554299232ef4a33e` | 390.0281 | 1561.9414 | 1171.9133 |
+| `5ab4f7fc5542991779162d43` | 340.6075 | 1500.6358 | 1160.0284 |
+| `5abae3205542996cc5e49edc` | 599.8516 | 1731.8896 | 1132.0380 |
+| `5a852cd05542997b5ce3ffb0` | 379.1418 | 1482.4085 | 1103.2667 |
+| `5a78ed6855429970f5fffdd9` | 377.2357 | 1472.2163 | 1094.9806 |
+| `5a8501915542997175ce1f5a` | 348.1357 | 1434.9331 | 1086.7975 |
+| `5a83eaae55429933447460b4` | 406.5861 | 1481.4865 | 1074.9004 |

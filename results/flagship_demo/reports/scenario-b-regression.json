@@ -4,166 +4,166 @@
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a72a0be5542992359bc3143/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a72a0be5542992359bc3143",
-      "query_id": "5a72a0be5542992359bc3143"
+      "diff_route": "#/runs/de11e591/queries/5ac01bca5542992a796dec8d/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ac01bca5542992a796dec8d",
+      "query_id": "5ac01bca5542992a796dec8d"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a893f305542993b751ca91e/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a893f305542993b751ca91e",
-      "query_id": "5a893f305542993b751ca91e"
-    },
-    {
-      "baseline": 1.0,
-      "candidate": 0.0,
-      "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5abb23035542992ccd8e7f22/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5abb23035542992ccd8e7f22",
-      "query_id": "5abb23035542992ccd8e7f22"
-    },
-    {
-      "baseline": 1.0,
-      "candidate": 0.0,
-      "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ab5ec0a5542997d4ad1f250/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ab5ec0a5542997d4ad1f250",
+      "diff_route": "#/runs/de11e591/queries/5ab5ec0a5542997d4ad1f250/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ab5ec0a5542997d4ad1f250",
       "query_id": "5ab5ec0a5542997d4ad1f250"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5adea0c5554299728e26c776/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5adea0c5554299728e26c776",
-      "query_id": "5adea0c5554299728e26c776"
+      "diff_route": "#/runs/de11e591/queries/5ae534bb5542990ba0bbb21d/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ae534bb5542990ba0bbb21d",
+      "query_id": "5ae534bb5542990ba0bbb21d"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a7fb1e55542995d8a8ddef7/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a7fb1e55542995d8a8ddef7",
-      "query_id": "5a7fb1e55542995d8a8ddef7"
+      "diff_route": "#/runs/de11e591/queries/5ab2e3a35542991669774124/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ab2e3a35542991669774124",
+      "query_id": "5ab2e3a35542991669774124"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5adec96e5542995534e8c712/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5adec96e5542995534e8c712",
-      "query_id": "5adec96e5542995534e8c712"
+      "diff_route": "#/runs/de11e591/queries/5ab4f7fc5542991779162d43/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ab4f7fc5542991779162d43",
+      "query_id": "5ab4f7fc5542991779162d43"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ab42ef55542991751b4d6d9/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ab42ef55542991751b4d6d9",
-      "query_id": "5ab42ef55542991751b4d6d9"
+      "diff_route": "#/runs/de11e591/queries/5a7769a35542993569682d8f/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a7769a35542993569682d8f",
+      "query_id": "5a7769a35542993569682d8f"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ae748d1554299572ea547b0/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ae748d1554299572ea547b0",
-      "query_id": "5ae748d1554299572ea547b0"
+      "diff_route": "#/runs/de11e591/queries/5abd12bb55429933744ab703/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5abd12bb55429933744ab703",
+      "query_id": "5abd12bb55429933744ab703"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a88a4245542997e5c09a668/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a88a4245542997e5c09a668",
-      "query_id": "5a88a4245542997e5c09a668"
+      "diff_route": "#/runs/de11e591/queries/5abfca465542993fe9a41e65/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5abfca465542993fe9a41e65",
+      "query_id": "5abfca465542993fe9a41e65"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ab9379a554299753720f79d/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ab9379a554299753720f79d",
-      "query_id": "5ab9379a554299753720f79d"
+      "diff_route": "#/runs/de11e591/queries/5a77d65055429949eeb29f7b/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a77d65055429949eeb29f7b",
+      "query_id": "5a77d65055429949eeb29f7b"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a7c6d98554299683c1c6304/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a7c6d98554299683c1c6304",
-      "query_id": "5a7c6d98554299683c1c6304"
+      "diff_route": "#/runs/de11e591/queries/5a8038b55542996402f6a485/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a8038b55542996402f6a485",
+      "query_id": "5a8038b55542996402f6a485"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ae527945542993aec5ec167/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ae527945542993aec5ec167",
-      "query_id": "5ae527945542993aec5ec167"
+      "diff_route": "#/runs/de11e591/queries/5a7b3ec95542995eb53be8d3/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a7b3ec95542995eb53be8d3",
+      "query_id": "5a7b3ec95542995eb53be8d3"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ae32b6755429928c4239644/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ae32b6755429928c4239644",
-      "query_id": "5ae32b6755429928c4239644"
+      "diff_route": "#/runs/de11e591/queries/5a78bc6b554299148911f979/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a78bc6b554299148911f979",
+      "query_id": "5a78bc6b554299148911f979"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a8492ab5542992a431d1a5b/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a8492ab5542992a431d1a5b",
+      "diff_route": "#/runs/de11e591/queries/5a72a9ab5542992359bc315a/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a72a9ab5542992359bc315a",
+      "query_id": "5a72a9ab5542992359bc315a"
+    },
+    {
+      "baseline": 1.0,
+      "candidate": 0.0,
+      "delta": -1.0,
+      "diff_route": "#/runs/de11e591/queries/5a7fb1765542992e7d278d20/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a7fb1765542992e7d278d20",
+      "query_id": "5a7fb1765542992e7d278d20"
+    },
+    {
+      "baseline": 1.0,
+      "candidate": 0.0,
+      "delta": -1.0,
+      "diff_route": "#/runs/de11e591/queries/5ae236445542992decbdcc69/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ae236445542992decbdcc69",
+      "query_id": "5ae236445542992decbdcc69"
+    },
+    {
+      "baseline": 1.0,
+      "candidate": 0.0,
+      "delta": -1.0,
+      "diff_route": "#/runs/de11e591/queries/5a8492ab5542992a431d1a5b/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a8492ab5542992a431d1a5b",
       "query_id": "5a8492ab5542992a431d1a5b"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a726b0f5542997f827839be/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a726b0f5542997f827839be",
-      "query_id": "5a726b0f5542997f827839be"
+      "diff_route": "#/runs/de11e591/queries/5adea0c5554299728e26c776/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5adea0c5554299728e26c776",
+      "query_id": "5adea0c5554299728e26c776"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ae2a0a1554299495565dae9/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ae2a0a1554299495565dae9",
-      "query_id": "5ae2a0a1554299495565dae9"
+      "diff_route": "#/runs/de11e591/queries/5ab9812d554299753720f821/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ab9812d554299753720f821",
+      "query_id": "5ab9812d554299753720f821"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a7997a2554299029c4b5f59/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a7997a2554299029c4b5f59",
-      "query_id": "5a7997a2554299029c4b5f59"
+      "diff_route": "#/runs/de11e591/queries/5ae54eea5542993aec5ec19d/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5ae54eea5542993aec5ec19d",
+      "query_id": "5ae54eea5542993aec5ec19d"
     },
     {
       "baseline": 1.0,
       "candidate": 0.0,
       "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5a83eaae55429933447460b4/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5a83eaae55429933447460b4",
-      "query_id": "5a83eaae55429933447460b4"
-    },
-    {
-      "baseline": 1.0,
-      "candidate": 0.0,
-      "delta": -1.0,
-      "diff_route": "#/runs/c7b3767e/queries/5ab1c6c5554299722f9b4c67/diff?against=4b5be1ce",
-      "investigation_route": "#/runs/c7b3767e/queries/5ab1c6c5554299722f9b4c67",
-      "query_id": "5ab1c6c5554299722f9b4c67"
+      "diff_route": "#/runs/de11e591/queries/5a8a1b7a5542992d82986ec0/diff?against=0c9f6a25",
+      "investigation_route": "#/runs/de11e591/queries/5a8a1b7a5542992d82986ec0",
+      "query_id": "5a8a1b7a5542992d82986ec0"
     }
   ],
   "comparison": {
-    "baseline_run_id": "4b5be1ce",
-    "candidate_run_id": "c7b3767e",
+    "baseline_run_id": "0c9f6a25",
+    "candidate_run_id": "de11e591",
     "effect_orientation": "candidate_minus_baseline",
     "query_diff_metric": "hotpotqa_hybrid_dag|stage0|map@0|branch=bm25_lane",
     "release_decision": {
@@ -213,29 +213,29 @@
       ],
       "investigation": {
         "affected_query_ids": [
-          "5a72a0be5542992359bc3143",
-          "5a893f305542993b751ca91e",
-          "5abb23035542992ccd8e7f22",
+          "5ac01bca5542992a796dec8d",
           "5ab5ec0a5542997d4ad1f250",
-          "5adea0c5554299728e26c776",
-          "5a7fb1e55542995d8a8ddef7",
-          "5adec96e5542995534e8c712",
-          "5ab42ef55542991751b4d6d9",
-          "5ae748d1554299572ea547b0",
-          "5a88a4245542997e5c09a668",
-          "5ab9379a554299753720f79d",
-          "5a7c6d98554299683c1c6304",
-          "5ae527945542993aec5ec167",
-          "5ae32b6755429928c4239644",
+          "5ae534bb5542990ba0bbb21d",
+          "5ab2e3a35542991669774124",
+          "5ab4f7fc5542991779162d43",
+          "5a7769a35542993569682d8f",
+          "5abd12bb55429933744ab703",
+          "5abfca465542993fe9a41e65",
+          "5a77d65055429949eeb29f7b",
+          "5a8038b55542996402f6a485",
+          "5a7b3ec95542995eb53be8d3",
+          "5a78bc6b554299148911f979",
+          "5a72a9ab5542992359bc315a",
+          "5a7fb1765542992e7d278d20",
+          "5ae236445542992decbdcc69",
           "5a8492ab5542992a431d1a5b",
-          "5a726b0f5542997f827839be",
-          "5ae2a0a1554299495565dae9",
-          "5a7997a2554299029c4b5f59",
-          "5a83eaae55429933447460b4",
-          "5ab1c6c5554299722f9b4c67"
+          "5adea0c5554299728e26c776",
+          "5ab9812d554299753720f821",
+          "5ae54eea5542993aec5ec19d",
+          "5a8a1b7a5542992d82986ec0"
         ],
-        "diff_route_template": "#/runs/c7b3767e/queries/{query_id}/diff?against=4b5be1ce&policy_path=%2FUsers%2Fameyakiwalkar%2FDocuments%2Fretrieval-observatory%2Fresults%2Fflagship_demo%2Frelease-policy.yaml",
-        "query_route_template": "#/runs/c7b3767e/queries/{query_id}"
+        "diff_route_template": "#/runs/de11e591/queries/{query_id}/diff?against=0c9f6a25&policy_path=release-policy.yaml",
+        "query_route_template": "#/runs/de11e591/queries/{query_id}"
       },
       "next_action": "Review the bounded evidence and proceed through the normal deployment approval process.",
       "policy": {
@@ -479,7 +479,7 @@
           "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
           "service_id": "retobs-flagship-demo"
         },
-        "run_id": "4b5be1ce"
+        "run_id": "0c9f6a25"
       },
       "candidate": {
         "manifest_schema_version": 3,
@@ -492,7 +492,7 @@
           "reranker_model_revision": "cross-encoder/ms-marco-MiniLM-L-6-v2",
           "service_id": "retobs-flagship-demo"
         },
-        "run_id": "c7b3767e"
+        "run_id": "de11e591"
       }
     },
     "results": {
@@ -524,47 +524,19 @@
         "reason": "insufficient paired samples",
         "significant": null
       },
-      "hotpotqa_hybrid_dag|stage-1|latency_p50@0": {
-        "baseline_mean": 854.028023230203,
-        "candidate_mean": 706.3859487778973,
-        "decision": "candidate_better",
-        "effect": -147.64207445230568,
-        "effect_threshold": 42.70140116151015,
+      "hotpotqa_hybrid_dag|stage-1|latency_mean@0": {
+        "baseline_mean": 840.631366505695,
+        "candidate_mean": 797.8788056134363,
+        "decision": "no_decision",
+        "effect": -42.75256089225877,
+        "effect_threshold": 42.03156832528475,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage-1|latency_p50@0",
-        "p_value": 0.003,
+        "metric": "hotpotqa_hybrid_dag|stage-1|latency_mean@0",
+        "p_value": 0.461,
         "paired_n": 400,
-        "q_value": 0.004125,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage-1|latency_p95@0": {
-        "baseline_mean": 854.028023230203,
-        "candidate_mean": 706.3859487778973,
-        "decision": "candidate_better",
-        "effect": -147.64207445230568,
-        "effect_threshold": 42.70140116151015,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage-1|latency_p95@0",
-        "p_value": 0.003,
-        "paired_n": 400,
-        "q_value": 0.004125,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage-1|latency_p99@0": {
-        "baseline_mean": 854.028023230203,
-        "candidate_mean": 706.3859487778973,
-        "decision": "candidate_better",
-        "effect": -147.64207445230568,
-        "effect_threshold": 42.70140116151015,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage-1|latency_p99@0",
-        "p_value": 0.003,
-        "paired_n": 400,
-        "q_value": 0.004125,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
+        "q_value": 0.5177384615384615,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
       },
       "hotpotqa_hybrid_dag|stage-1|timeout_rate@0": {
         "baseline_mean": null,
@@ -580,84 +552,28 @@
         "reason": "insufficient paired samples",
         "significant": null
       },
-      "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane": {
-        "baseline_mean": 14.30142854922451,
-        "candidate_mean": 0.012547819060273468,
+      "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=bm25_lane": {
+        "baseline_mean": 14.37023980601225,
+        "candidate_mean": 0.014815307804383337,
         "decision": "candidate_better",
-        "effect": -14.288880730164237,
+        "effect": -14.355424498207867,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane",
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=bm25_lane",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane": {
-        "baseline_mean": 188.26886676688446,
-        "candidate_mean": 141.0223211607081,
+      "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=dense_lane": {
+        "baseline_mean": 191.5777467750013,
+        "candidate_mean": 164.7435832215706,
         "decision": "candidate_better",
-        "effect": -47.24654560617637,
-        "effect_threshold": 9.413443338344223,
+        "effect": -26.8341635534307,
+        "effect_threshold": 9.578887338750064,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane": {
-        "baseline_mean": 14.30142854922451,
-        "candidate_mean": 0.012547819060273468,
-        "decision": "candidate_better",
-        "effect": -14.288880730164237,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane": {
-        "baseline_mean": 188.26886676688446,
-        "candidate_mean": 141.0223211607081,
-        "decision": "candidate_better",
-        "effect": -47.24654560617637,
-        "effect_threshold": 9.413443338344223,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane": {
-        "baseline_mean": 14.30142854922451,
-        "candidate_mean": 0.012547819060273468,
-        "decision": "candidate_better",
-        "effect": -14.288880730164237,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane": {
-        "baseline_mean": 188.26886676688446,
-        "candidate_mean": 141.0223211607081,
-        "decision": "candidate_better",
-        "effect": -47.24654560617637,
-        "effect_threshold": 9.413443338344223,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane",
+        "metric": "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=dense_lane",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
@@ -804,42 +720,14 @@
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
-      "hotpotqa_hybrid_dag|stage1|latency_p50@0": {
-        "baseline_mean": 0.6954115512780845,
-        "candidate_mean": 0.4183316696435213,
+      "hotpotqa_hybrid_dag|stage1|latency_mean@0": {
+        "baseline_mean": 0.6874962849542499,
+        "candidate_mean": 0.5109043745324016,
         "decision": "no_decision",
-        "effect": -0.2770798816345632,
+        "effect": -0.1765919104218483,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage1|latency_p50@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage1|latency_p95@0": {
-        "baseline_mean": 0.6954115512780845,
-        "candidate_mean": 0.4183316696435213,
-        "decision": "no_decision",
-        "effect": -0.2770798816345632,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage1|latency_p95@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage1|latency_p99@0": {
-        "baseline_mean": 0.6954115512780845,
-        "candidate_mean": 0.4183316696435213,
-        "decision": "no_decision",
-        "effect": -0.2770798816345632,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage1|latency_p99@0",
+        "metric": "hotpotqa_hybrid_dag|stage1|latency_mean@0",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
@@ -856,7 +744,7 @@
         "metric": "hotpotqa_hybrid_dag|stage1|map@0",
         "p_value": 0.017,
         "paired_n": 400,
-        "q_value": 0.022743243243243245,
+        "q_value": 0.024820000000000002,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
@@ -870,7 +758,7 @@
         "metric": "hotpotqa_hybrid_dag|stage1|mrr@0",
         "p_value": 0.379,
         "paired_n": 400,
-        "q_value": 0.442046511627907,
+        "q_value": 0.44495238095238093,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -884,7 +772,7 @@
         "metric": "hotpotqa_hybrid_dag|stage1|ndcg@10",
         "p_value": 0.001,
         "paired_n": 400,
-        "q_value": 0.0014347826086956522,
+        "q_value": 0.0015208333333333332,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
@@ -916,47 +804,19 @@
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage2|latency_p50@0": {
-        "baseline_mean": 0.7931034374632873,
-        "candidate_mean": 0.6731282253167592,
+      "hotpotqa_hybrid_dag|stage2|latency_mean@0": {
+        "baseline_mean": 0.7668056405964307,
+        "candidate_mean": 0.5039372740429826,
         "decision": "no_decision",
-        "effect": -0.11997521214652807,
+        "effect": -0.26286836655344814,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage2|latency_p50@0",
-        "p_value": 0.507,
+        "metric": "hotpotqa_hybrid_dag|stage2|latency_mean@0",
+        "p_value": 0.0,
         "paired_n": 400,
-        "q_value": 0.5639662921348314,
-        "reason": "effect is not significant after BH correction",
-        "significant": false
-      },
-      "hotpotqa_hybrid_dag|stage2|latency_p95@0": {
-        "baseline_mean": 0.7931034374632873,
-        "candidate_mean": 0.6731282253167592,
-        "decision": "no_decision",
-        "effect": -0.11997521214652807,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage2|latency_p95@0",
-        "p_value": 0.507,
-        "paired_n": 400,
-        "q_value": 0.5639662921348314,
-        "reason": "effect is not significant after BH correction",
-        "significant": false
-      },
-      "hotpotqa_hybrid_dag|stage2|latency_p99@0": {
-        "baseline_mean": 0.7931034374632873,
-        "candidate_mean": 0.6731282253167592,
-        "decision": "no_decision",
-        "effect": -0.11997521214652807,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage2|latency_p99@0",
-        "p_value": 0.507,
-        "paired_n": 400,
-        "q_value": 0.5639662921348314,
-        "reason": "effect is not significant after BH correction",
-        "significant": false
+        "q_value": 0.0,
+        "reason": "effect is below the declared practical threshold",
+        "significant": true
       },
       "hotpotqa_hybrid_dag|stage2|map@0": {
         "baseline_mean": 0.6683564003377929,
@@ -968,7 +828,7 @@
         "metric": "hotpotqa_hybrid_dag|stage2|map@0",
         "p_value": 0.017,
         "paired_n": 400,
-        "q_value": 0.022743243243243245,
+        "q_value": 0.024820000000000002,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
@@ -982,7 +842,7 @@
         "metric": "hotpotqa_hybrid_dag|stage2|mrr@0",
         "p_value": 0.379,
         "paired_n": 400,
-        "q_value": 0.442046511627907,
+        "q_value": 0.44495238095238093,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -996,7 +856,7 @@
         "metric": "hotpotqa_hybrid_dag|stage2|ndcg@10",
         "p_value": 0.001,
         "paired_n": 400,
-        "q_value": 0.0014347826086956522,
+        "q_value": 0.0015208333333333332,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
@@ -1028,84 +888,28 @@
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2": {
-        "baseline_mean": 159.43510139273712,
-        "candidate_mean": 113.13307274453109,
+      "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=bridge_hop2": {
+        "baseline_mean": 157.50016032718122,
+        "candidate_mean": 126.30926239507971,
         "decision": "candidate_better",
-        "effect": -46.30202864820603,
-        "effect_threshold": 7.971755069636856,
+        "effect": -31.190897932101507,
+        "effect_threshold": 7.875008016359061,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2",
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=bridge_hop2",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen": {
-        "baseline_mean": 45.03032595443074,
-        "candidate_mean": 33.65611479268409,
+      "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=comparison_widen": {
+        "baseline_mean": 43.20313988806447,
+        "candidate_mean": 36.817217829229776,
         "decision": "candidate_better",
-        "effect": -11.374211161746643,
-        "effect_threshold": 2.251516297721537,
+        "effect": -6.385922058834694,
+        "effect_threshold": 2.1601569944032235,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2": {
-        "baseline_mean": 159.43510139273712,
-        "candidate_mean": 113.13307274453109,
-        "decision": "candidate_better",
-        "effect": -46.30202864820603,
-        "effect_threshold": 7.971755069636856,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen": {
-        "baseline_mean": 45.03032595443074,
-        "candidate_mean": 33.65611479268409,
-        "decision": "candidate_better",
-        "effect": -11.374211161746643,
-        "effect_threshold": 2.251516297721537,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2": {
-        "baseline_mean": 159.43510139273712,
-        "candidate_mean": 113.13307274453109,
-        "decision": "candidate_better",
-        "effect": -46.30202864820603,
-        "effect_threshold": 7.971755069636856,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "significant paired effect exceeds the practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen": {
-        "baseline_mean": 45.03032595443074,
-        "candidate_mean": 33.65611479268409,
-        "decision": "candidate_better",
-        "effect": -11.374211161746643,
-        "effect_threshold": 2.251516297721537,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen",
+        "metric": "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=comparison_widen",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
@@ -1136,7 +940,7 @@
         "metric": "hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen",
         "p_value": 0.083,
         "paired_n": 400,
-        "q_value": 0.10534615384615385,
+        "q_value": 0.11220370370370371,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1150,7 +954,7 @@
         "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2",
         "p_value": 0.24,
         "paired_n": 400,
-        "q_value": 0.2897560975609756,
+        "q_value": 0.3020689655172414,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1164,7 +968,7 @@
         "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen",
         "p_value": 0.595,
         "paired_n": 400,
-        "q_value": 0.6545,
+        "q_value": 0.6581060606060606,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1192,7 +996,7 @@
         "metric": "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen",
         "p_value": 0.057,
         "paired_n": 400,
-        "q_value": 0.07328571428571429,
+        "q_value": 0.07850943396226416,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1220,7 +1024,7 @@
         "metric": "hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen",
         "p_value": 0.187,
         "paired_n": 400,
-        "q_value": 0.23141250000000002,
+        "q_value": 0.24376785714285715,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1248,51 +1052,23 @@
         "metric": "hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen",
         "p_value": 0.187,
         "paired_n": 400,
-        "q_value": 0.23141250000000002,
+        "q_value": 0.24376785714285715,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
-      "hotpotqa_hybrid_dag|stage4|latency_p50@0": {
-        "baseline_mean": 1.7737085331464186,
-        "candidate_mean": 1.11658385314513,
+      "hotpotqa_hybrid_dag|stage4|latency_mean@0": {
+        "baseline_mean": 1.593567710078787,
+        "candidate_mean": 1.3562950218329206,
         "decision": "no_decision",
-        "effect": -0.6571246800012887,
+        "effect": -0.23727268824586645,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage4|latency_p50@0",
-        "p_value": 0.0,
+        "metric": "hotpotqa_hybrid_dag|stage4|latency_mean@0",
+        "p_value": 0.259,
         "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage4|latency_p95@0": {
-        "baseline_mean": 1.7737085331464186,
-        "candidate_mean": 1.11658385314513,
-        "decision": "no_decision",
-        "effect": -0.6571246800012887,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage4|latency_p95@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage4|latency_p99@0": {
-        "baseline_mean": 1.7737085331464186,
-        "candidate_mean": 1.11658385314513,
-        "decision": "no_decision",
-        "effect": -0.6571246800012887,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage4|latency_p99@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
+        "q_value": 0.32045762711864406,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
       },
       "hotpotqa_hybrid_dag|stage4|map@0": {
         "baseline_mean": 0.49761996136414255,
@@ -1318,7 +1094,7 @@
         "metric": "hotpotqa_hybrid_dag|stage4|mrr@0",
         "p_value": 0.24,
         "paired_n": 400,
-        "q_value": 0.2897560975609756,
+        "q_value": 0.3020689655172414,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1364,42 +1140,14 @@
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage5|latency_p50@0": {
-        "baseline_mean": 0.8837992811459117,
-        "candidate_mean": 0.4809055232908577,
+      "hotpotqa_hybrid_dag|stage5|latency_mean@0": {
+        "baseline_mean": 0.8918668839032762,
+        "candidate_mean": 0.5914366617798805,
         "decision": "no_decision",
-        "effect": -0.402893757855054,
+        "effect": -0.30043022212339565,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage5|latency_p50@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage5|latency_p95@0": {
-        "baseline_mean": 0.8837992811459117,
-        "candidate_mean": 0.4809055232908577,
-        "decision": "no_decision",
-        "effect": -0.402893757855054,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage5|latency_p95@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage5|latency_p99@0": {
-        "baseline_mean": 0.8837992811459117,
-        "candidate_mean": 0.4809055232908577,
-        "decision": "no_decision",
-        "effect": -0.402893757855054,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage5|latency_p99@0",
+        "metric": "hotpotqa_hybrid_dag|stage5|latency_mean@0",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
@@ -1416,7 +1164,7 @@
         "metric": "hotpotqa_hybrid_dag|stage5|map@0",
         "p_value": 0.049,
         "paired_n": 400,
-        "q_value": 0.06382894736842105,
+        "q_value": 0.06878846153846153,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1430,7 +1178,7 @@
         "metric": "hotpotqa_hybrid_dag|stage5|mrr@0",
         "p_value": 0.384,
         "paired_n": 400,
-        "q_value": 0.442046511627907,
+        "q_value": 0.44495238095238093,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1444,7 +1192,7 @@
         "metric": "hotpotqa_hybrid_dag|stage5|ndcg@10",
         "p_value": 0.001,
         "paired_n": 400,
-        "q_value": 0.0014347826086956522,
+        "q_value": 0.0015208333333333332,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
@@ -1476,47 +1224,19 @@
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage6|latency_p50@0": {
-        "baseline_mean": 0.5596140705165453,
-        "candidate_mean": 0.4723979326081462,
+      "hotpotqa_hybrid_dag|stage6|latency_mean@0": {
+        "baseline_mean": 0.8028624951839447,
+        "candidate_mean": 0.5835166419274174,
         "decision": "no_decision",
-        "effect": -0.0872161379083991,
+        "effect": -0.21934585325652733,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage6|latency_p50@0",
-        "p_value": 0.0,
+        "metric": "hotpotqa_hybrid_dag|stage6|latency_mean@0",
+        "p_value": 1.0,
         "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage6|latency_p95@0": {
-        "baseline_mean": 0.5596140705165453,
-        "candidate_mean": 0.4723979326081462,
-        "decision": "no_decision",
-        "effect": -0.0872161379083991,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage6|latency_p95@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage6|latency_p99@0": {
-        "baseline_mean": 0.5596140705165453,
-        "candidate_mean": 0.4723979326081462,
-        "decision": "no_decision",
-        "effect": -0.0872161379083991,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage6|latency_p99@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
+        "q_value": 1.0,
+        "reason": "effect is not significant after BH correction",
+        "significant": false
       },
       "hotpotqa_hybrid_dag|stage6|map@0": {
         "baseline_mean": 0.6683564003377929,
@@ -1528,7 +1248,7 @@
         "metric": "hotpotqa_hybrid_dag|stage6|map@0",
         "p_value": 0.049,
         "paired_n": 400,
-        "q_value": 0.06382894736842105,
+        "q_value": 0.06878846153846153,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1542,7 +1262,7 @@
         "metric": "hotpotqa_hybrid_dag|stage6|mrr@0",
         "p_value": 0.384,
         "paired_n": 400,
-        "q_value": 0.442046511627907,
+        "q_value": 0.44495238095238093,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1556,7 +1276,7 @@
         "metric": "hotpotqa_hybrid_dag|stage6|ndcg@10",
         "p_value": 0.001,
         "paired_n": 400,
-        "q_value": 0.0014347826086956522,
+        "q_value": 0.0015208333333333332,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
@@ -1588,87 +1308,31 @@
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane": {
-        "baseline_mean": 0.3082009425270371,
+      "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=fast_lane": {
+        "baseline_mean": 0.30063529877224937,
         "candidate_mean": 0.0,
         "decision": "no_decision",
-        "effect": -0.3082009425270371,
+        "effect": -0.30063529877224937,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane",
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=fast_lane",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
         "reason": "effect is below the declared practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank": {
-        "baseline_mean": 426.91181676316774,
-        "candidate_mean": 411.72536855679937,
+      "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=rerank": {
+        "baseline_mean": 417.89484241133323,
+        "candidate_mean": 461.88553970714565,
         "decision": "no_decision",
-        "effect": -15.186448206368368,
-        "effect_threshold": 21.345590838158387,
+        "effect": 43.990697295812424,
+        "effect_threshold": 20.89474212056666,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank",
-        "p_value": 0.772,
+        "metric": "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=rerank",
+        "p_value": 0.44,
         "paired_n": 400,
-        "q_value": 0.813063829787234,
-        "reason": "effect is not significant after BH correction",
-        "significant": false
-      },
-      "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane": {
-        "baseline_mean": 0.3082009425270371,
-        "candidate_mean": 0.0,
-        "decision": "no_decision",
-        "effect": -0.3082009425270371,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank": {
-        "baseline_mean": 426.91181676316774,
-        "candidate_mean": 411.72536855679937,
-        "decision": "no_decision",
-        "effect": -15.186448206368368,
-        "effect_threshold": 21.345590838158387,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank",
-        "p_value": 0.772,
-        "paired_n": 400,
-        "q_value": 0.813063829787234,
-        "reason": "effect is not significant after BH correction",
-        "significant": false
-      },
-      "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane": {
-        "baseline_mean": 0.3082009425270371,
-        "candidate_mean": 0.0,
-        "decision": "no_decision",
-        "effect": -0.3082009425270371,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank": {
-        "baseline_mean": 426.91181676316774,
-        "candidate_mean": 411.72536855679937,
-        "decision": "no_decision",
-        "effect": -15.186448206368368,
-        "effect_threshold": 21.345590838158387,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank",
-        "p_value": 0.772,
-        "paired_n": 400,
-        "q_value": 0.813063829787234,
+        "q_value": 0.501875,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1812,42 +1476,14 @@
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       },
-      "hotpotqa_hybrid_dag|stage8|latency_p50@0": {
-        "baseline_mean": 0.4400624966365285,
-        "candidate_mean": 0.13725365250138566,
+      "hotpotqa_hybrid_dag|stage8|latency_mean@0": {
+        "baseline_mean": 0.20474387012654915,
+        "candidate_mean": 0.1679803297156468,
         "decision": "no_decision",
-        "effect": -0.30280884413514286,
+        "effect": -0.03676354041090235,
         "effect_threshold": 1.0,
         "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage8|latency_p50@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage8|latency_p95@0": {
-        "baseline_mean": 0.4400624966365285,
-        "candidate_mean": 0.13725365250138566,
-        "decision": "no_decision",
-        "effect": -0.30280884413514286,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage8|latency_p95@0",
-        "p_value": 0.0,
-        "paired_n": 400,
-        "q_value": 0.0,
-        "reason": "effect is below the declared practical threshold",
-        "significant": true
-      },
-      "hotpotqa_hybrid_dag|stage8|latency_p99@0": {
-        "baseline_mean": 0.4400624966365285,
-        "candidate_mean": 0.13725365250138566,
-        "decision": "no_decision",
-        "effect": -0.30280884413514286,
-        "effect_threshold": 1.0,
-        "low_power": false,
-        "metric": "hotpotqa_hybrid_dag|stage8|latency_p99@0",
+        "metric": "hotpotqa_hybrid_dag|stage8|latency_mean@0",
         "p_value": 0.0,
         "paired_n": 400,
         "q_value": 0.0,
@@ -1878,7 +1514,7 @@
         "metric": "hotpotqa_hybrid_dag|stage8|mrr@0",
         "p_value": 0.7,
         "paired_n": 400,
-        "q_value": 0.7615384615384615,
+        "q_value": 0.762686567164179,
         "reason": "effect is not significant after BH correction",
         "significant": false
       },
@@ -1906,7 +1542,7 @@
         "metric": "hotpotqa_hybrid_dag|stage8|precision@10",
         "p_value": 0.001,
         "paired_n": 400,
-        "q_value": 0.0014347826086956522,
+        "q_value": 0.0015208333333333332,
         "reason": "effect is below the declared practical threshold",
         "significant": true
       },
@@ -1920,7 +1556,7 @@
         "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
         "p_value": 0.001,
         "paired_n": 400,
-        "q_value": 0.0014347826086956522,
+        "q_value": 0.0015208333333333332,
         "reason": "significant paired effect exceeds the practical threshold",
         "significant": true
       }
@@ -1928,8 +1564,29 @@
     "validity": {
       "comparable": true,
       "decision_allowed": true,
-      "differences": [],
-      "outcome": "valid",
+      "differences": [
+        {
+          "axis": "git_commit",
+          "detail": "Optional comparison metadata 'git_commit' is missing for at least one run.",
+          "severity": "low",
+          "status": "unknown",
+          "values": [
+            null,
+            null
+          ]
+        },
+        {
+          "axis": "git_dirty",
+          "detail": "Optional comparison metadata 'git_dirty' is missing for at least one run.",
+          "severity": "low",
+          "status": "unknown",
+          "values": [
+            null,
+            null
+          ]
+        }
+      ],
+      "outcome": "warning",
       "required_axes": [
         "query_hash",
         "corpus_hash",
@@ -1978,47 +1635,19 @@
       "reason": "insufficient paired samples",
       "significant": null
     },
-    "hotpotqa_hybrid_dag|stage-1|latency_p50@0": {
-      "baseline_mean": 854.028023230203,
-      "candidate_mean": 706.3859487778973,
-      "decision": "candidate_better",
-      "effect": -147.64207445230568,
-      "effect_threshold": 42.70140116151015,
+    "hotpotqa_hybrid_dag|stage-1|latency_mean@0": {
+      "baseline_mean": 840.631366505695,
+      "candidate_mean": 797.8788056134363,
+      "decision": "no_decision",
+      "effect": -42.75256089225877,
+      "effect_threshold": 42.03156832528475,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage-1|latency_p50@0",
-      "p_value": 0.003,
+      "metric": "hotpotqa_hybrid_dag|stage-1|latency_mean@0",
+      "p_value": 0.461,
       "paired_n": 400,
-      "q_value": 0.004125,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage-1|latency_p95@0": {
-      "baseline_mean": 854.028023230203,
-      "candidate_mean": 706.3859487778973,
-      "decision": "candidate_better",
-      "effect": -147.64207445230568,
-      "effect_threshold": 42.70140116151015,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage-1|latency_p95@0",
-      "p_value": 0.003,
-      "paired_n": 400,
-      "q_value": 0.004125,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage-1|latency_p99@0": {
-      "baseline_mean": 854.028023230203,
-      "candidate_mean": 706.3859487778973,
-      "decision": "candidate_better",
-      "effect": -147.64207445230568,
-      "effect_threshold": 42.70140116151015,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage-1|latency_p99@0",
-      "p_value": 0.003,
-      "paired_n": 400,
-      "q_value": 0.004125,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
+      "q_value": 0.5177384615384615,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
     },
     "hotpotqa_hybrid_dag|stage-1|timeout_rate@0": {
       "baseline_mean": null,
@@ -2034,84 +1663,28 @@
       "reason": "insufficient paired samples",
       "significant": null
     },
-    "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane": {
-      "baseline_mean": 14.30142854922451,
-      "candidate_mean": 0.012547819060273468,
+    "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=bm25_lane": {
+      "baseline_mean": 14.37023980601225,
+      "candidate_mean": 0.014815307804383337,
       "decision": "candidate_better",
-      "effect": -14.288880730164237,
+      "effect": -14.355424498207867,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=bm25_lane",
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=bm25_lane",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane": {
-      "baseline_mean": 188.26886676688446,
-      "candidate_mean": 141.0223211607081,
+    "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=dense_lane": {
+      "baseline_mean": 191.5777467750013,
+      "candidate_mean": 164.7435832215706,
       "decision": "candidate_better",
-      "effect": -47.24654560617637,
-      "effect_threshold": 9.413443338344223,
+      "effect": -26.8341635534307,
+      "effect_threshold": 9.578887338750064,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage0|latency_p50@0|branch=dense_lane",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane": {
-      "baseline_mean": 14.30142854922451,
-      "candidate_mean": 0.012547819060273468,
-      "decision": "candidate_better",
-      "effect": -14.288880730164237,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=bm25_lane",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane": {
-      "baseline_mean": 188.26886676688446,
-      "candidate_mean": 141.0223211607081,
-      "decision": "candidate_better",
-      "effect": -47.24654560617637,
-      "effect_threshold": 9.413443338344223,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage0|latency_p95@0|branch=dense_lane",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane": {
-      "baseline_mean": 14.30142854922451,
-      "candidate_mean": 0.012547819060273468,
-      "decision": "candidate_better",
-      "effect": -14.288880730164237,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=bm25_lane",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane": {
-      "baseline_mean": 188.26886676688446,
-      "candidate_mean": 141.0223211607081,
-      "decision": "candidate_better",
-      "effect": -47.24654560617637,
-      "effect_threshold": 9.413443338344223,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage0|latency_p99@0|branch=dense_lane",
+      "metric": "hotpotqa_hybrid_dag|stage0|latency_mean@0|branch=dense_lane",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
@@ -2258,42 +1831,14 @@
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
-    "hotpotqa_hybrid_dag|stage1|latency_p50@0": {
-      "baseline_mean": 0.6954115512780845,
-      "candidate_mean": 0.4183316696435213,
+    "hotpotqa_hybrid_dag|stage1|latency_mean@0": {
+      "baseline_mean": 0.6874962849542499,
+      "candidate_mean": 0.5109043745324016,
       "decision": "no_decision",
-      "effect": -0.2770798816345632,
+      "effect": -0.1765919104218483,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage1|latency_p50@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage1|latency_p95@0": {
-      "baseline_mean": 0.6954115512780845,
-      "candidate_mean": 0.4183316696435213,
-      "decision": "no_decision",
-      "effect": -0.2770798816345632,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage1|latency_p95@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage1|latency_p99@0": {
-      "baseline_mean": 0.6954115512780845,
-      "candidate_mean": 0.4183316696435213,
-      "decision": "no_decision",
-      "effect": -0.2770798816345632,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage1|latency_p99@0",
+      "metric": "hotpotqa_hybrid_dag|stage1|latency_mean@0",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
@@ -2310,7 +1855,7 @@
       "metric": "hotpotqa_hybrid_dag|stage1|map@0",
       "p_value": 0.017,
       "paired_n": 400,
-      "q_value": 0.022743243243243245,
+      "q_value": 0.024820000000000002,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
@@ -2324,7 +1869,7 @@
       "metric": "hotpotqa_hybrid_dag|stage1|mrr@0",
       "p_value": 0.379,
       "paired_n": 400,
-      "q_value": 0.442046511627907,
+      "q_value": 0.44495238095238093,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2338,7 +1883,7 @@
       "metric": "hotpotqa_hybrid_dag|stage1|ndcg@10",
       "p_value": 0.001,
       "paired_n": 400,
-      "q_value": 0.0014347826086956522,
+      "q_value": 0.0015208333333333332,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
@@ -2370,47 +1915,19 @@
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage2|latency_p50@0": {
-      "baseline_mean": 0.7931034374632873,
-      "candidate_mean": 0.6731282253167592,
+    "hotpotqa_hybrid_dag|stage2|latency_mean@0": {
+      "baseline_mean": 0.7668056405964307,
+      "candidate_mean": 0.5039372740429826,
       "decision": "no_decision",
-      "effect": -0.11997521214652807,
+      "effect": -0.26286836655344814,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage2|latency_p50@0",
-      "p_value": 0.507,
+      "metric": "hotpotqa_hybrid_dag|stage2|latency_mean@0",
+      "p_value": 0.0,
       "paired_n": 400,
-      "q_value": 0.5639662921348314,
-      "reason": "effect is not significant after BH correction",
-      "significant": false
-    },
-    "hotpotqa_hybrid_dag|stage2|latency_p95@0": {
-      "baseline_mean": 0.7931034374632873,
-      "candidate_mean": 0.6731282253167592,
-      "decision": "no_decision",
-      "effect": -0.11997521214652807,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage2|latency_p95@0",
-      "p_value": 0.507,
-      "paired_n": 400,
-      "q_value": 0.5639662921348314,
-      "reason": "effect is not significant after BH correction",
-      "significant": false
-    },
-    "hotpotqa_hybrid_dag|stage2|latency_p99@0": {
-      "baseline_mean": 0.7931034374632873,
-      "candidate_mean": 0.6731282253167592,
-      "decision": "no_decision",
-      "effect": -0.11997521214652807,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage2|latency_p99@0",
-      "p_value": 0.507,
-      "paired_n": 400,
-      "q_value": 0.5639662921348314,
-      "reason": "effect is not significant after BH correction",
-      "significant": false
+      "q_value": 0.0,
+      "reason": "effect is below the declared practical threshold",
+      "significant": true
     },
     "hotpotqa_hybrid_dag|stage2|map@0": {
       "baseline_mean": 0.6683564003377929,
@@ -2422,7 +1939,7 @@
       "metric": "hotpotqa_hybrid_dag|stage2|map@0",
       "p_value": 0.017,
       "paired_n": 400,
-      "q_value": 0.022743243243243245,
+      "q_value": 0.024820000000000002,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
@@ -2436,7 +1953,7 @@
       "metric": "hotpotqa_hybrid_dag|stage2|mrr@0",
       "p_value": 0.379,
       "paired_n": 400,
-      "q_value": 0.442046511627907,
+      "q_value": 0.44495238095238093,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2450,7 +1967,7 @@
       "metric": "hotpotqa_hybrid_dag|stage2|ndcg@10",
       "p_value": 0.001,
       "paired_n": 400,
-      "q_value": 0.0014347826086956522,
+      "q_value": 0.0015208333333333332,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
@@ -2482,84 +1999,28 @@
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2": {
-      "baseline_mean": 159.43510139273712,
-      "candidate_mean": 113.13307274453109,
+    "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=bridge_hop2": {
+      "baseline_mean": 157.50016032718122,
+      "candidate_mean": 126.30926239507971,
       "decision": "candidate_better",
-      "effect": -46.30202864820603,
-      "effect_threshold": 7.971755069636856,
+      "effect": -31.190897932101507,
+      "effect_threshold": 7.875008016359061,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=bridge_hop2",
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=bridge_hop2",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen": {
-      "baseline_mean": 45.03032595443074,
-      "candidate_mean": 33.65611479268409,
+    "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=comparison_widen": {
+      "baseline_mean": 43.20313988806447,
+      "candidate_mean": 36.817217829229776,
       "decision": "candidate_better",
-      "effect": -11.374211161746643,
-      "effect_threshold": 2.251516297721537,
+      "effect": -6.385922058834694,
+      "effect_threshold": 2.1601569944032235,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage3|latency_p50@0|branch=comparison_widen",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2": {
-      "baseline_mean": 159.43510139273712,
-      "candidate_mean": 113.13307274453109,
-      "decision": "candidate_better",
-      "effect": -46.30202864820603,
-      "effect_threshold": 7.971755069636856,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=bridge_hop2",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen": {
-      "baseline_mean": 45.03032595443074,
-      "candidate_mean": 33.65611479268409,
-      "decision": "candidate_better",
-      "effect": -11.374211161746643,
-      "effect_threshold": 2.251516297721537,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage3|latency_p95@0|branch=comparison_widen",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2": {
-      "baseline_mean": 159.43510139273712,
-      "candidate_mean": 113.13307274453109,
-      "decision": "candidate_better",
-      "effect": -46.30202864820603,
-      "effect_threshold": 7.971755069636856,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=bridge_hop2",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "significant paired effect exceeds the practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen": {
-      "baseline_mean": 45.03032595443074,
-      "candidate_mean": 33.65611479268409,
-      "decision": "candidate_better",
-      "effect": -11.374211161746643,
-      "effect_threshold": 2.251516297721537,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage3|latency_p99@0|branch=comparison_widen",
+      "metric": "hotpotqa_hybrid_dag|stage3|latency_mean@0|branch=comparison_widen",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
@@ -2590,7 +2051,7 @@
       "metric": "hotpotqa_hybrid_dag|stage3|map@0|branch=comparison_widen",
       "p_value": 0.083,
       "paired_n": 400,
-      "q_value": 0.10534615384615385,
+      "q_value": 0.11220370370370371,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2604,7 +2065,7 @@
       "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=bridge_hop2",
       "p_value": 0.24,
       "paired_n": 400,
-      "q_value": 0.2897560975609756,
+      "q_value": 0.3020689655172414,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2618,7 +2079,7 @@
       "metric": "hotpotqa_hybrid_dag|stage3|mrr@0|branch=comparison_widen",
       "p_value": 0.595,
       "paired_n": 400,
-      "q_value": 0.6545,
+      "q_value": 0.6581060606060606,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2646,7 +2107,7 @@
       "metric": "hotpotqa_hybrid_dag|stage3|ndcg@10|branch=comparison_widen",
       "p_value": 0.057,
       "paired_n": 400,
-      "q_value": 0.07328571428571429,
+      "q_value": 0.07850943396226416,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2674,7 +2135,7 @@
       "metric": "hotpotqa_hybrid_dag|stage3|precision@10|branch=comparison_widen",
       "p_value": 0.187,
       "paired_n": 400,
-      "q_value": 0.23141250000000002,
+      "q_value": 0.24376785714285715,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2702,51 +2163,23 @@
       "metric": "hotpotqa_hybrid_dag|stage3|recall@10|branch=comparison_widen",
       "p_value": 0.187,
       "paired_n": 400,
-      "q_value": 0.23141250000000002,
+      "q_value": 0.24376785714285715,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
-    "hotpotqa_hybrid_dag|stage4|latency_p50@0": {
-      "baseline_mean": 1.7737085331464186,
-      "candidate_mean": 1.11658385314513,
+    "hotpotqa_hybrid_dag|stage4|latency_mean@0": {
+      "baseline_mean": 1.593567710078787,
+      "candidate_mean": 1.3562950218329206,
       "decision": "no_decision",
-      "effect": -0.6571246800012887,
+      "effect": -0.23727268824586645,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage4|latency_p50@0",
-      "p_value": 0.0,
+      "metric": "hotpotqa_hybrid_dag|stage4|latency_mean@0",
+      "p_value": 0.259,
       "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage4|latency_p95@0": {
-      "baseline_mean": 1.7737085331464186,
-      "candidate_mean": 1.11658385314513,
-      "decision": "no_decision",
-      "effect": -0.6571246800012887,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage4|latency_p95@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage4|latency_p99@0": {
-      "baseline_mean": 1.7737085331464186,
-      "candidate_mean": 1.11658385314513,
-      "decision": "no_decision",
-      "effect": -0.6571246800012887,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage4|latency_p99@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
+      "q_value": 0.32045762711864406,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
     },
     "hotpotqa_hybrid_dag|stage4|map@0": {
       "baseline_mean": 0.49761996136414255,
@@ -2772,7 +2205,7 @@
       "metric": "hotpotqa_hybrid_dag|stage4|mrr@0",
       "p_value": 0.24,
       "paired_n": 400,
-      "q_value": 0.2897560975609756,
+      "q_value": 0.3020689655172414,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2818,42 +2251,14 @@
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage5|latency_p50@0": {
-      "baseline_mean": 0.8837992811459117,
-      "candidate_mean": 0.4809055232908577,
+    "hotpotqa_hybrid_dag|stage5|latency_mean@0": {
+      "baseline_mean": 0.8918668839032762,
+      "candidate_mean": 0.5914366617798805,
       "decision": "no_decision",
-      "effect": -0.402893757855054,
+      "effect": -0.30043022212339565,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage5|latency_p50@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage5|latency_p95@0": {
-      "baseline_mean": 0.8837992811459117,
-      "candidate_mean": 0.4809055232908577,
-      "decision": "no_decision",
-      "effect": -0.402893757855054,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage5|latency_p95@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage5|latency_p99@0": {
-      "baseline_mean": 0.8837992811459117,
-      "candidate_mean": 0.4809055232908577,
-      "decision": "no_decision",
-      "effect": -0.402893757855054,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage5|latency_p99@0",
+      "metric": "hotpotqa_hybrid_dag|stage5|latency_mean@0",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
@@ -2870,7 +2275,7 @@
       "metric": "hotpotqa_hybrid_dag|stage5|map@0",
       "p_value": 0.049,
       "paired_n": 400,
-      "q_value": 0.06382894736842105,
+      "q_value": 0.06878846153846153,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2884,7 +2289,7 @@
       "metric": "hotpotqa_hybrid_dag|stage5|mrr@0",
       "p_value": 0.384,
       "paired_n": 400,
-      "q_value": 0.442046511627907,
+      "q_value": 0.44495238095238093,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2898,7 +2303,7 @@
       "metric": "hotpotqa_hybrid_dag|stage5|ndcg@10",
       "p_value": 0.001,
       "paired_n": 400,
-      "q_value": 0.0014347826086956522,
+      "q_value": 0.0015208333333333332,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
@@ -2930,47 +2335,19 @@
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage6|latency_p50@0": {
-      "baseline_mean": 0.5596140705165453,
-      "candidate_mean": 0.4723979326081462,
+    "hotpotqa_hybrid_dag|stage6|latency_mean@0": {
+      "baseline_mean": 0.8028624951839447,
+      "candidate_mean": 0.5835166419274174,
       "decision": "no_decision",
-      "effect": -0.0872161379083991,
+      "effect": -0.21934585325652733,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage6|latency_p50@0",
-      "p_value": 0.0,
+      "metric": "hotpotqa_hybrid_dag|stage6|latency_mean@0",
+      "p_value": 1.0,
       "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage6|latency_p95@0": {
-      "baseline_mean": 0.5596140705165453,
-      "candidate_mean": 0.4723979326081462,
-      "decision": "no_decision",
-      "effect": -0.0872161379083991,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage6|latency_p95@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage6|latency_p99@0": {
-      "baseline_mean": 0.5596140705165453,
-      "candidate_mean": 0.4723979326081462,
-      "decision": "no_decision",
-      "effect": -0.0872161379083991,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage6|latency_p99@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
+      "q_value": 1.0,
+      "reason": "effect is not significant after BH correction",
+      "significant": false
     },
     "hotpotqa_hybrid_dag|stage6|map@0": {
       "baseline_mean": 0.6683564003377929,
@@ -2982,7 +2359,7 @@
       "metric": "hotpotqa_hybrid_dag|stage6|map@0",
       "p_value": 0.049,
       "paired_n": 400,
-      "q_value": 0.06382894736842105,
+      "q_value": 0.06878846153846153,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -2996,7 +2373,7 @@
       "metric": "hotpotqa_hybrid_dag|stage6|mrr@0",
       "p_value": 0.384,
       "paired_n": 400,
-      "q_value": 0.442046511627907,
+      "q_value": 0.44495238095238093,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -3010,7 +2387,7 @@
       "metric": "hotpotqa_hybrid_dag|stage6|ndcg@10",
       "p_value": 0.001,
       "paired_n": 400,
-      "q_value": 0.0014347826086956522,
+      "q_value": 0.0015208333333333332,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
@@ -3042,87 +2419,31 @@
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane": {
-      "baseline_mean": 0.3082009425270371,
+    "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=fast_lane": {
+      "baseline_mean": 0.30063529877224937,
       "candidate_mean": 0.0,
       "decision": "no_decision",
-      "effect": -0.3082009425270371,
+      "effect": -0.30063529877224937,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=fast_lane",
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=fast_lane",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
       "reason": "effect is below the declared practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank": {
-      "baseline_mean": 426.91181676316774,
-      "candidate_mean": 411.72536855679937,
+    "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=rerank": {
+      "baseline_mean": 417.89484241133323,
+      "candidate_mean": 461.88553970714565,
       "decision": "no_decision",
-      "effect": -15.186448206368368,
-      "effect_threshold": 21.345590838158387,
+      "effect": 43.990697295812424,
+      "effect_threshold": 20.89474212056666,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage7|latency_p50@0|branch=rerank",
-      "p_value": 0.772,
+      "metric": "hotpotqa_hybrid_dag|stage7|latency_mean@0|branch=rerank",
+      "p_value": 0.44,
       "paired_n": 400,
-      "q_value": 0.813063829787234,
-      "reason": "effect is not significant after BH correction",
-      "significant": false
-    },
-    "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane": {
-      "baseline_mean": 0.3082009425270371,
-      "candidate_mean": 0.0,
-      "decision": "no_decision",
-      "effect": -0.3082009425270371,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=fast_lane",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank": {
-      "baseline_mean": 426.91181676316774,
-      "candidate_mean": 411.72536855679937,
-      "decision": "no_decision",
-      "effect": -15.186448206368368,
-      "effect_threshold": 21.345590838158387,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage7|latency_p95@0|branch=rerank",
-      "p_value": 0.772,
-      "paired_n": 400,
-      "q_value": 0.813063829787234,
-      "reason": "effect is not significant after BH correction",
-      "significant": false
-    },
-    "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane": {
-      "baseline_mean": 0.3082009425270371,
-      "candidate_mean": 0.0,
-      "decision": "no_decision",
-      "effect": -0.3082009425270371,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=fast_lane",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank": {
-      "baseline_mean": 426.91181676316774,
-      "candidate_mean": 411.72536855679937,
-      "decision": "no_decision",
-      "effect": -15.186448206368368,
-      "effect_threshold": 21.345590838158387,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage7|latency_p99@0|branch=rerank",
-      "p_value": 0.772,
-      "paired_n": 400,
-      "q_value": 0.813063829787234,
+      "q_value": 0.501875,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -3266,42 +2587,14 @@
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     },
-    "hotpotqa_hybrid_dag|stage8|latency_p50@0": {
-      "baseline_mean": 0.4400624966365285,
-      "candidate_mean": 0.13725365250138566,
+    "hotpotqa_hybrid_dag|stage8|latency_mean@0": {
+      "baseline_mean": 0.20474387012654915,
+      "candidate_mean": 0.1679803297156468,
       "decision": "no_decision",
-      "effect": -0.30280884413514286,
+      "effect": -0.03676354041090235,
       "effect_threshold": 1.0,
       "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage8|latency_p50@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage8|latency_p95@0": {
-      "baseline_mean": 0.4400624966365285,
-      "candidate_mean": 0.13725365250138566,
-      "decision": "no_decision",
-      "effect": -0.30280884413514286,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage8|latency_p95@0",
-      "p_value": 0.0,
-      "paired_n": 400,
-      "q_value": 0.0,
-      "reason": "effect is below the declared practical threshold",
-      "significant": true
-    },
-    "hotpotqa_hybrid_dag|stage8|latency_p99@0": {
-      "baseline_mean": 0.4400624966365285,
-      "candidate_mean": 0.13725365250138566,
-      "decision": "no_decision",
-      "effect": -0.30280884413514286,
-      "effect_threshold": 1.0,
-      "low_power": false,
-      "metric": "hotpotqa_hybrid_dag|stage8|latency_p99@0",
+      "metric": "hotpotqa_hybrid_dag|stage8|latency_mean@0",
       "p_value": 0.0,
       "paired_n": 400,
       "q_value": 0.0,
@@ -3332,7 +2625,7 @@
       "metric": "hotpotqa_hybrid_dag|stage8|mrr@0",
       "p_value": 0.7,
       "paired_n": 400,
-      "q_value": 0.7615384615384615,
+      "q_value": 0.762686567164179,
       "reason": "effect is not significant after BH correction",
       "significant": false
     },
@@ -3360,7 +2653,7 @@
       "metric": "hotpotqa_hybrid_dag|stage8|precision@10",
       "p_value": 0.001,
       "paired_n": 400,
-      "q_value": 0.0014347826086956522,
+      "q_value": 0.0015208333333333332,
       "reason": "effect is below the declared practical threshold",
       "significant": true
     },
@@ -3374,7 +2667,7 @@
       "metric": "hotpotqa_hybrid_dag|stage8|recall@10",
       "p_value": 0.001,
       "paired_n": 400,
-      "q_value": 0.0014347826086956522,
+      "q_value": 0.0015208333333333332,
       "reason": "significant paired effect exceeds the practical threshold",
       "significant": true
     }
@@ -3438,8 +2731,8 @@
           "service_id": "retobs-flagship-demo"
         },
         "run_window": {
-          "finished_at": "2026-08-03T17:20:16.764606Z",
-          "started_at": "2026-08-03T17:19:25.434913Z"
+          "finished_at": "2026-08-07T05:18:01.315885Z",
+          "started_at": "2026-08-07T05:17:10.908713Z"
         },
         "telemetry": null,
         "topologies": [
@@ -3823,8 +3116,8 @@
         "seed": 20260803,
         "timeout_ms": 60000
       },
-      "git_commit": "e421c403d5b20e233b1d0c3b78c7e1d25fdc35c1",
-      "git_dirty": true,
+      "git_commit": null,
+      "git_dirty": null,
       "labeling": {
         "judge": null,
         "method": "gold",
@@ -4173,8 +3466,8 @@
         "service_id": "retobs-flagship-demo"
       },
       "run_window": {
-        "finished_at": "2026-08-03T17:20:16.764606+00:00",
-        "started_at": "2026-08-03T17:19:25.434913+00:00"
+        "finished_at": "2026-08-07T05:18:01.315885+00:00",
+        "started_at": "2026-08-07T05:17:10.908713+00:00"
       },
       "schema_version": 3,
       "seed": 20260803,
@@ -4252,8 +3545,8 @@
           "service_id": "retobs-flagship-demo"
         },
         "run_window": {
-          "finished_at": "2026-08-04T04:55:51.248404Z",
-          "started_at": "2026-08-04T04:55:08.483439Z"
+          "finished_at": "2026-08-07T05:20:20.168463Z",
+          "started_at": "2026-08-07T05:19:30.814759Z"
         },
         "telemetry": null,
         "topologies": [
@@ -4455,8 +3748,8 @@
         "seed": 20260803,
         "timeout_ms": 60000
       },
-      "git_commit": "e421c403d5b20e233b1d0c3b78c7e1d25fdc35c1",
-      "git_dirty": true,
+      "git_commit": null,
+      "git_dirty": null,
       "labeling": {
         "judge": null,
         "method": "gold",
@@ -4805,8 +4098,8 @@
         "service_id": "retobs-flagship-demo"
       },
       "run_window": {
-        "finished_at": "2026-08-04T04:55:51.248404+00:00",
-        "started_at": "2026-08-04T04:55:08.483439+00:00"
+        "finished_at": "2026-08-07T05:20:20.168463+00:00",
+        "started_at": "2026-08-07T05:19:30.814759+00:00"
       },
       "schema_version": 3,
       "seed": 20260803,
@@ -4828,8 +4121,8 @@
       }
     }
   },
-  "reproduce": "retobs compare 4b5be1ce c7b3767e --db /Users/ameyakiwalkar/Documents/retrieval-observatory/results/flagship_demo/.retobs/demo.db --policy /Users/ameyakiwalkar/Documents/retrieval-observatory/results/flagship_demo/release-policy.yaml",
-  "run_id": "4b5be1ce..c7b3767e",
+  "reproduce": "retobs compare 0c9f6a25 de11e591 --db .retobs/demo.db --policy release-policy.yaml",
+  "run_id": "0c9f6a25..de11e591",
   "schema_version": 1,
   "title": "Run Comparison",
   "verdict": "PASS"

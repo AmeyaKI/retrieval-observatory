@@ -34,19 +34,41 @@ def _op_type(symbol: str) -> str | None:
     return next((kind for pattern, kind in _TYPE_RULES if re.search(pattern, symbol, re.I)), None)
 
 
+def _import_insertion_line(source: str, tree: ast.Module) -> int:
+    """Zero-based line index for a new top-level import.
+
+    Must land after the shebang, any encoding cookie, the module docstring, and every
+    `from __future__` import — a `__future__` import that is not the first statement is a
+    SyntaxError, and jumping the docstring silently demotes it to a bare expression.
+    """
+    lines = source.splitlines()
+    insert_at = 0
+    while insert_at < len(lines) and insert_at < 2 and (
+        lines[insert_at].startswith("#!") or re.match(r"^#.*coding[:=]", lines[insert_at])
+    ):
+        insert_at += 1
+    for node in tree.body:
+        is_docstring = (
+            node is tree.body[0]
+            and isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+        is_future = isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        if not (is_docstring or is_future):
+            break
+        insert_at = max(insert_at, (node.end_lineno or node.lineno))
+    return insert_at
+
+
 def _instrument_source(source: str, nodes: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, OperatorMapping]]) -> str:
     lines = source.splitlines(keepends=True)
-    if not any("retrieval_observatory.sdk import observe" in line for line in lines):
-        insert_at = 1 if lines and lines[0].startswith("#!") else 0
-        while insert_at < len(lines) and (
-            lines[insert_at].startswith("from __future__ import") or not lines[insert_at].strip()
-        ):
-            insert_at += 1
-        lines.insert(insert_at, "from retrieval_observatory.sdk import observe\n")
+    needs_import = not any("retrieval_observatory.sdk import observe" in line for line in lines)
+    insert_at = _import_insertion_line(source, ast.parse(source)) if needs_import else -1
+    # Decorators go in first, bottom-up, so every `node.lineno` still refers to the line it was
+    # parsed from. The import is added afterwards at a position above all of them.
     for node, operator in sorted(nodes, key=lambda item: item[0].lineno, reverse=True):
         original_index = node.lineno - 1
-        if any("retrieval_observatory.sdk import observe" in line for line in lines[: original_index + 2]):
-            original_index += 1
         decorator = (
             f'@observe("{operator.op_type}", op_id="{operator.op_id}", '
             f'parent_ids={operator.parent_ids!r})\n'
@@ -54,7 +76,14 @@ def _instrument_source(source: str, nodes: list[tuple[ast.FunctionDef | ast.Asyn
         nearby = "".join(lines[max(0, original_index - len(node.decorator_list) - 2) : original_index])
         if f'op_id="{operator.op_id}"' not in nearby:
             lines.insert(original_index, decorator)
-    return "".join(lines)
+    if needs_import:
+        lines.insert(insert_at, "from retrieval_observatory.sdk import observe\n")
+    instrumented = "".join(lines)
+    try:
+        ast.parse(instrumented)
+    except SyntaxError as error:  # pragma: no cover - guards against a malformed patch
+        raise ValueError(f"instrumented source does not parse: {error}") from error
+    return instrumented
 
 
 def build_integration_plan(project_root: Path, framework: str | None = None) -> IntegrationPlan:

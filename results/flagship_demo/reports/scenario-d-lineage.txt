@@ -3,15 +3,15 @@ QUERY 5abccf6755429965836004ab
   text     In what year was the British actress who starred in a film adaptation of a series of eight children's books written by P. L. Travers born?
   metadata {"level": "hard", "type": "bridge"}
   gold     ['karen_dotrice__a36bd508', 'mary_poppins__ec3a6eb6']
-  status   OK   wall 685ms
+  status   OK   wall 614ms
 ================================================================================================
 
   bm25_lane  [SOURCE]  FIRED
-    in    0  out   30      23.4ms
+    in    0  out   30      22.8ms
     gold candidates present in output: 1/2   ranks [1]
 
   dense_lane  [SOURCE]  FIRED
-    in    0  out   30     191.9ms
+    in    0  out   30     173.5ms
     gold candidates present in output: 2/2   ranks [2, 27]
 
   hybrid_fusion  [FUSE]  FIRED
@@ -20,38 +20,38 @@ QUERY 5abccf6755429965836004ab
     !! gold candidate dropped here: ['karen_dotrice__a36bd508']
 
   type_gate  [GATE]  FIRED  -> route 'bridge'
-    in   40  out   40       0.6ms
+    in   40  out   40       0.5ms
     gold candidates present in output: 1/2   ranks [1]
 
   bridge_hop2  [EXPAND]  FIRED
-    in   40  out   58     196.1ms
+    in   40  out   58     181.7ms
     gold candidates present in output: 2/2   ranks [1, 45]
 
   comparison_widen  [EXPAND]  SKIPPED_BY_GATE
     in    0  out    0       0.0ms
 
   bridge_siblings  [EXPAND]  FIRED
-    in   58  out   58       1.6ms
+    in   58  out   58       1.4ms
     gold candidates present in output: 2/2   ranks [1, 45]
 
   route_merge  [FUSE]  FIRED
-    in   58  out   40       0.8ms
+    in   58  out   40       0.6ms
     gold candidates present in output: 1/2   ranks [1]
     !! gold candidate dropped here: ['karen_dotrice__a36bd508']
 
   confidence_gate  [GATE]  FIRED  -> route 'disagree'
-    in   40  out   40       0.6ms
+    in   40  out   40       0.5ms
     gold candidates present in output: 1/2   ranks [1]
 
   fast_lane  [TRANSFORM]  SKIPPED_BY_GATE
     in    0  out    0       0.0ms
 
   rerank  [RERANK]  FIRED
-    in   40  out   10     253.3ms
+    in   40  out   10     229.4ms
     gold candidates present in output: 1/2   ranks [1]
 
   final_selection  [FUSE]  FIRED
-    in   10  out   10       0.2ms
+    in   10  out   10       0.1ms
     gold candidates present in output: 1/2   ranks [1]
 
   CANDIDATE OUTCOMES FOR THIS QUERY

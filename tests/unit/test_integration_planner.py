@@ -1,3 +1,5 @@
+import ast
+
 from retrieval_observatory.integrations.planner import build_integration_plan
 
 
@@ -41,3 +43,55 @@ def test_planner_discovers_named_source_operator(tmp_path):
     plan = build_integration_plan(tmp_path)
 
     assert {operator.symbol for operator in plan.operators} == {"source", "retrieve"}
+
+
+def test_planner_patch_compiles_with_docstring_and_future_import(tmp_path):
+    """A module docstring must stay a docstring and `__future__` must stay first."""
+    (tmp_path / "app.py").write_text(
+        '"""Module docstring."""\n'
+        "from __future__ import annotations\n"
+        "\n"
+        "def retrieve(query): return []\n",
+        encoding="utf-8",
+    )
+
+    plan = build_integration_plan(tmp_path)
+    replacement = plan.patches[0].replacement
+
+    tree = ast.parse(replacement)
+    assert ast.get_docstring(tree) == "Module docstring."
+    future = next(
+        node for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "__future__"
+    )
+    observe = next(
+        node for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.module == "retrieval_observatory.sdk"
+    )
+    assert future.lineno < observe.lineno
+    assert "@observe(" in replacement
+
+
+def test_planner_patch_compiles_with_shebang_and_future_import(tmp_path):
+    (tmp_path / "app.py").write_text(
+        "#!/usr/bin/env python\n"
+        '"""Doc."""\n'
+        "from __future__ import annotations\n"
+        "\n"
+        "def retrieve(query): return []\n",
+        encoding="utf-8",
+    )
+
+    replacement = build_integration_plan(tmp_path).patches[0].replacement
+
+    assert replacement.startswith("#!/usr/bin/env python\n")
+    assert ast.get_docstring(ast.parse(replacement)) == "Doc."
+
+
+def test_planner_patch_compiles_for_plain_module(tmp_path):
+    (tmp_path / "app.py").write_text("def retrieve(query): return []\n", encoding="utf-8")
+
+    replacement = build_integration_plan(tmp_path).patches[0].replacement
+
+    ast.parse(replacement)
+    assert replacement.startswith("from retrieval_observatory.sdk import observe\n")

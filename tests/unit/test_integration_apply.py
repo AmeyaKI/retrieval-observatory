@@ -30,3 +30,15 @@ def test_stale_plan_does_not_modify_other_files(tmp_path):
     with pytest.raises(ValueError, match="stale integration plan"):
         apply_integration_plan(plan)
     assert a.read_text() == "a"
+
+
+def test_apply_refuses_patch_that_does_not_compile(tmp_path):
+    """A hand-edited plan must never land broken Python and report success."""
+    target = tmp_path / "app.py"
+    target.write_text("def retrieve(q): return []\n")
+    plan = _plan(tmp_path, [PatchOperation.from_file(tmp_path, target, "def broken(:\n    pass\n")])
+
+    with pytest.raises(ValueError, match="would not compile"):
+        apply_integration_plan(plan)
+
+    assert target.read_text() == "def retrieve(q): return []\n"

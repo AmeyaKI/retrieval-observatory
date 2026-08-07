@@ -3,6 +3,12 @@
 Every number here comes from a run in `.retobs/demo.db`. Nothing is illustrative, and where a
 result went against what we expected, it is reported that way.
 
+Two classes of number appear below, and they carry different guarantees. Quality metrics and their
+confidence intervals are seeded (`seed: 17`, 2000 resamples) and reproduce **exactly** — an
+independent rerun matched every effect size, interval, verdict, and paired sample count. Latency
+and wall-clock figures are not seeded and are machine-dependent: their direction reproduces, their
+digits do not. Latency claims are labelled where they appear.
+
 ---
 
 ## The setup
@@ -16,7 +22,7 @@ agree, the pipeline saves the work.
 Eleven operators. The kind of pipeline that is genuinely hard to reason about, because a
 change anywhere can be masked or amplified anywhere else.
 
-Baseline: **recall@10 of 0.875**, 51 seconds for 400 questions.
+Baseline: **recall@10 of 0.875**, and roughly 50 seconds of wall clock for 400 questions.
 
 ---
 
@@ -85,7 +91,7 @@ We disable the keyword lane — a realistic change, the kind someone makes to cu
 retire a component. Then we ask retobs whether it is safe to ship.
 
 **It says `PASS`.** Final recall went *up*, by 3 points, with the interval excluding zero.
-Every declared slice passes. p95 latency improved 24%. Total runtime dropped 17%.
+Every declared slice passes. p95 latency improved and total runtime dropped.
 
 A metrics dashboard shows green across the board. **Ship it.**
 
@@ -107,7 +113,13 @@ reranking went from 47% of queries to **100%**.
 | | baseline | keyword lane disabled |
 |---|---|---|
 | queries reranked | 187 / 400 | **400 / 400** |
-| median latency | 539 ms | **718 ms (+33%)** |
+| median latency | 539 ms | **718 ms** |
+
+The reranking counts come from the run record and reproduce exactly. The latency figures do not:
+they are wall-clock measurements from a single unseeded run on one laptop. The *direction*
+reproduces on every rerun — median latency gets worse, p95 improves, total runtime drops — but the
+exact milliseconds move with machine load. A later rerun measured 518 ms → 816 ms. Read the sign,
+not the digits.
 
 Three things a single number cannot tell you:
 

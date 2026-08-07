@@ -56,6 +56,36 @@ class StatisticalComparison:
 
 REQUIRED_COMPARISON_AXES = ("query_hash", "corpus_hash", "qrel_hash", "labeling")
 
+# Aggregate-only render keys: computed as true percentiles over a run's per-query latency
+# samples. They have no per-query counterpart, so a paired comparison cannot reproduce them.
+LATENCY_RENDER_METRICS = ("latency_p50", "latency_p95", "latency_p99")
+
+
+def collapse_latency_render_keys(keys: Iterable[str]) -> List[str]:
+    """Replace per-run latency percentile keys with the one paired quantity that exists.
+
+    A paired comparison resolves every `latency_p*` key to the same per-query `latency_ms`
+    samples, so emitting all three renders the identical number three times under three
+    labels that promise different statistics. Collapse them into a single `latency_mean`.
+    """
+    collapsed: List[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        try:
+            pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(key)
+        except ValueError:
+            collapsed.append(key)
+            continue
+        if metric_name not in LATENCY_RENDER_METRICS:
+            collapsed.append(key)
+            continue
+        suffix = f"|branch={branch_id}" if branch_id else ""
+        mean_key = f"{pipeline_id}|stage{stage_index}|latency_mean@{k}{suffix}"
+        if mean_key not in seen:
+            seen.add(mean_key)
+            collapsed.append(mean_key)
+    return collapsed
+
 
 def comparison_validity(manifests: List[Dict[str, Any] | None]) -> ComparisonValidity:
     """Validate whether two or more manifests support a decision-bearing comparison."""
@@ -318,7 +348,13 @@ def scores_by_query(
 ) -> Dict[str, float]:
     # Percentiles are aggregate render keys over the persisted per-query latency_ms
     # samples. Pair the underlying samples by query for significance/effect tests.
-    stored_metric_name = "latency_ms" if metric_name in {"latency_p50", "latency_p95", "latency_p99"} else metric_name
+    # `latency_mean` names that paired quantity honestly: a percentile cannot be paired
+    # per query, so anything resolved here is a mean over the per-query samples.
+    stored_metric_name = (
+        "latency_ms"
+        if metric_name in LATENCY_RENDER_METRICS or metric_name == "latency_mean"
+        else metric_name
+    )
     return {
         row["query_id"]: row["value"]
         for row in metrics

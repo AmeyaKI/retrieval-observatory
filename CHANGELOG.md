@@ -4,15 +4,20 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ---
 
-## [Unreleased]
+## [0.5.6] — 2026-08-07
 
 ### Added
 
 - `results/flagship_demo/` — HotpotQA flagship demo: eleven-operator gated DAG, release policy, five runs, and decision reports for four scenarios (improvement, regression, provenance contradiction, stale index) plus a per-query lineage read-out. One command, no API keys.
 - `metrics/comparison.py` — `rank_metric_keys()` orders metric keys by release-decision relevance (policy-guarded, terminal-stage quality, funnel, operational).
+- `FUTURE_WORK.md` — published record of known limitations and deferred work.
 
 ### Changed
 
+- `README.md` — leads with `retobs demo`, a zero-argument, no-key command, before the placeholder `evaluate` example.
+- `results/BENCHMARK_ANALYSIS.md`, `results/RESULTS_OVERVIEW.md` — record the version, commit, and date the BEIR sweep actually ran at (0.1.0, `0991e64`, 2026-06-01) and state it has not been rerun since. Removes the incorrect "v0.1.2" label.
+- `results/flagship_demo/CASE_STUDY.md` — separates seeded, exactly reproducible quality metrics from unseeded machine-dependent latency figures, and labels the latency table accordingly.
+- `.gitignore` — allowlists `FUTURE_WORK.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and `.github/**/*.md`, which the blanket `*.md` rule had silently excluded from version control.
 - `store/base.py` — `TraceQuery.limit` defaults to `None` (every matching trace) instead of `200`; paging callers pass a limit explicitly. Removes the `limit=1_000_000` / `limit=100000` workarounds in `cli.py`, `dashboard/analysis_api.py`, and `dashboard/api.py`.
 - `store/sqlite.py`, `store/postgres.py` — `list_traces` omits `LIMIT` when `TraceQuery.limit` is `None`.
 - `dashboard/api.py` — comparison rows ordered by `rank_metric_keys()` instead of alphabetically, so terminal-stage quality leads instead of run-level operational rows.
@@ -20,12 +25,21 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `integrations/planner.py` — `_import_insertion_line()` places the instrumentation import after the shebang, module docstring, and every `from __future__` import. Previously it was inserted at line 0, which demoted the module docstring to a bare expression and produced a `SyntaxError` on any file using `from __future__ import annotations`.
+- `integrations/planner.py` — `_instrument_source()` inserts decorators before the import so `node.lineno` stays valid, removing the index-shifting correction, and `ast.parse` validates the result before it becomes a patch.
+- `integrations/apply.py` — `apply_integration_plan()` rejects a patch whose replacement does not parse, naming the file and parse error, instead of writing it and reporting `applied`.
+- `integrations/verify.py` — `verify_observed_traces()` reports "no traces recorded" as the cause when no traces exist, instead of listing every declared operator as missing.
+- `metrics/comparison.py`, `sdk/report.py` — `collapse_latency_render_keys()` replaces the `latency_p50`/`p95`/`p99` rows in comparison reports with a single `latency_mean` row. A paired comparison resolves all three to the same per-query `latency_ms` samples, so the report printed one mean under three percentile labels. Single-run `retobs report` percentiles are unchanged and remain true percentiles.
 - `tracing/candidates.py` — `FUSE` outputs matching several inputs are graded `identity_evidence="recorded"`, not `"partial"`; multi-match is the defined behaviour of a fan-in, and the downgrade raised a permanent `lineage_capture_partial` BLOCK on fully instrumented hybrid pipelines.
 - `sdk/report.py` — report headline metrics no longer omit recall/ndcg on multi-stage pipelines; the previous `|stage-1|` filter could only match run-level operational rows.
 - `store/*` — `get_traces(run_id)` returns every trace for a run instead of silently truncating at 200, which had reduced run-wide statistics (notably MCP `operator_marginal_contribution` intervals and dashboard metric recomputation) to a prefix of the run.
 - `release/evidence.py` — `_trace_is_partial` ignores `SKIPPED_BY_GATE` spans when checking for absent parent input groups; a branch a gate declined to run is recorded on the gate, not missing, and counting it marked every conditionally-routed pipeline as partially captured.
 
-### Removed
+---
+
+## [Unreleased]
+
+---
 
 ## [0.5.5] — 2026-07-30 [PyPI]
 

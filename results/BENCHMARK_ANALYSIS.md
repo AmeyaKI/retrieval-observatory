@@ -1,4 +1,11 @@
-# Retrieval Observatory — Case Study: BEIR Datasets Benchmark Analysis (v0.1.2)
+# Retrieval Observatory — Case Study: BEIR Datasets Benchmark Analysis
+
+> **Provenance.** These numbers were measured at package version **0.1.0**, commit `0991e64`,
+> on **2026-06-01**, and have **not been rerun since**. They describe that build, not the current
+> release. The source databases and `scripts/run_beir_publish.sh` are still present, so the sweep
+> is reproducible on a current build; doing so is tracked in [FUTURE_WORK.md](../FUTURE_WORK.md).
+> An earlier revision of this document was labelled "v0.1.2", which matched neither the code that
+> produced it nor the release it shipped alongside.
 
 Analysis generated from SQLite benchmark stores (not hand-entered numbers). Publication sweeps use dataset-specific databases referenced in [configs/beir_publish/](../configs/beir_publish/) and in `run_meta.json` under each `results/<dataset>/` export folder.
 

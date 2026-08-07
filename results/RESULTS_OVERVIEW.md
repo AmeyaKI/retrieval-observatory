@@ -1,4 +1,6 @@
-# Benchmark results index (v0.1.2)
+# Benchmark results index
+
+Measured at package version **0.1.0**, commit `0991e64`, 2026-06-01; not rerun since.
 
 Full analysis: **[results/BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md)**
 

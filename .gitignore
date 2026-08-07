@@ -33,6 +33,10 @@ TODO
 !CHANGELOG.md
 !YAML_GUIDE.md
 !SECURITY.md
+!FUTURE_WORK.md
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!.github/**/*.md
 !docs/*.md
 !docs/integrations/*.md
 !docs/informative/*.md

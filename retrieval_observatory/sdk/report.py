@@ -455,6 +455,7 @@ async def load_comparison_report(
     """Build one validity-gated report for CLI, SDK, MCP, CI, and HTML artifacts."""
     from retrieval_observatory.metrics.comparison import (
         _scores_for,
+        collapse_latency_render_keys,
         compare_paired_metrics,
         comparison_validity,
         parse_metric_key,
@@ -499,7 +500,7 @@ async def load_comparison_report(
     engine = MetricsEngine()
     baseline_aggregate = await engine.aggregate(baseline_run_id, store)
     candidate_aggregate = await engine.aggregate(candidate_run_id, store)
-    keys = sorted(set(baseline_aggregate) | set(candidate_aggregate))
+    keys = collapse_latency_render_keys(sorted(set(baseline_aggregate) | set(candidate_aggregate)))
     results = compare_paired_metrics(baseline_rows, candidate_rows, keys, validity)
 
     regressions = [result for result in results.values() if result.decision == "candidate_worse"]
