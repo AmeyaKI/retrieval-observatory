@@ -1,17 +1,17 @@
 {
   "demo_context": {
-    "baseline_run_id": "269a07d5",
-    "candidate_run_id": "68f46c6e",
+    "baseline_run_id": "2597ed46",
+    "candidate_run_id": "c181faf8",
     "sample_query_id": "temporal-0-0",
-    "validation_run_id": "2052f11e"
+    "validation_run_id": "6ed87b48"
   },
   "files": {
-    "comparison.png": "a2386d57742af8a738fe813e8e3e27d9bbb1a29a42b175aa2bcbb80fd785b823",
-    "query-debugger.png": "df963344f8385779e803ae265de3b482b1c95f15d1fef30795813fe56e4b3b89",
-    "retrieval-debugging-loop.webm": "d12eafad3fc5b47746096294d39cc7035220d3a3b8ca84edc12f93426ff610c0",
-    "validated-fix.png": "dc6dc43c4402dc3e5aceb99c7739b6e0e3120d8ac5ab204c528a506ff39e295c"
+    "comparison.png": "d20961b69b0431b9333ee03421335c6b2acae568170540eec88aa52b8b215808",
+    "query-debugger.png": "e331a01d1f7cdf7dea8e97273074d4070258e15fd82980a99995c4ee5e5b26a0",
+    "retrieval-debugging-loop.webm": "6e93e199c701e13c76effbd79fd0af6c38011bc1299baf09611556c7d76380ea",
+    "validated-fix.png": "5719436bbd3c1cbc821fcfd07dfb6ba350d75935e341799e5647a2d90cc10f28"
   },
-  "retobs_version": "0.5.5",
+  "retobs_version": "0.5.6",
   "schema_version": 1,
   "source": "scripts/generate_demo_assets.py"
 }

@@ -39,6 +39,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
 ---
 
 ## [0.5.5] — 2026-07-30 [PyPI]
