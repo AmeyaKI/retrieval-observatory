@@ -11,6 +11,8 @@ digits do not. Latency claims are labelled where they appear.
 
 ---
 
+
+
 ## The setup
 
 A hybrid retrieval pipeline over 12,654 Wikipedia paragraphs, answering 400 HotpotQA
@@ -25,6 +27,8 @@ change anywhere can be masked or amplified anywhere else.
 Baseline: **recall@10 of 0.875**, and roughly 50 seconds of wall clock for 400 questions.
 
 ---
+
+
 
 ## Act one: the tool finds something
 
@@ -69,10 +73,12 @@ hotpotqa_hybrid_dag|stage8|recall@10   PASS   +0.0088   CI [+0.0019, +0.0181]   
 The confidence interval excludes zero, so this is a real improvement rather than noise. And
 the slice breakdown confirms the mechanism rather than just the outcome:
 
-| | effect |
-|---|---|
-| bridge questions (two-hop) | **+0.0096** |
-| comparison questions (single-pass) | +0.0057 |
+
+|                                    | effect      |
+| ---------------------------------- | ----------- |
+| bridge questions (two-hop)         | **+0.0096** |
+| comparison questions (single-pass) | +0.0057     |
+
 
 The gain concentrates where the second hop runs — which is the only place a wider merge could
 possibly help. Diagnosis, fix, verification, all on the same evidence.
@@ -83,6 +89,8 @@ That call stays with a human, which is the correct division of labour.
 
 ---
 
+
+
 ## Act three: the regression that passes
 
 Now the part that matters.
@@ -90,7 +98,7 @@ Now the part that matters.
 We disable the keyword lane — a realistic change, the kind someone makes to cut latency or
 retire a component. Then we ask retobs whether it is safe to ship.
 
-**It says `PASS`.** Final recall went *up*, by 3 points, with the interval excluding zero.
+**It says** `PASS`**.** Final recall went *up*, by 3 points, with the interval excluding zero.
 Every declared slice passes. p95 latency improved and total runtime dropped.
 
 A metrics dashboard shows green across the board. **Ship it.**
@@ -110,10 +118,12 @@ stage8 final_selection        0.8750    0.9050   +0.0300
 Retrieval capability fell 5.5 points at the fusion stage. The output held up for one reason:
 reranking went from 47% of queries to **100%**.
 
-| | baseline | keyword lane disabled |
-|---|---|---|
-| queries reranked | 187 / 400 | **400 / 400** |
-| median latency | 539 ms | **718 ms** |
+
+|                  | baseline  | keyword lane disabled |
+| ---------------- | --------- | --------------------- |
+| queries reranked | 187 / 400 | **400 / 400**         |
+| median latency   | 539 ms    | **718 ms**            |
+
 
 The reranking counts come from the run record and reproduce exactly. The latency figures do not:
 they are wall-clock measurements from a single unseeded run on one laptop. The *direction*
@@ -124,11 +134,11 @@ not the digits.
 Three things a single number cannot tell you:
 
 1. **The pipeline is now single-source.** One retrieval method, no fallback. The redundancy
-   that made it robust is gone.
+  that made it robust is gone.
 2. **The confidence gate is dead.** The fast lane serves zero queries. A whole branch of the
-   architecture is now decorative, and nobody would have noticed.
+  architecture is now decorative, and nobody would have noticed.
 3. **The saving didn't materialise.** Median latency got worse, because every query now pays
-   the reranking cost that used to be spent selectively.
+  the reranking cost that used to be spent selectively.
 
 The output number improved. The system got more fragile, more expensive per query, and lost
 half its architecture. **This is what "green metrics, worse system" looks like**, and it is
@@ -139,6 +149,8 @@ did not. What retobs adds is the funnel underneath the verdict, which turns a gr
 a decision someone can actually make.
 
 ---
+
+
 
 ## Act four: the comparison that should not be made
 
@@ -188,35 +200,21 @@ an answer gives you no way to tell a real answer from a confidently wrong one.
 
 ---
 
+
+
 ## What the whole thing adds up to
 
-| | a metrics dashboard says | retobs says |
-|---|---|---|
-| **A** wider merge | recall +0.9pt | real (CI excludes zero), concentrated in two-hop questions, costs 2.5× reranking |
-| **B** keyword lane off | recall +3pt — ship it | output improved; retrieval collapsed 5.5pt, reranking cost doubled, a branch died |
-| **C** model swapped | no change — merge it | the provenance contradicts itself; these numbers cannot decide anything |
-| **C2** stale index | −2pt, borderline | the vector lane lost 17pt and the healthy half hid it |
-| **D** one bad query | recall 0.5 | found at rank 27, dropped by merge, recovered by the second hop, dropped again |
 
-Four of those five are cases where the headline number is either reassuring or ambiguous, and
+|                        | a metrics dashboard says | retobs says                                                                       |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------- |
+| **A** wider merge      | recall +0.9pt            | real (CI excludes zero), concentrated in two-hop questions, costs 2.5× reranking  |
+| **B** keyword lane off | recall +3pt — ship it    | output improved; retrieval collapsed 5.5pt, reranking cost doubled, a branch died |
+| **C** model swapped    | no change — merge it     | the provenance contradicts itself; these numbers cannot decide anything           |
+| **C2** stale index     | −2pt, borderline         | the vector lane lost 17pt and the healthy half hid it                             |
+| **D** one bad query    | recall 0.5               | found at rank 27, dropped by merge, recovered by the second hop, dropped again    |
+
+
+Four of those five are cases where the headline number is either reassuring or ambiguous, and  
 the thing you needed to know is somewhere else.
-
-## What this demo does not show
-
-Being straight about the boundaries:
-
-- **It is not a competitive retrieval system.** Widths and models were chosen for legibility
-  and cheap reruns. Every scenario compares two runs with the same components, so absolute
-  quality cancels.
-- **It does not prove retobs is easy to adopt.** This pipeline was built inside the retobs
-  repository against its internals. Whether an agent can wire retobs into someone else's
-  project from one instruction is a separate question, tested separately, and not answered
-  here.
-- **Ground truth is positive-only**, so most retrieved documents are `unknown_relevance` — not
-  a tracing failure, but a limit on how much the lineage read-out can say. Tracing health
-  (`lineage_incomplete`) is 0.0%.
-- **One lineage requirement is genuinely unmet** and left visible in every report: this
-  pipeline records no document content hashes, so `lineage_document_identity_partial` fires.
-  That is retobs correctly reporting a real limitation.
 
 Reproduce all of it with `./run_demo.sh` — about four minutes, no API keys.
