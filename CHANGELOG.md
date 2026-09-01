@@ -41,6 +41,10 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `docs/deployment.md` — optional Azure Container Apps path for a read-only BEIR dashboard; image baked from local SQLite, no core-package cloud deps.
+- `deploy/Dockerfile` — hosted-demo image recipe (separate from local `docker-compose`).
+- `dashboard/api.py` — `RETOBS_READ_ONLY` returns 403 on mutating writes; `POST /compare` and `POST /compare/config-diff` stay allowed.
+
 ### Changed
 
 ### Fixed

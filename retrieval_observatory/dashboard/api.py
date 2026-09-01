@@ -430,6 +430,23 @@ def create_app(
         allow_headers=["*"],
     )
 
+    _read_only = os.environ.get("RETOBS_READ_ONLY", "").strip().lower() in {"1", "true", "yes"}
+    if _read_only:
+        enable_uploads = False
+
+    _READ_ONLY_POST_ALLOW = frozenset({"/compare", "/compare/config-diff"})
+
+    if _read_only:
+        from starlette.responses import JSONResponse
+
+        @app.middleware("http")
+        async def _hosted_demo_read_only(request, call_next):
+            if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+                path = request.url.path.rstrip("/") or "/"
+                if path not in _READ_ONLY_POST_ALLOW:
+                    return JSONResponse({"detail": "Hosted demo is read-only"}, status_code=403)
+            return await call_next(request)
+
     engine = MetricsEngine()
     default_store = registry.get_store(registry.default_db_id)  # type: ignore[arg-type]
 

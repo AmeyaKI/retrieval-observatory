@@ -41,6 +41,7 @@ TODO
 !docs/integrations/*.md
 !docs/informative/*.md
 !docs/guides/*.md
+!docs/superpowers/**/*.md
 
 # Keep internal / work-in-progress docs untracked
 retobs_audit_remediation/
