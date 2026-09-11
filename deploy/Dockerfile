@@ -4,9 +4,12 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Hosted demo: SQLite opened mode=ro, mutating routes 403, per-IP rate limit on.
 ENV RETOBS_READ_ONLY=1
+ENV RETOBS_RATE_LIMIT_PER_MINUTE=300
 ENV RETOBS_DASHBOARD_DBS=/data/nfcorpus.db:/data/scifact.db:/data/fiqa.db
 
+# .dockerignore keeps .env, .retobs/, results/, dist/, artifacts/, sessions, and .git out.
 COPY . .
 RUN pip install --no-cache-dir -e ".[dashboard]"
 
@@ -16,7 +19,10 @@ RUN if [ -d "retrieval_observatory/dashboard/ui" ] && [ -f "retrieval_observator
         apt-get purge -y nodejs npm && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Demo databases baked by deploy/prepare_data.py (schema migrated, then chmod 444).
 COPY deploy/data/nfcorpus.db deploy/data/scifact.db deploy/data/fiqa.db /data/
+RUN chmod 444 /data/*.db && useradd --system --no-create-home retobs
+USER retobs
 
 EXPOSE 8000
 

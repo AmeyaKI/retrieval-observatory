@@ -34,6 +34,7 @@ TODO
 !YAML_GUIDE.md
 !SECURITY.md
 !FUTURE_WORK.md
+!HANDOFF.md
 !CONTRIBUTING.md
 !CODE_OF_CONDUCT.md
 !.github/**/*.md
@@ -53,6 +54,7 @@ docs/verification/
 # local data / files
 .retobs/
 *.db
+!deploy/data/*.db
 .archive/
 .prompts/
 .claude/

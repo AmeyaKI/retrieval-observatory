@@ -1,0 +1,49 @@
+name: Demo image
+
+# Builds the hosted-demo image and pushes it to GHCR. No local Docker needed.
+# Trigger manually, or automatically when the app or deploy inputs change on main.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/**"
+      - "retrieval_observatory/**"
+      - "pyproject.toml"
+      - ".dockerignore"
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name (lowercase owner)
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/retrieval-observatory" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:demo
+            ${{ steps.image.outputs.name }}:demo-${{ github.sha }}
+
+      - name: Smoke the pushed image
+        run: |
+          docker run -d --rm -p 8000:8000 --name retobs-demo "${{ steps.image.outputs.name }}:demo"
+          for i in $(seq 1 30); do curl -fsS http://localhost:8000/healthz && break; sleep 2; done
+          curl -fsS http://localhost:8000/healthz | grep -q '"read_only":true'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8000/dbs/nfcorpus/edges -H 'content-type: application/json' -d '{}')" = "403"
+          docker stop retobs-demo

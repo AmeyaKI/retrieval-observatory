@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import quote
 
 import aiosqlite
 
@@ -224,10 +227,28 @@ _CREATE_DOC_EDGES_DST_IDX = (
 )
 
 
+def _created_table_names() -> list[str]:
+    names = []
+    for key, value in globals().items():
+        if key.startswith("_CREATE_") and isinstance(value, str):
+            match = re.match(r"CREATE TABLE IF NOT EXISTS (\w+)", value.strip())
+            if match:
+                names.append(match.group(1))
+    return sorted(names)
+
+
 class SQLiteStore:
-    def __init__(self, db_path: str = ".retobs/results.db"):
+    def __init__(self, db_path: str = ".retobs/results.db", read_only: bool = False):
         self.db_path = db_path
+        self.read_only = read_only
         self._schema_ready = False
+
+    def _connect(self):
+        """Open a connection; in read-only mode SQLite itself refuses every write (`mode=ro`)."""
+        if self.read_only:
+            uri = "file:" + quote(str(Path(self.db_path).resolve())) + "?mode=ro"
+            return aiosqlite.connect(uri, uri=True)
+        return aiosqlite.connect(self.db_path)
 
     async def _ensure_schema(self) -> None:
         """Create the schema on first use so callers never hit 'no such table'.
@@ -241,8 +262,22 @@ class SQLiteStore:
 
     async def init_db(self) -> None:
         import os
+        if self.read_only:
+            # No DDL on a read-only file: the schema must already be complete. Report what is
+            # missing instead of failing later with "no such table" on some route.
+            async with self._connect() as db:
+                async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
+                    present = {row[0] for row in await cursor.fetchall()}
+            missing = [name for name in _created_table_names() if name not in present]
+            if missing:
+                raise RuntimeError(
+                    f"read-only database {self.db_path} is missing tables {missing}; "
+                    "open it writable once (SQLiteStore(path).init_db()) to migrate the schema."
+                )
+            self._schema_ready = True
+            return
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(_CREATE_RUNS)
             await db.execute(_CREATE_METRIC_SCORES)
             await db.execute(_CREATE_CACHE)
@@ -290,7 +325,7 @@ class SQLiteStore:
     async def save_analysis_record(self, kind: str, record_id: str, payload: Dict, version: int = 1) -> None:
         await self._ensure_schema()
         from datetime import datetime, timezone
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             row = await (await db.execute("SELECT MAX(version) FROM analysis_records WHERE kind=? AND record_id=?", (kind, record_id))).fetchone()
             current = row[0] if row and row[0] is not None else 0
             if version != current + 1:
@@ -300,13 +335,13 @@ class SQLiteStore:
 
     async def get_analysis_record(self, kind: str, record_id: str) -> Dict | None:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             row = await (await db.execute("SELECT payload_json,version,created_at FROM analysis_records WHERE kind=? AND record_id=? ORDER BY version DESC LIMIT 1", (kind, record_id))).fetchone()
         return None if row is None else {**json.loads(row[0]), "version": row[1], "created_at": row[2]}
 
     async def list_analysis_records(self, kind: str) -> List[Dict]:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             rows = await (await db.execute("SELECT record_id,payload_json,version,created_at FROM analysis_records WHERE kind=? ORDER BY record_id,version DESC", (kind,))).fetchall()
         seen = set()
         out = []
@@ -341,7 +376,7 @@ class SQLiteStore:
         await self.save_analysis_record("alert", alert_id, payload, version)
 
     async def save_run(self, run_id: str, experiment_name: str, config_json: str) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO runs (run_id, experiment_name, started_at, config_json) VALUES (?, ?, ?, ?)",
                 (run_id, experiment_name, datetime.now(timezone.utc).isoformat(), config_json),
@@ -349,7 +384,7 @@ class SQLiteStore:
             await db.commit()
 
     async def finish_run(self, run_id: str) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "UPDATE runs SET finished_at = ? WHERE run_id = ?",
                 (datetime.now(timezone.utc).isoformat(), run_id),
@@ -375,7 +410,7 @@ class SQLiteStore:
             )
             for trace in traces
         ]
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.executemany(
                 """INSERT OR REPLACE INTO traces
                    (trace_id, service_id, run_id, query_id, pipeline_id, status, timestamp, topology_hash, trace_json)
@@ -386,7 +421,7 @@ class SQLiteStore:
 
     async def get_trace(self, trace_id: str) -> Optional[RetrievalTrace]:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute("SELECT trace_json FROM traces WHERE trace_id = ?", (trace_id,)) as cursor:
                 row = await cursor.fetchone()
         return RetrievalTrace.from_dict(json.loads(row[0])) if row else None
@@ -419,7 +454,7 @@ class SQLiteStore:
         elif query.offset:
             sql += " LIMIT -1 OFFSET ?"  # SQLite needs a LIMIT before it accepts an OFFSET
             params.append(query.offset)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
         return [RetrievalTrace.from_dict(json.loads(row[0])) for row in rows]
@@ -430,7 +465,7 @@ class SQLiteStore:
 
     async def list_services(self) -> List[ServiceSummary]:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT service_id, COUNT(*), MAX(timestamp) FROM traces GROUP BY service_id ORDER BY MAX(timestamp) DESC"
             ) as cursor:
@@ -453,7 +488,7 @@ class SQLiteStore:
         payload = {**snapshot.__dict__, "observed_at": observed_at.isoformat()}
         if snapshot.last_export_at is not None:
             payload["last_export_at"] = snapshot.last_export_at.isoformat()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO instrumentation_health (service_id, observed_at, health_json) VALUES (?, ?, ?)",
                 (snapshot.service_id, observed_at.isoformat(), json.dumps(payload, sort_keys=True)),
@@ -476,7 +511,7 @@ class SQLiteStore:
         if until is not None:
             clauses.append("observed_at <= ?")
             params.append(until.isoformat())
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT health_json FROM instrumentation_health WHERE "
                 + " AND ".join(clauses)
@@ -500,7 +535,7 @@ class SQLiteStore:
         weight: float = 1.0,
     ) -> None:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO doc_edges (src_doc_id, dst_doc_id, edge_type, weight) VALUES (?, ?, ?, ?)",
                 (src_doc_id, dst_doc_id, edge_type, weight),
@@ -514,7 +549,7 @@ class SQLiteStore:
         if edge_type:
             sql += " AND edge_type = ?"
             params.append(edge_type)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
@@ -553,7 +588,7 @@ class SQLiteStore:
     async def save_metrics_batch(self, rows: List[Dict]) -> None:
         if not rows:
             return
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.executemany(
                 """INSERT INTO metric_scores
                    (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, branch_id, query_metadata_json)
@@ -576,7 +611,7 @@ class SQLiteStore:
             await db.commit()
 
     async def get_metrics(self, run_id: str) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM metric_scores WHERE run_id = ?", (run_id,)
@@ -595,7 +630,7 @@ class SQLiteStore:
     async def get_run_status_counts(self, run_id: str) -> Dict[str, int]:
         await self._ensure_schema()
         counts: Dict[str, int] = {}
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT status, COUNT(*) FROM traces WHERE run_id = ? GROUP BY status",
                 (run_id,),
@@ -606,7 +641,7 @@ class SQLiteStore:
         return counts
 
     async def cache_get(self, cache_key: str) -> Optional[str]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT result_json FROM result_cache WHERE cache_key = ?", (cache_key,)
             ) as cursor:
@@ -614,7 +649,7 @@ class SQLiteStore:
         return row[0] if row else None
 
     async def cache_set(self, cache_key: str, result_json: str) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO result_cache (cache_key, result_json) VALUES (?, ?)",
                 (cache_key, result_json),
@@ -622,14 +657,14 @@ class SQLiteStore:
             await db.commit()
 
     async def list_runs(self) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM runs ORDER BY started_at DESC") as cursor:
                 rows = await cursor.fetchall()
         return [dict(row) for row in rows]
 
     async def save_run_manifest(self, run_id: str, manifest: Dict) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO run_manifests (run_id, manifest_json) VALUES (?, ?)",
                 (run_id, json.dumps(manifest, sort_keys=True)),
@@ -637,7 +672,7 @@ class SQLiteStore:
             await db.commit()
 
     async def get_run_manifest(self, run_id: str) -> Optional[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT manifest_json FROM run_manifests WHERE run_id = ?", (run_id,)
             ) as cursor:
@@ -646,7 +681,7 @@ class SQLiteStore:
 
     async def save_qrels(self, run_id: str, qrels: Dict[str, Dict[str, int]]) -> None:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO run_qrels (run_id, qrels_json) VALUES (?, ?)",
                 (run_id, json.dumps(qrels)),
@@ -655,7 +690,7 @@ class SQLiteStore:
 
     async def get_qrels(self, run_id: str) -> Dict[str, Dict[str, int]]:
         await self._ensure_schema()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(
                 "SELECT qrels_json FROM run_qrels WHERE run_id = ?", (run_id,)
             ) as cursor:
@@ -668,7 +703,7 @@ class SQLiteStore:
         config_path: Optional[str] = None,
         run_id: Optional[str] = None,
     ) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 """INSERT INTO validation_reports
                    (run_id, config_path, created_at, report_json)
@@ -685,7 +720,7 @@ class SQLiteStore:
     async def save_query_diagnostics(self, rows: List[Dict]) -> None:
         if not rows:
             return
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.executemany(
                 """INSERT OR REPLACE INTO query_diagnostics
                    (run_id, query_id, pipeline_id, difficulty_bucket, failure_labels_json,
@@ -713,7 +748,7 @@ class SQLiteStore:
         if query_id is not None:
             sql += " AND query_id = ?"
             params = (run_id, query_id)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
@@ -731,7 +766,7 @@ class SQLiteStore:
         if not findings:
             return
         trace_id = next((f.evidence.trace_ids[0] for f in findings if f.evidence and f.evidence.trace_ids), "")
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.executemany(
                 """INSERT OR REPLACE INTO diagnostic_findings
                    (run_id, query_id, trace_id, label, availability, method_id, method_version, evidence_class, finding_order, finding_json)
@@ -760,7 +795,7 @@ class SQLiteStore:
             sql += " AND query_id = ?"
             params.append(query_id)
         sql += " ORDER BY query_id, trace_id, finding_order"
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
         return [DiagnosticFinding.from_dict(json.loads(row[0])) for row in rows]
@@ -773,7 +808,7 @@ class SQLiteStore:
     ) -> None:
         if not queries:
             return
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.executemany(
                 """INSERT OR REPLACE INTO run_queries
                    (run_id, query_id, query_text, dataset_name)
@@ -786,7 +821,7 @@ class SQLiteStore:
             await db.commit()
 
     async def get_run_queries(self, run_id: str) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT * FROM run_queries WHERE run_id = ?", (run_id,)
@@ -823,7 +858,7 @@ class SQLiteStore:
               AND difficulty_bucket != 'unknown'
             GROUP BY run_id, query_id, difficulty_bucket
         """
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, run_ids) as cursor:
                 rows = await cursor.fetchall()
@@ -836,7 +871,7 @@ class SQLiteStore:
         corpus_path: str,
         output_dir: str,
     ) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO forge_datasets (dataset_id, created_at, corpus_path, output_dir, summary_json) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -845,7 +880,7 @@ class SQLiteStore:
             await db.commit()
 
     async def get_forge_datasets(self) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT dataset_id, created_at, corpus_path, output_dir, summary_json FROM forge_datasets ORDER BY created_at DESC"
@@ -868,7 +903,7 @@ class SQLiteStore:
 
     async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
         scenarios = json.loads(scenarios_json)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute("DELETE FROM forge_scenarios WHERE dataset_id = ?", (dataset_id,))
             for s in scenarios:
                 await db.execute(
@@ -885,7 +920,7 @@ class SQLiteStore:
             await db.commit()
 
     async def get_forge_scenarios(self, dataset_id: str) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT scenario_id, scenario_type, anchor_doc_ids_json, evidence_summary "
@@ -905,7 +940,7 @@ class SQLiteStore:
 
     async def save_forge_queries(self, dataset_id: str, queries_json: str) -> None:
         queries = json.loads(queries_json)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute("DELETE FROM forge_queries WHERE dataset_id = ?", (dataset_id,))
             for q in queries:
                 await db.execute(
@@ -960,7 +995,7 @@ class SQLiteStore:
             " ORDER BY q.id LIMIT ? OFFSET ?"
         )
         params.extend([limit, offset])
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
@@ -983,13 +1018,13 @@ class SQLiteStore:
         traces = await self.list_traces(query)
         if not traces:
             return 0
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.executemany("DELETE FROM traces WHERE trace_id = ?", [(trace.trace_id,) for trace in traces])
             await db.commit()
         return len(traces)
 
     async def save_reliability_snapshot(self, run_id: str, value: float, components: Dict) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT INTO reliability_snapshots (run_id, recorded_at, value, components_json) VALUES (?, ?, ?, ?)",
                 (run_id, datetime.now(timezone.utc).isoformat(), value, json.dumps(components)),
@@ -1004,7 +1039,7 @@ class SQLiteStore:
             params.append(run_id)
         sql += " ORDER BY recorded_at DESC LIMIT ?"
         params.append(limit)
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(params)) as cursor:
                 rows = await cursor.fetchall()
@@ -1020,7 +1055,7 @@ class SQLiteStore:
 
     async def get_query_lineage(self, query_id: str) -> Dict:
         """Assemble one query's lifecycle across Test Sets, benchmarks, and production (categorical)."""
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT q.query_id, q.text, q.scenario_id, q.query_type, q.difficulty_label, "
@@ -1129,7 +1164,7 @@ class SQLiteStore:
         if not difficulty and not failure_labels:
             return []
         sql = "SELECT trace_json FROM traces WHERE run_id IS NULL ORDER BY timestamp DESC LIMIT ?"
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, (limit * 5,)) as cursor:
                 rows = await cursor.fetchall()
@@ -1152,7 +1187,7 @@ class SQLiteStore:
         return matched
 
     async def save_golden_set(self, name: str, queries_json: str) -> None:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             await db.execute(
                 "INSERT OR REPLACE INTO golden_sets (name, queries_json, created_at) VALUES (?, ?, ?)",
                 (name, queries_json, datetime.now(timezone.utc).isoformat()),
@@ -1160,13 +1195,13 @@ class SQLiteStore:
             await db.commit()
 
     async def get_golden_set(self, name: str) -> Optional[str]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             async with db.execute("SELECT queries_json FROM golden_sets WHERE name = ?", (name,)) as cursor:
                 row = await cursor.fetchone()
         return row[0] if row else None
 
     async def list_golden_sets(self) -> List[Dict]:
-        async with aiosqlite.connect(self.db_path) as db:
+        async with self._connect() as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 "SELECT name, created_at FROM golden_sets ORDER BY created_at DESC"

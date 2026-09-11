@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,11 @@ from typing import Dict, List, Optional
 
 from retrieval_observatory.store.postgres import PostgresStore
 from retrieval_observatory.store.sqlite import SQLiteStore
+
+
+def hosted_read_only() -> bool:
+    """True when `RETOBS_READ_ONLY` is set: SQLite opens `mode=ro`, mutating routes 403."""
+    return os.environ.get("RETOBS_READ_ONLY", "").strip().lower() in {"1", "true", "yes"}
 
 
 def _slugify(stem: str) -> str:
@@ -25,9 +31,10 @@ class DbSource:
 class DbRegistry:
     """Maps stable db_id keys to SQLiteStore instances for multi-DB dashboard serving."""
 
-    def __init__(self, db_paths: List[str]):
+    def __init__(self, db_paths: List[str], read_only: bool | None = None):
         if not db_paths:
             raise ValueError("At least one database path is required")
+        self.read_only = hosted_read_only() if read_only is None else read_only
         self._sources: Dict[str, DbSource] = {}
         used_ids: Dict[str, int] = {}
 
@@ -43,7 +50,7 @@ class DbRegistry:
             if path.startswith("postgres://") or path.startswith("postgresql://"):
                 store = PostgresStore(dsn=path)
             else:
-                store = SQLiteStore(db_path=path)
+                store = SQLiteStore(db_path=path, read_only=self.read_only)
 
             self._sources[db_id] = DbSource(
                 db_id=db_id,
@@ -83,7 +90,8 @@ class DbRegistry:
                 {
                     "db_id": source.db_id,
                     "label": source.label,
-                    "path": source.path,
+                    # Hosted read-only mode does not reveal container filesystem paths.
+                    "path": Path(source.path).name if self.read_only and "://" not in source.path else source.path,
                     "run_count": len(runs),
                 }
             )

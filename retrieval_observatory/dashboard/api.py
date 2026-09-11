@@ -22,7 +22,7 @@ from retrieval_observatory.metrics.comparison import (
 )
 from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
-from retrieval_observatory.dashboard.registry import DbRegistry
+from retrieval_observatory.dashboard.registry import DbRegistry, hosted_read_only
 from retrieval_observatory.store.base import TraceQuery
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution
 from retrieval_observatory.tracing.model import RetrievalTrace
@@ -430,14 +430,15 @@ def create_app(
         allow_headers=["*"],
     )
 
-    _read_only = os.environ.get("RETOBS_READ_ONLY", "").strip().lower() in {"1", "true", "yes"}
+    from starlette.responses import JSONResponse
+
+    _read_only = hosted_read_only()
     if _read_only:
         enable_uploads = False
 
     _READ_ONLY_POST_ALLOW = frozenset({"/compare", "/compare/config-diff"})
 
     if _read_only:
-        from starlette.responses import JSONResponse
 
         @app.middleware("http")
         async def _hosted_demo_read_only(request, call_next):
@@ -446,6 +447,60 @@ def create_app(
                 if path not in _READ_ONLY_POST_ALLOW:
                     return JSONResponse({"detail": "Hosted demo is read-only"}, status_code=403)
             return await call_next(request)
+
+    # Per-IP sliding-window rate limit. On by default only in hosted read-only mode, where the
+    # app sits behind an ingress that sets X-Forwarded-For; off locally (0) unless configured.
+    _rate_limit = int(os.environ.get("RETOBS_RATE_LIMIT_PER_MINUTE", "300" if _read_only else "0"))
+    if _rate_limit > 0:
+        import time
+        from collections import deque
+
+        _hits: Dict[str, deque] = {}
+
+        def _client_ip(request) -> str:
+            forwarded = request.headers.get("x-forwarded-for", "")
+            if forwarded:
+                return forwarded.split(",")[0].strip()
+            return request.client.host if request.client else "unknown"
+
+        @app.middleware("http")
+        async def _per_ip_rate_limit(request, call_next):
+            now = time.monotonic()
+            window_start = now - 60.0
+            hits = _hits.setdefault(_client_ip(request), deque())
+            while hits and hits[0] < window_start:
+                hits.popleft()
+            if len(hits) >= _rate_limit:
+                return JSONResponse({"detail": "Rate limit exceeded"}, status_code=429, headers={"Retry-After": "60"})
+            hits.append(now)
+            if len(_hits) > 10_000:
+                for key in [key for key, value in _hits.items() if not value or value[-1] < window_start]:
+                    _hits.pop(key, None)
+            return await call_next(request)
+
+    def _reject_policy_path(policy_path: str | None) -> None:
+        """A policy file path is a server filesystem path; never accept one from the network in hosted mode."""
+        if _read_only and policy_path:
+            raise HTTPException(status_code=403, detail="policy_path is not accepted by the hosted read-only dashboard")
+
+    def _bound(name: str, value: int, low: int, high: int) -> int:
+        if not low <= value <= high:
+            raise HTTPException(status_code=422, detail=f"{name} must be {low}..{high}")
+        return value
+
+    def _iso_or_422(name: str, value: str):
+        from datetime import datetime
+
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"{name} must be an ISO-8601 timestamp")
+
+    @app.get("/healthz")
+    async def healthz() -> Dict[str, Any]:
+        return {"status": "ok", "read_only": _read_only, "databases": len(registry.list_db_ids())}
 
     engine = MetricsEngine()
     default_store = registry.get_store(registry.default_db_id)  # type: ignore[arg-type]
@@ -508,6 +563,7 @@ def create_app(
             selections = [(sole, run_id) for run_id in parsed_legacy.run_ids]
         else:
             raise HTTPException(status_code=400, detail="Provide selections or run_ids")
+        _reject_policy_path(policy_path)
         for db_id, _ in selections:
             _store_for(db_id)
         try:
@@ -617,6 +673,7 @@ def create_app(
     async def compare_runs_in_db(db_id: str, req: CompareRequest) -> Dict[str, Any]:
         if len(req.run_ids) < 2:
             raise HTTPException(status_code=400, detail="Provide at least 2 run IDs")
+        _reject_policy_path(req.policy_path)
         _store_for(db_id)
         selections = [(db_id, run_id) for run_id in req.run_ids]
         try:
@@ -994,6 +1051,7 @@ def create_app(
         from retrieval_observatory.tracing.lineage import build_candidate_lineage
         from retrieval_observatory.tracing.lineage_diff import diff_candidate_lineage
 
+        _reject_policy_path(policy_path)
         store = _store_for(db_id)
         candidate_traces = await store.list_traces(
             TraceQuery(run_id=run_id, query_id=query_id)
@@ -1423,7 +1481,7 @@ def create_app(
         query_id: Optional[str] = None,
         limit: int = 200,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         store = _store_for(db_id)
         if limit < 1 or limit > 500 or offset < 0:
             raise HTTPException(status_code=422, detail="limit must be 1..500 and offset must be non-negative")
@@ -1473,6 +1531,7 @@ def create_app(
         metric: str = "recall",
         k: int = 10,
     ) -> List[Dict[str, Any]]:
+        _bound("k", k, 1, 1000)
         store = _store_for(db_id)
         traces = await store.list_traces(TraceQuery(run_id=run_id))
         qrels = await _resolve_qrels(store, run_id)
@@ -1566,6 +1625,7 @@ def create_app(
     async def get_miss_attribution(
         db_id: str, run_id: str, trace_id: str, k: int = 10,
     ) -> List[Dict[str, Any]]:
+        _bound("k", k, 1, 1000)
         """Miss attribution for a single query trace."""
         from retrieval_observatory.tracing.replay import attribute_miss as _attr_miss
 
@@ -1608,6 +1668,7 @@ def create_app(
 
     @db_router.get("/runs/{run_id}/query-winners")
     async def get_query_winners(db_id: str, run_id: str, metric: str = "recall", k: int = 10) -> Dict[str, Any]:
+        _bound("k", k, 1, 1000)
         store = _store_for(db_id)
         rows = await store.get_metrics(run_id)
         scored: Dict[str, Dict[str, tuple[int, float]]] = defaultdict(dict)
@@ -1774,6 +1835,8 @@ def create_app(
         db_id: str = "",
     ) -> Dict[str, Any]:
         """Return a stable, paginated Test Set query and provenance envelope."""
+        _bound("limit", limit, 1, 500)
+        _bound("offset", offset, 0, 1_000_000)
         try:
             store = _evidence_store(db_id)
             if store and hasattr(store, "get_forge_queries"):
@@ -1948,6 +2011,8 @@ def create_app(
     ) -> Dict[str, Any]:
         from retrieval_observatory.experimental.advisor.trends import get_reliability_trends
 
+        _bound("limit", limit, 1, 500)
+
         store = _evidence_store(db_id)
         history = await get_reliability_trends(store, run_id=run_id, limit=limit)
         return {"history": history}
@@ -2025,13 +2090,14 @@ def create_app(
         offset: int = 0,
         db_id: str = "",
     ) -> Dict[str, Any]:
-        from datetime import datetime
+        _bound("limit", limit, 1, 500)
+        _bound("offset", offset, 0, 1_000_000)
         store = _production_store(db_id)
         if store and hasattr(store, "list_traces"):
             base = TraceQuery(
                 service_id=service_id,
-                since=datetime.fromisoformat(since) if since else None,
-                until=datetime.fromisoformat(until) if until else None,
+                since=_iso_or_422("since", since),
+                until=_iso_or_422("until", until),
                 status=status or None, limit=limit, offset=offset)
             traces = await store.list_traces(base)
             all_matches = await store.list_traces(TraceQuery(service_id=service_id, since=base.since, until=base.until, status=base.status))
@@ -2042,6 +2108,8 @@ def create_app(
     @app.get("/dbs/{db_id}/production/topology-variants")
     @production_router.get("/topology-variants")
     async def topology_variants(service_id: str, limit: int = 50, offset: int = 0, db_id: str = "") -> Dict[str, Any]:
+        _bound("limit", limit, 1, 500)
+        _bound("offset", offset, 0, 1_000_000)
         store = _production_store(db_id)
         variants = await store.list_topology_variants(TraceQuery(service_id=service_id, limit=100000))
         page = variants[offset:offset + limit]
@@ -2060,11 +2128,10 @@ def create_app(
     @app.get("/dbs/{db_id}/production/summary")
     @production_router.get("/summary")
     async def trace_summary(service_id: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
-        from datetime import datetime
         store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return {}
-        traces = await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=100000))
+        traces = await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=100000))
         rows = [_monitor_trace(trace) for trace in traces]
         from retrieval_observatory.tracing.monitor.distribution import summarize
         return summarize(rows)
@@ -2072,11 +2139,10 @@ def create_app(
     @app.get("/dbs/{db_id}/production/distribution")
     @production_router.get("/distribution")
     async def trace_distribution(service_id: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
-        from datetime import datetime
         store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return {}
-        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=100000))]
+        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=100000))]
         from retrieval_observatory.tracing.monitor.distribution import compute_distribution
         return compute_distribution(rows)
 
@@ -2088,6 +2154,8 @@ def create_app(
         store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
+        _iso_or_422("recent", recent)
+        _iso_or_422("baseline", baseline)
         now = datetime.now(timezone.utc)
         recent_since = recent or (now - timedelta(hours=24)).isoformat()
         baseline_until = recent_since
@@ -2105,22 +2173,20 @@ def create_app(
     @app.get("/dbs/{db_id}/production/hotspots")
     @production_router.get("/hotspots")
     async def trace_hotspots(service_id: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        from datetime import datetime
         store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
-        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=10000))]
+        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=10000))]
         from retrieval_observatory.tracing.monitor.hotspots import compute_hotspots
         return compute_hotspots(rows)
 
     @app.get("/dbs/{db_id}/production/clusters")
     @production_router.get("/clusters")
     async def trace_clusters(service_id: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        from datetime import datetime
         store = _production_store(db_id)
         if not (store and hasattr(store, "list_traces")):
             return []
-        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(since) if since else None, until=datetime.fromisoformat(until) if until else None, limit=100000))]
+        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=100000))]
         from retrieval_observatory.tracing.monitor.cluster import compute_clusters
         return compute_clusters(rows)
 

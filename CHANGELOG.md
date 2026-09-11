@@ -43,9 +43,15 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 - `retrieval_observatory/experimental/` — new home for demoted subsystems; `experimental/_compat.py` installs a meta-path shim so `retrieval_observatory.{advisor,classifier,diagram,forge}` still import (same module objects) with a `DeprecationWarning`.
 - `docs/guides/experimental/` — guides for demoted or unverified subsystems.
-- `docs/deployment.md` — optional Azure Container Apps path for a read-only BEIR dashboard; image baked from local SQLite, no core-package cloud deps.
-- `deploy/Dockerfile` — hosted-demo image recipe (separate from local `docker-compose`).
+- `docs/deployment.md`, `deploy/README.md` — Azure Container Apps path for a read-only BEIR dashboard with the public-exposure checklist and its results; no core-package cloud deps.
+- `deploy/Dockerfile` — hosted-demo image: baked read-only databases (`chmod 444`), non-root user, `RETOBS_READ_ONLY=1`, `RETOBS_RATE_LIMIT_PER_MINUTE=300`.
+- `deploy/prepare_data.py` — bakes demo databases: copy, migrate schema once writable, verify `mode=ro` open, mark read-only. Baked files committed under `deploy/data/`.
+- `deploy/deploy_azure.sh` — idempotent one-command deploy (group, environment, app create/update, `/healthz` poll).
+- `.github/workflows/demo-image.yml` — builds `deploy/Dockerfile` and pushes `ghcr.io/<owner>/retrieval-observatory:demo` on dispatch or on `main` pushes touching the app or `deploy/`; smokes `/healthz` and a 403 write.
 - `dashboard/api.py` — `RETOBS_READ_ONLY` returns 403 on mutating writes; `POST /compare` and `POST /compare/config-diff` stay allowed.
+- `dashboard/api.py` — `GET /healthz`; per-IP sliding-window rate limit (`RETOBS_RATE_LIMIT_PER_MINUTE`, keyed on first `X-Forwarded-For` hop, 429 + `Retry-After`), on by default only in read-only mode.
+- `dashboard/registry.py` — `hosted_read_only()`; `DbRegistry(read_only=…)` opens SQLite stores read-only and reports database basenames instead of filesystem paths.
+- `store/sqlite.py` — `SQLiteStore(read_only=True)` connects with `file:…?mode=ro`; `init_db` runs no DDL in that mode and raises naming missing tables.
 
 ### Changed
 
@@ -58,6 +64,11 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `docs/ARCHITECTURE.md`, `FUTURE_WORK.md` — describe the experimental tier and the classifier's missing label source.
 
 ### Fixed
+
+- `dashboard/api.py` — `GET /dbs/{db}/runs/{run}/traces` declared a dict response but returned a list, so every call failed response validation with a 500.
+- `dashboard/api.py` — `since`/`until`/`baseline`/`recent` that are not ISO-8601 return 422 instead of 500; `limit`/`offset`/`k` on production traces, topology variants, reliability history, Test Set queries, operator attribution, miss attribution, and query winners are bounded (422 outside range).
+- `dashboard/api.py` — `policy_path` (a server filesystem path) on `POST /compare`, `POST /dbs/{db}/compare`, and `GET …/candidate-lineage-diff` returns 403 in read-only mode.
+- `.dockerignore` — excludes `results/`, `dist/`, `artifacts/`, `*.egg-info`, `*.jsonl`, `*.png` so local runs, build outputs, and session transcripts never enter an image.
 
 ### Removed
 

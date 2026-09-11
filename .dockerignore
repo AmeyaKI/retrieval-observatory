@@ -20,3 +20,10 @@ tests
 docs
 *.md
 !README.md
+# never ship local runs, build outputs, sessions, screenshots, or metadata
+results
+dist
+artifacts
+*.egg-info
+*.jsonl
+*.png
