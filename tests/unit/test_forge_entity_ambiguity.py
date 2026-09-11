@@ -1,4 +1,4 @@
-from retrieval_observatory.forge.scenarios.entity_ambiguity import EntityAmbiguityDetector
+from retrieval_observatory.experimental.forge.scenarios.entity_ambiguity import EntityAmbiguityDetector
 
 
 def test_entity_ambiguity_detector_finds_shared_token():

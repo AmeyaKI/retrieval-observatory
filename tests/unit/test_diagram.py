@@ -1,5 +1,5 @@
 """Trace-native diagram JSON (PipelineGraph contract) + standalone HTML export."""
-from retrieval_observatory.diagram.html import render_diagram_html
+from retrieval_observatory.experimental.diagram.html import render_diagram_html
 from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
 from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 

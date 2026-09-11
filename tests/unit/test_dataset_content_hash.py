@@ -37,8 +37,8 @@ def test_content_hash_stable_across_regenerated_forge_dataset():
     dataset regenerated from the same corpus must produce the same content_hash as the
     first generation -- this only holds now that Test Sets scenario/query ids are content-
     derived rather than random uuids (see forge/scenarios/*.py, forge/generation/*.py)."""
-    from retrieval_observatory.forge.scenarios.temporal import TemporalScenarioDetector
-    from retrieval_observatory.forge.generation.rule_based import generate_rule_based_queries
+    from retrieval_observatory.experimental.forge.scenarios.temporal import TemporalScenarioDetector
+    from retrieval_observatory.experimental.forge.generation.rule_based import generate_rule_based_queries
 
     corpus = {
         "doc1": {"text": "Apple released the iPhone in 2007.", "title": "iPhone 2007"},

@@ -87,8 +87,8 @@ async def test_full_pipeline_with_fixture_data(tmp_path):
 @pytest.mark.asyncio
 async def test_classifier_annotates_query_metadata(tmp_path):
     pytest.importorskip("sklearn")
-    from retrieval_observatory.classifier.data import LabeledQuery
-    from retrieval_observatory.classifier.model import train_model
+    from retrieval_observatory.experimental.classifier.data import LabeledQuery
+    from retrieval_observatory.experimental.classifier.model import train_model
     from retrieval_observatory.runner.execute import _annotate_query_difficulty
 
     dataset = CustomDataset(

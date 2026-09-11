@@ -1,4 +1,4 @@
-from retrieval_observatory.classifier.labels import (
+from retrieval_observatory.experimental.classifier.labels import (
     BUCKET_TO_CLASS,
     default_model_path,
     normalize_dataset_name,

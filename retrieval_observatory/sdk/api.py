@@ -389,13 +389,13 @@ async def _generate_testset_async(
     import warnings
 
     from retrieval_observatory.datasets.inmemory import InMemoryDataset
-    from retrieval_observatory.forge.engine import ForgeEngine
-    from retrieval_observatory.forge.stress.suite import StressTestSuite
+    from retrieval_observatory.experimental.forge.engine import ForgeEngine
+    from retrieval_observatory.experimental.forge.stress.suite import StressTestSuite
 
     forge_corpus = _to_forge_corpus(corpus)
     generator = None
     if provider:
-        from retrieval_observatory.forge.generation.generator import ForgeGenerator
+        from retrieval_observatory.experimental.forge.generation.generator import ForgeGenerator
 
         generator = ForgeGenerator.from_provider(provider, api_key=api_key, model=model)
 

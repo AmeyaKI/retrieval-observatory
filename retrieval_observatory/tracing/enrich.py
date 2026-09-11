@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from retrieval_observatory.classifier.features import extract_features
+from retrieval_observatory.experimental.classifier.features import extract_features
 from retrieval_observatory.tracing.model import RetrievalTrace
 
 # Proxy-failure thresholds. These are label-free signals — production has no qrels, so

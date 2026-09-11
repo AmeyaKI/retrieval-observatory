@@ -1,5 +1,5 @@
-from retrieval_observatory.forge.generation.rule_based import generate_rule_based_queries
-from retrieval_observatory.forge.types import CorpusScenario
+from retrieval_observatory.experimental.forge.generation.rule_based import generate_rule_based_queries
+from retrieval_observatory.experimental.forge.types import CorpusScenario
 
 
 def test_rule_based_comparison_queries():

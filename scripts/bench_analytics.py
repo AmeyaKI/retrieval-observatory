@@ -8,7 +8,7 @@ import sqlite3
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from retrieval_observatory.classifier.labels import to_training_class
+from retrieval_observatory.experimental.classifier.labels import to_training_class
 
 DATASETS = [
     ("nfcorpus", ".retobs/publish_sweep_nfcorpus.db", "37d3a79c"),

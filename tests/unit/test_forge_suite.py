@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from retrieval_observatory.forge.stress.suite import StressTestSuite
-from retrieval_observatory.forge.types import CorpusScenario, SyntheticDataset, SyntheticQuery
+from retrieval_observatory.experimental.forge.stress.suite import StressTestSuite
+from retrieval_observatory.experimental.forge.types import CorpusScenario, SyntheticDataset, SyntheticQuery
 
 
 def _make_dataset() -> SyntheticDataset:

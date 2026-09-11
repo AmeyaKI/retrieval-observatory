@@ -4,8 +4,8 @@ import tempfile
 
 import pytest
 
-from retrieval_observatory.advisor.regression import detect_regressions
-from retrieval_observatory.advisor.recommend import recommend, compute_reliability
+from retrieval_observatory.experimental.advisor.regression import detect_regressions
+from retrieval_observatory.experimental.advisor.recommend import recommend, compute_reliability
 from retrieval_observatory.diagnostics.model import DiagnosticEvidence, DiagnosticFinding, FindingAvailability
 from retrieval_observatory.store.sqlite import SQLiteStore
 from retrieval_observatory.types import StageSnapshot
@@ -88,8 +88,8 @@ async def test_recommend_candidate_miss():
 
 @pytest.mark.asyncio
 async def test_recommendations_ranked_by_expected_value():
-    from retrieval_observatory.advisor.types import Recommendation
-    from retrieval_observatory.advisor.recommend import _prioritize
+    from retrieval_observatory.experimental.advisor.types import Recommendation
+    from retrieval_observatory.experimental.advisor.recommend import _prioritize
 
     low = Recommendation("a", "r", [], 99, estimated_quality_improvement=0.05, confidence=0.5,
                          implementation_effort="M")
@@ -103,7 +103,7 @@ async def test_recommendations_ranked_by_expected_value():
 
 
 def test_simulate_operator_removal_reranker_hurts():
-    from retrieval_observatory.advisor.simulate import simulate_operator_removal
+    from retrieval_observatory.experimental.advisor.simulate import simulate_operator_removal
     from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
     def _trace(qid):

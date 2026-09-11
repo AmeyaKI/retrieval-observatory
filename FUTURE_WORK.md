@@ -24,13 +24,13 @@ stated as fact; anything carried over from earlier reports and not re-verified i
   kind of operator lost a document on simple pipelines. *Reported earlier; not re-verified in the
   current review pass.*
 
-## Query difficulty classifier
+## Query difficulty classifier (experimental since 0.6.0)
 
-- `retobs classifier train` finds no labels because `difficulty_bucket` is written as `"unknown"`.
-  Training currently works only by calling `train_model()` directly and pointing runs at
-  `RETOBS_CLASSIFIER_MODEL`.
-- The flagship demo does not exercise this path (`annotate_difficulty=False`), so the gap is not
-  visible in the published results.
+- The classifier lives under `retrieval_observatory.experimental.classifier` and its CLI is
+  unregistered. Training has no label source: nothing in the current runner computes a
+  `difficulty_bucket` (every diagnostics row is written as `"unknown"`), so `train_model()` only
+  works on databases produced by pre-typed-diagnostics builds. Restoring it needs a bucketing rule
+  in the runner, which is a design decision rather than a fix.
 
 ## Benchmarks
 

@@ -31,7 +31,7 @@ The dashboard reads store projections only. It does not invent topology, candida
 | `tracing/` | Unified `RetrievalTrace`, buffered export, candidate lineage, lineage diffs, and instrumentation health. |
 | `evidence/` | Scoped query-evidence documents for CLI, SDK, MCP, and dashboard. |
 | `diagnostics/` | Rule engine over recorded traces; findings surface inside Runs, Compare, and Queries. |
-| `forge/` via `testsets` | Corpus stress-test generation; public CLI is `retobs testsets`. |
+| `experimental/` | Demoted subsystems (`advisor`, `classifier`, `diagram`, `forge`); no compatibility guarantee. `forge` still backs the public `retobs testsets` CLI and SDK `generate_testset`. |
 | `sdk/`, `mcp/`, `cli.py`, `dashboard/` | Task-parity surfaces gated by `contracts/public_surface.json`. |
 
 ## Public task surface

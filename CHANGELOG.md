@@ -41,15 +41,26 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `retrieval_observatory/experimental/` — new home for demoted subsystems; `experimental/_compat.py` installs a meta-path shim so `retrieval_observatory.{advisor,classifier,diagram,forge}` still import (same module objects) with a `DeprecationWarning`.
+- `docs/guides/experimental/` — guides for demoted or unverified subsystems.
 - `docs/deployment.md` — optional Azure Container Apps path for a read-only BEIR dashboard; image baked from local SQLite, no core-package cloud deps.
 - `deploy/Dockerfile` — hosted-demo image recipe (separate from local `docker-compose`).
 - `dashboard/api.py` — `RETOBS_READ_ONLY` returns 403 on mutating writes; `POST /compare` and `POST /compare/config-diff` stay allowed.
 
 ### Changed
 
+- `advisor/` → `experimental/advisor/` — demoted; dashboard Findings, MCP, and `compare` regression detection still import it from the new path.
+- `forge/` → `experimental/forge/` — demoted; `retobs testsets` and SDK `generate_testset`/`TestSet` remain public and are backed by it.
+- `diagram/` → `experimental/diagram/` — demoted; the unregistered `diagram` CLI helper imports it from the new path.
+- `classifier/` → `experimental/classifier/` — demoted; `tracing/enrich.py` and `runner/execute.py` keep using its feature extractor and model loader.
+- `docs/guides/{advisor,forge,auto-instrumentation,conditional-pipelines,multi-stage-reranking,parallel-retrieval}.md` → `docs/guides/experimental/`; `docs/guides/README.md` lists only the six production guides.
+- `docs/ARCHITECTURE.md`, `FUTURE_WORK.md` — describe the experimental tier and the classifier's missing label source.
+
 ### Fixed
 
 ### Removed
+
+- `cli.py` — `retobs classifier` subcommand unregistered (`contracts/public_surface.json` updated); it had no label source since `difficulty_bucket` is always `"unknown"`.
 
 ---
 

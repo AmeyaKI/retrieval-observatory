@@ -7,8 +7,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from retrieval_observatory.forge.datasets.exporter import export_dataset
-from retrieval_observatory.forge.types import CorpusScenario, SyntheticDataset, SyntheticQuery
+from retrieval_observatory.experimental.forge.datasets.exporter import export_dataset
+from retrieval_observatory.experimental.forge.types import CorpusScenario, SyntheticDataset, SyntheticQuery
 
 
 def _make_dataset() -> SyntheticDataset:

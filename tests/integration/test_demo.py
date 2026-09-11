@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from retrieval_observatory.advisor.regression import detect_regressions
+from retrieval_observatory.experimental.advisor.regression import detect_regressions
 from retrieval_observatory.cli import _demo
 from retrieval_observatory.store.sqlite import SQLiteStore
 

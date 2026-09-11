@@ -1,4 +1,4 @@
-from retrieval_observatory.classifier.features import FEATURE_NAMES, extract_features
+from retrieval_observatory.experimental.classifier.features import FEATURE_NAMES, extract_features
 
 
 def test_extract_features_basic():

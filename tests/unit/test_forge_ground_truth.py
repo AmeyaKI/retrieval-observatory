@@ -1,8 +1,8 @@
 """Unit tests for Test Sets ground truth building."""
 from __future__ import annotations
 
-from retrieval_observatory.forge.labels.ground_truth import build_extractive_qrels
-from retrieval_observatory.forge.types import SyntheticQuery
+from retrieval_observatory.experimental.forge.labels.ground_truth import build_extractive_qrels
+from retrieval_observatory.experimental.forge.types import SyntheticQuery
 
 
 def _make_query(query_id: str, positive_ids: list) -> SyntheticQuery:

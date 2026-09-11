@@ -298,7 +298,7 @@ async def _benchmark_vs_baseline(
 ) -> Dict[str, Any]:
     """Benchmark a candidate config against a baseline (an existing run_id OR another config).
     Returns candidate/baseline run ids and significance-tested regressions."""
-    from retrieval_observatory.advisor.regression import detect_regressions
+    from retrieval_observatory.experimental.advisor.regression import detect_regressions
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.sdk.run_config import _run_from_config_async
 
@@ -392,7 +392,7 @@ async def _get_pareto_frontier(run_id: str, db_path: str = DEFAULT_DB_PATH) -> D
 
 async def _get_recommendations(run_id: str, db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
     """Findings recommendations for improving a run's retrieval pipeline."""
-    from retrieval_observatory.advisor.recommend import recommend
+    from retrieval_observatory.experimental.advisor.recommend import recommend
 
     store = _store(db_path)
     await store.init_db()

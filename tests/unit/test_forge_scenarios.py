@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from retrieval_observatory.forge.scenarios.alias import AliasScenarioDetector
-from retrieval_observatory.forge.scenarios.registry import detect_all
-from retrieval_observatory.forge.scenarios.temporal import TemporalScenarioDetector
+from retrieval_observatory.experimental.forge.scenarios.alias import AliasScenarioDetector
+from retrieval_observatory.experimental.forge.scenarios.registry import detect_all
+from retrieval_observatory.experimental.forge.scenarios.temporal import TemporalScenarioDetector
 
 
 TEMPORAL_CORPUS = {

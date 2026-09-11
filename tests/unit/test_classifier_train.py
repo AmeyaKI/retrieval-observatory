@@ -1,13 +1,13 @@
 import pytest
 import sys
 
-from retrieval_observatory.classifier.data import (
+from retrieval_observatory.experimental.classifier.data import (
     LabeledQuery,
     check_minimum_samples,
     class_distribution,
     normalize_query_text,
 )
-from retrieval_observatory.classifier.model import load_model, train_model
+from retrieval_observatory.experimental.classifier.model import load_model, train_model
 
 
 def _samples(n_easy=10, n_medium=10, n_hard=10):

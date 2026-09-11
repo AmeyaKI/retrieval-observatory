@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from retrieval_observatory.forge.generation.generator import ForgeGenerator, _parse_lines
-from retrieval_observatory.forge.types import CorpusScenario
+from retrieval_observatory.experimental.forge.generation.generator import ForgeGenerator, _parse_lines
+from retrieval_observatory.experimental.forge.types import CorpusScenario
 
 
 def _make_scenario(scenario_type="temporal", anchor_ids=("d1", "d2")):

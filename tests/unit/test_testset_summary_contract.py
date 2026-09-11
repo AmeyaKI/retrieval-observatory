@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from retrieval_observatory.forge.stress.suite import StressTestSuite
-from retrieval_observatory.forge.types import (
+from retrieval_observatory.experimental.forge.stress.suite import StressTestSuite
+from retrieval_observatory.experimental.forge.types import (
     CorpusScenario,
     SyntheticDataset,
     SyntheticQuery,

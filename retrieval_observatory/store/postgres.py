@@ -622,7 +622,7 @@ class PostgresStore:
         return [dict(row) for row in rows]
 
     async def list_runs_for_dataset(self, dataset_name: str) -> List[Dict]:
-        from retrieval_observatory.classifier.labels import normalize_dataset_name
+        from retrieval_observatory.experimental.classifier.labels import normalize_dataset_name
 
         target = normalize_dataset_name(dataset_name)
         runs = await self.list_runs()
@@ -686,7 +686,7 @@ class PostgresStore:
         for row in rows:
             d = dict(row)
             try:
-                from retrieval_observatory.forge.types import TestSetSummary
+                from retrieval_observatory.experimental.forge.types import TestSetSummary
 
                 d["summary"] = TestSetSummary.from_dict(
                     json.loads(d.pop("summary_json", "{}")),

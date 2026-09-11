@@ -32,7 +32,7 @@ async def build_query_evidence(
     traces = trace_page[:trace_limit]
     lineage = await store.get_query_lineage(query_id)
 
-    from retrieval_observatory.advisor.recommend import recommend
+    from retrieval_observatory.experimental.advisor.recommend import recommend
 
     findings = [asdict(finding) for finding in await recommend(run_id, store)]
     diagnostic_labels = {

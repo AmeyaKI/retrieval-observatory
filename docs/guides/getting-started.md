@@ -53,8 +53,8 @@ important conclusion is first:
 
 - **Headline quality** (recall@k, nDCG@k) and **latency** for each pipeline.
 - **Biggest failures** — the queries dragging your score down.
-- **Recommended next steps** — evidence-scoped findings (see
-  [advisor.md](advisor.md)).
+- **Recommended next steps** — evidence-scoped findings (experimental; see
+  [experimental/advisor.md](experimental/advisor.md)).
 - **Evidence health** — dataset fingerprint, seed, sample size, and validation warnings.
 
 You should not need to open another page to know whether the run is good.
@@ -111,7 +111,7 @@ That is the full loop. Everything else in retobs is a deeper version of one of t
 ## Where to go next
 
 - [hybrid-retrieval.md](hybrid-retrieval.md) — combine lexical + dense retrieval
-- [multi-stage-reranking.md](multi-stage-reranking.md) — reranking without dropping recall
+- [multi-stage-reranking.md](experimental/multi-stage-reranking.md) — reranking without dropping recall (experimental guide)
 - [counterfactual-replay.md](counterfactual-replay.md) — how attribution actually works
-- [advisor.md](advisor.md) — turning diagnostics into a prioritized plan
-- [conditional-pipelines.md](conditional-pipelines.md) — gated / routed pipelines
+- [candidate-lineage-explorer.md](candidate-lineage-explorer.md) — per-query candidate paths and outcomes
+- [conditional-pipelines.md](experimental/conditional-pipelines.md) — gated / routed pipelines (experimental guide)

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any, TypeAlias
 
-from retrieval_observatory.forge.types import TestSetSummary as TestSet
+from retrieval_observatory.experimental._compat import install as _install_experimental_shims
+
+_install_experimental_shims()
+
+from retrieval_observatory.experimental.forge.types import TestSetSummary as TestSet  # noqa: E402
 from retrieval_observatory.integrations import IntegrationOptions
 from retrieval_observatory.sdk import compare, evaluate, generate_testset, inspect_query
 from retrieval_observatory.sdk.report import BenchmarkReport as Run

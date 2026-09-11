@@ -746,7 +746,7 @@ def create_app(
                     "predicted_difficulty_proba": meta.get("predicted_difficulty_proba", {}),
                 }
 
-        from retrieval_observatory.classifier.labels import to_training_class
+        from retrieval_observatory.experimental.classifier.labels import to_training_class
         from retrieval_observatory.metrics.diagnostics import predict_retrieval_risks
 
         items = []
@@ -788,7 +788,7 @@ def create_app(
         if not predicted_by_id:
             return {"run_id": run_id, "has_predictions": False, "classes": []}
 
-        from retrieval_observatory.classifier.labels import to_training_class
+        from retrieval_observatory.experimental.classifier.labels import to_training_class
 
         actual_by_id: Dict[str, str] = {}
         for row in diagnostics:
@@ -1887,7 +1887,7 @@ def create_app(
     @app.get("/dbs/{db_id}/advisor/recommendations")
     @advisor_router.get("/recommendations")
     async def advisor_recommendations(run_id: str, db_id: str = "") -> Dict[str, Any]:
-        from retrieval_observatory.advisor.recommend import recommend
+        from retrieval_observatory.experimental.advisor.recommend import recommend
 
         from dataclasses import asdict
 
@@ -1901,7 +1901,7 @@ def create_app(
     @app.get("/dbs/{db_id}/advisor/regressions")
     @advisor_router.get("/regressions")
     async def advisor_regressions(baseline: str, candidate: str, db_id: str = "") -> Dict[str, Any]:
-        from retrieval_observatory.advisor.regression import detect_regressions
+        from retrieval_observatory.experimental.advisor.regression import detect_regressions
 
         store = _evidence_store(db_id)
         validity = comparison_validity([
@@ -1933,7 +1933,7 @@ def create_app(
     @app.get("/dbs/{db_id}/advisor/reliability")
     @advisor_router.get("/reliability")
     async def advisor_reliability(run_id: str, db_id: str = "") -> Dict[str, Any]:
-        from retrieval_observatory.advisor.recommend import compute_reliability
+        from retrieval_observatory.experimental.advisor.recommend import compute_reliability
 
         store = _evidence_store(db_id)
         score = await compute_reliability(run_id, store, engine=engine)
@@ -1946,7 +1946,7 @@ def create_app(
         limit: int = 50,
         db_id: str = "",
     ) -> Dict[str, Any]:
-        from retrieval_observatory.advisor.trends import get_reliability_trends
+        from retrieval_observatory.experimental.advisor.trends import get_reliability_trends
 
         store = _evidence_store(db_id)
         history = await get_reliability_trends(store, run_id=run_id, limit=limit)

@@ -25,7 +25,6 @@ production_app = typer.Typer(name="production", help="Inspect sampled production
 app.add_typer(testsets_app, name="testsets")
 app.add_typer(production_app, name="production")
 app.add_typer(mcp_app, name="mcp")
-app.add_typer(classifier_app, name="classifier")
 console = Console()
 
 
@@ -659,7 +658,7 @@ def diagram(
 async def _diagram(run_id: str, output: str, db_path: str) -> None:
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
-    from retrieval_observatory.diagram.html import render_diagram_html
+    from retrieval_observatory.experimental.diagram.html import render_diagram_html
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
@@ -1440,9 +1439,9 @@ async def _classifier_train(
     min_samples: int,
     min_per_class: int,
 ) -> None:
-    from retrieval_observatory.classifier.data import load_labeled_queries
-    from retrieval_observatory.classifier.labels import default_model_path
-    from retrieval_observatory.classifier.model import train_model
+    from retrieval_observatory.experimental.classifier.data import load_labeled_queries
+    from retrieval_observatory.experimental.classifier.labels import default_model_path
+    from retrieval_observatory.experimental.classifier.model import train_model
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
@@ -1488,7 +1487,7 @@ def classifier_predict(
 ) -> None:
     """Predict query difficulty from text."""
     try:
-        from retrieval_observatory.classifier.model import load_model
+        from retrieval_observatory.experimental.classifier.model import load_model
     except ImportError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(1)
@@ -1522,9 +1521,9 @@ async def _classifier_report(
     db_path: str,
     model: Optional[Path],
 ) -> None:
-    from retrieval_observatory.classifier.data import load_labeled_queries
-    from retrieval_observatory.classifier.labels import default_model_path
-    from retrieval_observatory.classifier.model import report_from_samples
+    from retrieval_observatory.experimental.classifier.data import load_labeled_queries
+    from retrieval_observatory.experimental.classifier.labels import default_model_path
+    from retrieval_observatory.experimental.classifier.model import report_from_samples
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
@@ -1576,7 +1575,7 @@ def forge_scan(
     This is the dry-run step. Use it to preview what scenarios Test Sets found before
     spending any LLM budget on query generation.
     """
-    from retrieval_observatory.forge.scenarios.registry import detect_all
+    from retrieval_observatory.experimental.forge.scenarios.registry import detect_all
 
     console.print(f"[bold]Test Set scan:[/bold] {corpus}")
     corp = _load_corpus_from_jsonl(str(corpus))
@@ -1672,9 +1671,9 @@ async def _forge_run(
     max_per_type: int,
     db_path: str = ".retobs/results.db",
 ) -> None:
-    from retrieval_observatory.forge.engine import ForgeEngine
-    from retrieval_observatory.forge.generation.generator import ForgeGenerator
-    from retrieval_observatory.forge.stress.suite import StressTestSuite
+    from retrieval_observatory.experimental.forge.engine import ForgeEngine
+    from retrieval_observatory.experimental.forge.generation.generator import ForgeGenerator
+    from retrieval_observatory.experimental.forge.stress.suite import StressTestSuite
 
     console.print(f"[bold green]Test Sets:[/bold green] Loading corpus from {corpus_path}")
     corp = _load_corpus_from_jsonl(corpus_path)
@@ -1682,7 +1681,7 @@ async def _forge_run(
 
     # Scenario scan first (free)
     console.print("[bold]Step 1/4:[/bold] Scanning corpus for failure scenarios...")
-    from retrieval_observatory.forge.scenarios.registry import detect_all
+    from retrieval_observatory.experimental.forge.scenarios.registry import detect_all
     scenarios = detect_all(corp, types=scenario_types, max_per_type=max_per_type)
     console.print(f"  Found [bold]{len(scenarios)}[/bold] scenario(s).")
     if not scenarios:
@@ -1899,9 +1898,9 @@ async def _demo(
     keep_db: bool = False,
     full: bool = False,
 ) -> None:
-    from retrieval_observatory.forge.types import SyntheticDataset
-    from retrieval_observatory.forge.datasets.exporter import export_dataset
-    from retrieval_observatory.forge.scenarios.registry import detect_all
+    from retrieval_observatory.experimental.forge.types import SyntheticDataset
+    from retrieval_observatory.experimental.forge.datasets.exporter import export_dataset
+    from retrieval_observatory.experimental.forge.scenarios.registry import detect_all
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     out = Path(output_dir)
@@ -2040,8 +2039,8 @@ async def _demo(
 
     # ── Step 8: Findings regression check ──────────────────────────────────────
     console.print("\n[bold cyan]Step 9/9[/bold cyan] Building comparison findings and validation evidence...")
-    from retrieval_observatory.advisor.regression import detect_regressions
-    from retrieval_observatory.advisor.recommend import recommend, compute_reliability
+    from retrieval_observatory.experimental.advisor.regression import detect_regressions
+    from retrieval_observatory.experimental.advisor.recommend import recommend, compute_reliability
 
     await compute_reliability(baseline_run_id, store)
     await compute_reliability(candidate_run_id, store)
@@ -2691,7 +2690,7 @@ def _build_demo_queries(
     Each query gets scenario_type and difficulty_label in its metadata so the
     by-segment endpoint can power the StressTestResults cross-link in the dashboard.
     """
-    from retrieval_observatory.forge.types import SyntheticQuery
+    from retrieval_observatory.experimental.forge.types import SyntheticQuery
     import re as _re
 
     queries: list = []
@@ -3105,7 +3104,7 @@ def advisor_recommend_cmd(
 
 
 async def _advisor_recommend(run_id: str, db_path: str) -> None:
-    from retrieval_observatory.advisor.recommend import recommend
+    from retrieval_observatory.experimental.advisor.recommend import recommend
 
     store = _open_store(db_path)
     await store.init_db()
@@ -3178,7 +3177,7 @@ def golden_create(
 
 
 async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> None:
-    from retrieval_observatory.advisor.golden import save_golden_set
+    from retrieval_observatory.experimental.advisor.golden import save_golden_set
 
     data = json.loads(queries_file.read_text(encoding="utf-8"))
     if not isinstance(data, list):

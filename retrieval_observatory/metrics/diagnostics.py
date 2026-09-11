@@ -55,7 +55,7 @@ def aggregate_diagnostics(rows: List[Dict]) -> Dict:
 
 
 def predict_retrieval_risks(query_text: str) -> List[str]:
-    from retrieval_observatory.classifier.features import extract_features
+    from retrieval_observatory.experimental.classifier.features import extract_features
     from retrieval_observatory.tracing.enrich import predict_difficulty
 
     features = extract_features(query_text)

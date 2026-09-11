@@ -316,7 +316,7 @@ def _annotate_query_difficulty(queries, dataset_name: str, log: Optional[Callabl
     """Attach pre-retrieval difficulty predictions to query metadata when a model exists."""
     import os
 
-    from retrieval_observatory.classifier.labels import default_model_path, normalize_dataset_name
+    from retrieval_observatory.experimental.classifier.labels import default_model_path, normalize_dataset_name
 
     log = log or (lambda *a, **k: None)
 
@@ -324,7 +324,7 @@ def _annotate_query_difficulty(queries, dataset_name: str, log: Optional[Callabl
     if not Path(model_path).exists():
         return
     try:
-        from retrieval_observatory.classifier.model import load_model
+        from retrieval_observatory.experimental.classifier.model import load_model
     except ImportError:
         log("[yellow]Classifier model found but [classifier] extra not installed; skipping predictions.[/yellow]")
         return

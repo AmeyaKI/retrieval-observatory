@@ -717,7 +717,7 @@ class BenchmarkReport:
         return self
 
     async def _regressions(self, baseline_run: str, latency_regression_pct: float):
-        from retrieval_observatory.advisor.regression import detect_regressions
+        from retrieval_observatory.experimental.advisor.regression import detect_regressions
         from retrieval_observatory.store.sqlite import SQLiteStore
 
         store = SQLiteStore(db_path=self.db_path)

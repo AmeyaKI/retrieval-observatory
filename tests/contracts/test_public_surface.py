@@ -23,6 +23,7 @@ REMOVED = {
     "benchmark_pipeline_descriptor",
     "benchmark_vs_baseline",
     "bootstrap" + "_project",
+    "classifier",
     "forge",
     "get_pareto_frontier",
     "get_pipeline_diagram",
@@ -51,7 +52,7 @@ def test_cli_help_matches_contract_exactly() -> None:
     assert REMOVED.isdisjoint(commands)
 
 
-@pytest.mark.parametrize("command", sorted(REMOVED & {"advisor", "forge", "quickstart", "run", "tracelens", "wire"}))
+@pytest.mark.parametrize("command", sorted(REMOVED & {"advisor", "classifier", "forge", "quickstart", "run", "tracelens", "wire"}))
 def test_removed_cli_commands_are_unknown(command: str) -> None:
     result = CliRunner().invoke(app, [command, "--help"])
     assert result.exit_code != 0
