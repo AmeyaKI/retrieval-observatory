@@ -49,6 +49,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+- `README.md` — leads with the one-sentence positioning (which stage earned or destroyed the metric, with auditable attribution), the Scenario D lineage trace, install, and `retobs demo`; adds an "Attribution you can audit" section naming candidate lineage and counterfactual replay; drops leading jargon and links `docs/guides/README.md` and `FUTURE_WORK.md`.
 - `advisor/` → `experimental/advisor/` — demoted; dashboard Findings, MCP, and `compare` regression detection still import it from the new path.
 - `forge/` → `experimental/forge/` — demoted; `retobs testsets` and SDK `generate_testset`/`TestSet` remain public and are backed by it.
 - `diagram/` → `experimental/diagram/` — demoted; the unregistered `diagram` CLI helper imports it from the new path.
