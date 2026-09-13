@@ -10,6 +10,13 @@ ENV_NAME="${RETOBS_AZ_ENV:-retobs-demo-env}"
 APP="${RETOBS_AZ_APP:-retobs-demo}"
 IMAGE="${RETOBS_DEMO_IMAGE:-ghcr.io/ameyaki/retrieval-observatory:demo}"
 
+echo "==> resource providers (one-time per subscription; no-op if registered)"
+for provider in Microsoft.App Microsoft.OperationalInsights; do
+  if [ "$(az provider show -n "$provider" --query registrationState -o tsv 2>/dev/null)" != "Registered" ]; then
+    az provider register -n "$provider" --wait
+  fi
+done
+
 echo "==> resource group $RG ($LOCATION)"
 az group create --name "$RG" --location "$LOCATION" --output none
 
