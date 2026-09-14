@@ -5,7 +5,9 @@
 set -euo pipefail
 
 RG="${RETOBS_AZ_RG:-rg-retobs-demo}"
-LOCATION="${RETOBS_AZ_LOCATION:-eastus}"
+# westus2: inside the "Allowed resource deployment regions" policy on Azure for Students
+# (centralus, mexicocentral, westus2, canadacentral, southcentralus) and has Container Apps.
+LOCATION="${RETOBS_AZ_LOCATION:-westus2}"
 ENV_NAME="${RETOBS_AZ_ENV:-retobs-demo-env}"
 APP="${RETOBS_AZ_APP:-retobs-demo}"
 IMAGE="${RETOBS_DEMO_IMAGE:-ghcr.io/ameyaki/retrieval-observatory:demo}"
@@ -17,8 +19,10 @@ for provider in Microsoft.App Microsoft.OperationalInsights; do
   fi
 done
 
-echo "==> resource group $RG ($LOCATION)"
-az group create --name "$RG" --location "$LOCATION" --output none
+echo "==> resource group $RG"
+if ! az group show --name "$RG" --output none 2>/dev/null; then
+  az group create --name "$RG" --location "$LOCATION" --output none
+fi
 
 echo "==> container apps environment $ENV_NAME"
 if ! az containerapp env show --name "$ENV_NAME" --resource-group "$RG" --output none 2>/dev/null; then

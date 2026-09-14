@@ -12,7 +12,7 @@ and the `Hosted demo` line at the top of `README.md` with `https://<fqdn>`.
 
 - Image: `ghcr.io/ameyaki/retrieval-observatory:demo`, built by the `Demo image` GitHub
   workflow from `deploy/Dockerfile`. No local Docker is needed.
-- Platform: Azure Container Apps, resource group `rg-retobs-demo`, scale-to-zero, one replica.
+- Platform: Azure Container Apps, resource group `rg-retobs-demo`, region `westus2` (Azure for Students region policy), scale-to-zero, one replica.
 - Data: three SQLite databases baked into the image at `/data/` (nfcorpus `37d3a79c`,
   scifact `49b423cf`, fiqa `0784ed30`), about 53 MB, prepared by `deploy/prepare_data.py`
   and committed under `deploy/data/`.
