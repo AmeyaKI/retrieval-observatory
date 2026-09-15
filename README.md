@@ -2,7 +2,7 @@
 
 [PyPI](https://pypi.org/project/retrieval-observatory/) · [Case study](results/flagship_demo/CASE_STUDY.md)
 
-**Hosted demo (read-only dashboard):** not deployed yet — see [deployment](docs/deployment.md) to publish a public URL.
+**Hosted demo (read-only dashboard):** [retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io](https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io) — the BEIR sweep on Azure Container Apps; see [deployment](docs/deployment.md).
 
 retobs tells you which stage of your retrieval pipeline earned or destroyed your metric, with attribution you can audit.
 

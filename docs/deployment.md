@@ -5,8 +5,7 @@ dashboard of the committed BEIR sweep on Azure Container Apps. The operational r
 (owner commands, exposure checklist and results, cost, teardown) is
 [`deploy/README.md`](../deploy/README.md); this page explains what is hosted and why.
 
-**Live URL:** not deployed yet. After `./deploy/deploy_azure.sh` succeeds, replace this line
-and the `Hosted demo` line at the top of `README.md` with `https://<fqdn>`.
+**Live URL:** https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io (deployed 2026-09-14, Azure Container Apps, westus2).
 
 ## What is hosted
 
