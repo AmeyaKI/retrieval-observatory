@@ -420,6 +420,19 @@ class PostgresStore:
             counts[str(row["status"])] = int(row["n"])
         return counts
 
+    async def get_run_status_counts_by_pipeline(self, run_id: str) -> Dict[str, Dict[str, int]]:
+        """Return {pipeline_id: {status: count}} so failure rates are attributed per pipeline."""
+        pool = await self._get_pool()
+        counts: Dict[str, Dict[str, int]] = {}
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT pipeline_id, status, COUNT(*) AS n FROM traces WHERE run_id = $1 GROUP BY pipeline_id, status",
+                run_id,
+            )
+        for row in rows:
+            counts.setdefault(str(row["pipeline_id"]), {})[str(row["status"])] = int(row["n"])
+        return counts
+
     async def cache_get(self, cache_key: str) -> Optional[str]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:

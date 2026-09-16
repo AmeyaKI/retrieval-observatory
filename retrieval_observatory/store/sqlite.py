@@ -640,6 +640,20 @@ class SQLiteStore:
             counts[str(status)] = int(count)
         return counts
 
+    async def get_run_status_counts_by_pipeline(self, run_id: str) -> Dict[str, Dict[str, int]]:
+        """Return {pipeline_id: {status: count}} so failure rates are attributed per pipeline."""
+        await self._ensure_schema()
+        counts: Dict[str, Dict[str, int]] = {}
+        async with self._connect() as db:
+            async with db.execute(
+                "SELECT pipeline_id, status, COUNT(*) FROM traces WHERE run_id = ? GROUP BY pipeline_id, status",
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        for pipeline_id, status, count in rows:
+            counts.setdefault(str(pipeline_id), {})[str(status)] = int(count)
+        return counts
+
     async def cache_get(self, cache_key: str) -> Optional[str]:
         async with self._connect() as db:
             async with db.execute(

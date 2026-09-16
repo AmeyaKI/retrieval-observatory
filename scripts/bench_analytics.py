@@ -9,6 +9,7 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from retrieval_observatory.experimental.classifier.labels import to_training_class
+from retrieval_observatory.metrics.significance import paired_bootstrap_test
 
 DATASETS = [
     ("nfcorpus", ".retobs/publish_sweep_nfcorpus.db", "37d3a79c"),
@@ -31,7 +32,12 @@ def mean(vals: List[float]) -> Optional[float]:
     return sum(vals) / len(vals) if vals else None
 
 
+CI_METHOD = "unpaired_percentile"
+PVALUE_METHOD = "paired_sign_flip_permutation"
+
+
 def bootstrap_ci(values: List[float], n_boot: int = 5000, alpha: float = 0.05, seed: int = 42) -> Tuple[Optional[float], Optional[float], Optional[float]]:
+    """(mean, lo, hi): unpaired percentile bootstrap of the mean over one pipeline's queries."""
     random.seed(seed)
     if not values:
         return None, None, None
@@ -53,24 +59,14 @@ def ci_overlap(lo1: float, hi1: float, lo2: float, hi2: float) -> bool:
 
 
 def paired_bootstrap_pvalue(a: List[float], b: List[float], n_boot: int = 10000, seed: int = 42) -> Optional[float]:
-    """Two-sided p-value for mean(b-a) > 0 via paired bootstrap."""
+    """Two-sided p-value for mean(b-a) != 0 via the package's paired sign-flip permutation test.
+
+    The previous local implementation resampled the observed differences (not a
+    null-centred distribution) and returned p ~ 0.5 regardless of the effect size.
+    """
     if len(a) != len(b) or len(a) < 2:
         return None
-    random.seed(seed)
-    diffs = [b[i] - a[i] for i in range(len(a))]
-    obs = mean(diffs)
-    if obs is None:
-        return None
-    n = len(diffs)
-    count = 0
-    for _ in range(n_boot):
-        sample = [diffs[random.randint(0, n - 1)] for _ in range(n)]
-        boot_mean = mean(sample)
-        if boot_mean is not None and boot_mean >= obs:
-            count += 1
-        if boot_mean is not None and boot_mean <= -obs:
-            count += 1
-    return count / n_boot
+    return paired_bootstrap_test(a, b, n_resamples=n_boot, seed=seed)
 
 
 def final_stage_index(cur: sqlite3.Cursor, run_id: str, pipeline_id: str) -> int:
@@ -130,7 +126,14 @@ def analyze_dataset(ds_name: str, db_path: str, run_id: str) -> Dict[str, Any]:
         ).fetchall()
     ]
 
-    ds_out: Dict[str, Any] = {"run_id": run_id, "db_path": db_path, "manifest": manifest, "pipelines": {}}
+    ds_out: Dict[str, Any] = {
+        "run_id": run_id,
+        "db_path": db_path,
+        "manifest": manifest,
+        "ci_method": CI_METHOD,
+        "pvalue_method": PVALUE_METHOD,
+        "pipelines": {},
+    }
 
     pipe_points = []
     bm25_ndcg: Optional[List[float]] = None

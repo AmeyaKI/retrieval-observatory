@@ -24,10 +24,16 @@ def analyze_scores(traces: Sequence[Any], qrels: Mapping[str, Mapping[str, int]]
         low, high = ordered[0][0], ordered[-1][0]
         width = (high - low) / max(1, bins)
         calibration = []
-        for index in range(1 if width == 0 else bins):
-            start = low + index * width
-            end = high if index == bins - 1 else start + width
-            members = [value for value in ordered if start <= value[0] <= end]
+        n_bins = 1 if width == 0 else bins
+        # Shared edges so adjacent bins agree exactly on their boundary (start + width and
+        # (index + 1) * width differ in floating point and would leave gaps).
+        edges = [low + index * width for index in range(n_bins)] + [high]
+        for index in range(n_bins):
+            start, end = edges[index], edges[index + 1]
+            last = index == n_bins - 1
+            # Half-open [start, end) so a score on a bin edge lands in exactly one bin;
+            # only the last bin is closed so the maximum score is not dropped.
+            members = [value for value in ordered if start <= value[0] and (value[0] <= end if last else value[0] < end)]
             if members:
                 calibration.append(
                     {

@@ -309,8 +309,9 @@ def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
         parsed[key] = (stage_index, metric_name, branch_id)
 
     quality_keys = [key for key, (_s, name, _b) in parsed.items() if name in _QUALITY_METRICS]
-    # Prefer the spine (a stage with one operator) over per-branch rows, which report only
-    # the queries routed down that branch and read low for reasons unrelated to quality.
+    # Prefer the spine (a stage with one operator) over per-branch rows, which cover only
+    # the queries routed down that branch (a gate-skipped span emits no rows), so their
+    # `n` is the served count and their mean is not comparable to the spine's.
     spine = [key for key in quality_keys if parsed[key][2] is None] or quality_keys
     final_stage = max((parsed[key][0] for key in spine), default=None)
     quality = sorted(
@@ -318,9 +319,11 @@ def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
         key=lambda key: _QUALITY_METRICS.index(parsed[key][1]),
     )
 
+    # Classify on the parsed metric NAME, never the full key: a pipeline called
+    # `cost_aware_bm25` would otherwise turn its recall into an operational row.
     operational = sorted(
-        (key for key in metrics if any(token in key for token in ("latency", "cost"))),
-        key=lambda key: (parsed.get(key, (0,))[0] != -1, key),
+        (key for key, (_s, name, _b) in parsed.items() if name.startswith(("latency", "cost"))),
+        key=lambda key: (parsed[key][0] != -1, key),
     )
 
     keys = quality[:3] + operational[:2]
