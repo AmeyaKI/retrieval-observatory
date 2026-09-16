@@ -202,7 +202,12 @@ class CaptureMetadata:
     sampled: bool = True
     candidates_truncated: bool = False
     redacted_field_count: int = 0
+    # Structural omissions only (dropped collection items, depth cut-offs, popped
+    # candidate metadata/text). These make lineage partial.
     omitted_field_count: int = 0
+    # Strings clipped to `PayloadLimits.max_string_chars`. Clipping a chunk's text
+    # loses no candidate, decision, or edge, so it never makes lineage partial.
+    truncated_string_count: int = 0
     lineage_evidence: LineageEvidence = "recorded"
 
     def __post_init__(self) -> None:
@@ -343,7 +348,10 @@ class RetrievalTrace:
             query_text=str(value.get("query_text", "")),
             pipeline_id=str(value["pipeline_id"]),
             spans=tuple(OperatorSpan.from_dict(item) for item in value.get("spans", ())),
-            final_op_ids=tuple(value.get("final_op_ids", ())),
+            final_op_ids=tuple(
+                value.get("final_op_ids")
+                or ((value["final_op_id"],) if value.get("final_op_id") else ())
+            ),
             timestamp=datetime.fromisoformat(str(value["timestamp"])) if value.get("timestamp") else datetime.now(timezone.utc),
             dataset_id=value.get("dataset_id"),
             corpus_version=value.get("corpus_version"),

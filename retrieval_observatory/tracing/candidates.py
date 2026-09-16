@@ -244,7 +244,10 @@ def build_candidate_transition(
         logical_chunk_id = row.logical_chunk_id or (logical_chunk_ids.pop() if len(logical_chunk_ids) == 1 else row.doc_id)
         source = matches[0][1] if matches else None
         previous_add_reason = source.add_reason if source else None
-        add_reason = row.add_reason or _ADD_REASON_BY_OP_TYPE.get(op_type) or previous_add_reason or "transformed"
+        # A row that matched an input passed through this operator; only rows the
+        # operator introduced itself (no match) take the operator's add reason.
+        # Otherwise removing an EXPAND would strip its pass-through candidates too.
+        add_reason = row.add_reason or previous_add_reason or _ADD_REASON_BY_OP_TYPE.get(op_type) or "transformed"
         outputs.append(
             Candidate(
                 doc_id=row.doc_id,
