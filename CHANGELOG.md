@@ -8,9 +8,30 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `tracing/attribution.py` — `operator_marginal_contributions()` (plural) applies one Benjamini-Hochberg family across every (operator, segment) p-value; the singular function's family is documented as segments-of-one-operator.
+- `tracing/serialization.py`, `tracing/model.py` — `truncated_string_count` / `NormalizationReport.truncated_strings` count clipped strings separately; `omitted_field_count` is structural only, so a long metadata string no longer marks a trace's lineage partial.
+- `metrics/engine.py` — per-query `<pipeline>|stage-1|failure@0` and `timeout@0` indicator rows, so failure rate is pairable and guardable.
+- `release/policy.py` — `statistics.min_pair_coverage` (default 0.95): a guard returns HOLD with the failed-query counts when fewer than that share of attempted queries are paired.
+- `store/sqlite.py`, `store/postgres.py` — `get_run_status_counts_by_pipeline()`.
+- `results/analytics_extract.json` — `ci_method` and `pvalue_method` fields.
+
 ### Changed
 
+- `tracing/replay.py` — strict counterfactuals: removing an operator recomputes RRF for FUSE children and otherwise keeps each descendant's observed outputs filtered to what still flows in; a child that would have to decide on documents it never observed makes the replay `indeterminate` instead of receiving fabricated outputs. Multi-parent passthrough targets merge groups by candidate id; SOURCE removal only touches descendants and keeps documents another surviving arm found; every fuse child of a removed source is recomputed; the leaf-target "next span" fallback is gone; projected ranks are renumbered; the RRF constant is read from `rrf_k`.
+- `tracing/candidates.py` — a candidate that passed through an EXPAND/BOOST/etc. keeps its previous `add_reason`; only newly introduced rows get the operator-type reason.
+- `tracing/candidate_history.py`, `tracing/replay.py` `attribute_miss` — non-FIRED spans are ignored, `introduced_at` is never overwritten, and drops on branches that do not reach a final span are noted rather than counted.
+- `metrics/engine.py` — `SKIPPED_BY_GATE` spans emit no metric rows: a branch's mean is its quality on the queries it served, with its own `n`. Previously every skipped query contributed 0.0, so branch rows equalled quality × routing share (the flagship funnel's 0.4462/0.4288 rows).
+- `metrics/engine.py` — `failure_rate`, `timeout_rate`, `dropout_count` are computed per pipeline; count rows carry no interval; `_std` is the sample standard deviation.
+- `metrics/comparison.py`, `sdk/report.py` — metric direction and effect thresholds are decided on the parsed metric name, never on the full key; `failure`/`timeout`/`dropout` are lower-is-better.
+- `metrics/ranking.py` — graded nDCG uses linear gain (pytrec_eval/BEIR parity) and clamps negative grades to 0.
+- `metrics/significance.py` — `paired_bootstrap_test` returns `(k+1)/(n+1)` so p is never exactly 0 and is documented as a sign-flip permutation test.
+- `scripts/bench_analytics.py` — p-values come from the package's sign-flip test; the previous in-script bootstrap was not a valid test (its p-values were ~0.5 by construction). `results/analytics_extract.json` regenerated: every `vs_bm25_ndcg_pvalue` is now 0.0001–0.0003; all other fields unchanged.
+- `docs/guides/counterfactual-replay.md` — documents the strict rule, the `rrf_k` key, and cross-operator BH.
+
 ### Fixed
+
+- `tracing/model.py` — `RetrievalTrace.from_dict` reads a legacy singular `final_op_id`.
+- `analysis/scores.py` — calibration bins are half-open; boundary scores were counted twice.
 
 ### Removed
 
