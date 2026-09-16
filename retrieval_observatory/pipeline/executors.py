@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Mapping, Protocol, Sequence
 
 from retrieval_observatory.config.operators import (
@@ -82,16 +82,29 @@ def _combined(input_groups: Mapping[str, tuple[Candidate, ...]]) -> tuple[Candid
     return tuple(candidate for candidates in input_groups.values() for candidate in candidates)
 
 
+def _query_with_k(query: Query, k: object) -> Query:
+    """The operator's configured ``k`` takes precedence over the incoming ``query.k``."""
+    return query if k is None else replace(query, k=int(k))  # type: ignore[call-overload]
+
+
+def _item_id(item: Any) -> str:
+    return str(getattr(item, "candidate_id", None) or getattr(item, "doc_id", None) or getattr(item, "id", item))
+
+
 class SourceExecutor:
+    """Call the bound retriever. ``params["k"]`` (the node's configured k) overrides ``query.k``."""
+
     async def execute(self, spec: OperatorSpec, input_groups, context: ExecutionContext) -> OperatorExecutionResult:
         assert isinstance(spec, SourceSpec)
         adapter = context.binding(spec.adapter, "SOURCE")
         fn = getattr(adapter, "retrieve", adapter)
-        result = await _call(fn, context.query)
+        result = await _call(fn, _query_with_k(context.query, spec.params.get("k")))
         return OperatorExecutionResult(_items(result))
 
 
 class FuseExecutor:
+    """RRF over every parent group, truncated to ``spec.top_k`` (recorded in the span params)."""
+
     async def execute(self, spec: OperatorSpec, input_groups, context: ExecutionContext) -> OperatorExecutionResult:
         assert isinstance(spec, FuseSpec)
         if spec.method != "rrf":
@@ -104,7 +117,8 @@ class FuseExecutor:
                 rank = candidate.output_rank or candidate.rank
                 scores[candidate.doc_id] = scores.get(candidate.doc_id, 0.0) + 1.0 / (rrf_k + rank)
                 rows.setdefault(candidate.doc_id, candidate)
-        ranked = sorted(scores, key=lambda doc_id: (-scores[doc_id], doc_id))[: spec.top_k]
+        ordered = sorted(scores, key=lambda doc_id: (-scores[doc_id], doc_id))
+        ranked = ordered[: spec.top_k]
         return OperatorExecutionResult(
             tuple(
                 Document(
@@ -115,21 +129,36 @@ class FuseExecutor:
                     metadata=dict(rows[doc_id].metadata),
                 )
                 for index, doc_id in enumerate(ranked, 1)
-            )
+            ),
+            drop_reasons={doc_id: "truncated" for doc_id in ordered[spec.top_k :]},
+            metadata={"top_k": spec.top_k},
         )
 
 
 class RerankExecutor:
+    """Call the bound reranker with ``query.k = spec.top_k`` and keep at most ``spec.top_k`` rows.
+
+    The spec's ``top_k`` takes precedence over the incoming ``query.k``. Rows the adapter
+    returned beyond ``top_k`` are cut here and recorded as ``drop_reason="truncated"`` so an
+    executor-side cut is never mistaken for the reranker scoring them out.
+    """
+
     async def execute(self, spec: OperatorSpec, input_groups, context: ExecutionContext) -> OperatorExecutionResult:
         assert isinstance(spec, RerankSpec)
         adapter = context.binding(spec.adapter, "RERANK")
         combined = _combined(input_groups)
         fn = getattr(adapter, "rerank", adapter)
-        result = await _call(fn, context.query, _documents(combined))
-        return OperatorExecutionResult(_items(result)[: spec.top_k])
+        result = await _call(fn, _query_with_k(context.query, spec.top_k), _documents(combined))
+        items = _items(result)
+        kept = items[: spec.top_k]
+        kept_ids = {_item_id(item) for item in kept}
+        drops = {_item_id(item): "truncated" for item in items[spec.top_k :] if _item_id(item) not in kept_ids}
+        return OperatorExecutionResult(kept, drop_reasons=drops, metadata={"top_k": spec.top_k})
 
 
 class NamedExecutor:
+    """Call ``binding(query, documents)``. ``params["k"]``, when set, overrides ``query.k``."""
+
     field_name = ""
     op_type = ""
 
@@ -138,7 +167,7 @@ class NamedExecutor:
         binding = context.binding(name, self.op_type)
         combined = _combined(input_groups)
         fn = getattr(binding, "execute", binding)
-        result = await _call(fn, context.query, _documents(combined))
+        result = await _call(fn, _query_with_k(context.query, spec.params.get("k")), _documents(combined))
         return OperatorExecutionResult(_items(result))
 
 

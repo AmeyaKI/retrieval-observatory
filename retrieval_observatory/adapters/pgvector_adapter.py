@@ -12,6 +12,7 @@ class PgvectorAdapter:
     """
 
     supports_filters: bool = True
+    op_type: str = "SOURCE"
 
     def __init__(
         self,

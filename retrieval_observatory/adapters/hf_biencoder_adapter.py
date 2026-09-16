@@ -20,12 +20,16 @@ class HFBiEncoderAdapter:
     The FAISS index is persisted to disk (keyed by corpus+model hash) so
     subsequent runs skip re-encoding. Suitable for corpora up to ~500k docs.
 
-    Note: Query.filters are not supported and will be silently ignored.
+    Note: only Query.filters['doc_ids'] is enforced. The index is searched wider than
+    ``query.k`` (and, if that is still not enough, exhaustively) before the allow-list is
+    applied, so a filtered query returns k documents whenever k allowed documents exist.
+    Other filter keys emit a warning and are ignored.
 
     Requires: pip install retrieval-observatory[dense]
     """
 
     supports_filters: bool = True
+    op_type: str = "SOURCE"
 
     def __init__(
         self,
@@ -106,7 +110,7 @@ class HFBiEncoderAdapter:
         with open(ids_path, "wb") as f:
             pickle.dump(self._doc_ids, f)
 
-    def _retrieve_sync(self, query: Query) -> RetrievalResult:
+    def _retrieve_sync(self, query: Query, allowed: Optional[set] = None) -> RetrievalResult:
         if self._index is None:
             self._build_index()
 
@@ -116,22 +120,26 @@ class HFBiEncoderAdapter:
             normalize_embeddings=True,
             convert_to_numpy=True,
         )
-        scores, indices = self._index.search(query_vec, query.k)
+        n_docs = len(self._doc_ids)
+        # With an allow-list, over-fetch so the filter is applied to a wide slice; escalate to an
+        # exhaustive search if that slice still holds fewer than k allowed documents.
+        search_k = min(n_docs, max(query.k * 10, 100)) if allowed is not None else query.k
+        while True:
+            scores, indices = self._index.search(query_vec, search_k)
+            hits = [
+                (self._doc_ids[idx], float(score))
+                for idx, score in zip(indices[0], scores[0])
+                if idx != -1 and (allowed is None or self._doc_ids[idx] in allowed)
+            ]
+            if allowed is None or len(hits) >= query.k or search_k >= n_docs:
+                break
+            search_k = n_docs
         latency_ms = (time.perf_counter() - start) * 1000
 
-        documents = []
-        for rank, (idx, score) in enumerate(zip(indices[0], scores[0]), start=1):
-            if idx == -1:
-                break
-            doc_id = self._doc_ids[idx]
-            documents.append(
-                Document(
-                    id=doc_id,
-                    text=self._corpus[doc_id],
-                    score=float(score),
-                    rank=rank,
-                )
-            )
+        documents = [
+            Document(id=doc_id, text=self._corpus[doc_id], score=score, rank=rank)
+            for rank, (doc_id, score) in enumerate(hits[: query.k], start=1)
+        ]
 
         return RetrievalResult(
             documents=documents,
@@ -141,7 +149,7 @@ class HFBiEncoderAdapter:
         )
 
     async def retrieve(self, query: Query) -> RetrievalResult:
-        result = await asyncio.to_thread(self._retrieve_sync, query)
+        allowed = None
         if query.filters:
             doc_ids = query.filters.get("doc_ids")
             unsupported = set(query.filters) - {"doc_ids"}
@@ -153,8 +161,4 @@ class HFBiEncoderAdapter:
                 )
             if doc_ids is not None:
                 allowed = set(doc_ids)
-                filtered_docs = [doc for doc in result.documents if doc.id in allowed]
-                for rank, doc in enumerate(filtered_docs, start=1):
-                    doc.rank = rank
-                result.documents = filtered_docs[: query.k]
-        return result
+        return await asyncio.to_thread(self._retrieve_sync, query, allowed)

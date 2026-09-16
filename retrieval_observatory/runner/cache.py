@@ -8,13 +8,25 @@ from retrieval_observatory.store.base import BaseStore
 from retrieval_observatory.types import Document, PipelineResult, StageSnapshot
 
 
-def _make_cache_key(pipeline_config_yaml: str, query_id: str) -> str:
-    raw = f"{pipeline_config_yaml}::{query_id}"
+def dataset_cache_identity(fingerprint: Optional[dict]) -> str:
+    """The part of a dataset fingerprint that changes retrieval results: name + corpus content.
+
+    Query and qrel hashes are deliberately left out — adding queries or relabelling does not
+    change what a pipeline returns for an unchanged query, and the query text itself is
+    already part of every key.
+    """
+    if not fingerprint:
+        return "dataset:unknown"
+    return f"dataset:{fingerprint.get('name')}:{fingerprint.get('corpus_hash') or 'nocorpus'}"
+
+
+def _make_cache_key(pipeline_config_yaml: str, query_id: str, query_text: str = "", dataset: str = "") -> str:
+    raw = f"{pipeline_config_yaml}::{dataset}::{query_id}::{query_text}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def _make_stage_cache_key(stage_config_yaml: str, query_id: str) -> str:
-    raw = f"stage::{stage_config_yaml}::{query_id}"
+def _make_stage_cache_key(stage_config_yaml: str, query_id: str, query_text: str = "", dataset: str = "") -> str:
+    raw = f"stage::{stage_config_yaml}::{dataset}::{query_id}::{query_text}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -26,6 +38,7 @@ def _snap_to_json(snap: StageSnapshot) -> str:
             "latency_ms": item.latency_ms,
             "profiling": item.profiling,
             "candidate_count": item.candidate_count,
+            "op_type": item.op_type,
             "documents": [
                 {
                     "id": d.id,
@@ -68,6 +81,7 @@ def _snap_from_json(data: str) -> StageSnapshot:
             profiling=obj.get("profiling", {}),
             candidate_count=obj.get("candidate_count", len(docs)),
             arms=[_snap_obj(arm) for arm in obj.get("arms", [])],
+            op_type=obj.get("op_type"),
         )
 
     return _snap_obj(json.loads(data))
@@ -81,6 +95,7 @@ def _result_to_json(result: PipelineResult) -> str:
             "latency_ms": s.latency_ms,
             "profiling": s.profiling,
             "candidate_count": s.candidate_count,
+            "op_type": s.op_type,
             "documents": [
                 {
                     "id": d.id,
@@ -133,6 +148,7 @@ def _result_from_json(data: str) -> PipelineResult:
             profiling=s.get("profiling", {}),
             candidate_count=s.get("candidate_count", len(docs)),
             arms=[_to_snap(arm) for arm in s.get("arms", [])],
+            op_type=s.get("op_type"),
         )
 
     for s in obj["snapshots"]:
@@ -148,46 +164,62 @@ def _result_from_json(data: str) -> PipelineResult:
 
 
 class ResultCache:
-    def __init__(self, store: BaseStore, pipeline_config_yaml: str):
+    """Whole-pipeline result cache.
+
+    Key = hash(pipeline_config + dataset identity + query_id + query_text). The dataset
+    identity (see ``dataset_cache_identity``) keeps a cache entry from surviving a corpus
+    edit or a dataset switch that happens to reuse query ids.
+    """
+
+    def __init__(self, store: BaseStore, pipeline_config_yaml: str, dataset_fingerprint: Optional[dict] = None):
         self._store = store
         self._config_yaml = pipeline_config_yaml
+        self._dataset = dataset_cache_identity(dataset_fingerprint)
 
-    def _key(self, query_id: str) -> str:
-        return _make_cache_key(self._config_yaml, query_id)
+    def _key(self, query_id: str, query_text: str = "") -> str:
+        return _make_cache_key(self._config_yaml, query_id, query_text, self._dataset)
 
-    async def get(self, query_id: str) -> Optional[PipelineResult]:
-        raw = await self._store.cache_get(self._key(query_id))
+    async def get(self, query_id: str, query_text: str = "") -> Optional[PipelineResult]:
+        raw = await self._store.cache_get(self._key(query_id, query_text))
         if raw is None:
             return None
         return _result_from_json(raw)
 
-    async def set(self, query_id: str, result: PipelineResult) -> None:
-        await self._store.cache_set(self._key(query_id), _result_to_json(result))
+    async def set(self, query_id: str, result: PipelineResult, query_text: str = "") -> None:
+        await self._store.cache_set(self._key(query_id, query_text), _result_to_json(result))
 
 
 class StageResultCache:
     """Per-stage cache shared across all pipelines.
 
-    Key = hash(stage_config + upstream_fingerprint + query_id).
+    Key = hash(stage_config + dataset identity + upstream_fingerprint + query_id + query_text).
 
     For Stage 0 (first retriever), no upstream candidates exist, so the key is just
-    hash(stage_config + query_id) — identical first-stage configs share cache entries
+    hash(stage_config + dataset + query) — identical first-stage configs share cache entries
     across ablation combos as intended.
 
     For Stage 1+ (rerankers), the key also includes a fingerprint of the upstream
     candidate doc IDs. This prevents a reranker from returning a snapshot computed
     on a different pipeline's candidate set, which would silently corrupt results when
     two pipelines share the same reranker but have different first-stage retrievers.
+
+    The dataset identity is usually not known when the cache is wired into the pipelines;
+    the benchmark executor binds it with ``bind_dataset`` once the fingerprint is computed.
     """
 
-    def __init__(self, store: BaseStore):
+    def __init__(self, store: BaseStore, dataset_fingerprint: Optional[dict] = None):
         self._store = store
+        self._dataset = dataset_cache_identity(dataset_fingerprint)
+
+    def bind_dataset(self, dataset_fingerprint: Optional[dict]) -> None:
+        self._dataset = dataset_cache_identity(dataset_fingerprint)
 
     def key_for(
         self,
         stage_config: dict,
         query_id: str,
         upstream_doc_ids: list[str] | None = None,
+        query_text: str = "",
     ) -> str:
         import yaml
         upstream_part = (
@@ -196,7 +228,7 @@ class StageResultCache:
             else "nostage"
         )
         stage_yaml = yaml.dump(stage_config, sort_keys=True)
-        raw = f"stage::{stage_yaml}::{upstream_part}::{query_id}"
+        raw = f"stage::{stage_yaml}::{self._dataset}::{upstream_part}::{query_id}::{query_text}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
     async def get(self, key: str) -> Optional[StageSnapshot]:

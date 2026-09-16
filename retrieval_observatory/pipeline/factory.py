@@ -93,7 +93,9 @@ def _infer_op_type(node: dict) -> str:
     if not node.get("inputs"):
         return "SOURCE"
     if node.get("type") == "adapter.import":
-        return "BOOST"
+        # A factory-built post-processing stage with no declared taxonomy: label it as the
+        # generic candidate transform rather than guessing BOOST/RERANK. Pass op_type to be exact.
+        return "TRANSFORM"
     return "RERANK"
 
 
@@ -164,6 +166,11 @@ def build_dag_from_config(
     )
 
 
+def _stage_model(stage_cfg: dict) -> str | None:
+    """``config.model`` wins; the schema's top-level ``model:`` on a stage/node is the fallback."""
+    return (stage_cfg.get("config") or {}).get("model") or stage_cfg.get("model")
+
+
 def _build_bm25_adapter(stage_cfg: dict, corpus: dict | None = None):
     from retrieval_observatory.adapters.bm25_adapter import BM25Adapter
 
@@ -217,7 +224,7 @@ def _build_hf_biencoder_adapter(stage_cfg: dict, corpus: dict | None = None):
         )
     cfg = stage_cfg.get("config", {})
     k = cfg.get("k", 100)
-    model_name = cfg.get("model", "sentence-transformers/all-MiniLM-L6-v2")
+    model_name = _stage_model(stage_cfg) or "sentence-transformers/all-MiniLM-L6-v2"
     adapter = HFBiEncoderAdapter(
         corpus=corpus,
         model_name=model_name,
@@ -239,7 +246,7 @@ def _build_hf_crossencoder_adapter(stage_cfg: dict):
 
     cfg = stage_cfg.get("config", {})
     k = cfg.get("k", 10)
-    model_name = cfg.get("model")
+    model_name = _stage_model(stage_cfg)
     if not model_name:
         raise ValueError("adapter.hf_crossencoder requires config.model (e.g. 'cross-encoder/ms-marco-MiniLM-L-6-v2')")
     adapter = HFCrossEncoderAdapter(
@@ -262,7 +269,7 @@ def _build_cohere_rerank_adapter(stage_cfg: dict):
         )
     adapter = CohereRerankAdapter(
         api_key=api_key,
-        model=cfg.get("model", "rerank-english-v3.0"),
+        model=_stage_model(stage_cfg) or "rerank-english-v3.0",
         retriever_id=stage_cfg.get("retriever_id", "cohere_rerank"),
     )
     return adapter, k

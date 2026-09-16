@@ -22,9 +22,13 @@ class BM25Adapter:
 
     Note: only Query.filters['doc_ids'] is enforced in-process. Other filter keys emit
     a warning and are ignored.
+
+    Documents that share no term with the query (BM25 score <= 0) are never returned, so a
+    result may hold fewer than ``query.k`` documents.
     """
 
     supports_filters: bool = True
+    op_type: str = "SOURCE"
 
     def __init__(
         self,
@@ -97,7 +101,10 @@ class BM25Adapter:
                     stacklevel=2,
                 )
 
-        ranked_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+        # A zero score is "no query term occurs in this document" — not a candidate, so it must
+        # not pad the tail of the result just to fill k.
+        matching = [i for i in range(len(scores)) if scores[i] > 0]
+        ranked_indices = sorted(matching, key=lambda i: scores[i], reverse=True)
         if filtered_ids is not None:
             allowed = set(filtered_ids)
             ranked_indices = [idx for idx in ranked_indices if self._doc_ids[idx] in allowed]

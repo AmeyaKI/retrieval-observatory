@@ -9,6 +9,7 @@ from retrieval_observatory.types import Document, Query, RetrievalResult
 
 class QdrantAdapter:
     supports_filters: bool = True
+    op_type: str = "SOURCE"
 
     def __init__(
         self,

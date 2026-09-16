@@ -12,6 +12,7 @@ class HFCrossEncoderAdapter:
     """Reranks candidates using a local HuggingFace cross-encoder model."""
 
     supports_filters: bool = True
+    op_type: str = "RERANK"
 
     def __init__(self, model_name: str, retriever_id: str = "hf_crossencoder", batch_size: int = 32):
         self.retriever_id = retriever_id

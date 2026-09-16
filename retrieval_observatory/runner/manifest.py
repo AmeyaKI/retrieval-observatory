@@ -203,6 +203,12 @@ def _label_manifest(config: Any) -> Dict[str, Any]:
     }
 
 
+def _stage_model(stage: Any) -> str | None:
+    """The model the factory will load: ``config.model`` first, then the top-level ``model:``."""
+    config = getattr(stage, "config", None) or {}
+    return config.get("model") or getattr(stage, "model", None)
+
+
 def _model_inventory(config: Any) -> List[Dict[str, Any]]:
     inventory: List[Dict[str, Any]] = []
     for pipeline in getattr(config, "pipelines", []) or []:
@@ -211,7 +217,7 @@ def _model_inventory(config: Any) -> List[Dict[str, Any]]:
                 "pipeline_id": pipeline.id,
                 "operator_id": getattr(stage, "retriever_id", None) or f"stage-{index}",
                 "type": getattr(stage, "type", None),
-                "model": getattr(stage, "model", None),
+                "model": _stage_model(stage),
                 "version": (getattr(stage, "config", None) or {}).get("model_version"),
             })
     for graph in getattr(config, "graphs", []) or []:
@@ -220,7 +226,7 @@ def _model_inventory(config: Any) -> List[Dict[str, Any]]:
                 "pipeline_id": graph.id,
                 "operator_id": node.id,
                 "type": node.type or node.op,
-                "model": node.model,
+                "model": _stage_model(node),
                 "version": node.config.get("model_version"),
             })
     return inventory

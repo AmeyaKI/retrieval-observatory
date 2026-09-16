@@ -15,6 +15,7 @@ class LangChainAdapter:
     """
 
     supports_filters: bool = False
+    op_type: str = "SOURCE"
 
     def __init__(self, retriever, retriever_id: str):
         self.retriever_id = retriever_id

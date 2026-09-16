@@ -6,6 +6,7 @@ import time
 import pytest
 
 from retrieval_observatory.pipeline.dag import DAGNode, DAGPipeline
+from retrieval_observatory.pipeline.deadline import pipeline_deadline
 from retrieval_observatory.types import Document, Query, RetrievalResult
 
 
@@ -83,16 +84,30 @@ async def test_failed_node_returns_partial_error_trace():
 
 @pytest.mark.asyncio
 async def test_cancelled_dag_returns_partial_timeout_trace():
-    task = asyncio.create_task(_parallel_dag(delay_s=1.0).run(Query(query_id="q", text="q", k=10)))
-    await asyncio.sleep(0.02)
-    task.cancel()
-    result = await task
+    # The runner publishes its deadline before cancelling; that is what makes this a TIMEOUT.
+    with pipeline_deadline(0.01):
+        task = asyncio.create_task(_parallel_dag(delay_s=1.0).run(Query(query_id="q", text="q", k=10)))
+        await asyncio.sleep(0.03)
+        task.cancel()
+        result = await task
 
     assert result.status == "TIMEOUT"
     assert result.trace is not None
     assert result.trace.status == "TIMEOUT"
     assert {span.status for span in result.trace.spans} == {"TIMEOUT"}
     assert {span.op_id for span in result.trace.spans} == {"left", "right"}
+    assert {span.replay_policy for span in result.trace.spans} == {"EXACT"}
+
+
+@pytest.mark.asyncio
+async def test_cancellation_without_a_deadline_propagates():
+    """A cancel that is not the runner's timeout (shutdown, task-group failure) is not swallowed."""
+    task = asyncio.create_task(_parallel_dag(delay_s=1.0).run(Query(query_id="q", text="q", k=10)))
+    await asyncio.sleep(0.02)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 def test_dag_rejects_cycles_and_unknown_dependencies():
