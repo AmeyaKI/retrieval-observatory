@@ -14,6 +14,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `release/policy.py` — `statistics.min_pair_coverage` (default 0.95): a guard returns HOLD with the failed-query counts when fewer than that share of attempted queries are paired.
 - `store/sqlite.py`, `store/postgres.py` — `get_run_status_counts_by_pipeline()`.
 - `results/analytics_extract.json` — `ci_method` and `pvalue_method` fields.
+- `pipeline/dag.py` — `DEFAULT_REPLAY_POLICY`: the runner now declares a replay tier on every span (FUSE, FILTER, BOOST, and SOURCE-feeding-a-FUSE are EXACT; RERANK, EXPAND, GATE, TRANSFORM are OBSERVED_ABLATION; GENERATE and a lone SOURCE are NOT_REPLAYABLE); a spec param `replay_policy` overrides. Previously every runner-produced span was NOT_REPLAYABLE, so counterfactual replay never applied to real runs.
+- `pipeline/deadline.py` — the runner publishes its per-query deadline; pipelines convert a cancellation into a TIMEOUT result only when that deadline fired, and re-raise otherwise.
+- `adapters/*` — every adapter class declares `op_type`; `StageSnapshot.op_type` is set by list pipelines.
 
 ### Changed
 
@@ -27,6 +30,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `metrics/significance.py` — `paired_bootstrap_test` returns `(k+1)/(n+1)` so p is never exactly 0 and is documented as a sign-flip permutation test.
 - `scripts/bench_analytics.py` — p-values come from the package's sign-flip test; the previous in-script bootstrap was not a valid test (its p-values were ~0.5 by construction). `results/analytics_extract.json` regenerated: every `vs_bm25_ndcg_pvalue` is now 0.0001–0.0003; all other fields unchanged.
 - `docs/guides/counterfactual-replay.md` — documents the strict rule, the `rrf_k` key, and cross-operator BH.
+- `pipeline/executors.py` — a graph node's configured `k` is applied to the query (spec `k` wins over the query's `k`); RERANK and FUSE record `top_k` in span params, and the executor-side cut is recorded as `drop_reason="truncated"` instead of being inferred as `reranked_out`.
+- `pipeline/dag.py` — duplicate candidate ids from an adapter are de-duplicated (first wins) and listed in span params as `dropped_duplicates` instead of escaping as a `ValueError` that the runner retried.
+- `runner/benchmark.py` — a TIMEOUT result is not retried; `_linear_trace` records each stage's real operator type (SOURCE, FUSE, RERANK, TRANSFORM) and input/output ranks instead of labelling every non-first stage RERANK.
+- `runner/cache.py`, `pipeline/multi.py` — result and stage caches are keyed on dataset name, corpus hash, and query text in addition to the pipeline config, so editing the corpus no longer returns stale results.
+- `runner/manifest.py`, `pipeline/factory.py` — the manifest's model inventory reads `config.model` (previously always null); a stage-level `model:` is honoured as a fallback.
+- `adapters/bm25_adapter.py` — no zero-score padding: fewer than `k` results are returned when fewer documents match.
+- `adapters/hf_biencoder_adapter.py` — over-fetches before applying `doc_ids` filters so filtered searches still return `k` results.
+- `datasets/custom.py` — query ids and inline `relevant_doc_ids` are stringified like corpus and qrels ids.
 
 ### Fixed
 
