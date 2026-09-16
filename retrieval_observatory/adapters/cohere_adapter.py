@@ -13,6 +13,7 @@ class CohereRerankAdapter:
     """
 
     supports_filters: bool = False
+    op_type: str = "RERANK"
 
     def __init__(
         self,

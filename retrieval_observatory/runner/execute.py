@@ -82,13 +82,13 @@ async def execute_benchmark(
     )
     if validation_report is not None and hasattr(store, "save_validation_report"):
         await store.save_validation_report(validation_report, config_path=config_path, run_id=run_id)
+    fingerprint = dataset_fingerprint(
+        cfg.dataset.name,
+        queries,
+        qrels,
+        corpus if isinstance(corpus, dict) else None,
+    )
     if hasattr(store, "save_run_manifest"):
-        fingerprint = dataset_fingerprint(
-            cfg.dataset.name,
-            queries,
-            qrels,
-            corpus if isinstance(corpus, dict) else None,
-        )
         forge_dataset_id = detect_forge_dataset_id(cfg)
         manifest = build_run_manifest(
             cfg,
@@ -112,7 +112,8 @@ async def execute_benchmark(
         _annotate_query_difficulty(queries, cfg.dataset.name, log=_log)
 
     # Build per-pipeline result caches. (Cross-pipeline StageResultCache, if any, is wired into
-    # the pipeline objects by the caller at build time.)
+    # the pipeline objects by the caller at build time; bind the dataset identity into it here
+    # so its keys, like ours, cannot outlive a corpus edit or a dataset switch.)
     caches: Dict[str, ResultCache] = {}
     if cfg.execution.cache_results and not no_cache:
         import yaml
@@ -121,7 +122,12 @@ async def execute_benchmark(
             caches[pipeline_cfg.id] = ResultCache(
                 store=store,
                 pipeline_config_yaml=yaml.dump(pipeline_cfg.model_dump(), sort_keys=True),
+                dataset_fingerprint=fingerprint,
             )
+    for pipeline in pipelines:
+        stage_cache = getattr(pipeline, "stage_cache", None)
+        if stage_cache is not None and hasattr(stage_cache, "bind_dataset"):
+            stage_cache.bind_dataset(fingerprint)
 
     runner = BenchmarkRunner(
         store=store,

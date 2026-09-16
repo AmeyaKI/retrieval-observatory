@@ -8,11 +8,16 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Mapping, Sequence
 
 from retrieval_observatory.config.operators import (
+    BoostSpec,
+    ExpandSpec,
     FuseSpec,
+    GenerateSpec,
     PipelineGraphSpec,
     RerankSpec,
     SourceSpec,
+    TransformSpec,
 )
+from retrieval_observatory.pipeline.deadline import cancelled_by_deadline
 from retrieval_observatory.pipeline.executors import (
     ExecutionContext,
     OperatorConfigurationError,
@@ -21,8 +26,37 @@ from retrieval_observatory.pipeline.executors import (
     default_operator_executors,
 )
 from retrieval_observatory.tracing.candidates import build_candidate_transition
-from retrieval_observatory.tracing.model import OperatorSpan, RetrievalTrace, TraceTiming, critical_path_latency_ms
+from retrieval_observatory.tracing.model import (
+    OperatorSpan,
+    ReplayPolicy,
+    RetrievalTrace,
+    TraceTiming,
+    critical_path_latency_ms,
+)
 from retrieval_observatory.types import Document, PipelineResult, Query, StageSnapshot
+
+#: Replay tier recorded on every span the DAG produces, keyed by operator type. A SOURCE is
+#: promoted to EXACT when a FUSE consumes it (the fusion can be recomputed from the recorded
+#: arm outputs without re-running the retriever); a SOURCE nothing fuses stays NOT_REPLAYABLE.
+#: An operator spec may override its tier with ``params={"replay_policy": ...}``.
+DEFAULT_REPLAY_POLICY: dict[str, ReplayPolicy] = {
+    "SOURCE": "NOT_REPLAYABLE",
+    "FUSE": "EXACT",
+    "FILTER": "EXACT",
+    "BOOST": "EXACT",
+    "RERANK": "OBSERVED_ABLATION",
+    "EXPAND": "OBSERVED_ABLATION",
+    "GATE": "OBSERVED_ABLATION",
+    "TRANSFORM": "OBSERVED_ABLATION",
+    "GENERATE": "NOT_REPLAYABLE",
+}
+_REPLAY_POLICIES: frozenset[str] = frozenset({"EXACT", "OBSERVED_ABLATION", "NOT_REPLAYABLE"})
+_NAMED_LEGACY_SPECS = {
+    "BOOST": (BoostSpec, "booster"),
+    "EXPAND": (ExpandSpec, "expander"),
+    "TRANSFORM": (TransformSpec, "transformer"),
+    "GENERATE": (GenerateSpec, "generator"),
+}
 
 
 @dataclass
@@ -64,6 +98,14 @@ def _legacy_graph(pipeline_id: str, nodes: Sequence[DAGNode], output_id: str) ->
             name = f"{node.node_id}:adapter"
             bindings[name] = node.adapter
             specs.append(RerankSpec(node.node_id, parents, {"merge_policy": "concat"}, adapter=name, top_k=node.k))
+        elif node.op_type in _NAMED_LEGACY_SPECS:
+            # A factory-built stage (adapter.import) exposes rerank()/execute() or is itself callable;
+            # the named executors call ``binding(query, documents)``.
+            cls, field_name = _NAMED_LEGACY_SPECS[node.op_type]
+            name = f"{node.node_id}:adapter"
+            adapter = node.adapter
+            bindings[name] = getattr(adapter, "execute", None) or getattr(adapter, "rerank", None) or adapter
+            specs.append(cls(node.node_id, parents, {"k": node.k}, **{field_name: name}))
         else:
             raise OperatorConfigurationError(
                 f"Legacy DAGNode cannot express {node.op_type}; use an operator-specific PipelineGraphSpec"
@@ -101,6 +143,28 @@ class DAGPipeline:
         self._order_index = {op_id: index for index, op_id in enumerate(self._order)}
         self._waves = self._execution_waves()
         self._validate_bindings()
+        self._replay_policies = {spec.op_id: self._replay_policy_for(spec) for spec in graph.operators}
+
+    def _replay_policy_for(self, spec: Any) -> ReplayPolicy:
+        override = spec.params.get("replay_policy")
+        if override is not None:
+            if str(override) not in _REPLAY_POLICIES:
+                raise OperatorConfigurationError(
+                    f"{spec.op_id}: replay_policy must be one of {sorted(_REPLAY_POLICIES)}, got {override!r}"
+                )
+            return str(override)  # type: ignore[return-value]
+        if spec.op_type == "SOURCE":
+            fused = any(other.op_type == "FUSE" and spec.op_id in other.parents for other in self.graph.operators)
+            return "EXACT" if fused else "NOT_REPLAYABLE"
+        return DEFAULT_REPLAY_POLICY.get(spec.op_type, "NOT_REPLAYABLE")
+
+    def _deterministic(self, spec: Any) -> bool:
+        override = spec.params.get("deterministic")
+        if override is not None:
+            return bool(override)
+        # RRF fusion is a pure function of its recorded inputs; every other operator runs
+        # code the trace cannot vouch for (a model, a service, a user callable).
+        return spec.op_type == "FUSE"
 
     def _validate_bindings(self) -> None:
         for spec in self.graph.operators:
@@ -152,6 +216,7 @@ class DAGPipeline:
         try:
             executor = self.executors[spec.op_type]
             result = await executor.execute(spec, groups, ExecutionContext(query, self.adapters))
+            result = _drop_duplicate_outputs(result)
             transition = build_candidate_transition(
                 input_groups=groups,
                 output_items=result.outputs,
@@ -188,6 +253,8 @@ class DAGPipeline:
             latency_ms=max(0.0, execution.latency_ms),
             input_groups=input_groups,
             outputs=execution.transition.outputs,
+            deterministic=self._deterministic(execution.spec),
+            replay_policy=self._replay_policies[execution.spec.op_id],
             params={**dict(execution.spec.params), **dict(execution.result.metadata)},
             gate_values=dict(execution.result.gate_values),
             error=execution.error,
@@ -253,7 +320,13 @@ class DAGPipeline:
                 active = []
                 errors = []
                 for execution in executions:
-                    span = self._span(execution)
+                    try:
+                        span = self._span(execution)
+                    except ValueError:
+                        # The evidence model rejected what the operator produced (lineage it cannot
+                        # express). Keep the spans recorded so far and report the failure.
+                        errors.append(traceback.format_exc())
+                        continue
                     spans.append(span)
                     if execution.error:
                         errors.append(execution.error_traceback or execution.error)
@@ -277,6 +350,10 @@ class DAGPipeline:
                     return result("ERROR", "\n".join(errors))
             return result("OK")
         except asyncio.CancelledError:
+            # Only the runner's own deadline is reported as a TIMEOUT; any other cancellation
+            # (shutdown, task-group failure) must keep propagating.
+            if not cancelled_by_deadline():
+                raise
             elapsed = (time.perf_counter() - started) * 1000
             seen = {span.op_id for span in spans}
             for op_id in active:
@@ -287,8 +364,45 @@ class DAGPipeline:
                 spans.append(OperatorSpan(
                     op_id, spec.op_type, op_id, tuple(spec.parents), "TIMEOUT", elapsed,
                     input_groups=groups, error="Pipeline execution cancelled or timed out",
+                    deterministic=self._deterministic(spec), replay_policy=self._replay_policies[op_id],
                 ))
             return result("TIMEOUT", "Pipeline execution cancelled or timed out")
+
+
+def _output_identity(item: Any) -> str:
+    """The identity OperatorSpan enforces uniqueness on: candidate_id, else the document id."""
+    if isinstance(item, str):
+        return item
+    for attr in ("candidate_id", "doc_id", "id"):
+        value = getattr(item, attr, None)
+        if value:
+            return str(value)
+    metadata = getattr(item, "metadata", None)
+    return str(metadata.get("id", "")) if isinstance(metadata, dict) else ""
+
+
+def _drop_duplicate_outputs(result: OperatorExecutionResult) -> OperatorExecutionResult:
+    """Keep the first occurrence of each output identity; record the rest as ``dropped_duplicates``.
+
+    An adapter that returns the same document twice would otherwise make span construction
+    raise. The duplicates are recorded in the span params rather than in ``drop_reasons``
+    because their surviving twin *is* in the outputs, and a drop reason keyed by that id
+    would mislabel the survivor.
+    """
+    seen: set[str] = set()
+    kept: list[Any] = []
+    duplicates: list[str] = []
+    for item in result.outputs:
+        identity = _output_identity(item)
+        if identity and identity in seen:
+            duplicates.append(identity)
+            continue
+        if identity:
+            seen.add(identity)
+        kept.append(item)
+    if not duplicates:
+        return result
+    return replace(result, outputs=tuple(kept), metadata={**dict(result.metadata), "dropped_duplicates": duplicates})
 
 
 DagPipeline = DAGPipeline

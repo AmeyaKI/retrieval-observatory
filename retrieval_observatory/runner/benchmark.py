@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Set, Union
 
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
+from retrieval_observatory.pipeline.deadline import pipeline_deadline
 from retrieval_observatory.pipeline.multi import MultiStagePipeline
 from retrieval_observatory.pipeline.single import SingleStagePipeline
 from retrieval_observatory.runner.cache import ResultCache
@@ -83,7 +84,7 @@ class BenchmarkRunner:
                 cache = self.caches.get(pipeline_id)
 
                 if cache:
-                    cached = await cache.get(query_id)
+                    cached = await cache.get(query_id, query.text)
                     if cached is not None:
                         await self._persist_trace(cached, run_id, query.text)
                         return cached
@@ -93,7 +94,7 @@ class BenchmarkRunner:
                 await self._persist_trace(result, run_id, query.text)
 
                 if cache and result.status == "OK":
-                    await cache.set(query_id, result)
+                    await cache.set(query_id, result, query.text)
 
                 return result
 
@@ -129,15 +130,14 @@ class BenchmarkRunner:
         last_result: Optional[PipelineResult] = None
         for attempt in range(self.retry_attempts + 1):
             try:
-                result = await asyncio.wait_for(
-                    pipeline.run(query), timeout=self.timeout_s
-                )
-                if result.status == "OK":
-                    return result
-                # Don't retry ERROR — only transient failures should retry
-                last_result = result
-                if result.status == "ERROR":
-                    return result
+                # The deadline lets the pipeline tell our timeout apart from any other cancel.
+                with pipeline_deadline(self.timeout_s):
+                    result = await asyncio.wait_for(
+                        pipeline.run(query), timeout=self.timeout_s
+                    )
+                # A pipeline reports its own ERROR (not transient) and TIMEOUT (a slow endpoint,
+                # reported with partial spans); neither is retried.
+                return result
             except asyncio.TimeoutError:
                 last_result = PipelineResult(
                     query_id=query.query_id,
@@ -164,18 +164,30 @@ class BenchmarkRunner:
 
 
 def _linear_trace(result: PipelineResult, *, run_id: str, query_text: str) -> RetrievalTrace:
+    """Derive a linear operator chain from a list pipeline's stage snapshots.
+
+    Each stage becomes one span labelled with the operator type the pipeline recorded on the
+    snapshot; older/foreign snapshots fall back to the historical source-then-rerank labelling.
+    Candidates carry ``output_rank`` (the stage rank) and ``input_rank`` (their rank in the
+    previous stage, when present).
+    """
     spans: list[OperatorSpan] = []
     parent_id: str | None = None
+    previous_ranks: dict[str, int] = {}
     for snapshot in result.snapshots:
         candidates = tuple(
-            Candidate(doc_id=doc.id, score=doc.score, rank=doc.rank)
+            Candidate(
+                doc_id=doc.id, score=doc.score, rank=doc.rank,
+                input_rank=previous_ranks.get(doc.id), output_rank=doc.rank,
+            )
             for doc in snapshot.documents
         )
         parents = (parent_id,) if parent_id else ()
         input_groups = {parent_id: spans[-1].outputs} if parent_id else {}
+        op_type = snapshot.op_type or ("SOURCE" if parent_id is None else "RERANK")
         spans.append(OperatorSpan(
             op_id=snapshot.stage_id,
-            op_type="SOURCE" if parent_id is None else "RERANK",
+            op_type=op_type,  # type: ignore[arg-type]
             op_name=snapshot.stage_id,
             parent_ids=parents,
             status="FIRED" if result.status == "OK" else result.status,
@@ -184,6 +196,7 @@ def _linear_trace(result: PipelineResult, *, run_id: str, query_text: str) -> Re
             outputs=candidates,
         ))
         parent_id = snapshot.stage_id
+        previous_ranks = {doc.id: doc.rank for doc in snapshot.documents}
     timing = TraceTiming(
         wall_clock_ms=result.total_latency_ms,
         critical_path_ms=sum(span.latency_ms for span in spans),

@@ -4,6 +4,8 @@ import asyncio
 import traceback
 from typing import Any, Dict, List, Optional, Union
 
+from retrieval_observatory.pipeline.deadline import cancelled_by_deadline
+from retrieval_observatory.pipeline.single import stage_op_type
 from retrieval_observatory.types import (
     BaseReranker,
     BaseRetriever,
@@ -62,7 +64,8 @@ class MultiStagePipeline:
                 if self.stage_cache is not None and self.stage_configs[i] is not None:
                     upstream_ids = [d.id for d in current_docs] if i > 0 else None
                     cache_key = self.stage_cache.key_for(
-                        self.stage_configs[i], query.query_id, upstream_doc_ids=upstream_ids
+                        self.stage_configs[i], query.query_id, upstream_doc_ids=upstream_ids,
+                        query_text=query.text,
                     )
                     cached_snap = await self.stage_cache.get(cache_key)
                     if cached_snap is not None:
@@ -105,6 +108,7 @@ class MultiStagePipeline:
                     profiling=result.profiling,
                     candidate_count=len(result.documents),
                     arms=_arms_from_result(result, stage_index=i),
+                    op_type=stage_op_type(stage, i),
                 )
                 snapshots.append(snapshot)
 
@@ -119,6 +123,8 @@ class MultiStagePipeline:
                 status="OK",
             )
         except asyncio.CancelledError:
+            if not cancelled_by_deadline():
+                raise
             return PipelineResult(
                 query_id=query.query_id,
                 pipeline_id=self.pipeline_id,

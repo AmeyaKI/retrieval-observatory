@@ -92,7 +92,9 @@ class CustomDataset:
                 if not line:
                     continue
                 obj = json.loads(line)
-                query_id = obj["query_id"]
+                # Ids are strings everywhere else (corpus, qrels file, traces); an integer
+                # query_id or doc id in the queries file must join with them.
+                query_id = str(obj["query_id"])
 
                 temporal_anchor = _parse_datetime(obj.get("temporal_anchor"))
                 metadata = obj.get("metadata", {}).copy() if isinstance(obj.get("metadata"), dict) else {}
@@ -113,9 +115,9 @@ class CustomDataset:
 
                 rel = obj.get("relevant_doc_ids", [])
                 if isinstance(rel, dict):
-                    qrels[query_id] = {doc_id: int(grade) for doc_id, grade in rel.items()}
+                    qrels[query_id] = {str(doc_id): int(grade) for doc_id, grade in rel.items()}
                 else:
-                    qrels[query_id] = {doc_id: 1 for doc_id in rel}
+                    qrels[query_id] = {str(doc_id): 1 for doc_id in rel}
 
         if self.qrels_path:
             qrels.update(_load_qrels(self.qrels_path))

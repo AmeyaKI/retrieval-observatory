@@ -4,8 +4,9 @@ import asyncio
 import traceback
 from typing import Union
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
+from retrieval_observatory.pipeline.deadline import cancelled_by_deadline
 from retrieval_observatory.types import (
     BaseReranker,
     BaseRetriever,
@@ -14,6 +15,27 @@ from retrieval_observatory.types import (
     RetrievalResult,
     StageSnapshot,
 )
+
+_RERANK_ADAPTER_CLASSES = ("HFCrossEncoderAdapter", "CohereRerankAdapter")
+
+
+def stage_op_type(stage: Any, stage_index: int) -> str:
+    """Operator taxonomy label for a list-pipeline stage.
+
+    An adapter that declares ``op_type`` (RRFFusionAdapter -> FUSE, the shipped retrievers ->
+    SOURCE, the shipped rerankers -> RERANK) is taken at its word; the first stage of a
+    pipeline is otherwise a SOURCE, and anything else is the generic TRANSFORM.
+
+    One exception: a fusing adapter at the head of a list pipeline is the pipeline's SOURCE.
+    Its arms are recorded as arm snapshots, not as upstream operators, so in the linear
+    trace it is the operator candidates enter through (a FUSE needs parents to fuse).
+    """
+    declared = getattr(stage, "op_type", None)
+    if declared:
+        return "SOURCE" if stage_index == 0 and str(declared) == "FUSE" else str(declared)
+    if type(stage).__name__ in _RERANK_ADAPTER_CLASSES:
+        return "RERANK"
+    return "SOURCE" if stage_index == 0 else "TRANSFORM"
 
 
 def _as_pipeline_result(result, query_id: str, pipeline_id: str) -> Optional[PipelineResult]:
@@ -91,6 +113,7 @@ class SingleStagePipeline:
                 profiling=result.profiling,
                 candidate_count=len(result.documents),
                 arms=_arms_from_result(result, stage_index=0),
+                op_type=stage_op_type(self.retriever, 0),
             )
             return PipelineResult(
                 query_id=query.query_id,
@@ -100,6 +123,8 @@ class SingleStagePipeline:
                 status="OK",
             )
         except asyncio.CancelledError:
+            if not cancelled_by_deadline():
+                raise
             return PipelineResult(
                 query_id=query.query_id,
                 pipeline_id=self.pipeline_id,

@@ -76,3 +76,36 @@ async def test_runner_captures_timeout(tmp_path):
     stored = await store.list_traces(TraceQuery(run_id="run1"))
     assert len(stored) == 1
     assert stored[0].status == "TIMEOUT"
+
+
+@pytest.mark.asyncio
+async def test_runner_does_not_retry_a_timeout(tmp_path):
+    """A pipeline that reports TIMEOUT (with partial spans) is returned as-is, never re-run."""
+    import time
+
+    from retrieval_observatory.config.operators import PipelineGraphSpec, SourceSpec
+    from retrieval_observatory.pipeline.dag import DAGPipeline
+
+    calls = {"n": 0}
+
+    async def slow(query: Query) -> RetrievalResult:
+        calls["n"] += 1
+        await asyncio.sleep(5)
+        return RetrievalResult(documents=[], latency_ms=0.0, retriever_id="slow")
+
+    pipeline = DAGPipeline(PipelineGraphSpec("p", (SourceSpec("s", (), adapter="s"),), ("s",)), {"s": slow})
+    store = SQLiteStore(db_path=str(tmp_path / "test.db"))
+    await store.init_db()
+    await store.save_run("r", "test", "{}")
+
+    runner = BenchmarkRunner(store=store, concurrency=1, timeout_ms=200, retry_attempts=2)
+    started = time.perf_counter()
+    results = await runner.run(pipelines=[pipeline], queries=[Query(text="x", query_id="q1")], run_id="r")
+    elapsed = time.perf_counter() - started
+
+    assert results["p"][0].status == "TIMEOUT"
+    assert calls["n"] == 1
+    assert elapsed < 1.0
+    stored = await store.get_traces("r")
+    assert stored[0].status == "TIMEOUT"
+    assert [(span.op_id, span.status) for span in stored[0].spans] == [("s", "TIMEOUT")]
