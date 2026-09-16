@@ -10,6 +10,12 @@ set -euo pipefail
 cd "$(dirname "$0")"
 PY="${PY:-python}"
 N="${1:-400}"
+# torch and faiss each ship their own OpenMP runtime; on macOS conda environments loading both
+# segfaults inside the dense lane (seen 2026-09-15, also on the 0.6.0 build). Allowing the
+# duplicate runtime and pinning OpenMP to one thread avoids it; quality numbers are unaffected,
+# encoding is slower. Override by exporting either variable before running.
+export KMP_DUPLICATE_LIB_OK="${KMP_DUPLICATE_LIB_OK:-TRUE}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 DB=".retobs/demo.db"
 POLICY="release-policy.yaml"
 REPORTS="reports"

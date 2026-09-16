@@ -65,6 +65,9 @@ stated as fact; anything carried over from earlier reports and not re-verified i
 
 ## Demo ergonomics
 
+- On macOS conda environments where torch and faiss each bundle an OpenMP runtime, the flagship
+  demo's dense lane segfaults unless `KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1` is set;
+  `run_demo.sh` sets both by default. The root cause is the environment, not retobs.
 - `results/flagship_demo/run_demo.sh` deletes and rebuilds its ~1.2 GB SQLite database on every
   invocation. The path is correctly scoped and cannot affect version-controlled files, but a
   `--keep` flag would stop an external user from discarding a long run by accident.
