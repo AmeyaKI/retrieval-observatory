@@ -10,19 +10,20 @@ stated as fact; anything carried over from earlier reports and not re-verified i
   should be unified so a metric name means the same thing in both.
 - `baseline-summary.txt` is emitted only for the baseline run, so candidate-side routing and
   operator-activity counts have no persisted artifact and must be recomputed by hand.
-- Wall-clock and latency figures are machine-dependent and are not recorded in any report artifact,
-  so they cannot be diffed across reruns.
+- Wall-clock runtime is not recorded in any report artifact; per-stage `latency_mean` rows are, but
+  they are machine-dependent, so neither can be diffed meaningfully across machines.
 
 ## Integration
 
-- `integrate --phase verify` reports a failed integration as `Missing operators: [...]` rather than
-  naming the underlying import or syntax error, which directs the user to the wrong diagnosis.
+- `integrate --phase verify` does not import the patched module itself; an import or syntax error in
+  the target project surfaces only when the entrypoint is actually called. When no trace is found,
+  verify names the service, pipeline, and database it looked for.
 - `integrate --phase apply` has no `--dry-run` that renders the post-patch file before writing it.
-- Integration reliably detects a single entrypoint. Multi-entrypoint pipelines and class-method
-  retrievers still require manual operator mapping.
-- The linear (non-DAG) trace path was previously reported to discard `op_type`, mislabelling which
-  kind of operator lost a document on simple pipelines. *Reported earlier; not re-verified in the
-  current review pass.*
+- The planner discovers class methods and skips test files, but builds no cross-file call graph:
+  operators found in different files are recorded without parent edges between them, and a project
+  with several entrypoints still needs manual operator mapping.
+- Name-only operator matches are listed under `discovery.low_confidence_operators` and left
+  un-instrumented rather than asked about.
 
 ## Query difficulty classifier (experimental since 0.6.0)
 
@@ -32,6 +33,16 @@ stated as fact; anything carried over from earlier reports and not re-verified i
   works on databases produced by pre-typed-diagnostics builds. Restoring it needs a bucketing rule
   in the runner, which is a design decision rather than a fix.
 
+## Counterfactual replay
+
+- Replay is strict: whenever a removed operator's child would have to decide on documents it never
+  observed, the result is `indeterminate`. This makes some upstream removals (for example a source
+  arm feeding a fusion whose top-k cut hides documents from a downstream reranker) indeterminate by
+  design. The study in `results/study/` reports these counts rather than estimating around them.
+- Replay tiers are assigned per operator type by the runner (`pipeline/dag.py::DEFAULT_REPLAY_POLICY`),
+  not learned from the adapter; an adapter that is in fact deterministic is still OBSERVED_ABLATION
+  unless the spec overrides `replay_policy`.
+
 ## Benchmarks
 
 - `results/BENCHMARK_ANALYSIS.md` was measured on an older build and has not been rerun on the
@@ -40,6 +51,17 @@ stated as fact; anything carried over from earlier reports and not re-verified i
   production-scale indexes are unmeasured.
 - The Cohere rerank sweep completed 155 of 323 queries and should be rerun with `--no-cache` before
   conclusions are drawn from it.
+
+## Dashboard and stores
+
+- The first (cold) `/overview` on a 400-query DAG run still spends about two seconds in the paired
+  sign-flip test; later requests are memoised per run.
+- The PostgreSQL store changes made in the 2026-09-15 review cycle (per-pipeline status counts,
+  metric-row dedup, lineage service counts) are covered by the shared contract tests against SQLite
+  only; no PostgreSQL server was available locally.
+- `cli.py` still defines several never-registered commands left from earlier releases (`run`,
+  `validate`, `init`, `inspect`, `quickstart`, `doctor`, `diff_configs`); they are dead code, not
+  reachable from `retobs --help`.
 
 ## Demo ergonomics
 
