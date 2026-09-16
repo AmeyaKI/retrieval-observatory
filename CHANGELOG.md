@@ -17,6 +17,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `pipeline/dag.py` — `DEFAULT_REPLAY_POLICY`: the runner now declares a replay tier on every span (FUSE, FILTER, BOOST, and SOURCE-feeding-a-FUSE are EXACT; RERANK, EXPAND, GATE, TRANSFORM are OBSERVED_ABLATION; GENERATE and a lone SOURCE are NOT_REPLAYABLE); a spec param `replay_policy` overrides. Previously every runner-produced span was NOT_REPLAYABLE, so counterfactual replay never applied to real runs.
 - `pipeline/deadline.py` — the runner publishes its per-query deadline; pipelines convert a cancellation into a TIMEOUT result only when that deadline fired, and re-raise otherwise.
 - `adapters/*` — every adapter class declares `op_type`; `StageSnapshot.op_type` is set by list pipelines.
+- `dashboard/api.py` — `/production/traces` implements the `difficulty` and `suspected_only` filters it previously ignored; `/operator-attribution` rows carry `pipeline_id`; `query_diffs` carries an explicit `orientation`; `/demo/context` carries `db_id`; `candidate-lineage-diff` accepts `against_db`.
+- `store/sqlite.py`, `store/postgres.py` — unique index on the metric-row natural key; `save_metrics_batch` ignores duplicates.
+- `experimental/advisor/recommend.py` — `compute_reliability(persist=...)`.
 
 ### Changed
 
@@ -38,6 +41,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `adapters/bm25_adapter.py` — no zero-score padding: fewer than `k` results are returned when fewer documents match.
 - `adapters/hf_biencoder_adapter.py` — over-fetches before applying `doc_ids` filters so filtered searches still return `k` results.
 - `datasets/custom.py` — query ids and inline `relevant_doc_ids` are stringified like corpus and qrels ids.
+- `dashboard/api.py` — production service, trace-list, and trace-detail responses go through `_monitor_trace`, so the fields the UI reads (`service`, `total_latency_ms`, `suspected_failures`, `stages`) exist; the key sets are asserted by tests.
+- `dashboard/api.py` — per-query comparison deltas are candidate minus baseline, matching the declared orientation; the UI colours a positive delta as candidate-better. Previously the candidate's regressions rendered as wins.
+- `dashboard/api.py` — arm-versus-fused ablations pair each arm with the spine node it actually feeds (topology), not the node at the same depth; on the flagship run every arm now has deltas instead of none.
+- `dashboard/api.py` — operator attribution is computed per pipeline with one Benjamini-Hochberg family per pipeline; a failing operator yields an error row instead of a 500.
+- `dashboard/api.py` — `GET …/advisor/reliability` and `GET …/runs/{run}/metrics` no longer write (snapshot persistence and metric recomputation happen without saving); both returned 500 on the read-only hosted demo.
+- `dashboard/api.py` — `aggregate()` and stage contributions are memoised per (database, run, row count); one-query views load only that query's traces; `/diagram` builds its graph once. Flagship-run warm `/overview` 4.4s → 0.08s, `/queries/{qid}` 2.5s → 0.01s, `/diagram` 12.3s → 2.3s warm.
+- `store/migrate.py` — reset removes every table the store creates (previously left `diagnostic_findings` and `analysis_records`).
+- `store/sqlite.py` — query lineage counts services by `service_id` and scopes the Test Set origin lookup to the run's dataset.
 
 ### Fixed
 
