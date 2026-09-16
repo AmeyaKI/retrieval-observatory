@@ -7,7 +7,7 @@ recommendations ranked by expected value. It is a planning aid, not a causal cla
 
 ## What a recommendation carries
 
-Each `Recommendation` (`retrieval_observatory/advisor/types.py`) includes:
+Each `Recommendation` (`retrieval_observatory/experimental/advisor/types.py`) includes:
 
 - **action** and **rationale** — what to change and why.
 - **evidence** — the specific diagnostics that triggered it (e.g. "failure_label=reranker_drop
@@ -22,7 +22,7 @@ inventing a number.
 
 ## How recommendations are ranked
 
-`_prioritize` (`retrieval_observatory/advisor/recommend.py`) sorts by expected engineering
+`_prioritize` (`retrieval_observatory/experimental/advisor/recommend.py`) sorts by expected engineering
 value — quality gain weighted by confidence, penalized by latency cost and effort.
 Recommendations with no estimate sort into an explicit tail so they never masquerade as
 high-confidence advice.
@@ -30,7 +30,7 @@ high-confidence advice.
 ## Improvement simulation
 
 Before you change anything, `simulate_operator_removal`
-(`retrieval_observatory/advisor/simulate.py`) estimates the impact of removing an operator by
+(`retrieval_observatory/experimental/advisor/simulate.py`) estimates the impact of removing an operator by
 replaying the pipeline without it and re-scoring against qrels — the same counterfactual
 machinery as attribution (see [counterfactual-replay.md](../counterfactual-replay.md)). The
 result carries its `ReplayAssumptions`, so the estimate's basis is inspectable. The goal is

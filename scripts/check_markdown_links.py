@@ -21,6 +21,7 @@ def markdown_files() -> list[Path]:
     ]
     roots.extend((ROOT / "docs").rglob("*.md"))
     roots.extend((ROOT / "examples").rglob("*.md"))
+    roots.extend((ROOT / "results").rglob("*.md"))
     return sorted(path for path in roots if path.is_file() and not SKIP_PARTS.intersection(path.parts))
 
 

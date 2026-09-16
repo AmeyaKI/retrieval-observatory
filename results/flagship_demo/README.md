@@ -264,6 +264,8 @@ The exact query id is printed at the end of `run_demo.sh` and in
 
 ## Honest limitations
 
+The full list, including what `lineage_document_identity_partial` means for this corpus, is in [limitations.md](limitations.md).
+
 **This is not a competitive retrieval system.** Widths and models were chosen so the demo is
 legible and cheap to rerun, not to maximise recall. Every scenario compares two runs sharing
 the same components, so absolute quality cancels out.

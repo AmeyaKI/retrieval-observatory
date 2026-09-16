@@ -35,4 +35,4 @@ Promotion readiness and lineage-diagnosis readiness are separate claims. Missing
 
 ## Diagnostic limits
 
-A valid relevant document missed by retrieval is a miss, not a corpus/qrel identity mismatch. `qrel_not_in_corpus` is reserved for an actually absent qrel document ID. Production quality is unavailable unless explicit labels are joined.
+A valid relevant document missed by retrieval is a miss, not a corpus/qrel identity mismatch. `qrel_absent_from_corpus` (the label the runner emits; older dashboards spelled it `qrel_not_in_corpus`) is reserved for an actually absent qrel document ID. Production quality is unavailable unless explicit labels are joined.

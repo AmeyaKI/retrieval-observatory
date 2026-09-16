@@ -31,7 +31,7 @@ published dataset.
 
 ## How each artifact is derived
 
-`queries.jsonl` — 1,300 questions sampled from the validation split with
+`queries.jsonl` — 1,300 questions sampled from the validation split (the published runs evaluate the first 400 of them; `run_demo.sh` sets `N=400`) with
 `random.Random(20260803).sample(...)`, using each question's original HotpotQA `id`. HotpotQA's own
 `type` and `level` labels are carried through as query metadata; those are what the release policy's
 declared slices filter on. The train split is never used.

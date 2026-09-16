@@ -1,6 +1,6 @@
 # YAML Pipeline Configuration Guide — retrieval-observatory
 
-**How to use this guide:** Copy the relevant template below and paste it into your LLM with the instruction: "Fill in the placeholders in this retobs YAML config for my pipeline: [describe your pipeline]." The LLM will produce a working config. Then run `retobs validate --config your_config.yaml` to check it before running.
+**How to use this guide:** Copy the relevant template below and paste it into your LLM with the instruction: "Fill in the placeholders in this retobs YAML config for my pipeline: [describe your pipeline]." The LLM will produce a working config. Then run `retobs evaluate --config your_config.yaml --max-queries 5` as a smoke check before the full run.
 
 ---
 
@@ -355,7 +355,7 @@ TREC-style qrels.tsv also supported: `query_id \t 0 \t doc_id \t grade`
 | Stage attribution table is missing | Add `ablations: true` to combinations |
 | Dashboard shows no data | Check `db_path` matches the path passed to `retobs serve --db` |
 | All queries show `candidate_miss` | Your corpus `id` field doesn't match `relevant_doc_ids` in queries — check IDs match exactly |
-| `retobs validate` reports missing corpus | Use absolute paths or run retobs from the directory containing your data |
+| `retobs evaluate --config` reports missing corpus | Use absolute paths or run retobs from the directory containing your data |
 
 ---
 
@@ -376,4 +376,4 @@ My pipeline:
 Generate a complete retobs YAML config for this pipeline.
 ```
 
-Then: `retobs validate --config generated_config.yaml` to catch any issues before running.
+Then: `retobs evaluate --config generated_config.yaml --max-queries 5` to catch any issues before the full run.

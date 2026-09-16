@@ -80,7 +80,9 @@ the slice breakdown confirms the mechanism rather than just the outcome:
 | comparison questions (single-pass) | +0.0057     |
 
 
-The gain concentrates where the second hop runs — which is the only place a wider merge could
+The gain is consistent with the mechanism: the bridge-question interval excludes zero while the
+comparison-question interval touches it, though the two intervals overlap, so the data do not
+prove the slices differ. The second hop is the only place a wider merge could
 possibly help. Diagnosis, fix, verification, all on the same evidence.
 
 Worth saying plainly: reranking now scores 100 candidates instead of 40. `PASS` means quality

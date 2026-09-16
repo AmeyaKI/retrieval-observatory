@@ -18,7 +18,7 @@ or generated labels remain explicitly unvalidated until a human or trusted proce
 Because every Test Set query carries its scenario type, Findings can report performance **by
 scenario** — telling you not just "recall is low" but "recall is low on temporal queries" —
 which points at a specific fix. This is the `by_type` breakdown in
-`retrieval_observatory/advisor/recommend.py`.
+`retrieval_observatory/experimental/advisor/recommend.py`.
 
 ## Reproducibility
 

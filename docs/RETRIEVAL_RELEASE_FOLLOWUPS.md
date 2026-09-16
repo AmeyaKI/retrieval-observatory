@@ -32,8 +32,8 @@ This ledger records issues found while implementing Tasks 1–13 and their statu
 - **Resolved — guard-specific affected queries.** Every aggregate and declared-slice guard carries its own ordered affected query IDs, which drive the investigation link (`b6a88c4`).
 - **Resolved — complete static Explorer surface.** Branch, stage, outcome, evidence, and source filters; aggregate route widths; trace-qualified selection; passport rank/score/exit/source details; and evidence-bounded stage pointers are present (`ac4b267`).
 - **Resolved — policy-aware lineage diff.** Reviewed stage mappings flow through dashboard comparison links into the local lineage-diff endpoint (`39e2c2b`).
-- **Compatibility window — legacy candidate aliases.** `/candidate-journeys`, document-ID candidate lookup, `relevant`, TP/FP/FN/TN helper utilities, and the first-passport alias remain for one release. The new Explorer uses operational outcomes and trace-qualified nodes. Remove these aliases only in the next breaking cleanup.
-- **Compatibility window — legacy CI exit aliases.** `--fail-on regression` and `regression-or-no-decision` map to `fail` and `hold-or-block-or-fail` with warnings. Remove them after one release cycle.
+- **Compatibility window — legacy candidate aliases.** `/candidate-journeys`, document-ID candidate lookup, `relevant`, TP/FP/FN/TN helper utilities, and the first-passport alias remain until 1.0. The new Explorer uses operational outcomes and trace-qualified nodes.
+- **Compatibility window — legacy CI exit aliases.** `--fail-on regression` and `regression-or-no-decision` map to `fail` and `hold-or-block-or-fail` with warnings; they are removed in 1.0.
 
 ## Environment review
 

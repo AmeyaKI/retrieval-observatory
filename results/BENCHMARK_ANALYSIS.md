@@ -69,7 +69,7 @@ Configs: [configs/beir_publish/](../configs/beir_publish/). Reproduce full sweep
 
 ## Setup
 
-Metrics are **per-query** NDCG@10, Recall@10, and MRR on the **final pipeline stage**. Latency is end-to-end pipeline time (P50/P95). 95% bootstrap CIs via paired resampling (5,000 iterations).
+Metrics are **per-query** NDCG@10, Recall@10, and MRR on the **final pipeline stage**. Latency is end-to-end pipeline time (P50/P95). 95% per-pipeline percentile bootstrap CIs (5,000 resamples, unpaired); paired significance in `analytics_extract.json` uses the package's sign-flip test.
 
 
 | Dataset                       | Queries             | Corpus docs | `cache_results` | Git commit |
@@ -160,7 +160,7 @@ NDCG@10 CIs: BM25 [0.495, 0.592], dense [0.595, 0.684]. **BM25 vs `dense_only` i
 | -------- | ------------------------ | ------------------------------------------------------------------------ |
 | NFCorpus | `bm25`, `dense_only`     | Choose BM25 for sub-ms latency budgets; dense for quality at ~5 ms P50   |
 | SciFact  | `dense_only` only        | Dense is strictly better on both axes — BM25 is faster but dominated     |
-| FiQA     | `dense_only` only        | Dense delivers +132% NDCG@10 vs BM25 at ~9× lower latency than reranking |
+| FiQA     | `dense_only` only        | Dense delivers +132% NDCG@10 vs BM25 at ~130× lower latency than reranking (and ~9× the latency of BM25) |
 
 
 `bm25__rerank` and `rrf_hybrid` are **Pareto-dominated** on SciFact and FiQA: they cost more latency without beating dense on quality. On NFCorpus, rerank matches dense NDCG but at ~230× the latency of dense.
@@ -196,7 +196,7 @@ The classifier predicts whether a query will be hard for retrieval **before** ru
 ### Training
 
 - **Model:** `HistGradientBoostingClassifier` (200 iterations, max depth 6)
-- **Features:** 14 query-text features — token count, lexical density, temporal anchors, negation, question type one-hot, etc. ([classifier/features.py](../retrieval_observatory/classifier/features.py))
+- **Features:** 14 query-text features — token count, lexical density, temporal anchors, negation, question type one-hot, etc. ([experimental/classifier/features.py](../retrieval_observatory/experimental/classifier/features.py))
 - **Validation:** 5-fold `StratifiedGroupKFold` CV (grouped by normalized query text)
 - **Training data:** Full NFCorpus sweep (323 queries) → easy 13 / medium 107 / hard 203
 
@@ -229,7 +229,7 @@ Classifier Calibration
 
 **Caveat:** The classifier predicts observatory difficulty under *your* pipelines on *your* corpus — not intrinsic question hardness. Train and evaluate on the same dataset.
 
-Train: `retobs classifier train --dataset beir/nfcorpus --db .retobs/publish_sweep_nfcorpus.db`
+Training is experimental since 0.6.0: the `retobs classifier` command is unregistered, and current runs write no difficulty labels (see `FUTURE_WORK.md`). The calibration below was produced on the 0.1.0 build via `retrieval_observatory.experimental.classifier.model.train_model()`.
 
 ---
 
