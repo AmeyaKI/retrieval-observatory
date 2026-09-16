@@ -93,7 +93,9 @@ def test_within_pipeline_rows_label_layers_that_span_branch_depths() -> None:
 def test_flagship_hybrid_dag_arms_have_deltas() -> None:
     registry = DbRegistry([str(FLAGSHIP_DB)], read_only=True)
     client = TestClient(create_app(registry=registry, enable_uploads=False))
-    body = client.get(f"/dbs/{registry.default_db_id}/runs/4b5be1ce/overview").json()
+    runs = client.get(f"/dbs/{registry.default_db_id}/runs").json()
+    baseline = next(run["run_id"] for run in runs if run["experiment_name"] == "baseline")
+    body = client.get(f"/dbs/{registry.default_db_id}/runs/{baseline}/overview").json()
     arms = _arm_rows(body["stage_contributions"])
     for lane in ("bm25_lane", "dense_lane"):
         assert arms[lane]["deltas"], f"{lane} ablation must not be empty"
