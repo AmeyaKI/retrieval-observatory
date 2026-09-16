@@ -3,19 +3,19 @@ QUERY 5abccf6755429965836004ab
   text     In what year was the British actress who starred in a film adaptation of a series of eight children's books written by P. L. Travers born?
   metadata {"level": "hard", "type": "bridge"}
   gold     ['karen_dotrice__a36bd508', 'mary_poppins__ec3a6eb6']
-  status   OK   wall 614ms
+  status   OK   wall 647ms
 ================================================================================================
 
   bm25_lane  [SOURCE]  FIRED
-    in    0  out   30      22.8ms
+    in    0  out   30      21.8ms
     gold candidates present in output: 1/2   ranks [1]
 
   dense_lane  [SOURCE]  FIRED
-    in    0  out   30     173.5ms
+    in    0  out   30     165.8ms
     gold candidates present in output: 2/2   ranks [2, 27]
 
   hybrid_fusion  [FUSE]  FIRED
-    in   60  out   40       0.7ms
+    in   60  out   40       0.6ms
     gold candidates present in output: 1/2   ranks [1]
     !! gold candidate dropped here: ['karen_dotrice__a36bd508']
 
@@ -24,14 +24,14 @@ QUERY 5abccf6755429965836004ab
     gold candidates present in output: 1/2   ranks [1]
 
   bridge_hop2  [EXPAND]  FIRED
-    in   40  out   58     181.7ms
+    in   40  out   58     208.2ms
     gold candidates present in output: 2/2   ranks [1, 45]
 
   comparison_widen  [EXPAND]  SKIPPED_BY_GATE
     in    0  out    0       0.0ms
 
   bridge_siblings  [EXPAND]  FIRED
-    in   58  out   58       1.4ms
+    in   58  out   58       1.3ms
     gold candidates present in output: 2/2   ranks [1, 45]
 
   route_merge  [FUSE]  FIRED
@@ -47,7 +47,7 @@ QUERY 5abccf6755429965836004ab
     in    0  out    0       0.0ms
 
   rerank  [RERANK]  FIRED
-    in   40  out   10     229.4ms
+    in   40  out   10     243.3ms
     gold candidates present in output: 1/2   ranks [1]
 
   final_selection  [FUSE]  FIRED

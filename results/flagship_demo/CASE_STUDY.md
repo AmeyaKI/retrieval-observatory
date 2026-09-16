@@ -1,7 +1,8 @@
 # How retobs caught a regression a metrics dashboard would have shipped
 
-Every number here comes from a run in `.retobs/demo.db`. Nothing is illustrative, and where a
-result went against what we expected, it is reported that way.
+Every number here comes from a run in `.retobs/demo.db`, regenerated on 2026-09-16 on the
+post-0.6.0 build (branch metrics on served queries, strict counterfactual replay). Nothing is
+illustrative, and where a result went against what we expected, it is reported that way.
 
 Two classes of number appear below, and they carry different guarantees. Quality metrics and their
 confidence intervals are seeded (`seed: 17`, 2000 resamples) and reproduce **exactly** — an
@@ -108,29 +109,37 @@ A metrics dashboard shows green across the board. **Ship it.**
 Here is the same change, seen through the funnel:
 
 ```
-stage                       baseline   no-bm25     delta
-stage0 [bm25_lane]            0.7762    0.0000   -0.7762
-stage0 [dense_lane]           0.7863    0.7863   +0.0000
-stage1 hybrid_fusion          0.8413    0.7863   -0.0550
-stage7 [fast_lane]            0.4462    0.0000   -0.4462
-stage7 [rerank]               0.4288    0.9050   +0.4763
-stage8 final_selection        0.8750    0.9050   +0.0300
+stage                       baseline (n)      no-bm25 (n)       delta
+stage0 [bm25_lane]            0.7762 (400)      lane disabled
+stage0 [dense_lane]           0.7863 (400)      0.7863 (400)    +0.0000
+stage1 hybrid_fusion          0.8413 (400)      0.7863 (400)    -0.0550
+stage7 [fast_lane]            0.8380 (213)      served 0
+stage7 [rerank]               0.9171 (187)      0.9050 (400)
+stage8 final_selection        0.8750 (400)      0.9050 (400)    +0.0300
 ```
 
+Branch rows are recall@10 on the queries that branch actually served, with the served count
+beside each. (An earlier build scored every query a gate routed elsewhere as 0, which made the
+rerank row read 0.43 → 0.91 and looked like the reranker had got better. It had not.)
+
 Retrieval capability fell 5.5 points at the fusion stage. The output held up for one reason:
-reranking went from 47% of queries to **100%**.
+reranking went from 47% of queries to **100%**. On the 187 queries the baseline had reranked,
+the candidate's reranker scores 0.890 — paired, no significant difference. The 3-point gain
+comes from the other 213 queries, which the fast lane used to serve at 0.838 and the
+cross-encoder now serves instead.
 
 
 |                  | baseline  | keyword lane disabled |
 | ---------------- | --------- | --------------------- |
 | queries reranked | 187 / 400 | **400 / 400**         |
-| median latency   | 539 ms    | **718 ms**            |
+| median latency   | 608 ms    | **865 ms**            |
 
 
 The reranking counts come from the run record and reproduce exactly. The latency figures do not:
-they are wall-clock measurements from a single unseeded run on one laptop. The *direction*
-reproduces on every rerun — median latency gets worse, p95 improves, total runtime drops — but the
-exact milliseconds move with machine load. A later rerun measured 518 ms → 816 ms. Read the sign,
+they are wall-clock measurements from a single unseeded run on one laptop. Across three reruns
+on the same machine (539 → 718, 518 → 816, 608 → 865 ms) the median always got worse and p95
+always improved; total runtime dropped on two of the three and rose on the third (317 s → 352 s
+on the run reported here, made with OpenMP pinned to one thread). Read the sign of the median,
 not the digits.
 
 Three things a single number cannot tell you:

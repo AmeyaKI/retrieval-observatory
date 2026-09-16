@@ -1,4 +1,4 @@
-RUN 0c9f6a25  (baseline)
+RUN a1389d37  (baseline)
   queries 400  completed 400  metric-eligible 400
   release identity:
     corpus_revision           sha256:59dfe0f6d7a564413d2f0269bd5a5e39403434cbcb8a05acc9d0a2a582e707ca
@@ -13,13 +13,13 @@ PER-STAGE QUALITY
   0      dense_lane                 0.7863    0.7299   400
   1      (spine)                    0.8413    0.7583   400
   2      (spine)                    0.8413    0.7583   400
-  3      bridge_hop2                0.6375    0.5701   400
-  3      comparison_widen           0.2037    0.1881   400
-  4      (spine)                    0.6375    0.5701   400
+  3      bridge_hop2                0.8173    0.7309   312
+  3      comparison_widen           0.9261    0.8552    88
+  4      (spine)                    0.8173    0.7309   312
   5      (spine)                    0.8413    0.7583   400
   6      (spine)                    0.8413    0.7583   400
-  7      fast_lane                  0.4462    0.4261   400
-  7      rerank                     0.4288    0.4031   400
+  7      fast_lane                  0.8380    0.8001   213
+  7      rerank                     0.9171    0.8623   187
   8      (spine)                    0.8750    0.8292   400
 
 ROUTING
