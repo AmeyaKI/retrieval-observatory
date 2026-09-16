@@ -77,13 +77,15 @@ INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
             "import retrieval_observatory as ro\n"
             "from retrieval_observatory.tracing.integrations.fastapi import get_trace, instrument_fastapi\n\n"
             "recorder = ro.init(service='my-rag', db='.retobs/prod.db')\n"
-            "instrument_fastapi(app, recorder, pipeline_id='main')\n\n"
+            "instrument_fastapi(app, recorder, pipeline_id='main')  # one trace per request, query_text from ?q=\n\n"
             "@app.get('/search')\n"
             "async def search(q: str, request: Request):\n"
             "    t = get_trace(request)\n"
-            "    docs = my_retriever.search(q)\n"
-            "    t.stage('bm25', docs, latency_ms=...)\n"
-            "    return docs"
+            "    docs = my_retriever.search(q)  # list of {'id': ..., 'score': ...}\n"
+            "    if t:\n"
+            "        t.span('SOURCE', 'bm25', docs, latency_ms, op_id='bm25')\n"
+            "    return docs\n"
+            "# Functions decorated with @observe(...) and called inside the request add their spans to the same trace."
         ),
         "verify": "HTTP adapter: benchmark_config with adapter.http. In-process: verify_integration after traces.",
     },

@@ -286,47 +286,60 @@ def _format_number(value: Any) -> str:
 #: Retrieval quality, best first. An allow-list rather than "anything that isn't latency":
 #: the negative test let operational counters (dropout_count, failure_rate, timeout_rate)
 #: pass as quality and fill the headline with zeros.
-_QUALITY_METRICS = ("recall", "ndcg", "precision", "mrr", "map")
+_QUALITY_METRICS = ("ndcg", "recall", "mrr", "map", "precision")
+_QUALITY_ROWS_PER_PIPELINE = 3
+_QUALITY_ROWS_TOTAL = 6
 
 
 def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
     """Pick the few numbers that answer "did retrieval work, and what did it cost?".
 
-    Quality is reported at the pipeline's terminal stage — the result the caller actually
+    Quality is reported at each pipeline's terminal stage — the result the caller actually
     ships. Selecting on ``stage-1`` instead (as this once did) could never surface recall or
     ndcg on a multi-stage pipeline: stage -1 carries only run-level operational rows, and
     quality is recorded per stage because recall is a property of a point in the funnel.
     Single-stage pipelines emit no stage -1 rows at all, which is why the gap stayed hidden.
+
+    One row per metric name (the largest ``k``): three ``recall@k`` rows for one pipeline used
+    to fill the whole headline and push ndcg out.
     """
     from retrieval_observatory.metrics.comparison import parse_metric_key
 
-    parsed: Dict[str, tuple[int, str, Any]] = {}
+    parsed: Dict[str, tuple[str, int, str, int, Any]] = {}
     for key in metrics:
         try:
-            _pipeline, stage_index, metric_name, _k, branch_id = parse_metric_key(key)
+            parsed[key] = parse_metric_key(key)
         except (TypeError, ValueError, IndexError):
             continue
-        parsed[key] = (stage_index, metric_name, branch_id)
 
-    quality_keys = [key for key, (_s, name, _b) in parsed.items() if name in _QUALITY_METRICS]
-    # Prefer the spine (a stage with one operator) over per-branch rows, which cover only
-    # the queries routed down that branch (a gate-skipped span emits no rows), so their
-    # `n` is the served count and their mean is not comparable to the spine's.
-    spine = [key for key in quality_keys if parsed[key][2] is None] or quality_keys
-    final_stage = max((parsed[key][0] for key in spine), default=None)
-    quality = sorted(
-        (key for key in spine if parsed[key][0] == final_stage),
-        key=lambda key: _QUALITY_METRICS.index(parsed[key][1]),
-    )
+    quality: list[str] = []
+    pipelines = sorted({pipeline for pipeline, _s, name, _k, _b in parsed.values() if name in _QUALITY_METRICS})
+    for pipeline in pipelines:
+        candidates = [
+            key for key, (pid, _s, name, _k, _b) in parsed.items() if pid == pipeline and name in _QUALITY_METRICS
+        ]
+        # Prefer the spine (a stage with one operator) over per-branch rows, which cover only
+        # the queries routed down that branch (a gate-skipped span emits no rows), so their
+        # `n` is the served count and their mean is not comparable to the spine's.
+        spine = [key for key in candidates if parsed[key][4] is None] or candidates
+        final_stage = max(parsed[key][1] for key in spine)
+        best_by_name: Dict[str, str] = {}
+        for key in spine:
+            _pid, stage_index, name, k, _branch = parsed[key]
+            if stage_index == final_stage and (name not in best_by_name or k > parsed[best_by_name[name]][3]):
+                best_by_name[name] = key
+        ordered = sorted(best_by_name.values(), key=lambda key: _QUALITY_METRICS.index(parsed[key][2]))
+        quality.extend(ordered[:_QUALITY_ROWS_PER_PIPELINE])
+    quality = quality[:_QUALITY_ROWS_TOTAL]
 
     # Classify on the parsed metric NAME, never the full key: a pipeline called
     # `cost_aware_bm25` would otherwise turn its recall into an operational row.
     operational = sorted(
-        (key for key, (_s, name, _b) in parsed.items() if name.startswith(("latency", "cost"))),
-        key=lambda key: (parsed[key][0] != -1, key),
+        (key for key, (_p, _s, name, _k, _b) in parsed.items() if name.startswith(("latency", "cost"))),
+        key=lambda key: (parsed[key][1] != -1, key),
     )
 
-    keys = quality[:3] + operational[:2]
+    keys = quality + operational[:2]
     return {key: metrics[key] for key in keys} if keys else dict(list(metrics.items())[:5])
 
 
@@ -362,7 +375,14 @@ def build_run_report(
         evidence_reasons.append("Label provenance is unavailable.")
     if attempted is None or completed is None:
         evidence_reasons.append("Attempted/completed query counts are unavailable.")
-    evidence_health = "ready" if not evidence_reasons else "limited"
+    elif completed == 0:
+        evidence_reasons.append(f"0/{attempted} queries completed; every query failed, so no metric was computed.")
+    elif completed < attempted:
+        evidence_reasons.append(f"{completed}/{attempted} queries completed; metrics cover only the completed queries.")
+    if attempted is not None and completed == 0:
+        evidence_health = "failed"
+    else:
+        evidence_health = "ready" if not evidence_reasons else "limited"
 
     if attempted is not None and completed is not None and completed < attempted:
         verdict = "partial"
@@ -628,6 +648,17 @@ class BenchmarkReport:
     @property
     def pipeline_ids(self) -> list:
         return self._artifacts.pipeline_ids
+
+    @property
+    def error_tracebacks(self) -> list[str]:
+        """Distinct full tracebacks of failed queries, in first-seen order."""
+        seen: list[str] = []
+        for results in self._artifacts.results_by_pipeline.values():
+            for result in results:
+                trace = getattr(result, "error_traceback", None)
+                if trace and trace not in seen:
+                    seen.append(trace)
+        return seen
 
     @property
     def report(self) -> ReportModel:

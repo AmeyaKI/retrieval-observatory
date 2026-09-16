@@ -852,7 +852,9 @@ def create_app(
     async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:
         store = _store_for(db_id)
         agg = await _aggregate(db_id, run_id, store)
-        if not agg:
+        # Run-level status rows (stage -1) exist as soon as traces do; only per-stage rows
+        # prove metrics were computed.
+        if not any(entry.get("stage_index", -1) != -1 for entry in agg.values()):
             traces = await store.list_traces(TraceQuery(run_id=run_id))
             if traces:
                 qrels = await _resolve_qrels(store, run_id)

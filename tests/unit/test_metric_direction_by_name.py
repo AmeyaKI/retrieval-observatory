@@ -59,9 +59,10 @@ def test_headline_classifies_on_metric_name_not_pipeline_name():
         "cost_aware_bm25|stage-1|latency_p50@0": {"mean": 12.0},
         "cost_aware_bm25|stage-1|latency_p95@0": {"mean": 40.0},
     }
+    # ndcg leads the quality rows (sdk/report.py orders ndcg, recall, mrr, ...).
     assert list(_headline_metrics(metrics)) == [
-        "cost_aware_bm25|stage1|recall@10",
         "cost_aware_bm25|stage1|ndcg@10",
+        "cost_aware_bm25|stage1|recall@10",
         "cost_aware_bm25|stage-1|latency_p50@0",
         "cost_aware_bm25|stage-1|latency_p95@0",
     ]

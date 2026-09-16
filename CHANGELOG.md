@@ -20,6 +20,11 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `dashboard/api.py` — `/production/traces` implements the `difficulty` and `suspected_only` filters it previously ignored; `/operator-attribution` rows carry `pipeline_id`; `query_diffs` carries an explicit `orientation`; `/demo/context` carries `db_id`; `candidate-lineage-diff` accepts `against_db`.
 - `store/sqlite.py`, `store/postgres.py` — unique index on the metric-row natural key; `save_metrics_batch` ignores duplicates.
 - `experimental/advisor/recommend.py` — `compute_reliability(persist=...)`.
+- `sdk/observe.py` — `@trace_scope(service_id, pipeline_id, db_path)`: starts, finishes, and persists a trace around an entrypoint; a no-op when a trace is already active. `integrate --phase apply` now wraps the plan's entrypoint with it, so `verify` finds a trace after one call of the instrumented code.
+- `tracing/recorder.py` — a `TraceContext` publishes itself as the `@observe` current trace, so decorated functions called under `instrument_fastapi` or the LangChain/LlamaIndex callbacks land in that trace.
+- `retobs integrate --framework` and MCP `integrate_project(framework=...)` override detection.
+- `integrations/planner.py` — `discovery.low_confidence_operators` lists name-only matches (confidence 0.6) that are excluded from patches.
+- `tests/fixtures/integration_projects.py` — three representative target projects (plain Python, FastAPI with a class-method retriever and reranker, LangChain `BaseRetriever`) exercised end to end by `tests/integration/test_integration_projects.py`.
 
 ### Changed
 
@@ -49,6 +54,18 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `dashboard/api.py` — `aggregate()` and stage contributions are memoised per (database, run, row count); one-query views load only that query's traces; `/diagram` builds its graph once. Flagship-run warm `/overview` 4.4s → 0.08s, `/queries/{qid}` 2.5s → 0.01s, `/diagram` 12.3s → 2.3s warm.
 - `store/migrate.py` — reset removes every table the store creates (previously left `diagnostic_findings` and `analysis_records`).
 - `store/sqlite.py` — query lineage counts services by `service_id` and scopes the Test Set origin lookup to the run's dataset.
+- `mcp/server.py` — the config-defaults wrappers preserve each tool's signature; every tool exposed named parameters again. Previously nine of eleven tools advertised `args`/`kwargs` and rejected every call from a real MCP client.
+- `integrations/verify.py` — `ready` requires, per scenario, a FIRED span with at least one candidate carrying a `doc_id`, a non-empty query text, and positive wall-clock time, and runs the stricter integration checks; a missing trace names the service, pipeline, and database path it looked for.
+- `integrations/planner.py`, `integrations/detect.py` — files under `tests/` and `test_*` functions are never instrumented or required; class methods are discovered; FastAPI route handlers are entrypoints, not operators; framework scoring no longer lets the per-file `python` baseline outvote framework signals.
+- `sdk/wrappers.py` — LangChain retrievers are recognised by `BaseRetriever` (or `invoke` + `_get_relevant_documents`), not the `get_relevant_documents` method removed in langchain-core 1.0.
+- `cli.py` — `retobs evaluate` exits 1 when no query completed and prints the first error traceback tail; the progress bar goes to stderr so `--format json` is parseable; file-path targets can import sibling modules.
+- `sdk/report.py` — headline metrics show one row per metric name (largest k), ordered ndcg, recall, mrr, per pipeline's terminal stage; `evidence_health` is `failed` when nothing completed and `limited` when some queries failed.
+- `datasets/custom.py`, `config/discovery.py` — both qrels row shapes (`doc_id`/`relevance` and `relevant_doc_ids`) load; `validate_config` reports a dataset-file schema mismatch instead of passing a file that later raises `KeyError`.
+- `integrations/service.py` — verify errors when the supplied plan's id differs from the applied manifest; a relative `db_path` resolves against the project root; verify without a manifest and plan on a nonexistent root return failed results instead of tracebacks; re-applying says "already applied".
+- `mcp/server.py`, `sdk/api.py` — `push_traces` names the missing field, empty `run_id` and `max_queries < 1` are rejected.
+- `examples/integrations/fastapi_search/app.py`, `integrations/registry.py` — rebuilt on the real API (`ro.init`, `instrument_fastapi`, `TraceContext.span`); a test imports every example app.
+- `docs/INTEGRATIONS.md`, `docs/integrations/AGENT_QUICKSTART.md`, `docs/integrations/mcp.md` — corrected: reversal patches live in `retobs/integration.yaml`, what `ready` requires, verify's plan handling, LangChain version support.
+- `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
 
@@ -56,6 +73,8 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `analysis/scores.py` — calibration bins are half-open; boundary scores were counted twice.
 
 ### Removed
+
+- `cli.py` — the never-registered `classifier`, `forge`, `tracelens`, `advisor`, and `golden` Typer groups and the unregistered `diagram` command (about fourteen dead commands).
 
 ---
 

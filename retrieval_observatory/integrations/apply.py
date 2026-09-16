@@ -4,8 +4,18 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from retrieval_observatory.integrations.manifest import write_manifest
+from retrieval_observatory.integrations.manifest import load_manifest, write_manifest
 from retrieval_observatory.integrations.model import IntegrationManifest, IntegrationPlan, IntegrationResult, PatchOperation
+
+
+def _already_applied(root: Path, plan: IntegrationPlan) -> bool:
+    manifest_path = root / "retobs" / "integration.yaml"
+    if not manifest_path.is_file():
+        return False
+    try:
+        return load_manifest(root).plan_id == plan.plan_id
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def apply_integration_plan(plan: IntegrationPlan) -> IntegrationResult:
@@ -18,6 +28,11 @@ def apply_integration_plan(plan: IntegrationPlan) -> IntegrationResult:
         if target != root and root not in target.parents:
             raise ValueError(f"patch escapes project root: {patch.relative_path}")
         if not target.is_file() or sha256(target.read_bytes()).hexdigest() != patch.precondition_sha256:
+            if _already_applied(root, plan):
+                raise ValueError(
+                    f"already applied (manifest present): plan {plan.plan_id} is recorded in retobs/integration.yaml; "
+                    "run --phase verify, or re-plan to pick up new changes"
+                )
             raise ValueError(f"stale integration plan: {patch.relative_path}")
         # A plan is a file on disk and may have been hand-edited between plan and apply. Never
         # write Python that does not parse: reporting "applied" over a broken module is worse

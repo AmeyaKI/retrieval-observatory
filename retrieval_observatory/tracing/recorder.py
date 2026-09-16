@@ -27,6 +27,8 @@ class TraceContext:
     sampled: bool = True
     spans: list[OperatorSpan] = field(default_factory=list)
     started: float = field(default_factory=time.perf_counter)
+    # The trace that was active in ``sdk.observe`` before this context was bound there.
+    _observe_previous: Any = field(default=None, repr=False, compare=False)
 
     def span(
         self,
@@ -112,7 +114,7 @@ class TraceRecorder:
         metadata: dict[str, Any] | None = None,
         request_id: str | None = None,
     ) -> TraceContext:
-        return TraceContext(
+        context = TraceContext(
             self,
             query_text,
             pipeline_id,
@@ -121,6 +123,13 @@ class TraceRecorder:
             request_id,
             self.sample_rate >= 1 or random.random() < self.sample_rate,
         )
+        if context.sampled:
+            # Bridge to the decorator path: ``@observe`` functions called while this context is
+            # open append their spans here instead of silently recording nothing.
+            from retrieval_observatory.sdk.observe import bind_active_trace
+
+            context._observe_previous = bind_active_trace(context)
+        return context
 
     def trace(
         self,
@@ -133,6 +142,9 @@ class TraceRecorder:
         return _TraceCM(self.start_trace(query_text, pipeline_id, query_id, metadata, request_id))
 
     def finish(self, context: TraceContext, *, status: str = "OK", error: BaseException | None = None) -> None:
+        from retrieval_observatory.sdk.observe import release_active_trace
+
+        release_active_trace(context, context._observe_previous)
         if not context.sampled:
             self.sink.counters.sampled_out()
             return

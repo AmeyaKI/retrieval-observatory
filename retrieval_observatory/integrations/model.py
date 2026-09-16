@@ -280,6 +280,7 @@ class IntegrationOptions:
     plan: IntegrationPlan | None = None
     db_path: str = ".retobs/results.db"
     policy_path: str | None = None
+    framework: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -290,4 +291,5 @@ class IntegrationOptions:
             IntegrationPlan.from_dict(value["plan"]) if value.get("plan") else None,
             str(value.get("db_path", ".retobs/results.db")),
             str(value["policy_path"]) if value.get("policy_path") else None,
+            str(value["framework"]) if value.get("framework") else None,
         )
