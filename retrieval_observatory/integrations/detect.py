@@ -17,6 +17,8 @@ _SKIP_DIRS = {
     ".pytest_cache",
     "dist",
     "build",
+    "tests",
+    "test",
 }
 
 _FRAMEWORK_SIGNALS: Dict[str, List[re.Pattern[str]]] = {
@@ -66,7 +68,9 @@ class DetectionResult:
 def _iter_python_files(root: Path) -> List[Path]:
     files: List[Path] = []
     for path in root.rglob("*.py"):
-        if any(part in _SKIP_DIRS for part in path.parts):
+        # Only directories inside the project count: a project checked out under
+        # ``~/tests/`` or ``~/build/`` must not scan as empty.
+        if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
             continue
         files.append(path)
     return files
@@ -138,7 +142,10 @@ def detect_project(project_root: str | Path, framework: Optional[str] = None) ->
     if framework:
         chosen = framework.lower().strip()
     else:
-        chosen = max(aggregate_scores, key=lambda k: aggregate_scores.get(k, 0))
+        # ``python`` scores one point per file, so a project with a few plain modules used to
+        # outvote the framework it actually imports. Any framework signal beats the baseline.
+        signals = {name: score for name, score in aggregate_scores.items() if name != "python" and score >= 1}
+        chosen = max(signals, key=lambda k: signals[k]) if signals else "python"
         if chosen == "http" and aggregate_scores.get("fastapi", 0) >= aggregate_scores.get("http", 0):
             chosen = "fastapi"
 

@@ -111,7 +111,17 @@ class FunctionReranker:
 
 
 def _is_langchain_retriever(obj: Any) -> bool:
-    return hasattr(obj, "invoke") and hasattr(obj, "get_relevant_documents")
+    try:
+        from langchain_core.retrievers import BaseRetriever
+    except ImportError:
+        BaseRetriever = None  # type: ignore[assignment]
+    if BaseRetriever is not None and isinstance(obj, BaseRetriever):
+        return True
+    # langchain-core 1.x removed the public ``get_relevant_documents`` alias; the retriever
+    # contract that survives every version is ``invoke`` plus ``_get_relevant_documents``.
+    return hasattr(obj, "invoke") and (
+        hasattr(obj, "_get_relevant_documents") or hasattr(obj, "get_relevant_documents")
+    )
 
 
 def _is_llamaindex_retriever(obj: Any) -> bool:

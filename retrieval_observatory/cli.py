@@ -16,26 +16,12 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 mcp_app = typer.Typer(name="mcp", help="Run the MCP server and bootstrap agent integration.")
-classifier_app = typer.Typer(name="classifier", help="Train and run query difficulty classifiers.")
-forge_app = typer.Typer(name="forge", help="Generate corpus-specific stress-test evaluation datasets.")
-tracelens_app = typer.Typer(name="tracelens", help="Production retrieval observability — inspect and monitor live traces.")
-advisor_app = typer.Typer(name="advisor", help="Reliability advisor — regressions, recommendations, golden sets.")
 testsets_app = typer.Typer(name="testsets", help="Generate, inspect, and list retrieval Test Sets.")
 production_app = typer.Typer(name="production", help="Inspect sampled production retrieval traces and findings.")
 app.add_typer(testsets_app, name="testsets")
 app.add_typer(production_app, name="production")
 app.add_typer(mcp_app, name="mcp")
 console = Console()
-
-
-@forge_app.callback()
-def _forge_deprecated() -> None:
-    console.print("[yellow]Deprecated:[/yellow] use `retobs testsets` (legacy `forge` is ).")
-
-
-@tracelens_app.callback()
-def _tracelens_deprecated() -> None:
-    console.print("[yellow]Deprecated:[/yellow] use `retobs production` (legacy `tracelens` is ).")
 
 
 def _load_evaluate_target(spec: str):
@@ -50,6 +36,12 @@ def _load_evaluate_target(spec: str):
     path = Path(module_ref)
     if path.suffix == ".py" or path.exists():
         resolved = path.resolve()
+        # The file's own package imports (``from app.searcher import ...``) resolve against its
+        # directory and the project root the command runs from; leave both on sys.path because
+        # the loaded module may import lazily during evaluation.
+        for entry in (str(Path.cwd()), str(resolved.parent)):
+            if entry not in sys.path:
+                sys.path.insert(0, entry)
         module_spec = importlib.util.spec_from_file_location(f"retobs_user_{resolved.stem}", resolved)
         if module_spec is None or module_spec.loader is None:
             raise ValueError(f"Cannot import Python file: {resolved}")
@@ -122,9 +114,14 @@ def evaluate_cmd(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the report artifact."),
 ) -> None:
     """Evaluate a Python retrieval callable, or an advanced YAML config with --config."""
+    import rich
+
     import retrieval_observatory as ro
     from retrieval_observatory.sdk import run_from_config
 
+    # The benchmark runner's progress bar renders on rich's global console; keep it off stdout so
+    # `--format json` output stays parseable when piped.
+    rich.reconfigure(stderr=True)
     try:
         if bool(target) == bool(config):
             raise ValueError("Provide exactly one callable target or --config <yaml>.")
@@ -174,6 +171,25 @@ def evaluate_cmd(
         console.print(f"[bold]Dashboard:[/bold] {report.report.dashboard_url}")
     else:
         typer.echo(renderers[selected]())
+    completed = (report.manifest.get("counts") or {}).get("completed")
+    if completed == 0:
+        # Exit code 1: a run in which every query failed has produced no evidence, and the
+        # first traceback is the only thing that explains why.
+        evidence = _failed_run_evidence(report)
+        if selected == "json" and not output:
+            typer.echo(evidence, err=True)
+        else:
+            typer.echo(evidence)
+        raise typer.Exit(1)
+
+
+def _failed_run_evidence(report, tail_lines: int = 5) -> str:
+    tracebacks = report.error_tracebacks
+    lines = ["## Evidence", "", "No query completed; metrics are unavailable."]
+    if tracebacks:
+        tail = "\n".join(tracebacks[0].strip().splitlines()[-tail_lines:])
+        lines.extend(["", f"First failure (last {tail_lines} lines of the traceback):", "", "```", tail, "```"])
+    return "\n".join(lines)
 
 
 @app.command("report")
@@ -556,25 +572,30 @@ def integrate_cmd(
     phase: str = typer.Option("plan", "--phase"),
     plan_file: Optional[Path] = typer.Option(None, "--plan"),
     output: Optional[Path] = typer.Option(None, "--output"),
-    db: str = typer.Option(".retobs/results.db", "--db"),
+    db: str = typer.Option(".retobs/results.db", "--db", help="Trace database; a relative path resolves against the project root."),
     policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML for verify preflight."),
+    framework: Optional[str] = typer.Option(None, "--framework", help="Override detection: python, fastapi, langchain, llamaindex, http."),
 ) -> None:
     """Plan, apply, or verify one canonical project integration."""
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
     from retrieval_observatory.integrations.service import integrate_project
-    selected = IntegrationPhase(phase)
-    if plan_file:
-        reviewed_payload = json.loads(plan_file.read_text())
-        reviewed = IntegrationPlan.from_dict(reviewed_payload.get("plan", reviewed_payload))
-    else:
-        reviewed = None
-    payload = asyncio.run(
-        integrate_project(
-            project_root,
-            selected,
-            IntegrationOptions(reviewed, db, str(policy) if policy else None),
-        )
-    ).to_dict()
+    try:
+        selected = IntegrationPhase(phase)
+        if plan_file:
+            reviewed_payload = json.loads(plan_file.read_text())
+            reviewed = IntegrationPlan.from_dict(reviewed_payload.get("plan", reviewed_payload))
+        else:
+            reviewed = None
+        payload = asyncio.run(
+            integrate_project(
+                project_root,
+                selected,
+                IntegrationOptions(reviewed, db, str(policy) if policy else None, framework),
+            )
+        ).to_dict()
+    except (ValueError, OSError) as error:
+        console.print(f"[red]Integration failed:[/red] {error}")
+        raise typer.Exit(1)
     serialized = json.dumps(payload, indent=2)
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -644,41 +665,6 @@ def doctor_cmd(
     if not ok:
         raise typer.Exit(1)
     console.print("[green]All checks passed.[/green]")
-
-
-def diagram(
-    run_id: str = typer.Argument(..., help="Run ID to render."),
-    output: str = typer.Option("diagram.html", "--output", "-o", help="Output HTML file path."),
-    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
-) -> None:
-    """Export a read-only pipeline diagram (per-stage metrics + CIs) as a standalone HTML file."""
-    asyncio.run(_diagram(run_id, output, db))
-
-
-async def _diagram(run_id: str, output: str, db_path: str) -> None:
-    from retrieval_observatory.metrics.engine import MetricsEngine
-    from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
-    from retrieval_observatory.experimental.diagram.html import render_diagram_html
-    from retrieval_observatory.store.sqlite import SQLiteStore
-
-    store = SQLiteStore(db_path=db_path)
-    await store.init_db()
-    metrics = await MetricsEngine().aggregate(run_id, store)
-    if not metrics:
-        console.print(f"[red]Run '{run_id}' not found or has no metrics in {db_path}.[/red]")
-        raise typer.Exit(1)
-    traces = await store.get_traces(run_id) if hasattr(store, "get_traces") else []
-    if not traces:
-        console.print(
-            f"[red]Run '{run_id}' has no execution traces yet -- no trace-native diagram to render.[/red]"
-        )
-        raise typer.Exit(1)
-    graphs = build_pipeline_graphs(metrics, traces)
-    pipelines = [g.to_dict() for g in graphs]
-    html = render_diagram_html(run_id, pipelines)
-    with open(output, "w") as f:
-        f.write(html)
-    console.print(f"[green]Wrote diagram → {output}[/green] ({len(pipelines)} pipeline(s))")
 
 
 _BEIR_NAMES = {
@@ -1388,158 +1374,6 @@ def _resolve_config_paths(cfg, base_dir: Path) -> None:
     resolve_config_paths(cfg, base_dir)
 
 
-def _print_classifier_report(report) -> None:
-    console.print(f"\n[bold]Dataset:[/bold] {report.dataset_name or '(unknown)'}")
-    console.print(f"[bold]Samples:[/bold] {report.n_samples}")
-    console.print(f"[bold]Calibrated:[/bold] {'yes' if report.calibrated else 'no'}")
-    for w in report.warnings:
-        console.print(f"[yellow]{w}[/yellow]")
-
-    dist_table = Table(title="Class Distribution")
-    dist_table.add_column("Class")
-    dist_table.add_column("Count", justify="right")
-    for cls, count in sorted(report.class_distribution.items()):
-        dist_table.add_row(cls, str(count))
-    console.print(dist_table)
-
-    metrics_table = Table(title="Cross-Validation Metrics (out-of-fold)")
-    metrics_table.add_column("Metric")
-    metrics_table.add_column("Value", justify="right")
-    metrics_table.add_row("Accuracy", f"{report.cv_accuracy:.3f}")
-    metrics_table.add_row("Macro F1", f"{report.cv_macro_f1:.3f}")
-    metrics_table.add_row("Brier score", f"{report.cv_brier:.4f}")
-    console.print(metrics_table)
-
-    if report.feature_importances:
-        imp_table = Table(title="Feature Importances (permutation)")
-        imp_table.add_column("Rank", justify="right")
-        imp_table.add_column("Feature")
-        imp_table.add_column("Importance", justify="right")
-        for i, (name, val) in enumerate(report.feature_importances, start=1):
-            imp_table.add_row(str(i), name, f"{val:.4f}")
-        console.print(imp_table)
-
-
-@classifier_app.command("train")
-def classifier_train(
-    dataset: str = typer.Option(..., "--dataset", help="Dataset name (e.g. beir/nfcorpus). Required."),
-    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
-    out: Optional[Path] = typer.Option(None, "--out", help="Model output path."),
-    min_samples: int = typer.Option(30, "--min-samples"),
-    min_per_class: int = typer.Option(5, "--min-per-class", help="Minimum samples per present class."),
-) -> None:
-    """Train a query difficulty classifier from stored diagnostics."""
-    asyncio.run(_classifier_train(dataset, db_path, out, min_samples, min_per_class))
-
-
-async def _classifier_train(
-    dataset: str,
-    db_path: str,
-    out: Optional[Path],
-    min_samples: int,
-    min_per_class: int,
-) -> None:
-    from retrieval_observatory.experimental.classifier.data import load_labeled_queries
-    from retrieval_observatory.experimental.classifier.labels import default_model_path
-    from retrieval_observatory.experimental.classifier.model import train_model
-    from retrieval_observatory.store.sqlite import SQLiteStore
-
-    store = SQLiteStore(db_path=db_path)
-    await store.init_db()
-    runs = await store.list_runs_for_dataset(dataset)
-    if not runs:
-        console.print(
-            f"[red]No benchmark runs found for dataset '{dataset}' in {db_path}.[/red]\n"
-            "[dim]Run a benchmark first, e.g.: retobs run --config examples/advanced/dashboard_demo/config.yaml[/dim]"
-        )
-        raise typer.Exit(1)
-    samples = await load_labeled_queries(store, dataset)
-    if not samples:
-        diag_count = sum(len(await store.get_query_diagnostics(r["run_id"])) for r in runs)
-        console.print(
-            f"[red]No labeled queries found for dataset '{dataset}' ({len(runs)} run(s) in {db_path}).[/red]"
-        )
-        if diag_count == 0:
-            console.print(
-                "[dim]query_diagnostics is empty — the benchmark likely failed before completion. "
-                "Check: retobs validate --config <your-config.yaml>[/dim]"
-            )
-        raise typer.Exit(1)
-
-    out_path = str(out) if out else default_model_path(dataset)
-    try:
-        report = train_model(samples, dataset, out_path, min_samples=min_samples, min_per_class=min_per_class)
-    except ImportError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1)
-    except ValueError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1)
-
-    _print_classifier_report(report)
-    console.print(f"\n[green]Model saved to {report.model_path}[/green]")
-
-
-@classifier_app.command("predict")
-def classifier_predict(
-    query: str = typer.Option(..., "--query", help="Query text to classify."),
-    model: Path = typer.Option(..., "--model", help="Path to trained model."),
-) -> None:
-    """Predict query difficulty from text."""
-    try:
-        from retrieval_observatory.experimental.classifier.model import load_model
-    except ImportError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1)
-
-    m = load_model(str(model))
-    pred = m.predict(query)
-    console.print(f"[bold]Predicted:[/bold] {pred['label']}")
-    console.print(f"[bold]Probabilities:[/bold] {json.dumps(pred['proba'], indent=2)}")
-
-    drivers = Table(title="Top Feature Drivers")
-    drivers.add_column("Feature")
-    drivers.add_column("Value", justify="right")
-    drivers.add_column("Importance", justify="right")
-    for d in pred["top_drivers"]:
-        drivers.add_row(d["feature"], f"{d['value']:.3f}", f"{d['importance']:.4f}")
-    console.print(drivers)
-
-
-@classifier_app.command("report")
-def classifier_report(
-    dataset: str = typer.Option(..., "--dataset", help="Dataset name used for training labels."),
-    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
-    model: Optional[Path] = typer.Option(None, "--model", help="Path to saved model for importances."),
-) -> None:
-    """Print cross-validation metrics and feature importances."""
-    asyncio.run(_classifier_report(dataset, db_path, model))
-
-
-async def _classifier_report(
-    dataset: str,
-    db_path: str,
-    model: Optional[Path],
-) -> None:
-    from retrieval_observatory.experimental.classifier.data import load_labeled_queries
-    from retrieval_observatory.experimental.classifier.labels import default_model_path
-    from retrieval_observatory.experimental.classifier.model import report_from_samples
-    from retrieval_observatory.store.sqlite import SQLiteStore
-
-    store = SQLiteStore(db_path=db_path)
-    await store.init_db()
-    samples = await load_labeled_queries(store, dataset)
-    model_path = str(model) if model else default_model_path(dataset)
-    try:
-        report = report_from_samples(samples, model_path if Path(model_path).exists() else None)
-        report.dataset_name = report.dataset_name or dataset
-    except ImportError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(1)
-
-    _print_classifier_report(report)
-
-
 # ---------------------------------------------------------------------------
 # Test Sets commands — synthetic evaluation dataset generation
 # ---------------------------------------------------------------------------
@@ -1564,7 +1398,6 @@ def _load_corpus_from_jsonl(corpus_path: str) -> dict:
 
 
 @testsets_app.command("scan")
-@forge_app.command("scan")
 def forge_scan(
     corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
     scenario_types: str = typer.Option("temporal,alias", "--scenario-types", help="Comma-separated scenario types to detect."),
@@ -1611,7 +1444,6 @@ def forge_scan(
 
 
 @testsets_app.command("generate")
-@forge_app.command("run")
 def forge_run(
     corpus: Path = typer.Option(..., "--corpus", help="Path to corpus.jsonl file."),
     output: Path = typer.Option(..., "--output", "-o", help="Output directory for the generated dataset."),
@@ -1810,7 +1642,6 @@ async def _forge_run(
 
 
 @testsets_app.command("list")
-@forge_app.command("list")
 def forge_list(
     db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite DB to read from."),
 ) -> None:
@@ -2984,7 +2815,6 @@ async def _seed_showcase_traces(service: str, n: int, db_path: str) -> None:
 
 
 @production_app.command("demo")
-@tracelens_app.command("demo")
 def tracelens_demo(
     service: str = typer.Option("demo", "--service", help="Service name to attach the synthetic traces to."),
     n: int = typer.Option(200, "--n", help="Number of synthetic traces to seed."),
@@ -3000,7 +2830,6 @@ async def _tracelens_demo(service: str, n: int, db_path: str) -> None:
 
 
 @production_app.command("stats")
-@tracelens_app.command("stats")
 def tracelens_stats(
     service: str = typer.Option(..., "--service", help="Service name to summarize."),
     db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="Store DB to read from."),
@@ -3044,7 +2873,6 @@ async def _tracelens_stats(service: str, db_path: str) -> None:
 
 
 @production_app.command("purge")
-@tracelens_app.command("purge")
 def tracelens_purge(
     service: str = typer.Option(..., "--service", help="Service whose traces to purge."),
     older_than_days: Optional[int] = typer.Option(None, "--older-than-days", help="Only purge traces older than N days."),
@@ -3065,128 +2893,6 @@ async def _tracelens_purge(service: str, older_than_days: Optional[int], db_path
         cutoff = (datetime.now(timezone.utc) - timedelta(days=older_than_days)).isoformat()
     deleted = await store.purge_traces(service=service, older_than=cutoff)
     console.print(f"[green]Purged {deleted} traces[/green] for service '{service}'.")
-
-
-def _open_store(db_path: str):
-    from retrieval_observatory.store.sqlite import SQLiteStore
-
-    store = SQLiteStore(db_path=db_path)
-    return store
-
-
-@advisor_app.command("check")
-def advisor_check(
-    baseline: str = typer.Option(..., "--baseline", help="Baseline run ID."),
-    candidate: str = typer.Option(..., "--candidate", help="Candidate run ID."),
-    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
-) -> None:
-    """Compare two runs and exit non-zero if significant regressions are found."""
-    asyncio.run(_advisor_check(baseline, candidate, db))
-
-
-async def _advisor_check(baseline: str, candidate: str, db_path: str) -> None:
-    console.print(
-        "[yellow]Deprecated:[/yellow] use `retobs compare BASELINE CANDIDATE --fail-on regression` "
-        "(`advisor check` is )."
-    )
-    report = await _compare(baseline, candidate, db_path)
-    if report.verdict == "regression":
-        raise typer.Exit(1)
-
-
-@advisor_app.command("recommend")
-def advisor_recommend_cmd(
-    run_id: str = typer.Option(..., "--run", help="Run ID to analyze."),
-    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
-) -> None:
-    """Print ranked, evidence-cited recommendations for a run."""
-    asyncio.run(_advisor_recommend(run_id, db))
-
-
-async def _advisor_recommend(run_id: str, db_path: str) -> None:
-    from retrieval_observatory.experimental.advisor.recommend import recommend
-
-    store = _open_store(db_path)
-    await store.init_db()
-    recs = await recommend(run_id, store)
-    if not recs:
-        console.print("[green]No recommendations — diagnostics look healthy.[/green]")
-        return
-    for i, rec in enumerate(recs, 1):
-        console.print(f"\n[bold]{i}. {rec.action}[/bold]")
-        console.print(f"   {rec.rationale}")
-        for ev in rec.evidence:
-            console.print(f"   • {ev}")
-
-
-golden_app = typer.Typer(name="golden", help="Golden set management.")
-advisor_app.add_typer(golden_app, name="golden")
-
-
-@golden_app.command("run")
-def golden_run(
-    set_name: str = typer.Option(..., "--set", help="Golden set name."),
-    config: Path = typer.Option(..., "--config", "-c", help="Experiment YAML config."),
-    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
-) -> None:
-    """Run a golden benchmark tagged with the given set name."""
-    asyncio.run(_golden_run(set_name, config, db))
-
-
-async def _golden_run(set_name: str, config_path: Path, db_path: str) -> None:
-    store = _open_store(db_path)
-    await store.init_db()
-    existing = await store.get_golden_set(set_name)
-    if not existing:
-        console.print(f"[red]Golden set '{set_name}' not found. Create it first.[/red]")
-        raise typer.Exit(1)
-    await _run(config_path, skip_smoke_test=False, no_cache=False, golden_set=set_name)
-
-
-@golden_app.command("list")
-def golden_list(
-    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
-) -> None:
-    """List registered golden sets."""
-    asyncio.run(_golden_list(db))
-
-
-async def _golden_list(db_path: str) -> None:
-    store = _open_store(db_path)
-    await store.init_db()
-    sets = await store.list_golden_sets()
-    if not sets:
-        console.print("No golden sets registered.")
-        return
-    table = Table(title="Golden Sets")
-    table.add_column("Name")
-    table.add_column("Created")
-    for row in sets:
-        table.add_row(row["name"], row.get("created_at", ""))
-    console.print(table)
-
-
-@golden_app.command("create")
-def golden_create(
-    set_name: str = typer.Option(..., "--set", help="Golden set name."),
-    queries_file: Path = typer.Option(..., "--queries", help="JSON file: list of {query_id, text, relevant_doc_ids}."),
-    db: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
-) -> None:
-    """Register a golden set from a JSON queries file."""
-    asyncio.run(_golden_create(set_name, queries_file, db))
-
-
-async def _golden_create(set_name: str, queries_file: Path, db_path: str) -> None:
-    from retrieval_observatory.experimental.advisor.golden import save_golden_set
-
-    data = json.loads(queries_file.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        console.print("[red]Queries file must be a JSON list.[/red]")
-        raise typer.Exit(1)
-    store = _open_store(db_path)
-    await store.init_db()
-    await save_golden_set(store, set_name, data)
-    console.print(f"[green]Registered golden set '{set_name}' ({len(data)} queries).[/green]")
 
 
 def quickstart(

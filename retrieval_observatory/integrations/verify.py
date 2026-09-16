@@ -61,8 +61,12 @@ def _has_cycle(spans: list) -> bool:
     return any(visit(op_id) for op_id in parents)
 
 
-def _integration_checks(traces: list) -> List[Dict[str, Any]]:
-    """Validate the persisted evidence needed by each product capability."""
+def _integration_checks(traces: list, *, require_run_id: bool = True) -> List[Dict[str, Any]]:
+    """Validate the persisted evidence needed by each product capability.
+
+    ``require_run_id=False`` is for production traces recorded outside a benchmark run, where
+    ``run_id`` is legitimately empty; every other identity field is still required.
+    """
     checks: List[Dict[str, Any]] = []
     n = len(traces)
     if n == 0:
@@ -131,7 +135,7 @@ def _integration_checks(traces: list) -> List[Dict[str, Any]]:
         checks.append(_check("sampling_rate", "arrival", "ok", "Full or default trace sampling recorded."))
 
     blank_identity = sum(
-        not getattr(t, "trace_id", "") or not getattr(t, "run_id", "")
+        not getattr(t, "trace_id", "") or (require_run_id and not getattr(t, "run_id", ""))
         or not getattr(t, "query_id", "") or not getattr(t, "pipeline_id", "")
         for t in traces
     )
@@ -454,7 +458,37 @@ async def verify_integration(
     }
 
 
-def verify_observed_traces(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]) -> IntegrationResult:
+def _trace_has_evidence(trace: RetrievalTrace) -> bool:
+    """A trace counts as evidence only if something observable happened in it: a FIRED operator
+    that produced at least one candidate with a doc_id, a query, and measured wall-clock time."""
+    fired_with_output = any(
+        span.status == "FIRED" and any(candidate.doc_id for candidate in span.outputs) for span in trace.spans
+    )
+    timed = trace.timing is not None and trace.timing.wall_clock_ms > 0
+    return fired_with_output and bool(trace.query_text) and timed
+
+
+def _scenario_gaps(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]) -> List[str]:
+    gaps: List[str] = []
+    for scenario in manifest.scenarios:
+        expected = set(scenario.expected_operator_ids)
+        satisfied = any(
+            _trace_has_evidence(trace)
+            and expected <= {span.op_id for span in trace.spans if span.status == "FIRED"}
+            for trace in traces
+        )
+        if not satisfied:
+            gaps.append(
+                f"scenario '{scenario.scenario_id}' has no qualifying trace: need one trace with FIRED spans for "
+                f"{sorted(expected)}, at least one output candidate carrying a doc_id, a non-empty query_text, "
+                "and positive wall-clock time"
+            )
+    return gaps
+
+
+def verify_observed_traces(
+    manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], *, db_path: str | None = None
+) -> IntegrationResult:
     declared = {op.op_id for op in manifest.operators}
     observed = {span.op_id for trace in traces for span in trace.spans}
     expected_edges = {(parent, op.op_id) for op in manifest.operators for parent in op.parent_ids}
@@ -462,16 +496,29 @@ def verify_observed_traces(manifest: IntegrationManifest, traces: Sequence[Retri
     # With no traces at all, every declared operator is trivially "missing" and every declared
     # edge trivially absent. Reporting them that way names a symptom and hides the cause, which
     # is that the instrumented code never ran — usually an import error or an unexercised path.
-    no_traces = "No traces recorded: the instrumented code did not run. Check that the patched modules import cleanly and that each verification scenario was executed."
+    no_traces = (
+        f"No traces found for service_id={manifest.service_id!r} pipeline_id={manifest.pipeline_id!r} "
+        f"in {db_path or 'the configured database'}: the instrumented code did not run, or it persisted to a "
+        "different database. Check that the patched modules import cleanly, that the entrypoint was called "
+        "(its trace_scope decorator records the trace), and that verify uses the same --db."
+    )
+    scenario_gaps = _scenario_gaps(manifest, traces)
     specifications = (
-        ("trace_sample", bool(traces), "Run every verification scenario."),
+        ("trace_sample", bool(traces), no_traces),
         ("expected_operators", declared <= observed, no_traces if not traces else f"Missing operators: {sorted(declared-observed)}"),
         ("stable_operator_identity", observed <= declared, f"Unknown operators: {sorted(observed-declared)}"),
         ("declared_edges", expected_edges <= observed_edges, no_traces if not traces else f"Missing edges: {sorted(expected_edges-observed_edges)}"),
         ("candidate_transitions", all(not s.parent_ids or bool(s.input_groups) for t in traces for s in t.spans), "Capture parent-grouped candidates."),
-        ("timing", all(t.timing is not None for t in traces), "Capture trace timing."),
+        ("timing", all(t.timing is not None and t.timing.wall_clock_ms > 0 for t in traces), "Capture trace timing with positive wall-clock time."),
+        ("scenario_evidence", not scenario_gaps, no_traces if not traces else "; ".join(scenario_gaps)),
     )
     checks = tuple(IntegrationCheck(name, "ok" if passed else "error", "measured", "1.0", len(traces), fix=None if passed else fix) for name, passed, fix in specifications)
+    # The evidence contract MCP verify_integration enforces (identity, topology, timing, candidate
+    # identity) applies here too; a fabricated span with no candidates must not read as ready.
+    if traces:
+        for item in _integration_checks(list(traces), require_run_id=False):
+            status = "error" if item["status"] == "error" and item["required"] else ("warn" if item["status"] != "ok" else "ok")
+            checks += (IntegrationCheck(item["name"], status, "measured", "1.0", len(traces), fix=item.get("fix") if status != "ok" else None),)
     errors = tuple(check.fix or check.check_id for check in checks if check.status == "error")
     signatures = Counter(tuple(sorted((span.op_id, tuple(span.parent_ids)) for span in trace.spans)) for trace in traces)
     variants = tuple({"signature": repr(signature), "count": count} for signature, count in signatures.items())
@@ -534,13 +581,15 @@ def _release_preflight(policy, manifest, traces, health) -> Dict[str, Any]:
     }
 
 
-async def verify_project(root, store, policy=None) -> IntegrationResult:
+async def verify_project(root, store, policy=None, *, db_path: str | None = None) -> IntegrationResult:
     from pathlib import Path
     from retrieval_observatory.integrations.manifest import load_manifest
     from retrieval_observatory.store.base import TraceQuery
+    if not (Path(root) / "retobs" / "integration.yaml").is_file():
+        return IntegrationResult("verify", "failed", errors=("no retobs/integration.yaml: run apply first",))
     manifest = load_manifest(Path(root))
     traces = await store.list_traces(TraceQuery(service_id=manifest.service_id, pipeline_id=manifest.pipeline_id))
-    result = verify_observed_traces(manifest, traces)
+    result = verify_observed_traces(manifest, traces, db_path=db_path or getattr(store, "db_path", None))
     health = await store.get_instrumentation_health(manifest.service_id)
     telemetry_health = asdict(health) if health is not None else {
         "serialization_failures": 0,

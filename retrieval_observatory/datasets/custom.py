@@ -133,19 +133,42 @@ def _parse_datetime(value: object) -> Optional[datetime]:
     return None
 
 
+QREL_ROW_SHAPES = (
+    '{"query_id": "...", "doc_id": "...", "relevance": 1}',
+    '{"query_id": "...", "relevant_doc_ids": ["...", "..."]}',
+    '{"query_id": "...", "relevant_doc_ids": {"doc": grade, ...}}',
+)
+
+
 def _load_qrels(path: str) -> Dict[str, Dict[str, int]]:
+    """Load qrels as ``{query_id: {doc_id: grade}}``.
+
+    JSONL rows may be one judgement each (``doc_id`` with ``relevance``/``grade``/``score``,
+    default 1) or one query each (``relevant_doc_ids`` as a list or a ``{doc_id: grade}`` dict),
+    the same shape the queries file accepts inline. Anything else names the accepted shapes.
+    """
     qrels: Dict[str, Dict[str, int]] = {}
     if path.endswith(".jsonl"):
         with open(path) as f:
-            for line in f:
+            for line_number, line in enumerate(f, start=1):
                 line = line.strip()
                 if not line:
                     continue
                 obj = json.loads(line)
+                if not isinstance(obj, dict) or "query_id" not in obj:
+                    raise ValueError(f"{path}:{line_number}: qrels row needs a query_id; expected one of {' | '.join(QREL_ROW_SHAPES)}")
                 query_id = str(obj["query_id"])
-                doc_id = str(obj["doc_id"])
-                grade = int(obj.get("grade", obj.get("score", 1)))
-                qrels.setdefault(query_id, {})[doc_id] = grade
+                if "relevant_doc_ids" in obj:
+                    rel = obj["relevant_doc_ids"]
+                    grades = {str(doc_id): int(grade) for doc_id, grade in rel.items()} if isinstance(rel, dict) else {str(doc_id): 1 for doc_id in rel}
+                    qrels.setdefault(query_id, {}).update(grades)
+                elif "doc_id" in obj:
+                    grade = int(obj.get("relevance", obj.get("grade", obj.get("score", 1))))
+                    qrels.setdefault(query_id, {})[str(obj["doc_id"])] = grade
+                else:
+                    raise ValueError(
+                        f"{path}:{line_number}: qrels row has keys {sorted(obj)}; expected one of {' | '.join(QREL_ROW_SHAPES)}"
+                    )
         return qrels
 
     with open(path) as f:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 # Self-describing config helpers so an agent can discover the ExperimentConfig shape and
 # dry-run-validate a config WITHOUT running a benchmark or reading external docs. Both the REST
@@ -134,15 +134,68 @@ def validate_config_dict(config: Dict[str, Any]) -> Dict[str, Any]:
             "items": [{"level": "error", "message": f"Config does not parse: {e}", "field": None}],
         }
     report = validate_experiment_config(cfg)
-    qdrant_items = _qdrant_yaml_guard(config)
-    report["items"] = list(report.get("items", [])) + qdrant_items
-    if qdrant_items:
+    extra_items = _qdrant_yaml_guard(config) + _dataset_schema_guard(config)
+    report["items"] = list(report.get("items", [])) + extra_items
+    extra_errors = [item for item in extra_items if item["level"] == "error"]
+    if extra_errors:
         report["status"] = "error"
         summary = dict(report.get("summary") or {})
-        summary["errors"] = summary.get("errors", 0) + len(qdrant_items)
+        summary["errors"] = summary.get("errors", 0) + len(extra_errors)
         report["summary"] = summary
     report["valid"] = report["status"] != "error"
     return report
+
+
+#: First-line shape each custom dataset file must have; the message names it on mismatch.
+DATASET_ROW_SHAPES: Dict[str, str] = {
+    "queries_path": '{"query_id": "...", "text": "...", "relevant_doc_ids": [...] (optional)}',
+    "corpus_path": '{"id": "...", "text": "..."}',
+    "qrels_path": '{"query_id": "...", "doc_id": "...", "relevance": 1} or {"query_id": "...", "relevant_doc_ids": [...]}',
+}
+
+
+def _row_matches(field: str, row: Dict[str, Any]) -> bool:
+    if field == "queries_path":
+        return "query_id" in row and "text" in row
+    if field == "corpus_path":
+        return "id" in row and "text" in row
+    return "query_id" in row and ("doc_id" in row or "relevant_doc_ids" in row)
+
+
+def _dataset_schema_guard(config: Dict[str, Any], base_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Parse the first row of each custom dataset file and report a schema mismatch.
+
+    A qrels file in the wrong row shape used to surface only as a KeyError deep inside a run.
+    """
+    import json
+    import os
+
+    dataset = config.get("dataset") if isinstance(config, dict) else None
+    if not isinstance(dataset, dict) or not (dataset.get("type") == "custom" or dataset.get("name") == "custom"):
+        return []
+    items: List[Dict[str, Any]] = []
+    for field, expected in DATASET_ROW_SHAPES.items():
+        raw = dataset.get(field)
+        if not raw:
+            continue
+        path = raw if os.path.isabs(raw) or base_dir is None else os.path.join(base_dir, raw)
+        if not os.path.isfile(path):
+            continue  # a missing file is already reported by validate_experiment_config
+        try:
+            with open(path, encoding="utf-8") as handle:
+                first = next((line.strip() for line in handle if line.strip()), "")
+            row = json.loads(first) if first else None
+        except (OSError, ValueError) as error:
+            items.append({"level": "error", "field": f"dataset.{field}", "message": f"{raw}: first line is not JSON ({error}); expected {expected}"})
+            continue
+        if row is None:
+            items.append({"level": "error", "field": f"dataset.{field}", "message": f"{raw}: file is empty; expected rows like {expected}"})
+        elif not isinstance(row, dict) or not _row_matches(field, row):
+            keys = sorted(row) if isinstance(row, dict) else type(row).__name__
+            items.append({"level": "error", "field": f"dataset.{field}", "message": f"{raw}: first row has keys {keys}; expected {expected}"})
+        else:
+            items.append({"level": "ok", "field": f"dataset.{field}", "message": f"{raw}: row shape matches {expected}"})
+    return items
 
 
 def _qdrant_yaml_guard(config: Dict[str, Any]) -> List[Dict[str, Any]]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import inspect
 import json
 from pathlib import Path
@@ -71,26 +72,45 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
 
 def _with_config_defaults(config_path: Optional[str], func):
+    """Wrap a tool so ``db_path``/``max_queries`` default to the MCP config file's values.
+
+    The wrapper keeps the tool's real signature (with the config-derived defaults substituted):
+    FastMCP derives each tool's input schema from ``inspect.signature``, and a bare
+    ``(*args, **kwargs)`` wrapper used to publish ``args``/``kwargs`` as the only parameters,
+    which made every wrapped tool uncallable by name.
+    """
     cfg = load_config(config_path)
-    params = inspect.signature(func).parameters
+    # eval_str: FastMCP reads ``__signature__`` verbatim, so string annotations (this module uses
+    # ``from __future__ import annotations``) must already be resolved to real types here.
+    signature = inspect.signature(func, eval_str=True)
+    overrides: Dict[str, Any] = {}
+    if "db_path" in signature.parameters:
+        overrides["db_path"] = cfg.get("db_path", DEFAULT_DB_PATH)
+    if "max_queries" in signature.parameters:
+        overrides["max_queries"] = int(cfg.get("max_queries", DEFAULT_MAX_QUERIES))
+
+    def fill(args, kwargs):
+        bound = signature.bind_partial(*args, **kwargs).arguments
+        for name, value in overrides.items():
+            if name not in bound:
+                kwargs[name] = value
+        return kwargs
 
     if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
         async def wrapped(*args, **kwargs):
-            if "db_path" in params and "db_path" not in kwargs:
-                kwargs["db_path"] = cfg.get("db_path", DEFAULT_DB_PATH)
-            if "max_queries" in params and "max_queries" not in kwargs:
-                kwargs["max_queries"] = int(cfg.get("max_queries", DEFAULT_MAX_QUERIES))
-            return await func(*args, **kwargs)
+            return await func(*args, **fill(args, kwargs))
+    else:
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            return func(*args, **fill(args, kwargs))
 
-        return wrapped
-
-    def wrapped(*args, **kwargs):
-        if "db_path" in params and "db_path" not in kwargs:
-            kwargs["db_path"] = cfg.get("db_path", DEFAULT_DB_PATH)
-        if "max_queries" in params and "max_queries" not in kwargs:
-            kwargs["max_queries"] = int(cfg.get("max_queries", DEFAULT_MAX_QUERIES))
-        return func(*args, **kwargs)
-
+    wrapped.__signature__ = signature.replace(
+        parameters=[
+            parameter.replace(default=overrides[parameter.name]) if parameter.name in overrides else parameter
+            for parameter in signature.parameters.values()
+        ]
+    )
     return wrapped
 
 
@@ -228,7 +248,15 @@ async def _integrate_project(
     plan: Optional[Dict[str, Any]] = None,
     plan_path: Optional[str] = None,
     db_path: str = DEFAULT_DB_PATH,
+    framework: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Plan, apply, or verify one project integration (phase = plan | apply | verify).
+
+    plan: discover operators and the entrypoint; save the result as retobs/integration-plan.json.
+    apply: pass the reviewed plan (or plan_path); patches files and writes retobs/integration.yaml.
+    verify: reads retobs/integration.yaml and the traces in db_path (relative paths resolve
+    against project_root); plan/plan_path are optional here and must match the applied plan.
+    framework: override detection (python, fastapi, langchain, llamaindex, http)."""
     from pathlib import Path
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
     from retrieval_observatory.integrations.service import integrate_project
@@ -239,7 +267,8 @@ async def _integrate_project(
         payload = json.loads(Path(plan_path).read_text(encoding="utf-8"))
         plan = payload.get("plan", payload)
     reviewed = IntegrationPlan.from_dict(plan) if plan else None
-    return (await integrate_project(Path(project_root), IntegrationPhase(phase), IntegrationOptions(reviewed, db_path))).to_dict()
+    options = IntegrationOptions(reviewed, db_path, framework=framework)
+    return (await integrate_project(Path(project_root), IntegrationPhase(phase), options)).to_dict()
 
 
 async def _benchmark_config(
@@ -254,6 +283,8 @@ async def _benchmark_config(
     from retrieval_observatory.dashboard.api import _headline_winner
     from retrieval_observatory.sdk.run_config import _run_from_config_async
 
+    if max_queries < 1:
+        raise ValueError(f"max_queries must be at least 1 (got {max_queries})")
     report = await _run_from_config_async(
         config=config,
         db_path=db_path,
@@ -468,11 +499,22 @@ async def _push_traces(
     db_path: str = DEFAULT_DB_PATH,
 ) -> Dict[str, Any]:
     """Ingest V2 retrieval traces into a benchmark run (same contract as REST POST .../traces)."""
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise ValueError("run_id must be a non-empty string")
+    parsed = []
+    for index, payload in enumerate(traces):
+        if not isinstance(payload, dict):
+            raise ValueError(f"trace[{index}] must be a JSON object (RetrievalTrace.to_dict() shape)")
+        try:
+            parsed.append(_parse_trace_payload(payload, run_id=run_id))
+        except KeyError as error:
+            raise ValueError(f"trace[{index}] missing field {error.args[0]!r}") from error
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"trace[{index}] is not a valid RetrievalTrace: {error}") from error
     store = _store(db_path)
     await store.init_db()
     stored: List[str] = []
-    for payload in traces:
-        trace = _parse_trace_payload(payload, run_id=run_id)
+    for trace in parsed:
         await store.save_trace(trace)
         stored.append(trace.trace_id)
     return {"run_id": run_id, "trace_ids": stored, "count": len(stored)}

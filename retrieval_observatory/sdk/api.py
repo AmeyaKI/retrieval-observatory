@@ -127,6 +127,8 @@ def benchmark(
     no ground truth needed), or "pooled" (merge gold + judged). `judge` selects the provider
     ("gemini"/"openai"/"anthropic") and `judge_model` the model id.
     """
+    if max_queries is not None and max_queries < 1:
+        raise ValueError(f"max_queries must be at least 1 (got {max_queries})")
     return _run_sync(
         _benchmark_async(
             pipeline=pipeline,

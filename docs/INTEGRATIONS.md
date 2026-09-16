@@ -7,7 +7,7 @@ Support levels are release claims. The first-class and supported-example paths b
 | Plain Python | First class | retobs-core | Python 3.10–3.12 | Callable/source discovery depends on inspectable project code. |
 | HTTP | First class | retobs-core | HTTP/JSON contract | Final top-K responses are observable; internal operator transitions require emitted snapshots. |
 | FastAPI | First class | retobs-core | FastAPI >=0.111; current wheel-only CI resolution | Route and declared topology are verified; readiness still needs observed traffic. |
-| LangChain | First class | retobs-core | langchain-core >=0.2; current wheel-only CI resolution | Callback visibility depends on the chain/retriever path used by the application. |
+| LangChain | First class | retobs-core | langchain-core 0.2 through 1.x; current wheel-only CI resolution | Planner instruments a `BaseRetriever` subclass's `_get_relevant_documents`; the SDK recognizes retrievers by `BaseRetriever` when importable, else by `invoke` plus `_get_relevant_documents`. Callback visibility depends on the chain/retriever path used by the application. |
 | LlamaIndex | First class | retobs-core | llama-index-core >=0.10; current wheel-only CI resolution | Callback visibility depends on the query-engine path used by the application. |
 | DSPy | Supported example | community | Current wheel-only CI resolution | No framework-specific detection or exact project patch guarantee. |
 | Haystack | Supported example | community | Current wheel-only CI resolution | No framework-specific detection or exact project patch guarantee. |
@@ -21,7 +21,7 @@ retobs integrate . --phase apply --plan retobs/integration-plan.json
 retobs integrate . --phase verify --policy retobs/release-policy.yaml
 ```
 
-Review the plan before apply. Required unresolved mappings and stale precondition hashes block mutation. Ready is evidence-backed, not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md).
+Review the plan before apply. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md).
 
 ## Release-evidence preflight
 
