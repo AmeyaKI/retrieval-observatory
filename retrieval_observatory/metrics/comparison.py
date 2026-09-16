@@ -45,6 +45,8 @@ class StatisticalComparison:
     p_value: Optional[float]
     q_value: Optional[float]
     paired_n: int
+    attempted_n: int
+    pair_coverage: Optional[float]
     low_power: bool
     significant: Optional[bool]
     decision: Literal["candidate_better", "candidate_worse", "no_decision"]
@@ -59,6 +61,84 @@ REQUIRED_COMPARISON_AXES = ("query_hash", "corpus_hash", "qrel_hash", "labeling"
 # Aggregate-only render keys: computed as true percentiles over a run's per-query latency
 # samples. They have no per-query counterpart, so a paired comparison cannot reproduce them.
 LATENCY_RENDER_METRICS = ("latency_p50", "latency_p95", "latency_p99")
+
+# Metric-NAME prefixes for which a smaller value is the better outcome. Decided on the parsed
+# metric name only: a pipeline called `cost_aware_bm25` or `low_latency_bm25` must not flip
+# the orientation of its recall.
+LOWER_IS_BETTER_PREFIXES = ("latency", "cost", "profile", "failure", "timeout", "dropout")
+
+# Per-query indicator rows the metrics engine writes for every scoreable query (1.0 when the
+# trace failed). They are the only rows a failed query has, so they make it visible to the
+# pairing-coverage check below.
+FAILURE_INDICATOR_METRICS = ("failure", "timeout")
+
+
+def lower_is_better(metric_name: str) -> bool:
+    return metric_name.startswith(LOWER_IS_BETTER_PREFIXES)
+
+
+@dataclass
+class PairCoverage:
+    """How much of the attempted query set a paired comparison actually covers."""
+
+    paired_n: int
+    attempted_n: int
+    coverage: Optional[float]
+    missing_baseline: int
+    missing_candidate: int
+
+    def below(self, minimum: float) -> bool:
+        return self.coverage is not None and self.coverage < minimum
+
+    def reason(self) -> str:
+        share = f"{self.coverage * 100:.1f}%" if self.coverage is not None else "0%"
+        return (
+            f"only {share} of attempted queries are paired; "
+            f"{self.missing_baseline} failed in baseline, {self.missing_candidate} in candidate"
+        )
+
+
+def failed_query_ids(rows: Iterable[Dict], pipeline_id: str) -> set[str]:
+    """Query ids whose trace failed for this pipeline, read from the per-query indicator rows."""
+    return {
+        row["query_id"]
+        for row in rows
+        if row["pipeline_id"] == pipeline_id
+        and row["metric_name"] in FAILURE_INDICATOR_METRICS
+        and float(row["value"]) > 0.0
+    }
+
+
+def pair_coverage(
+    baseline_by_query: Dict[str, float],
+    candidate_by_query: Dict[str, float],
+    baseline_rows: Iterable[Dict],
+    candidate_rows: Iterable[Dict],
+    pipeline_id: str,
+) -> PairCoverage:
+    """Return paired/attempted counts for one metric.
+
+    Attempted = every query with a value for this metric in either run, plus every query
+    whose trace failed in either run. A failed query has no quality rows, so the paired
+    join silently drops it; counting it here is what turns "candidate timed out on its
+    hardest queries" into a visible coverage gap instead of a flattering comparison.
+    Queries a gate routed down another branch are not counted: per-branch rows cover only
+    the queries served by that branch, and that is not a failure.
+    """
+    paired = set(baseline_by_query) & set(candidate_by_query)
+    attempted = (
+        set(baseline_by_query)
+        | set(candidate_by_query)
+        | failed_query_ids(baseline_rows, pipeline_id)
+        | failed_query_ids(candidate_rows, pipeline_id)
+    )
+    return PairCoverage(
+        paired_n=len(paired),
+        attempted_n=len(attempted),
+        coverage=len(paired) / len(attempted) if attempted else None,
+        missing_baseline=len(attempted - set(baseline_by_query)),
+        missing_candidate=len(attempted - set(candidate_by_query)),
+    )
 
 
 def collapse_latency_render_keys(keys: Iterable[str]) -> List[str]:
@@ -175,13 +255,23 @@ def compare_paired_metrics(
     *,
     min_power_n: int = 20,
     alpha: float = 0.05,
+    min_pair_coverage: float = 0.95,
 ) -> Dict[str, StatisticalComparison]:
     """Compute one BH-corrected paired result set with explicit baseline orientation."""
     results: Dict[str, StatisticalComparison] = {}
     tested_keys: List[str] = []
     raw_p_values: List[float] = []
+    coverages: Dict[str, PairCoverage] = {}
     for metric_key in metric_keys:
-        baseline, candidate, paired_n = paired_scores_by_query(metrics_baseline, metrics_candidate, metric_key)
+        pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(metric_key)
+        baseline_by_query = scores_by_query(metrics_baseline, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+        candidate_by_query = scores_by_query(metrics_candidate, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
+        query_ids = sorted(set(baseline_by_query) & set(candidate_by_query))
+        baseline = [baseline_by_query[qid] for qid in query_ids]
+        candidate = [candidate_by_query[qid] for qid in query_ids]
+        paired_n = len(query_ids)
+        coverage = pair_coverage(baseline_by_query, candidate_by_query, metrics_baseline, metrics_candidate, pipeline_id)
+        coverages[metric_key] = coverage
         baseline_mean = sum(baseline) / paired_n if paired_n else None
         candidate_mean = sum(candidate) / paired_n if paired_n else None
         effect = candidate_mean - baseline_mean if baseline_mean is not None and candidate_mean is not None else None
@@ -196,6 +286,8 @@ def compare_paired_metrics(
             p_value=p_value,
             q_value=None,
             paired_n=paired_n,
+            attempted_n=coverage.attempted_n,
+            pair_coverage=coverage.coverage,
             low_power=paired_n < min_power_n,
             significant=None,
             decision="no_decision",
@@ -218,13 +310,17 @@ def compare_paired_metrics(
         result.significant = q_value < alpha
         if result.low_power:
             result.reason = "insufficient paired samples"
+        elif coverages[metric_key].below(min_pair_coverage):
+            # The surviving pairs may be the easy queries; a verdict on them alone would
+            # reward a candidate for failing the hard ones.
+            result.reason = coverages[metric_key].reason()
         elif not result.significant:
             result.reason = "effect is not significant after BH correction"
         elif result.effect is None or result.effect_threshold is None or abs(result.effect) < result.effect_threshold:
             result.reason = "effect is below the declared practical threshold"
         else:
-            lower_is_better = any(token in metric_key for token in ("latency", "cost", "profile"))
-            favorable = result.effect < 0 if lower_is_better else result.effect > 0
+            _pipeline, _stage, metric_name, _k, _branch = parse_metric_key(metric_key)
+            favorable = result.effect < 0 if lower_is_better(metric_name) else result.effect > 0
             result.decision = "candidate_better" if favorable else "candidate_worse"
             result.reason = "significant paired effect exceeds the practical threshold"
     return results
@@ -233,11 +329,12 @@ def compare_paired_metrics(
 def _effect_threshold(metric_key: str, baseline_mean: Optional[float]) -> Optional[float]:
     if baseline_mean is None:
         return None
+    _pipeline, _stage, metric_name, _k, _branch = parse_metric_key(metric_key)
     # Profile counters are wall-clock adjacent noise at sub-ms scale; use the same
     # relative floor as latency so they do not become flaky decision-bearing gates.
-    if any(token in metric_key for token in ("latency", "profile")):
+    if metric_name.startswith(("latency", "profile")):
         return max(1.0, abs(baseline_mean) * 0.05)
-    if "cost" in metric_key:
+    if metric_name.startswith("cost"):
         return max(0.001, abs(baseline_mean) * 0.05)
     return 0.01
 
@@ -302,8 +399,9 @@ def rank_metric_keys(keys: Iterable[str], *, policy_metrics: Iterable[str] = ())
     that actually answers "did this get worse?" sorts last, behind a hundred other rows.
 
     Tiers: policy-guarded metrics, then terminal-stage quality, then the rest of the quality
-    funnel (spine before per-branch rows, which only cover the queries routed down that
-    branch), then operational.
+    funnel (spine before per-branch rows: a gate-skipped span emits no rows, so per-branch
+    rows cover only the queries routed down that branch and their `n` is the served count,
+    not the run's), then operational.
     """
     guarded = set(policy_metrics)
     parsed: Dict[str, MetricKey] = {}

@@ -29,6 +29,8 @@
       "platform": "macOS-26.3.1-arm64-arm-64bit",
       "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]"
     },
+    "ci_method": "unpaired_percentile",
+    "pvalue_method": "paired_sign_flip_permutation",
     "pipelines": {
       "bm25": {
         "final_stage_index": 0,
@@ -113,7 +115,7 @@
           "recall_rel_pct": 15.99470364885581
         },
         "rerank_mode": "recovery",
-        "vs_bm25_ndcg_pvalue": 0.4931,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 323
       },
       "dense_only": {
@@ -149,7 +151,7 @@
           }
         },
         "quality_per_ms": 56.294999846805176,
-        "vs_bm25_ndcg_pvalue": 0.4999,
+        "vs_bm25_ndcg_pvalue": 0.00029997000299970003,
         "n_raw_pipeline_rows": 323
       },
       "rrf_hybrid": {
@@ -185,7 +187,7 @@
           }
         },
         "quality_per_ms": 39.732916974829024,
-        "vs_bm25_ndcg_pvalue": 0.5092,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 323
       }
     },
@@ -311,6 +313,8 @@
       "platform": "macOS-26.3.1-arm64-arm-64bit",
       "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]"
     },
+    "ci_method": "unpaired_percentile",
+    "pvalue_method": "paired_sign_flip_permutation",
     "pipelines": {
       "bm25": {
         "final_stage_index": 0,
@@ -395,7 +399,7 @@
           "recall_rel_pct": 9.336323614918177
         },
         "rerank_mode": "recovery",
-        "vs_bm25_ndcg_pvalue": 0.4975,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 300
       },
       "dense_only": {
@@ -431,7 +435,7 @@
           }
         },
         "quality_per_ms": 102.1384755096794,
-        "vs_bm25_ndcg_pvalue": 0.5016,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 300
       },
       "rrf_hybrid": {
@@ -467,7 +471,7 @@
           }
         },
         "quality_per_ms": 44.68835706530598,
-        "vs_bm25_ndcg_pvalue": 0.5035,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 300
       }
     },
@@ -580,6 +584,8 @@
       "platform": "macOS-26.3.1-arm64-arm-64bit",
       "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]"
     },
+    "ci_method": "unpaired_percentile",
+    "pvalue_method": "paired_sign_flip_permutation",
     "pipelines": {
       "bm25": {
         "final_stage_index": 0,
@@ -664,7 +670,7 @@
           "recall_rel_pct": 45.33848266047811
         },
         "rerank_mode": "recovery",
-        "vs_bm25_ndcg_pvalue": 0.5008,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 648
       },
       "dense_only": {
@@ -700,7 +706,7 @@
           }
         },
         "quality_per_ms": 40.77638574726575,
-        "vs_bm25_ndcg_pvalue": 0.4939,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 648
       },
       "rrf_hybrid": {
@@ -736,7 +742,7 @@
           }
         },
         "quality_per_ms": 2.923382757228683,
-        "vs_bm25_ndcg_pvalue": 0.4954,
+        "vs_bm25_ndcg_pvalue": 9.999000099990002e-05,
         "n_raw_pipeline_rows": 648
       }
     },
@@ -851,6 +857,8 @@
       "platform": "macOS-26.3.1-arm64-arm-64bit",
       "python": "3.12.4 | packaged by Anaconda, Inc. | (main, Jun 18 2024, 10:07:17) [Clang 14.0.6 ]"
     },
+    "ci_method": "unpaired_percentile",
+    "pvalue_method": "paired_sign_flip_permutation",
     "pipelines": {
       "bm25": {
         "final_stage_index": 0,

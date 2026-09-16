@@ -5,7 +5,7 @@ from typing import Any, Literal, Sequence
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
-from retrieval_observatory.metrics.comparison import parse_metric_key, scores_by_query
+from retrieval_observatory.metrics.comparison import pair_coverage, parse_metric_key, scores_by_query
 from retrieval_observatory.metrics.significance import paired_bootstrap_effect_ci
 from retrieval_observatory.release.policy import MetricGuard, ReleasePolicy
 
@@ -29,6 +29,9 @@ class GuardResult(BaseModel):
     ci_high: float | None
     paired_n: int
     min_paired_n: int
+    attempted_n: int = 0
+    pair_coverage: float | None = None
+    min_pair_coverage: float = 0.95
     seed: int
     resamples: int
     confidence_level: float
@@ -73,6 +76,7 @@ def _evaluate_guard(
     query_ids = sorted(set(baseline_by_query) & set(candidate_by_query))
     baseline = [baseline_by_query[query_id] for query_id in query_ids]
     candidate = [candidate_by_query[query_id] for query_id in query_ids]
+    coverage = pair_coverage(baseline_by_query, candidate_by_query, baseline_rows, candidate_rows, pipeline_id)
     estimator = _estimator(metric_name)
     baseline_estimate = _estimate(baseline, estimator)
     candidate_estimate = _estimate(candidate, estimator)
@@ -96,6 +100,11 @@ def _evaluate_guard(
     elif len(query_ids) < guard.min_paired_n:
         status = "HOLD"
         limitation = f"paired sample count {len(query_ids)} is below required {guard.min_paired_n}"
+    elif coverage.below(policy.statistics.min_pair_coverage):
+        # Failed queries have no rows to pair; the interval above describes only the
+        # survivors, so it cannot clear a candidate that dropped the hard queries.
+        status = "HOLD"
+        limitation = coverage.reason()
     else:
         status = _interval_status(guard, low, high)
         limitation = None
@@ -113,6 +122,9 @@ def _evaluate_guard(
         ci_high=high,
         paired_n=len(query_ids),
         min_paired_n=guard.min_paired_n,
+        attempted_n=coverage.attempted_n,
+        pair_coverage=coverage.coverage,
+        min_pair_coverage=policy.statistics.min_pair_coverage,
         seed=policy.statistics.seed,
         resamples=policy.statistics.resamples,
         confidence_level=policy.statistics.confidence_level,

@@ -48,9 +48,15 @@ def paired_bootstrap_test(
     n_resamples: int = 1000,
     seed: int = 42,
 ) -> float:
-    """Paired bootstrap significance test. Returns two-tailed p-value.
+    """Paired sign-flip permutation test on per-query differences. Returns a two-tailed p-value.
 
-    H0: mean(A) == mean(B). Small p-value → A and B differ significantly.
+    H0: the paired differences are symmetric about 0 (mean(A) == mean(B)). Each resample
+    flips the sign of every difference at random, so the null is centred at zero. The
+    function name is kept for compatibility; this is not a percentile bootstrap.
+
+    The p-value is ``(count_extreme + 1) / (n_resamples + 1)``: the observed statistic is
+    counted as one of the permutations, so p is never exactly 0 and a downstream BH
+    correction never sees a false certainty.
     """
     if len(scores_a) != len(scores_b):
         raise ValueError("scores_a and scores_b must have equal length")
@@ -67,7 +73,7 @@ def paired_bootstrap_test(
         if resampled_diff >= observed_diff:
             count_extreme += 1
 
-    return count_extreme / n_resamples
+    return (count_extreme + 1) / (n_resamples + 1)
 
 
 def paired_bootstrap_effect_ci(

@@ -23,10 +23,11 @@ def _mean(values: List[float]) -> float:
 
 
 def _std(values: List[float]) -> float:
-    if not values:
+    """Sample standard deviation (n-1 denominator); 0.0 when fewer than two values."""
+    if len(values) < 2:
         return 0.0
     avg = _mean(values)
-    return (sum((float(value) - avg) ** 2 for value in values) / len(values)) ** 0.5
+    return (sum((float(value) - avg) ** 2 for value in values) / (len(values) - 1)) ** 0.5
 
 
 def _percentile(values: List[float], percentile: float) -> float:
@@ -346,8 +347,6 @@ class MetricsEngine:
             }
 
         for trace in traces:
-            if trace.status != "OK":
-                continue
             raw_qrel = qrels.get(trace.query_id)
             if not raw_qrel:
                 continue
@@ -366,15 +365,36 @@ class MetricsEngine:
                 continue
 
             query_meta = query.metadata if query else {}
-            # Stage index must reflect position in the pipeline's fixed op order, not
-            # position among FIRED-only spans: a gated stage (e.g. EXPAND) is SKIPPED_BY_GATE
-            # for some queries and not others, so filtering to FIRED first would shift every
-            # later stage's index per-query and silently corrupt cross-query metric averages
-            # (different operators' scores would get averaged together under one stage_index).
-            # A SKIPPED_BY_GATE span still gets a stage slot; its outputs are a passthrough of
-            # its inputs by convention, so its recall/ndcg honestly equal the prior stage's.
-            # ERROR/TIMEOUT spans carry no valid outputs and are excluded.
-            fired_spans = [s for s in trace.spans if s.status in ("FIRED", "SKIPPED_BY_GATE")]
+
+            # Per-query failure indicators for every scoreable query, OK or not. A failed
+            # query has no quality rows, so without these a paired comparison silently drops
+            # it and a candidate that times out on its hardest queries looks better, not
+            # worse. `failure@0`/`timeout@0` are pairable, guardable (lower_is_better) rows.
+            await self._save_metrics(
+                store,
+                [
+                    self._metric_row(
+                        run_id, trace.pipeline_id, trace.query_id, -1, "failure", 0,
+                        0.0 if trace.status == "OK" else 1.0, query_meta,
+                    ),
+                    self._metric_row(
+                        run_id, trace.pipeline_id, trace.query_id, -1, "timeout", 0,
+                        1.0 if trace.status == "TIMEOUT" else 0.0, query_meta,
+                    ),
+                ],
+            )
+            if trace.status != "OK":
+                continue
+
+            # Stage index/branch identity come from the run-wide union layout above, so a
+            # gated stage keeps the same slot whether or not it fired for this query.
+            # Only FIRED spans are scored: a SKIPPED_BY_GATE span produced no outputs for
+            # this query (its outputs tuple is empty), so scoring it would record recall 0
+            # for every query routed elsewhere and dilute the branch mean by the routing
+            # fraction. Per-branch rows therefore cover only the queries served by that
+            # branch, and per-key `n` differs across branches. ERROR/TIMEOUT spans carry
+            # no valid outputs and are excluded too.
+            fired_spans = [s for s in trace.spans if s.status == "FIRED"]
 
             # End-to-end latency for multi-operator traces
             if len(fired_spans) > 1:
@@ -539,38 +559,62 @@ class MetricsEngine:
                 "zero_pct": round(zero_count / len(scores) * 100, 1),
             }
 
-        # Stage-6 path: use trace-native run status counts when available.
-        status_counts = await store.get_run_status_counts(run_id)
-        if status_counts:
+        # Trace-native run status counts, per pipeline. Run-wide counts stamped onto every
+        # pipeline would credit one pipeline's timeouts to all of them.
+        for pipeline_id, status_counts in sorted((await self._status_counts_by_pipeline(store, run_id, aggregated)).items()):
             timeout_count = int(status_counts.get("TIMEOUT", 0))
             error_count = int(status_counts.get("ERROR", 0))
             ok_count = int(status_counts.get("OK", 0))
             total = ok_count + timeout_count + error_count
-            if total > 0:
-                dropout_count = timeout_count + error_count
-                for pipeline_id in sorted({value.get("pipeline_id") for value in aggregated.values() if value.get("pipeline_id")}):
-                    for metric_name, value in (
-                        ("failure_rate", dropout_count / total),
-                        ("timeout_rate", timeout_count / total),
-                        ("dropout_count", float(dropout_count)),
-                    ):
-                        key = f"{pipeline_id}|stage-1|{metric_name}@0"
-                        aggregated[key] = {
-                            "pipeline_id": pipeline_id,
-                            "stage_index": -1,
-                            "metric_name": metric_name,
-                            "k": 0,
-                            "mean": float(value),
-                            "std": 0.0,
-                            "ci_low": float(value),
-                            "ci_high": float(value),
-                            "n": total,
-                            "zero_count": 0,
-                            "zero_pct": 0.0,
-                        }
-                return aggregated
+            if total <= 0:
+                continue
+            dropout_count = timeout_count + error_count
+            for metric_name, count in (
+                ("failure_rate", dropout_count),
+                ("timeout_rate", timeout_count),
+                ("dropout_count", dropout_count),
+            ):
+                key = f"{pipeline_id}|stage-1|{metric_name}@0"
+                if metric_name == "dropout_count":
+                    # A count has no sampling distribution to bootstrap; do not fake a CI.
+                    mean, std, ci_low, ci_high = float(count), None, None, None
+                else:
+                    indicators = [1.0] * count + [0.0] * (total - count)
+                    mean, std = _mean(indicators), _std(indicators)
+                    ci_low, ci_high = bootstrap_ci(indicators, n_resamples=n_bootstrap)
+                aggregated[key] = {
+                    "pipeline_id": pipeline_id,
+                    "stage_index": -1,
+                    "metric_name": metric_name,
+                    "k": 0,
+                    "mean": mean,
+                    "std": std,
+                    "ci_low": ci_low,
+                    "ci_high": ci_high,
+                    "n": total,
+                    "zero_count": 0,
+                    "zero_pct": 0.0,
+                }
 
         return aggregated
+
+    @staticmethod
+    async def _status_counts_by_pipeline(
+        store: BaseStore, run_id: str, aggregated: Dict[str, Any]
+    ) -> Dict[str, Dict[str, int]]:
+        """Return {pipeline_id: {status: count}} for the run's traces.
+
+        Stores that only offer run-wide counts can be attributed to a pipeline only when
+        the run has exactly one; otherwise nothing is emitted rather than mislabeling.
+        """
+        by_pipeline = getattr(store, "get_run_status_counts_by_pipeline", None)
+        if by_pipeline is not None:
+            return {str(pid): dict(counts) for pid, counts in (await by_pipeline(run_id)).items()}
+        run_wide = await store.get_run_status_counts(run_id)
+        pipelines = {value.get("pipeline_id") for value in aggregated.values() if value.get("pipeline_id")}
+        if run_wide and len(pipelines) == 1:
+            return {next(iter(pipelines)): dict(run_wide)}
+        return {}
 
     @staticmethod
     def _metric_row(

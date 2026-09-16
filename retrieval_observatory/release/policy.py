@@ -75,6 +75,11 @@ class StatisticsPolicy(_PolicyModel):
     familywise_alpha: float = Field(gt=0, le=1)
     resamples: int = Field(ge=1)
     seed: int
+    # Minimum share of attempted queries that must be paired before a guard can PASS. A
+    # query that failed (TIMEOUT/ERROR) in one run has no quality rows there, so the paired
+    # join drops it; below this coverage the guard is HOLD rather than a verdict on the
+    # queries that happened to survive.
+    min_pair_coverage: float = Field(default=0.95, ge=0, le=1)
 
 
 class MetricGuard(_PolicyModel):
