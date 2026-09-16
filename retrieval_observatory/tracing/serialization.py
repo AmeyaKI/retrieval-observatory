@@ -15,6 +15,7 @@ class NormalizationReport:
     redacted_fields: int = 0
     omitted_fields: int = 0
     omitted_candidates: int = 0
+    truncated_strings: int = 0
 
 
 @dataclass(frozen=True)
@@ -29,9 +30,12 @@ class _MutableReport:
     redacted_fields: int = 0
     omitted_fields: int = 0
     omitted_candidates: int = 0
+    truncated_strings: int = 0
 
     def freeze(self) -> NormalizationReport:
-        return NormalizationReport(self.redacted_fields, self.omitted_fields, self.omitted_candidates)
+        return NormalizationReport(
+            self.redacted_fields, self.omitted_fields, self.omitted_candidates, self.truncated_strings
+        )
 
 
 def _normalize_value(
@@ -53,7 +57,8 @@ def _normalize_value(
         return value
     if isinstance(value, str):
         if len(value) > limits.max_string_chars:
-            report.omitted_fields += 1
+            # Clipping text loses no lineage structure; tracked apart from omissions.
+            report.truncated_strings += 1
         return value[: limits.max_string_chars]
     if isinstance(value, bytes):
         return f"<bytes:{len(value)}>"
@@ -142,6 +147,7 @@ def normalize_trace(
     capture["candidates_truncated"] = bool(report.omitted_candidates)
     capture["redacted_field_count"] = report.redacted_fields
     capture["omitted_field_count"] = report.omitted_fields
+    capture["truncated_string_count"] = report.truncated_strings
 
     if _encoded_size(payload) > limits.max_payload_bytes:
         for candidates in _candidate_groups(payload):

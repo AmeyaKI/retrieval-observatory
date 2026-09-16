@@ -86,8 +86,13 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
     )
     if trace_partial:
         history.lineage_evidence = "partial"
+    on_final_path = _final_path_op_ids(trace)
 
     for span in trace.spans:
+        if span.status != "FIRED":
+            # A skipped or failed operator made no decision; it recorded no inputs
+            # and no outputs, so it can neither introduce nor drop a candidate.
+            continue
         out_c = _find(span.outputs, doc_id)
         in_c = _find(span.inputs, doc_id)
         # A span "consumes" the doc's stream if it takes input from a span that carried it,
@@ -99,8 +104,9 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
                 history.lineage_evidence = out_c.identity_evidence
             if not introduced:
                 introduced = True
-                history.introduced_at = span.op_id
-                history.introduced_by_arms = list(out_c.origin_op_ids)
+                if history.introduced_at is None:
+                    history.introduced_at = span.op_id
+                    history.introduced_by_arms = list(out_c.origin_op_ids)
                 event = CandidateEvent(
                     op_id=span.op_id,
                     op_name=span.op_name,
@@ -157,6 +163,25 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
                 reason = reason or _DROP_REASON_BY_OP_TYPE.get(str(span.op_type), "unknown")
                 evidence = "legacy_inferred"
                 history.lineage_evidence = "legacy_inferred"
+            if span.op_id not in on_final_path:
+                # A side branch that never reaches the final output: record the exit
+                # for the flow view, but it does not end the candidate's journey.
+                history.events.append(
+                    CandidateEvent(
+                        op_id=span.op_id,
+                        op_name=span.op_name,
+                        op_type=str(span.op_type),
+                        status=str(span.status),
+                        event="dropped",
+                        input_rank=in_c.rank if in_c is not None else None,
+                        score=in_c.score if in_c is not None else None,
+                        drop_reason=reason,
+                        drop_reason_inferred=inferred,
+                        lineage_evidence=evidence,
+                        note="Dropped on a branch that does not reach the final output",
+                    )
+                )
+                continue
             history.events.append(
                 CandidateEvent(
                     op_id=span.op_id,
@@ -192,6 +217,24 @@ def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
             history.dropped_at = None
             history.dropped_reason = None
     return history
+
+
+def _final_path_op_ids(trace: RetrievalTrace) -> set:
+    """Final operators plus every ancestor: the spans whose decisions reach the output."""
+    by_id = {span.op_id: span for span in trace.spans}
+    if trace.final_op_ids:
+        frontier = [op_id for op_id in trace.final_op_ids if op_id in by_id]
+    else:
+        final = _final_span(trace)
+        frontier = [final.op_id] if final is not None else []
+    on_path: set = set()
+    while frontier:
+        current = frontier.pop()
+        if current in on_path:
+            continue
+        on_path.add(current)
+        frontier.extend(by_id[current].parent_ids)
+    return on_path
 
 
 def _final_span(trace: RetrievalTrace) -> Optional[OperatorSpan]:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Sequence, Set
 
 from retrieval_observatory.metrics.ranking import average_precision, ndcg_at_k, ndcg_at_k_graded, precision_at_k
 from retrieval_observatory.metrics.recall import recall_at_k
@@ -125,6 +125,17 @@ def operator_fire_rate(op_id: str, traces: List[RetrievalTrace]) -> float:
     return fired / float(len(traces))
 
 
+def _apply_benjamini_hochberg(rows: List[MarginalResult], indexes: List[int]) -> None:
+    """Set q_value/significant on ``rows[i]`` for every ``i`` in ``indexes`` as one BH family."""
+    p_values = [rows[index].p_value for index in indexes]
+    if not p_values:
+        return
+    q_values = benjamini_hochberg([float(p) for p in p_values])
+    for q_value, index in zip(q_values, indexes):
+        rows[index].q_value = q_value
+        rows[index].significant = q_value < 0.05
+
+
 def operator_marginal_contribution(
     traces: List[RetrievalTrace],
     op_id: str,
@@ -134,6 +145,53 @@ def operator_marginal_contribution(
     n_power_threshold: int = 20,
     n_bootstrap: int = 1000,
 ) -> List[MarginalResult]:
+    """Per-segment marginal contribution of one operator.
+
+    The Benjamini-Hochberg family here is the segments of this one operator only.
+    When several operators are compared side by side, use
+    `operator_marginal_contributions` so q-values are corrected across all of them.
+    """
+    out, p_indexes = _operator_marginal_rows(traces, op_id, qrels, metric, k, n_power_threshold, n_bootstrap)
+    _apply_benjamini_hochberg(out, p_indexes)
+    return out
+
+
+def operator_marginal_contributions(
+    traces: List[RetrievalTrace],
+    op_ids: Sequence[str],
+    qrels: Dict[str, Dict[str, int] | List[str] | set[str]],
+    metric: str = "recall",
+    k: int = 10,
+    n_power_threshold: int = 20,
+    n_bootstrap: int = 1000,
+) -> List[MarginalResult]:
+    """Marginal contributions for several operators, BH-corrected as one family.
+
+    Every (operator, segment) p-value enters a single Benjamini-Hochberg correction,
+    so a dashboard that ranks operators against each other reports q-values that
+    account for all the comparisons it shows. Rows are ordered by ``op_ids`` and
+    then by segment.
+    """
+    out: List[MarginalResult] = []
+    p_indexes: List[int] = []
+    for op_id in op_ids:
+        rows, indexes = _operator_marginal_rows(traces, op_id, qrels, metric, k, n_power_threshold, n_bootstrap)
+        p_indexes.extend(len(out) + index for index in indexes)
+        out.extend(rows)
+    _apply_benjamini_hochberg(out, p_indexes)
+    return out
+
+
+def _operator_marginal_rows(
+    traces: List[RetrievalTrace],
+    op_id: str,
+    qrels: Dict[str, Dict[str, int] | List[str] | set[str]],
+    metric: str,
+    k: int,
+    n_power_threshold: int,
+    n_bootstrap: int,
+) -> tuple[List[MarginalResult], List[int]]:
+    """Rows for one operator plus the indexes of rows carrying an uncorrected p-value."""
     metric = metric.lower()
     if metric not in _SUPPORTED_METRICS:
         raise ValueError(f"Unsupported metric '{metric}'. Use one of {sorted(_SUPPORTED_METRICS)}")
@@ -147,7 +205,6 @@ def operator_marginal_contribution(
         traces_by_segment.setdefault(key, []).append(trace)
 
     out: List[MarginalResult] = []
-    all_p_values: List[float] = []
     result_p_index: List[int] = []
 
     for seg_name in seg_names:
@@ -233,7 +290,6 @@ def operator_marginal_contribution(
             ci_low, ci_high = bootstrap_ci(pair_deltas, n_resamples=n_bootstrap)
             p_value = paired_bootstrap_test(with_scores[:n_pairs], without_scores[:n_pairs], n_resamples=n_bootstrap)
             result_p_index.append(len(out))
-            all_p_values.append(p_value)
 
         out.append(
             MarginalResult(
@@ -255,10 +311,4 @@ def operator_marginal_contribution(
             )
         )
 
-    if all_p_values:
-        q_values = benjamini_hochberg(all_p_values)
-        for q_idx, result_idx in enumerate(result_p_index):
-            out[result_idx].q_value = q_values[q_idx]
-            out[result_idx].significant = q_values[q_idx] < 0.05
-
-    return out
+    return out, result_p_index
