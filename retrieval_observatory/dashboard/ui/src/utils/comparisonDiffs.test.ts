@@ -4,6 +4,7 @@ import { OperatorAttributionRow, Recommendation } from '../api'
 
 function attrRow(overrides: Partial<OperatorAttributionRow> & { op_id: string }): OperatorAttributionRow {
   return {
+    pipeline_id: 'p',
     segment: 'all',
     metric: 'recall',
     k: 10,

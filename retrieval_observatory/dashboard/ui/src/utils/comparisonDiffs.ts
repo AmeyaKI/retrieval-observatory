@@ -1,10 +1,17 @@
 import { OperatorAttributionRow, Recommendation } from '../api'
 
+/** Attribution rows are computed per pipeline, so an operator is identified by
+ * pipeline + op_id; two pipelines sharing an op_id are never pooled. */
+export function attributionOpKey(row: Pick<OperatorAttributionRow, 'op_id' | 'pipeline_id'>): string {
+  return row.pipeline_id ? `${row.pipeline_id}:${row.op_id}` : row.op_id
+}
+
 export function bestRowsByOp(rows: OperatorAttributionRow[]): Map<string, OperatorAttributionRow> {
   const m = new Map<string, OperatorAttributionRow>()
   for (const row of rows) {
-    const existing = m.get(row.op_id)
-    if (!existing || row.n_pairs > existing.n_pairs) m.set(row.op_id, row)
+    const key = attributionOpKey(row)
+    const existing = m.get(key)
+    if (!existing || row.n_pairs > existing.n_pairs) m.set(key, row)
   }
   return m
 }

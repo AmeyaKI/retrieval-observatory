@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS metric_scores (
 )
 """
 
+# Dedup guard for metric rows: the engine may recompute a run (e.g. GET .../metrics on a run
+# whose rows were purged), and a second write of the same natural key must not double-count.
+# Expression index so NULL branch_id rows take part; INSERT OR IGNORE honours it.
+_CREATE_METRIC_SCORES_UNIQUE_IDX = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_metric_scores_natural_key ON metric_scores"
+    "(run_id, pipeline_id, query_id, stage_index, metric_name, k, COALESCE(branch_id, ''))"
+)
+
 # Migration: add query_metadata_json to existing databases that predate this column.
 _MIGRATE_METRIC_SCORES_METADATA = (
     "ALTER TABLE metric_scores ADD COLUMN query_metadata_json TEXT DEFAULT NULL"
@@ -319,6 +327,12 @@ class SQLiteStore:
                 await db.execute(_MIGRATE_FORGE_QUERY_METADATA)
             except Exception:
                 pass
+            # Pre-existing databases that already hold duplicate rows cannot take the unique
+            # index; they keep working (INSERT OR IGNORE then only skips exact PK clashes).
+            try:
+                await db.execute(_CREATE_METRIC_SCORES_UNIQUE_IDX)
+            except Exception:
+                pass
             await db.commit()
         self._schema_ready = True
 
@@ -588,9 +602,10 @@ class SQLiteStore:
     async def save_metrics_batch(self, rows: List[Dict]) -> None:
         if not rows:
             return
+        await self._ensure_schema()
         async with self._connect() as db:
             await db.executemany(
-                """INSERT INTO metric_scores
+                """INSERT OR IGNORE INTO metric_scores
                    (run_id, pipeline_id, query_id, stage_index, metric_name, k, value, branch_id, query_metadata_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 [
@@ -1063,10 +1078,10 @@ class SQLiteStore:
                 "s.scenario_type, s.evidence_summary "
                 "FROM forge_queries q "
                 "LEFT JOIN forge_scenarios s ON s.dataset_id = q.dataset_id AND s.scenario_id = q.scenario_id "
-                "WHERE q.query_id = ? LIMIT 1",
+                "WHERE q.query_id = ? ORDER BY q.dataset_id",
                 (query_id,),
             ) as cursor:
-                forge_row = await cursor.fetchone()
+                forge_rows = await cursor.fetchall()
 
             async with db.execute(
                 "SELECT rq.run_id, rq.query_text, rq.dataset_name, r.experiment_name, r.started_at "
@@ -1075,6 +1090,19 @@ class SQLiteStore:
                 (query_id,),
             ) as cursor:
                 eval_rows = await cursor.fetchall()
+
+        # The same query_id can exist in several Test Sets; when the evaluations name the
+        # dataset they ran against (manifest forge_dataset_id), scope the origin to it.
+        known_datasets: List[str] = []
+        for row in eval_rows:
+            manifest = await self.get_run_manifest(row["run_id"]) or {}
+            dataset_id = manifest.get("forge_dataset_id")
+            if dataset_id and dataset_id not in known_datasets:
+                known_datasets.append(dataset_id)
+        forge_row = next(
+            (row for row in forge_rows if row["dataset_id"] in known_datasets),
+            forge_rows[0] if forge_rows else None,
+        )
 
         origin: Dict = {"source": "dataset", "query_text": None, "dataset_name": None, "forge": None}
         if forge_row:
@@ -1148,7 +1176,7 @@ class SQLiteStore:
                 "match_failure_labels": match_failures,
                 "summary": {
                     "trace_count": len(production_traces),
-                    "service_count": len({trace.get("service") for trace in production_traces}),
+                    "service_count": len({trace.get("service_id") for trace in production_traces}),
                     "failure_labels": sorted({label for trace in production_traces for label in trace.get("suspected_failures", [])}),
                 },
                 "traces": production_traces,
@@ -1179,6 +1207,8 @@ class SQLiteStore:
                 continue
             if label_set and not (label_set & set(suspected)):
                 continue
+            d["service"] = trace.service_id
+            d["total_latency_ms"] = trace.timing.wall_clock_ms if trace.timing is not None else 0.0
             d["suspected_failures"] = suspected
             d["predicted_difficulty"] = predicted
             matched.append(d)

@@ -72,6 +72,7 @@ export default function BenchmarksWorkspace({
       docId: match.params.docId,
       isDiff: match.routeId.endsWith('/diff'),
       against: match.query.against,
+      againstDb: match.query.against_db,
       policyPath: match.query.policy_path,
       analysisId: match.params.analysisId,
     }
@@ -117,9 +118,12 @@ export default function BenchmarksWorkspace({
   useEffect(() => {
     if (!activeDbId || deepLink || !runs[0]) return
     if (view === 'compare' && demoContext?.baseline_run_id && demoContext.candidate_run_id) {
+      // The demo run ids belong to the database the manifest sits next to, not to whichever
+      // tab is active in a multi-DB registry.
+      const demoDbId = demoContext.db_id ?? activeDbId
       setSelected([
-        { dbId: activeDbId, runId: demoContext.baseline_run_id },
-        { dbId: activeDbId, runId: demoContext.candidate_run_id },
+        { dbId: demoDbId, runId: demoContext.baseline_run_id },
+        { dbId: demoDbId, runId: demoContext.candidate_run_id },
       ])
       return
     }
@@ -264,6 +268,7 @@ export default function BenchmarksWorkspace({
                 dbId={selected[0].dbId}
                 runId={resolvedRun.run_id}
                 againstRunId={deepLink.against}
+                againstDbId={deepLink.againstDb}
                 queryId={deepLink.queryId}
                 policyPath={deepLink.policyPath}
               />

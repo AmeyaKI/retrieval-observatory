@@ -29,7 +29,7 @@ export default function RunComparisonDeepDiffs({
 
   return (
     <div className="mt-8 space-y-8">
-      <QueryDiffsSection queryDiffs={queryDiffs} runA={runA} />
+      <QueryDiffsSection queryDiffs={queryDiffs} runA={runA} runB={runB} />
       <TopologyDiffSection runA={runA} runB={runB} />
       <AttributionDiffSection runA={runA} runB={runB} />
       <RecommendationDiffSection runA={runA} runB={runB} />
@@ -38,7 +38,21 @@ export default function RunComparisonDeepDiffs({
   )
 }
 
-function QueryDiffsSection({ queryDiffs, runA }: { queryDiffs: QueryDiffs | null | undefined; runA: RunSelection }) {
+/** Delta colouring follows the API orientation: delta = candidate (B) minus baseline (A), so
+ * green always means the candidate scored higher on that query. */
+export function queryDeltaClass(delta: number): string {
+  return delta > 0 ? 'text-emerald-700' : delta < 0 ? 'text-red-600' : 'text-ink-faint'
+}
+
+/** Route for the per-query lineage diff: the candidate run's page, diffed against the
+ * baseline run (and the baseline's database when the two runs live in different stores). */
+export function queryDiffRoute(queryId: string, runA: RunSelection, runB: RunSelection): string {
+  const params = new URLSearchParams({ against: runA.runId })
+  if (runA.dbId !== runB.dbId) params.set('against_db', runA.dbId)
+  return `#/runs/${encodeURIComponent(runB.runId)}/queries/${encodeURIComponent(queryId)}/diff?${params.toString()}`
+}
+
+function QueryDiffsSection({ queryDiffs, runA, runB }: { queryDiffs: QueryDiffs | null | undefined; runA: RunSelection; runB: RunSelection }) {
   return (
     <div>
       <SectionHeading title="Query-level winners & losers" />
@@ -47,15 +61,15 @@ function QueryDiffsSection({ queryDiffs, runA }: { queryDiffs: QueryDiffs | null
       ) : (
         <div>
           <p className="text-xs text-ink-muted mb-2">
-            {queryDiffs.metric} — Run A minus Run B, sorted by magnitude of change.
+            {queryDiffs.metric} — candidate (B) minus baseline (A), sorted by magnitude of change. Green: candidate better.
           </p>
           <table className="w-full text-xs border border-gray-200 dark:border-slate-700 rounded overflow-hidden">
             <thead className="bg-gray-50 dark:bg-slate-800/60">
               <tr className="text-left">
                 <th className="px-3 py-1.5">Query</th>
-                <th className="px-3 py-1.5 text-right">A</th>
-                <th className="px-3 py-1.5 text-right">B</th>
-                <th className="px-3 py-1.5 text-right">Delta</th>
+                <th className="px-3 py-1.5 text-right">A (baseline)</th>
+                <th className="px-3 py-1.5 text-right">B (candidate)</th>
+                <th className="px-3 py-1.5 text-right">B − A</th>
                 <th className="px-3 py-1.5"></th>
               </tr>
             </thead>
@@ -65,12 +79,12 @@ function QueryDiffsSection({ queryDiffs, runA }: { queryDiffs: QueryDiffs | null
                   <td className="px-3 py-1.5 font-mono">{row.query_id}</td>
                   <td className="px-3 py-1.5 text-right font-mono">{row.a.toFixed(3)}</td>
                   <td className="px-3 py-1.5 text-right font-mono">{row.b.toFixed(3)}</td>
-                  <td className={`px-3 py-1.5 text-right font-mono font-semibold ${row.delta > 0 ? 'text-emerald-700' : row.delta < 0 ? 'text-red-600' : 'text-ink-faint'}`}>
+                  <td className={`px-3 py-1.5 text-right font-mono font-semibold ${queryDeltaClass(row.delta)}`}>
                     {row.delta > 0 ? '+' : ''}{row.delta.toFixed(3)}
                   </td>
                   <td className="px-3 py-1.5 text-right">
                     <a
-                      href={`#/runs/${encodeURIComponent(runA.runId)}/queries/${encodeURIComponent(row.query_id)}/diff?against=${encodeURIComponent(queryDiffs.run_b)}`}
+                      href={queryDiffRoute(row.query_id, runA, runB)}
                       className="text-indigo-700 underline underline-offset-2"
                     >
                       diff →

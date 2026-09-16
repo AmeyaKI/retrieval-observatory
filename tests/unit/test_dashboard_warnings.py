@@ -105,6 +105,8 @@ def test_pipeline_graph_reports_fused_arms():
 
 
 def test_stage_contributions_mark_arm_vs_fused_indeterminate_when_fused_zero_signal():
+    # Union layout: the arm sits at depth 0, the fuse it feeds at depth 1 (a depth holding a
+    # branch arm never also holds a spine row).
     metrics = {
         "hybrid|stage0|recall@10|branch=bm25_arm": {
             "pipeline_id": "hybrid",
@@ -114,9 +116,9 @@ def test_stage_contributions_mark_arm_vs_fused_indeterminate_when_fused_zero_sig
             "mean": 0.5,
             "branch_id": "bm25_arm",
         },
-        "hybrid|stage0|recall@10": {
+        "hybrid|stage1|recall@10": {
             "pipeline_id": "hybrid",
-            "stage_index": 0,
+            "stage_index": 1,
             "metric_name": "recall",
             "k": 10,
             "mean": 0.0,
@@ -126,11 +128,13 @@ def test_stage_contributions_mark_arm_vs_fused_indeterminate_when_fused_zero_sig
     metrics_rows = [
         {"query_id": "q1", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": "bm25_arm", "metric_name": "recall", "k": 10, "value": 1.0},
         {"query_id": "q2", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": "bm25_arm", "metric_name": "recall", "k": 10, "value": 0.0},
-        {"query_id": "q1", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.0},
-        {"query_id": "q2", "pipeline_id": "hybrid", "stage_index": 0, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.0},
+        {"query_id": "q1", "pipeline_id": "hybrid", "stage_index": 1, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.0},
+        {"query_id": "q2", "pipeline_id": "hybrid", "stage_index": 1, "branch_id": None, "metric_name": "recall", "k": 10, "value": 0.0},
     ]
     contributions = _compute_stage_contributions(metrics, metrics_rows)
     arm = next(c for c in contributions if c["comparison_tier"] == "within_stage_arm")
+    assert arm["to_pipeline"] == "hybrid:stage1:fused"
+    assert arm["fuse_stage_index"] == 1
     recall_delta = arm["deltas"]["recall@10"]
     assert arm["indeterminate"] is True
     assert recall_delta["indeterminate"] is True
