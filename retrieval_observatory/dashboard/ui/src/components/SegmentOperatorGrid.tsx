@@ -63,12 +63,15 @@ export default function SegmentOperatorGrid({ dbId, runId, onSelectOp }: Props) 
   }, [dbId, runId, metric, k])
 
   const segments = useMemo(() => Array.from(new Set(rows.map((r) => r.segment))).sort(), [rows])
-  const ops = useMemo(() => Array.from(new Set(rows.map((r) => r.op_id))).sort(), [rows])
+  // Rows are per pipeline; qualify the operator with its pipeline when a run has several.
+  const multiPipeline = useMemo(() => new Set(rows.map((r) => r.pipeline_id)).size > 1, [rows])
+  const opKey = (r: OperatorAttributionRow) => (multiPipeline && r.pipeline_id ? `${r.pipeline_id}:${r.op_id}` : r.op_id)
+  const ops = useMemo(() => Array.from(new Set(rows.map(opKey))).sort(), [rows, multiPipeline])
   const byKey = useMemo(() => {
     const m = new Map<string, OperatorAttributionRow>()
-    for (const r of rows) m.set(`${r.op_id}|${r.segment}`, r)
+    for (const r of rows) m.set(`${opKey(r)}|${r.segment}`, r)
     return m
-  }, [rows])
+  }, [rows, multiPipeline])
 
   if (rows.length === 0) return <NoData label="No operator attribution available for this run." />
 
@@ -102,12 +105,12 @@ export default function SegmentOperatorGrid({ dbId, runId, onSelectOp }: Props) 
           </thead>
           <tbody className="divide-y divide-gray-100">
             {ops.map((opId) => {
-              const firstRow = rows.find((r) => r.op_id === opId)
+              const firstRow = rows.find((r) => opKey(r) === opId)
               return (
                 <tr
                   key={opId}
                   className="hover:bg-blue-50 cursor-pointer"
-                  onClick={() => onSelectOp?.(opId)}
+                  onClick={() => onSelectOp?.(firstRow?.op_id ?? opId)}
                 >
                   <td className="px-3 py-2 font-mono sticky left-0 bg-white dark:bg-slate-900 z-10">{opId}</td>
                   <td className="px-3 py-2 text-right text-gray-500 dark:text-slate-400">

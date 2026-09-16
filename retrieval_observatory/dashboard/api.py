@@ -4,7 +4,7 @@ import json
 import os
 import shutil
 import uuid
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
@@ -24,6 +24,8 @@ from retrieval_observatory.metrics.diagnostics import aggregate_diagnostics
 from retrieval_observatory.metrics.significance import benjamini_hochberg, bootstrap_ci, paired_bootstrap_test
 from retrieval_observatory.dashboard.registry import DbRegistry, hosted_read_only
 from retrieval_observatory.store.base import TraceQuery
+from retrieval_observatory.store.postgres import PostgresStore
+from retrieval_observatory.store.sqlite import SQLiteStore
 from retrieval_observatory.tracing.attribution import operator_marginal_contribution
 from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.types import Document, StageSnapshot
@@ -184,12 +186,135 @@ def _pipeline_results_from_traces(traces: List[RetrievalTrace]) -> List[_CompatR
     return results
 
 
+# Top-level keys the Production UI reads from a production trace (ui/src/api.ts TraceRow /
+# TraceDetail, components/tracelens/LiveTraces.tsx, TraceDetail.tsx). The production
+# endpoints map every trace through _monitor_trace so this shape cannot drift silently;
+# tests/unit/test_dashboard_production_contract.py asserts it against real responses.
+PRODUCTION_TRACE_ROW_KEYS = frozenset({
+    "trace_id", "service", "service_id", "query_id", "query_text", "pipeline_id", "status",
+    "total_latency_ms", "timestamp", "predicted_difficulty", "suspected_failures", "metadata",
+})
+PRODUCTION_TRACE_DETAIL_KEYS = PRODUCTION_TRACE_ROW_KEYS | {"stages", "spans", "timing"}
+PRODUCTION_TRACE_STAGE_KEYS = frozenset({"stage_index", "stage_id", "latency_ms", "candidate_count", "documents"})
+PRODUCTION_SERVICE_KEYS = frozenset({"service", "service_id", "trace_count", "last_seen"})
+
+
 def _monitor_trace(trace: RetrievalTrace) -> Dict[str, Any]:
+    """Flatten a trace into the shape the Production UI consumes.
+
+    Keeps the raw ``spans``/``timing``/``metadata`` from ``to_dict`` so the monitor analytics
+    (distribution, drift, hotspots, clusters) keep reading them, and adds the flattened
+    fields (``service``, ``total_latency_ms``, ``predicted_difficulty``,
+    ``suspected_failures``, ``stages``) the list/detail views render.
+    """
     payload = trace.to_dict()
-    payload["total_latency_ms"] = trace.timing.wall_clock_ms
-    payload.setdefault("predicted_difficulty", trace.metadata.get("predicted_difficulty"))
-    payload.setdefault("suspected_failures", trace.metadata.get("suspected_failures", []))
+    payload["service"] = trace.service_id
+    payload["total_latency_ms"] = (
+        trace.timing.wall_clock_ms if trace.timing is not None else sum(span.latency_ms for span in trace.spans)
+    )
+    payload["predicted_difficulty"] = trace.metadata.get("predicted_difficulty")
+    payload["suspected_failures"] = list(trace.metadata.get("suspected_failures", []) or [])
+    payload["stages"] = [
+        {
+            "stage_index": index,
+            "stage_id": span.op_id,
+            "op_type": span.op_type,
+            "status": span.status,
+            "latency_ms": span.latency_ms,
+            "candidate_count": len(span.outputs),
+            "documents": [
+                {"id": candidate.doc_id, "score": candidate.score, "rank": candidate.rank}
+                for candidate in span.outputs
+            ],
+        }
+        for index, span in enumerate(trace.spans)
+    ]
     return payload
+
+
+class _AggregateCache:
+    """Small in-process LRU for ``MetricsEngine.aggregate`` keyed by (db_id, run_id, metric-row count).
+
+    Metric rows are append-only, so a run's row count is a sufficient fingerprint: a recompute
+    or a new pipeline adds rows and busts the entry. Bootstrap CIs dominate aggregate cost
+    (seconds on a 30k-row run), and every run page fans out to several endpoints that all
+    need the same aggregate.
+    """
+
+    def __init__(self, engine: MetricsEngine, maxsize: int = 32):
+        self._engine = engine
+        self._maxsize = maxsize
+        self._entries: "OrderedDict[tuple, Dict[str, Any]]" = OrderedDict()
+
+    @staticmethod
+    async def _row_count(store: Any, run_id: str) -> int | None:
+        try:
+            if isinstance(store, SQLiteStore):
+                async with store._connect() as db:
+                    async with db.execute(
+                        "SELECT COUNT(*) FROM metric_scores WHERE run_id = ?", (run_id,)
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+            if isinstance(store, PostgresStore):
+                pool = await store._get_pool()
+                async with pool.acquire() as conn:
+                    return int(await conn.fetchval("SELECT COUNT(*) FROM metric_scores WHERE run_id = $1", run_id))
+        except Exception:
+            return None
+        return None
+
+    async def get(self, db_id: str, run_id: str, store: Any) -> Dict[str, Any]:
+        async def compute() -> Dict[str, Any]:
+            return await self._engine.aggregate(run_id, store)
+
+        return dict(await self.cached(db_id, run_id, store, "aggregate", compute))
+
+    async def cached(self, db_id: str, run_id: str, store: Any, name: str, compute: Any) -> Any:
+        """Memoise any pure derivation of a run's metric rows under the same fingerprint."""
+        count = await self._row_count(store, run_id)
+        if count is None:
+            return await compute()
+        key = (db_id, run_id, count, name)
+        if key in self._entries:
+            self._entries.move_to_end(key)
+            return self._entries[key]
+        value = await compute()
+        self._entries[key] = value
+        while len(self._entries) > self._maxsize:
+            self._entries.popitem(last=False)
+        return value
+
+
+class _MetricsCaptureStore:
+    """Read-through proxy that keeps freshly computed metric rows in memory.
+
+    Used by ``GET .../metrics`` on a read-only registry: the engine can compute metrics from
+    traces without the store ever seeing a write.
+    """
+
+    def __init__(self, store: Any):
+        self._store = store
+        self.rows: List[Dict[str, Any]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    async def save_metrics_batch(self, rows: List[Dict[str, Any]]) -> None:
+        self.rows.extend(rows)
+
+    async def save_metric(self, **row: Any) -> None:
+        row["query_metadata_json"] = row.pop("query_metadata", None)
+        self.rows.append(row)
+
+    async def get_metrics(self, run_id: str) -> List[Dict[str, Any]]:
+        persisted = await self._store.get_metrics(run_id)
+        captured = [
+            {**row, "query_metadata": row.get("query_metadata_json") or {}}
+            for row in self.rows
+            if row.get("run_id") == run_id
+        ]
+        return persisted + captured
 
 
 def _comparability_report(manifests: List[Dict[str, Any] | None]) -> Dict[str, Any]:
@@ -244,12 +369,26 @@ async def _query_diffs(
     scores_a = _scores_for(metrics_a, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
     scores_b = _scores_for(metrics_b, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
     common = sorted(set(scores_a) & set(scores_b))
+    # delta = candidate - baseline, matching orientation.effect == "candidate_minus_baseline"
+    # on the comparison payload: positive means the candidate scored higher on that query.
     rows = [
-        {"query_id": qid, "a": scores_a[qid], "b": scores_b[qid], "delta": scores_a[qid] - scores_b[qid]}
+        {"query_id": qid, "a": scores_a[qid], "b": scores_b[qid], "delta": scores_b[qid] - scores_a[qid]}
         for qid in common
     ]
     rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
-    return {"metric": metric_key, "run_a": run_a, "run_b": run_b, "rows": rows[:50]}
+    return {
+        "metric": metric_key,
+        "run_a": run_a,
+        "run_b": run_b,
+        "orientation": {
+            "a": "baseline",
+            "b": "candidate",
+            "effect": "candidate_minus_baseline",
+            "baseline": {"db_id": db_a, "run_id": run_a},
+            "candidate": {"db_id": db_b, "run_id": run_b},
+        },
+        "rows": rows[:50],
+    }
 
 
 async def _build_comparison(
@@ -257,6 +396,7 @@ async def _build_comparison(
     registry: DbRegistry,
     engine: MetricsEngine,
     policy_path: str | None = None,
+    aggregate_cache: "_AggregateCache | None" = None,
 ) -> Dict[str, Any]:
     """Compare runs across one or more databases. selections: [(db_id, run_id), ...]."""
     if len(selections) < 2:
@@ -277,7 +417,11 @@ async def _build_comparison(
     metric_rows: Dict[str, List[Dict[str, Any]]] = {}
     for (db_id, run_id), key in zip(selections, keys):
         store = registry.get_store(db_id)
-        aggregated[key] = await engine.aggregate(run_id, store)
+        aggregated[key] = (
+            await aggregate_cache.get(db_id, run_id, store)
+            if aggregate_cache is not None
+            else await engine.aggregate(run_id, store)
+        )
         metric_rows[key] = await store.get_metrics(run_id)
 
     # Decision-relevant rows first: a plain sort buries terminal-stage quality behind every
@@ -345,7 +489,7 @@ async def _build_comparison(
         )
         decision = decide_release(policy, assessment, aggregate_guards, slices)
         candidate_run_id = selections[1][1]
-        baseline_run_id = selections[0][1]
+        baseline_db_id, baseline_run_id = selections[0]
         affected_query_ids = [row["query_id"] for row in (query_diffs or {}).get("rows", [])]
         release_decision = {
             "schema_version": 1,
@@ -356,6 +500,7 @@ async def _build_comparison(
                 "diff_route_template": (
                     f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
                     f"{quote(str(baseline_run_id), safe='')}"
+                    f"&against_db={quote(str(baseline_db_id), safe='')}"
                     + (
                         f"&policy_path={quote(policy_path, safe='')}"
                         if policy_path
@@ -503,7 +648,11 @@ def create_app(
         return {"status": "ok", "read_only": _read_only, "databases": len(registry.list_db_ids())}
 
     engine = MetricsEngine()
+    aggregate_cache = _AggregateCache(engine)
     default_store = registry.get_store(registry.default_db_id)  # type: ignore[arg-type]
+
+    async def _aggregate(db_id: str, run_id: str, store: Any) -> Dict[str, Any]:
+        return await aggregate_cache.get(db_id, run_id, store)
 
     # In-process benchmark job tracking. Runs are triggered via POST /dbs/{db_id}/runs and
     # execute in the background (execute_benchmark is async); status is polled via
@@ -529,7 +678,18 @@ def create_app(
     async def get_demo_context() -> Dict[str, Any]:
         from retrieval_observatory.dashboard.demo_context import find_demo_context_for_registry
 
-        return find_demo_context_for_registry(registry.db_paths)
+        context = find_demo_context_for_registry(registry.db_paths)
+        if not context:
+            return context
+        demo_path = context.get("db_path")
+        for candidate_db_id in registry.list_db_ids():
+            if registry.get(candidate_db_id).path == demo_path:
+                context["db_id"] = candidate_db_id
+                break
+        if registry.read_only or _read_only:
+            # Hosted read-only mode never reveals container filesystem paths.
+            context.pop("db_path", None)
+        return context
 
     @app.post("/compare")
     async def compare_runs_endpoint(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
@@ -572,6 +732,7 @@ def create_app(
                 registry,
                 engine,
                 policy_path=policy_path,
+                aggregate_cache=aggregate_cache,
             )
         except (OSError, TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"Invalid local release policy: {exc}") from exc
@@ -682,6 +843,7 @@ def create_app(
                 registry,
                 engine,
                 policy_path=req.policy_path,
+                aggregate_cache=aggregate_cache,
             )
         except (OSError, TypeError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=f"Invalid local release policy: {exc}") from exc
@@ -689,13 +851,20 @@ def create_app(
     @db_router.get("/runs/{run_id}/metrics")
     async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:
         store = _store_for(db_id)
-        agg = await engine.aggregate(run_id, store)
+        agg = await _aggregate(db_id, run_id, store)
         if not agg:
             traces = await store.list_traces(TraceQuery(run_id=run_id))
             if traces:
                 qrels = await _resolve_qrels(store, run_id)
-                await engine.compute_from_traces(run_id, store, traces, qrels)
-                agg = await engine.aggregate(run_id, store)
+                if registry.read_only or _read_only:
+                    # A read-only store must never be written by a GET: compute the rows into
+                    # an in-memory sink and aggregate from there.
+                    sink = _MetricsCaptureStore(store)
+                    await engine.compute_from_traces(run_id, sink, traces, qrels)
+                    agg = await engine.aggregate(run_id, sink)
+                else:
+                    await engine.compute_from_traces(run_id, store, traces, qrels)
+                    agg = await _aggregate(db_id, run_id, store)
         if not include_branches:
             agg = {k: v for k, v in agg.items() if not v.get("branch_id")}
         if not agg:
@@ -944,11 +1113,19 @@ def create_app(
         runs = [run for run in await store.list_runs() if run["run_id"] == run_id]
         if not runs:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
-        metrics = await engine.aggregate(run_id, store)
+        metrics = await _aggregate(db_id, run_id, store)
         metrics_rows = await store.get_metrics(run_id)
         diagnostics = await store.get_query_diagnostics(run_id)
         manifest = await store.get_run_manifest(run_id)
         best = _headline_winner(metrics)
+
+        async def _stage_contributions() -> List[Dict[str, Any]]:
+            # Paired bootstrap tests over every layer and arm dominate /overview; the result
+            # is a pure function of the run's metric rows, so it shares the aggregate memo.
+            parent_map = await _pipeline_parent_map(store, run_id, metrics)
+            return _compute_stage_contributions(metrics, metrics_rows, parent_map=parent_map)
+
+        stage_contributions = await aggregate_cache.cached(db_id, run_id, store, "stage_contributions", _stage_contributions)
         report = build_run_report(
             run_id=run_id,
             experiment_name=runs[0].get("experiment_name", run_id),
@@ -964,7 +1141,7 @@ def create_app(
             "diagnostics": aggregate_diagnostics(diagnostics),
             "manifest": manifest,
             "warnings": _overview_warnings(metrics, diagnostics, manifest),
-            "stage_contributions": _compute_stage_contributions(metrics, metrics_rows),
+            "stage_contributions": stage_contributions,
         }
 
     @db_router.get("/runs/{run_id}/report")
@@ -976,7 +1153,7 @@ def create_app(
     @db_router.get("/runs/{run_id}/queries/{query_id}")
     async def get_query_result(db_id: str, run_id: str, query_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
-        traces = await store.list_traces(TraceQuery(run_id=run_id))
+        traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id))
         results = [r for r in _pipeline_results_from_traces(traces) if r.query_id == query_id]
         diagnostics = [finding.to_dict() for finding in await store.query_diagnostics(run_id, query_id=query_id)]
         return {
@@ -1043,7 +1220,10 @@ def create_app(
         query_id: str,
         against: str,
         policy_path: str | None = None,
+        against_db_id: str | None = None,
     ) -> Dict[str, Any]:
+        """Stage-level lineage diff of one query between a candidate run (this db) and a baseline
+        run read from ``against_db_id`` (default: the same database)."""
         from dataclasses import asdict
 
         from retrieval_observatory.release.assessment import assess_evidence
@@ -1053,10 +1233,12 @@ def create_app(
 
         _reject_policy_path(policy_path)
         store = _store_for(db_id)
+        baseline_db_id = against_db_id or db_id
+        baseline_store = _store_for(baseline_db_id)
         candidate_traces = await store.list_traces(
             TraceQuery(run_id=run_id, query_id=query_id)
         )
-        baseline_traces = await store.list_traces(
+        baseline_traces = await baseline_store.list_traces(
             TraceQuery(run_id=against, query_id=query_id)
         )
         if not candidate_traces or not baseline_traces:
@@ -1065,7 +1247,7 @@ def create_app(
                 detail="Both selected runs must contain traces for the paired query.",
             )
 
-        baseline_manifest = await store.get_run_manifest(against) or {}
+        baseline_manifest = await baseline_store.get_run_manifest(against) or {}
         candidate_manifest = await store.get_run_manifest(run_id) or {}
         try:
             policy = load_release_policy(policy_path) if policy_path else None
@@ -1077,7 +1259,7 @@ def create_app(
         readiness = assess_evidence(
             policy, baseline_manifest, candidate_manifest
         ).readiness["lineage_diff"]
-        baseline_qrels = (await _resolve_qrels(store, against)).get(query_id, {})
+        baseline_qrels = (await _resolve_qrels(baseline_store, against)).get(query_id, {})
         candidate_qrels = (await _resolve_qrels(store, run_id)).get(query_id, {})
 
         def mapping_complete(manifest: Dict[str, Any]) -> bool:
@@ -1185,7 +1367,9 @@ def create_app(
 
         return {
             "baseline_run_id": against,
+            "baseline_db_id": baseline_db_id,
             "candidate_run_id": run_id,
+            "candidate_db_id": db_id,
             "query_id": query_id,
             "readiness": readiness_payload,
             "diffs": diffs,
@@ -1393,7 +1577,7 @@ def create_app(
     @db_router.get("/runs/{run_id}/stage-matrix")
     async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
-        agg = await engine.aggregate(run_id, store)
+        agg = await _aggregate(db_id, run_id, store)
         run_rows = [run for run in await store.list_runs() if run["run_id"] == run_id]
         config = json.loads(run_rows[0]["config_json"]) if run_rows else {}
         costs = config.get("costs", {})
@@ -1407,7 +1591,7 @@ def create_app(
     @db_router.get("/runs/{run_id}/pareto-frontier")
     async def get_pareto_frontier(db_id: str, run_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
-        agg = await engine.aggregate(run_id, store)
+        agg = await _aggregate(db_id, run_id, store)
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
 
@@ -1532,15 +1716,17 @@ def create_app(
         k: int = 10,
     ) -> List[Dict[str, Any]]:
         _bound("k", k, 1, 1000)
+        from retrieval_observatory.tracing.attribution import _SUPPORTED_METRICS
+
+        if metric.lower() not in _SUPPORTED_METRICS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unsupported metric '{metric}'. Use one of {sorted(_SUPPORTED_METRICS)}",
+            )
         store = _store_for(db_id)
         traces = await store.list_traces(TraceQuery(run_id=run_id))
         qrels = await _resolve_qrels(store, run_id)
-        op_ids = sorted({span.op_id for trace in traces for span in trace.spans})
-        out: List[Dict[str, Any]] = []
-        for op_id in op_ids:
-            for result in operator_marginal_contribution(traces, op_id=op_id, qrels=qrels, metric=metric, k=k):
-                out.append(result.__dict__)
-        return out
+        return _operator_attribution_rows(traces, qrels, metric=metric, k=k)
 
     @db_router.get("/runs/{run_id}/pipeline-graph")
     async def get_pipeline_graph(db_id: str, run_id: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
@@ -1550,7 +1736,7 @@ def create_app(
         from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
 
         store = _store_for(db_id)
-        agg = await engine.aggregate(run_id, store)
+        agg = await _aggregate(db_id, run_id, store)
         traces = await store.list_traces(TraceQuery(run_id=run_id))
         graphs = build_pipeline_graphs(
             agg,
@@ -1569,23 +1755,7 @@ def create_app(
         pipelines = graph_response["pipelines"]
         if not pipelines:
             raise HTTPException(status_code=404, detail=f"No traces for run '{run_id}'")
-        nodes = [
-            {
-                "op_id": node["node_id"],
-                "op_type": node["op_type"],
-                "op_name": node["label"],
-                "fire_rate": node["fire_rate"],
-                "avg_latency_ms": node["latency"]["mean_ms"],
-            }
-            for pipeline in pipelines
-            for node in pipeline["nodes"]
-        ]
-        edges = [
-            {"source": edge["source"], "target": edge["target"]}
-            for pipeline in pipelines
-            for edge in pipeline["edges"]
-        ]
-        return {"nodes": nodes, "edges": edges}
+        return _operator_dag_from_pipelines(pipelines)
 
     @db_router.get("/runs/{run_id}/traces/{trace_id}/operator/{op_id}/diff")
     async def get_operator_diff(
@@ -1862,7 +2032,7 @@ def create_app(
                 dataset = next((item for item in datasets if item["dataset_id"] == dataset_id), {})
                 return {
                     "test_set_id": dataset_id,
-                    "provenance": dataset.get("provenance") or dataset.get("metadata") or {},
+                    "provenance": _forge_provenance(dataset, hide_paths=registry.read_only or _read_only),
                     "items": items,
                     "total": len(all_items),
                     "limit": limit,
@@ -1999,7 +2169,8 @@ def create_app(
         from retrieval_observatory.experimental.advisor.recommend import compute_reliability
 
         store = _evidence_store(db_id)
-        score = await compute_reliability(run_id, store, engine=engine)
+        # A GET must not write: the snapshot history is appended by the run/advisor CLI paths.
+        score = await compute_reliability(run_id, store, engine=engine, persist=False)
         return {"run_id": run_id, **score.as_dict()}
 
     @app.get("/dbs/{db_id}/advisor/reliability/history")
@@ -2050,7 +2221,10 @@ def create_app(
     async def list_trace_services(db_id: str = "") -> List[Dict[str, Any]]:
         store = _production_store(db_id)
         if store and hasattr(store, "list_services"):
-            return [_dataclass_asdict(summary) for summary in await store.list_services()]
+            return [
+                {**_dataclass_asdict(summary), "service": summary.service_id}
+                for summary in await store.list_services()
+            ]
         return []
 
     @app.get("/dbs/{db_id}/production/services/{service_id}/instrumentation-health")
@@ -2094,15 +2268,29 @@ def create_app(
         _bound("offset", offset, 0, 1_000_000)
         store = _production_store(db_id)
         if store and hasattr(store, "list_traces"):
-            base = TraceQuery(
-                service_id=service_id,
-                since=_iso_or_422("since", since),
-                until=_iso_or_422("until", until),
-                status=status or None, limit=limit, offset=offset)
-            traces = await store.list_traces(base)
-            all_matches = await store.list_traces(TraceQuery(service_id=service_id, since=base.since, until=base.until, status=base.status))
-            total = len(all_matches)
-            return {"items": [trace.to_dict() for trace in traces], "total": total, "limit": limit, "offset": offset, "next_offset": offset + len(traces) if offset + len(traces) < total else None}
+            matches = await store.list_traces(
+                TraceQuery(
+                    service_id=service_id,
+                    since=_iso_or_422("since", since),
+                    until=_iso_or_422("until", until),
+                    status=status or None,
+                )
+            )
+            # difficulty / suspected_only live in trace metadata, so they filter in Python
+            # over the window; total reflects the filtered count.
+            if difficulty:
+                matches = [t for t in matches if t.metadata.get("predicted_difficulty") == difficulty]
+            if suspected_only:
+                matches = [t for t in matches if t.metadata.get("suspected_failures")]
+            total = len(matches)
+            page = matches[offset:offset + limit]
+            return {
+                "items": [_monitor_trace(trace) for trace in page],
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "next_offset": offset + len(page) if offset + len(page) < total else None,
+            }
         return {"items": [], "total": 0, "limit": limit, "offset": offset, "next_offset": None}
 
     @app.get("/dbs/{db_id}/production/topology-variants")
@@ -2122,7 +2310,7 @@ def create_app(
         if store and hasattr(store, "get_trace"):
             t = await store.get_trace(trace_id)
             if t:
-                return t.to_dict()
+                return _monitor_trace(t)
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
 
     @app.get("/dbs/{db_id}/production/summary")
@@ -2388,7 +2576,8 @@ def create_app(
         await _execute_config_run(candidate_cfg, candidate_run_id, max_queries, config_base_dir)
 
         result = await _build_comparison(
-            [(db_id, baseline_run_id), (db_id, candidate_run_id)], registry, engine
+            [(db_id, baseline_run_id), (db_id, candidate_run_id)], registry, engine,
+            aggregate_cache=aggregate_cache,
         )
         significant = any(
             entry.get("p_value") is not None and entry["p_value"] < 0.05
@@ -2411,7 +2600,7 @@ def create_app(
         from retrieval_observatory.pipeline.graph_projection import build_pipeline_graphs
 
         store = _store_for(db_id)
-        agg = await engine.aggregate(run_id, store)
+        agg = await _aggregate(db_id, run_id, store)
         if not agg:
             raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
         traces = await store.list_traces(TraceQuery(run_id=run_id))
@@ -2420,12 +2609,11 @@ def create_app(
                 status_code=404,
                 detail=f"Run '{run_id}' has no execution traces yet -- no diagram to render.",
             )
-        graphs = build_pipeline_graphs(agg, traces)
-        operator_dag = await get_operator_dag(db_id, run_id)
+        pipelines = [g.to_dict() for g in build_pipeline_graphs(agg, traces)]
         return {
             "run_id": run_id,
-            "pipelines": [g.to_dict() for g in graphs],
-            "operator_dag": operator_dag,
+            "pipelines": pipelines,
+            "operator_dag": _operator_dag_from_pipelines(pipelines),
         }
 
     @app.get("/config/schema")
@@ -2622,8 +2810,17 @@ def _overview_warnings(metrics: Dict[str, Any], diagnostics: List[Dict], manifes
     return warnings
 
 
-def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dict]) -> List[Dict]:
-    """Return cross-pipeline, within-pipeline, and fused-arm ablation deltas."""
+def _compute_stage_contributions(
+    metrics: Dict[str, Any],
+    metrics_rows: List[Dict],
+    parent_map: Dict[str, Dict[str, set]] | None = None,
+) -> List[Dict]:
+    """Return cross-pipeline, within-pipeline, and fused-arm ablation deltas.
+
+    ``parent_map`` (pipeline_id -> op_id -> declared parent op_ids) lets arm-vs-fused rows pair
+    each branch arm with the spine node it actually feeds. Without it, an arm at depth d is
+    paired with the nearest spine depth > d, which is right for every simple fan-in.
+    """
     pipeline_ids = sorted({v.get("pipeline_id") for v in metrics.values() if v.get("pipeline_id")})
     prefix_pairs = pipeline_pairs(pipeline_ids)
 
@@ -2641,6 +2838,13 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
 
     quality_metrics = {"recall", "ndcg", "mrr", "map"}
     contributions: List[Dict[str, Any]] = []
+
+    # Index per-query scores once: (pipeline, stage, branch, metric, k) -> {query_id: value}.
+    # _build_delta runs for every layer x metric, and scanning the full row list each time is
+    # the dominant cost of /overview on runs with tens of thousands of metric rows.
+    scores_index: Dict[tuple, Dict[str, float]] = defaultdict(dict)
+    for row in metrics_rows:
+        scores_index[(row["pipeline_id"], row["stage_index"], row.get("branch_id"), row["metric_name"], row["k"])][row["query_id"]] = row["value"]
 
     def _build_delta(
         before_id: str,
@@ -2674,24 +2878,8 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
             absolute = a_mean - b_mean
             pct = (absolute / b_mean * 100) if b_mean != 0 else 0.0
 
-            b_scores = {
-                r["query_id"]: r["value"]
-                for r in metrics_rows
-                if r["pipeline_id"] == before_id
-                and r["stage_index"] == before_stage
-                and r.get("branch_id") == before_branch
-                and r["metric_name"] == mname
-                and r["k"] == k
-            }
-            a_scores = {
-                r["query_id"]: r["value"]
-                for r in metrics_rows
-                if r["pipeline_id"] == after_id
-                and r["stage_index"] == after_stage
-                and r.get("branch_id") == after_branch
-                and r["metric_name"] == mname
-                and r["k"] == k
-            }
+            b_scores = scores_index.get((before_id, before_stage, before_branch, mname, k), {})
+            a_scores = scores_index.get((after_id, after_stage, after_branch, mname, k), {})
             shared = sorted(set(b_scores) & set(a_scores))
             p = None
             indeterminate = False
@@ -2742,12 +2930,13 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 if mname == "latency_p50" and k == 0:
                     return metrics[fk]["mean"]
             rows = [
-                r["value"]
-                for r in metrics_rows
-                if r["pipeline_id"] == metric_pipeline_id
-                and r["stage_index"] == metric_stage
-                and r.get("branch_id") == branch
-                and r["metric_name"] == "latency_ms"
+                value
+                for (pipeline_id, stage_index, branch_id, metric_name, _k), scores in scores_index.items()
+                if pipeline_id == metric_pipeline_id
+                and stage_index == metric_stage
+                and branch_id == branch
+                and metric_name == "latency_ms"
+                for value in scores.values()
             ]
             if rows:
                 return _percentile(rows, 50)
@@ -2780,7 +2969,11 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
 
     for pid, stages in keys_by_pipeline.items():
         ordered = sorted(s for s in stages if s >= 0)
+        branch_depths = sorted(d for d in keys_by_pipeline_branch.get(pid, {}) if d >= 0)
         for before_stage, after_stage in zip(ordered, ordered[1:]):
+            # Consecutive spine depths; a depth holding only parallel arms has no spine
+            # row, so the layer's effect is reported across it and labelled honestly.
+            via_branch_depths = [d for d in branch_depths if before_stage < d < after_stage]
             deltas, lat_before, lat_after, has_indeterminate = _build_delta(pid, before_stage, None, pid, after_stage, None)
             contributions.append(
                 {
@@ -2788,6 +2981,8 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                     "from_pipeline": f"{pid}:stage{before_stage}",
                     "to_pipeline": f"{pid}:stage{after_stage}",
                     "pipeline_id": pid,
+                    "via_branch_depths": via_branch_depths,
+                    "spans_branch_layer": bool(via_branch_depths),
                     "deltas": deltas,
                     "latency_p50_before_ms": lat_before,
                     "latency_p50_after_ms": lat_after,
@@ -2797,16 +2992,23 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
             )
 
     for pid, stages in keys_by_pipeline_branch.items():
-        for stage_index, branches in stages.items():
+        spine_depths = sorted(s for s in keys_by_pipeline.get(pid, {}) if s >= 0)
+        for stage_index, branches in sorted(stages.items()):
             for branch_id in sorted(branches):
-                deltas, lat_before, lat_after, has_indeterminate = _build_delta(pid, stage_index, branch_id, pid, stage_index, None)
+                pairing = _fuse_stage_for_arm(pid, stage_index, branch_id, spine_depths, parent_map)
+                if pairing is None:
+                    continue
+                fuse_stage, pairing_basis = pairing
+                deltas, lat_before, lat_after, has_indeterminate = _build_delta(pid, stage_index, branch_id, pid, fuse_stage, None)
                 contributions.append(
                     {
                         "comparison_tier": "within_stage_arm",
                         "from_pipeline": f"{pid}:stage{stage_index}:{branch_id}",
-                        "to_pipeline": f"{pid}:stage{stage_index}:fused",
+                        "to_pipeline": f"{pid}:stage{fuse_stage}:fused",
                         "pipeline_id": pid,
                         "stage_index": stage_index,
+                        "fuse_stage_index": fuse_stage,
+                        "pairing_basis": pairing_basis,
                         "branch_id": branch_id,
                         "deltas": deltas,
                         "latency_p50_before_ms": lat_before,
@@ -2817,6 +3019,192 @@ def _compute_stage_contributions(metrics: Dict[str, Any], metrics_rows: List[Dic
                 )
 
     return contributions
+
+
+def _union_depths(parents: Dict[str, Any]) -> Dict[str, int]:
+    """Longest-path depth of every op over declared parent ids -- the same layout rule
+    MetricsEngine.compute_from_traces uses, so depths line up with metric stage_index."""
+    cache: Dict[str, int] = {}
+
+    def depth(op_id: str, visiting: frozenset) -> int:
+        if op_id in cache:
+            return cache[op_id]
+        if op_id in visiting:
+            return 0
+        known = [parent for parent in parents.get(op_id, ()) if parent in parents]
+        value = 0 if not known else 1 + max(depth(parent, visiting | {op_id}) for parent in known)
+        cache[op_id] = value
+        return value
+
+    return {op_id: depth(op_id, frozenset()) for op_id in parents}
+
+
+def _fuse_stage_for_arm(
+    pipeline_id: str,
+    depth: int,
+    branch_id: str,
+    spine_depths: List[int],
+    parent_map: Dict[str, Dict[str, set]] | None,
+) -> tuple[int, str] | None:
+    """Spine depth an arm should be ablated against: the shallowest spine node downstream of
+    the arm (the fuse it feeds). Returns (stage_index, basis) or None when nothing is deeper."""
+    deeper = [stage for stage in spine_depths if stage > depth]
+    if not deeper:
+        return None
+    parents = (parent_map or {}).get(pipeline_id) or {}
+    if branch_id not in parents:
+        return deeper[0], "depth_order"
+    depths = _union_depths(parents)
+    ops_by_depth: Dict[int, List[str]] = defaultdict(list)
+    for op_id, op_depth in depths.items():
+        ops_by_depth[op_depth].append(op_id)
+    children: Dict[str, set] = defaultdict(set)
+    for op_id, op_parents in parents.items():
+        for parent in op_parents:
+            children[parent].add(op_id)
+    reachable: set = set()
+    stack = [branch_id]
+    while stack:
+        current = stack.pop()
+        for child in children.get(current, ()):
+            if child not in reachable:
+                reachable.add(child)
+                stack.append(child)
+    for stage in deeper:
+        ops = ops_by_depth.get(stage, [])
+        if len(ops) == 1 and ops[0] in reachable:
+            return stage, "topology"
+    return deeper[0], "depth_order"
+
+
+async def _pipeline_parent_map(store: Any, run_id: str, metrics: Dict[str, Any], sample: int = 25) -> Dict[str, Dict[str, set]]:
+    """Declared parent ids per op for every pipeline that has branch metrics, from a bounded
+    trace sample (topology is declared per span, so a handful of traces is enough)."""
+    branched = sorted({v.get("pipeline_id") for v in metrics.values() if v.get("branch_id") and v.get("pipeline_id")})
+    out: Dict[str, Dict[str, set]] = {}
+    for pipeline_id in branched:
+        try:
+            traces = await store.list_traces(TraceQuery(run_id=run_id, pipeline_id=pipeline_id, limit=sample))
+        except Exception:
+            continue
+        parents: Dict[str, set] = {}
+        for trace in traces:
+            for span in trace.spans:
+                parents.setdefault(span.op_id, set()).update(span.parent_ids)
+        if parents:
+            out[pipeline_id] = parents
+    return out
+
+
+def _attribution_error_row(op_id: str, pipeline_id: str, metric: str, k: int, exc: BaseException) -> Dict[str, Any]:
+    return {
+        "op_id": op_id,
+        "pipeline_id": pipeline_id,
+        "segment": "all",
+        "metric": metric,
+        "k": k,
+        "delta": None,
+        "ci_low": None,
+        "ci_high": None,
+        "n_pairs": 0,
+        "replay_policy": "NOT_REPLAYABLE",
+        "result_status": "error",
+        "low_power": False,
+        "fire_rate": 0.0,
+        "significant": None,
+        "p_value": None,
+        "q_value": None,
+        "evidence_class": "unavailable",
+        "reason": f"{type(exc).__name__}: {exc}",
+        "unsupported_descendants": [],
+        "assumptions": None,
+    }
+
+
+def _operator_attribution_rows(
+    traces: List[RetrievalTrace],
+    qrels: Dict[str, Any],
+    *,
+    metric: str,
+    k: int,
+) -> List[Dict[str, Any]]:
+    """Operator marginal contributions computed per pipeline (never pooled across pipelines
+    that happen to share an op_id), with Benjamini-Hochberg applied once across every
+    (op, segment) result of a pipeline. One failing operator yields an error row, not a 500."""
+    by_pipeline: Dict[str, List[RetrievalTrace]] = defaultdict(list)
+    for trace in traces:
+        by_pipeline[trace.pipeline_id].append(trace)
+    out: List[Dict[str, Any]] = []
+    for pipeline_id in sorted(by_pipeline):
+        pipeline_traces = by_pipeline[pipeline_id]
+        rows: List[Dict[str, Any]] = []
+        for op_id in sorted({span.op_id for trace in pipeline_traces for span in trace.spans}):
+            try:
+                results = operator_marginal_contribution(
+                    pipeline_traces, op_id=op_id, qrels=qrels, metric=metric, k=k
+                )
+            except Exception as exc:  # noqa: BLE001 -- surfaced as a row, not a 500
+                rows.append(_attribution_error_row(op_id, pipeline_id, metric, k, exc))
+                continue
+            rows.extend({**result.__dict__, "pipeline_id": pipeline_id} for result in results)
+        tested = [index for index, row in enumerate(rows) if row.get("p_value") is not None]
+        if tested:
+            q_values = benjamini_hochberg([rows[index]["p_value"] for index in tested])
+            for q_value, index in zip(q_values, tested):
+                rows[index]["q_value"] = q_value
+                rows[index]["significant"] = q_value < 0.05
+        out.extend(rows)
+    return out
+
+
+def _operator_dag_from_pipelines(pipelines: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compatibility operator-DAG view derived from already-built PipelineGraph dicts."""
+    nodes = [
+        {
+            "op_id": node["node_id"],
+            "op_type": node["op_type"],
+            "op_name": node["label"],
+            "fire_rate": node["fire_rate"],
+            "avg_latency_ms": node["latency"]["mean_ms"],
+        }
+        for pipeline in pipelines
+        for node in pipeline["nodes"]
+    ]
+    edges = [
+        {"source": edge["source"], "target": edge["target"]}
+        for pipeline in pipelines
+        for edge in pipeline["edges"]
+    ]
+    return {"nodes": nodes, "edges": edges}
+
+
+def _forge_provenance(dataset: Dict[str, Any], *, hide_paths: bool = False) -> Dict[str, Any]:
+    """Provenance envelope for a Test Set, built from the fields ``get_forge_datasets``
+    actually returns (dataset row + TestSetSummary) rather than a never-populated key."""
+    if not dataset:
+        return {}
+    summary = dataset.get("summary") or {}
+
+    def _path(value: Any) -> Any:
+        if not value:
+            return value
+        return os.path.basename(str(value).rstrip("/")) if hide_paths else value
+
+    return {
+        "dataset_id": dataset.get("dataset_id"),
+        "created_at": dataset.get("created_at") or summary.get("created_at"),
+        "corpus_path": _path(dataset.get("corpus_path")),
+        "output_dir": _path(dataset.get("output_dir")),
+        "schema_version": summary.get("schema_version"),
+        "corpus_size": summary.get("corpus_size"),
+        "total_scenarios": summary.get("total_scenarios"),
+        "total_queries": summary.get("total_queries"),
+        "validated": summary.get("validated"),
+        "validation_coverage": summary.get("validation_coverage"),
+        "by_scenario_type": summary.get("by_scenario_type") or {},
+        "by_query_type": summary.get("by_query_type") or {},
+        "by_difficulty": summary.get("by_difficulty") or {},
+    }
 
 
 def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[str, Dict[str, float]]) -> float:

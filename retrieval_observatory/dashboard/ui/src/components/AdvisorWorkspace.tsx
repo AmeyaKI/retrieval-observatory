@@ -50,12 +50,16 @@ export default function AdvisorWorkspace() {
   useEffect(() => {
     fetchDbs()
       .then((dbs) => {
-        if (dbs.length > 0) setDbId(dbs[0].db_id)
+        if (dbs.length > 0) setDbId((current) => current ?? dbs[0].db_id)
       })
       .catch((e) => setError(String(e)))
     fetchDemoContext()
       .then((ctx) => {
-        if (ctx.baseline_run_id) setDemoContext(ctx)
+        if (ctx.baseline_run_id) {
+          setDemoContext(ctx)
+          // Demo run ids live in the manifest's database, not necessarily the first one.
+          if (ctx.db_id) setDbId(ctx.db_id)
+        }
       })
       .catch(() => setDemoContext(null))
   }, [])

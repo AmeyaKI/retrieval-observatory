@@ -210,6 +210,14 @@ export interface QueryDiffs {
   metric: string
   run_a: string
   run_b: string
+  /** delta = b - a (candidate minus baseline): positive means the candidate scored higher. */
+  orientation?: {
+    a: 'baseline'
+    b: 'candidate'
+    effect: 'candidate_minus_baseline'
+    baseline: { db_id: string; run_id: string }
+    candidate: { db_id: string; run_id: string }
+  }
   rows: QueryDiffRow[]
 }
 
@@ -493,6 +501,8 @@ export async function fetchStageMatrix(
 
 export interface OperatorAttributionRow {
   op_id: string
+  /** Attribution is computed per pipeline; ops sharing an id across pipelines are never pooled. */
+  pipeline_id: string
   segment: string
   metric: string
   k: number
@@ -744,7 +754,9 @@ export interface CandidateLineageDiffEntry {
 
 export interface CandidateLineageDiffResponse {
   baseline_run_id: string
+  baseline_db_id?: string
   candidate_run_id: string
+  candidate_db_id?: string
   query_id: string
   readiness: ClaimReadiness
   diffs: CandidateLineageDiffEntry[]
@@ -760,9 +772,13 @@ export async function fetchCandidateLineageDiff(
   baselineRunId: string,
   queryId: string,
   policyPath?: string,
+  baselineDbId?: string,
 ): Promise<CandidateLineageDiffResponse> {
+  const params = new URLSearchParams({ against: baselineRunId })
+  if (policyPath) params.set('policy_path', policyPath)
+  if (baselineDbId && baselineDbId !== dbId) params.set('against_db_id', baselineDbId)
   const res = await fetch(
-    `${runBase(dbId, candidateRunId)}/queries/${encodeURIComponent(queryId)}/candidate-lineage-diff?against=${encodeURIComponent(baselineRunId)}${policyPath ? `&policy_path=${encodeURIComponent(policyPath)}` : ''}`,
+    `${runBase(dbId, candidateRunId)}/queries/${encodeURIComponent(queryId)}/candidate-lineage-diff?${params.toString()}`,
   )
   if (!res.ok) throw new Error(`Failed to fetch candidate lineage diff for ${queryId}`)
   return res.json()
@@ -1302,14 +1318,17 @@ export async function fetchForgeDatasetRuns(dbId: string, datasetId: string): Pr
 // ───────────────────────── Production ─────────────────────────
 
 export interface TraceService {
+  service_id: string
+  /** Alias of service_id kept for the Production views. */
   service: string
   trace_count: number
-  last_seen: string
+  last_seen: string | null
 }
 
 export interface TraceRow {
   trace_id: string
   service: string
+  service_id?: string
   query_id: string
   query_text: string
   pipeline_id: string
@@ -1492,6 +1511,7 @@ export interface QueryLineageEvaluation {
 export interface QueryLineageTrace {
   trace_id: string
   service: string
+  service_id?: string
   query_id: string
   query_text: string
   predicted_difficulty: string | null
@@ -1557,6 +1577,8 @@ export interface DemoContext {
   sample_query_id?: string
   tracelens_service?: string
   forge_dataset_id?: string
+  /** Registry id of the database the demo manifest belongs to; apply the run ids there. */
+  db_id?: string
   db_path?: string
   experiment_names?: Record<string, string>
 }

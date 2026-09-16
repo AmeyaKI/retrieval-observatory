@@ -8,18 +8,17 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
+from retrieval_observatory.store.sqlite import _created_table_names
+
 
 SCHEMA_VERSION = 2
 _LEGACY_RESULTS_TABLE = "raw" + "_results"
 _LEGACY_SPLIT_TRACE_TABLE = "traces" + "_v2"
+_LEGACY_TABLES = frozenset({_LEGACY_RESULTS_TABLE, _LEGACY_SPLIT_TRACE_TABLE, "trace_stages"})
 
-_RETOBS_TABLES = {
-    "runs", _LEGACY_RESULTS_TABLE, "metric_scores", "result_cache", "run_manifests",
-    "run_qrels", "validation_reports", "query_diagnostics", "run_queries",
-    "forge_datasets", "forge_scenarios", "forge_queries", "traces",
-    _LEGACY_SPLIT_TRACE_TABLE, "trace_stages", "golden_sets", "reliability_snapshots",
-    "doc_edges", "instrumentation_health",
-}
+# Every table the current store creates (derived from its DDL, so a new table can never be
+# left behind by `retobs storage reset`) plus the obsolete beta tables reset must clear.
+_RETOBS_TABLES = frozenset(_created_table_names()) | _LEGACY_TABLES
 
 
 class IncompatibleSchemaError(RuntimeError):

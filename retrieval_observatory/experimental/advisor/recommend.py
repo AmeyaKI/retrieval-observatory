@@ -285,8 +285,13 @@ async def compute_reliability(
     store: BaseStore,
     *,
     engine: MetricsEngine | None = None,
+    persist: bool = True,
 ) -> ReliabilityScore:
-    """Composite reliability score with named, explainable components (0–1 each)."""
+    """Composite reliability score with named, explainable components (0–1 each).
+
+    ``persist=False`` computes the score without appending a reliability snapshot -- the
+    dashboard's GET endpoint uses it so a read never writes.
+    """
     engine = engine or MetricsEngine()
     agg = await engine.aggregate(run_id, store)
     stored_findings = await store.query_diagnostics(run_id)
@@ -332,6 +337,6 @@ async def compute_reliability(
     }
     value = round(sum(components.values()) / len(components), 3)
     score = ReliabilityScore(value=value, components=components, notes=notes)
-    if hasattr(store, "save_reliability_snapshot"):
+    if persist and hasattr(store, "save_reliability_snapshot"):
         await store.save_reliability_snapshot(run_id, score.value, score.components)
     return score
