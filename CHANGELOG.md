@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `analysis/loss_attribution.py` — per-(query, gold) attribution of recall misses to the last displacing operator from recorded ranks (`gold_events`, `attribute_run`, `summarize`, `self_inflicted_difference`): surfaced / never-surfaced / surfaced-never-in-window / destroyed outcomes, first and last displacer, recovery and re-displacement, loss share by operator class, query-cluster bootstrap intervals (2,000 resamples, seed 17).
 - `tracing/attribution.py` — `operator_marginal_contributions()` (plural) applies one Benjamini-Hochberg family across every (operator, segment) p-value; the singular function's family is documented as segments-of-one-operator.
 - `tracing/serialization.py`, `tracing/model.py` — `truncated_string_count` / `NormalizationReport.truncated_strings` count clipped strings separately; `omitted_field_count` is structural only, so a long metadata string no longer marks a trace's lineage partial.
 - `metrics/engine.py` — per-query `<pipeline>|stage-1|failure@0` and `timeout@0` indicator rows, so failure rate is pairable and guardable.
