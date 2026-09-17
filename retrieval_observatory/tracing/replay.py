@@ -431,18 +431,19 @@ def without_operator(trace: RetrievalTrace, op_id: str) -> RetrievalTrace:
         else:
             spans.append(_clone_span(span, parent_ids=projected_parents))
 
-    remaining_ids = {span.op_id for span in spans}
-    # A removed final operator hands its terminal role to its parents, exactly as
-    # its children inherit them above.
+    fired_ids = {span.op_id for span in spans if span.status == "FIRED"}
+    # A removed final operator hands its terminal role to its FIRED parents, exactly as
+    # its children inherit them above. A gate-skipped parent produced nothing and can no
+    # more be the final output here than the runner would declare it one.
     final_op_ids = tuple(dict.fromkeys(
         final_id
         for declared in trace.final_op_ids
         for final_id in (target.parent_ids if declared == op_id else (declared,))
-        if final_id in remaining_ids
+        if final_id in fired_ids
     ))
     if not final_op_ids and spans:
         parent_ids = {parent_id for span in spans for parent_id in span.parent_ids}
-        sinks = [span.op_id for span in spans if span.op_id not in parent_ids]
+        sinks = [span.op_id for span in spans if span.op_id not in parent_ids and span.op_id in fired_ids]
         final_op_ids = tuple(sinks)
     metadata = dict(trace.metadata)
     metadata["replay_timing"] = "unavailable: recorded operators were not re-executed"

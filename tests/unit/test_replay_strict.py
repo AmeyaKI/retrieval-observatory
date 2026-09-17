@@ -396,3 +396,25 @@ def test_plural_contributions_apply_bh_across_operators(monkeypatch: pytest.Monk
     assert by_op["f_a"].q_value == pytest.approx(0.09)
     assert by_op["f_a"].significant is False
     assert by_op["f_c"].q_value == pytest.approx(0.8)
+
+
+# --- a removed final operator hands its terminal role only to parents that fired ---
+
+
+def test_removing_a_final_operator_hands_terminal_role_to_fired_parents_only() -> None:
+    src = span("src", "SOURCE", [], [C("d1", 1, 1.0, ["src"]), C("d2", 2, 0.9, ["src"])])
+    gate = span("gate", "GATE", ["src"], src.outputs, inputs=src.outputs, gate_values={"selected_route": "rerank"})
+    fast = span("fast", "TRANSFORM", ["gate"], [], status="SKIPPED_BY_GATE", policy="OBSERVED_ABLATION")
+    rerank = span(
+        "rerank", "RERANK", ["gate"], [C("d2", 1, 0.9, ["src"]), C("d1", 2, 1.0, ["src"])],
+        policy="OBSERVED_ABLATION", inputs=gate.outputs,
+    )
+    final = span("final", "FUSE", ["fast", "rerank"], rerank.outputs, input_groups={"fast": (), "rerank": rerank.outputs})
+    t = trace([src, gate, fast, rerank, final], ["final"])
+
+    cf = without_operator(t, "final")
+    # Previously ("fast", "rerank"): the skipped branch, with no outputs, was scored as the final list.
+    assert cf.final_op_ids == ("rerank",)
+    assert [c.doc_id for c in _find_final_span(cf).outputs] == ["d2", "d1"]
+    rows = operator_marginal_contribution([t], "final", {"q1": {"d2": 1}}, metric="ndcg", k=10)
+    assert [(r.result_status, r.delta) for r in rows] == [("replayed", 0.0)]

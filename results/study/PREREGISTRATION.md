@@ -286,4 +286,10 @@ LLM-as-judge, no additional datasets. The resume framing is chosen after the dat
 
 ## Amendments
 
-None.
+- **2026-09-17, before any grid cell ran — bug fix in `tracing/replay.py` (own commit, with a test).**
+  Removing a *final* operator handed its terminal role to every parent, including a gate-skipped
+  sibling with no outputs, so the counterfactual's final list could be that empty span and the
+  marginal contribution of a terminal fuse with a skipped sibling read as the entire metric
+  (observed on the flagship baseline: `final_selection` +0.86 nDCG@10 on the rerank route). Only
+  FIRED parents now inherit the role, matching what the runner declares. Affects §3.10 marginal
+  contributions of terminal operators in pipeline 5 only; no rank-based statistic changes.
