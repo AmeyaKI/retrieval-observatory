@@ -8,6 +8,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `docs/guides/manual-instrumentation.md`, `examples/integrations/manual_class_pipeline/` — hand-instrumenting a class-based, multi-module pipeline with `@observe` and `@trace_scope`: cross-module `parent_ids`, declared op types and replay tiers, one persisted trace per entrypoint call; asserted by `tests/integration/test_manual_class_pipeline.py`.
 - `scripts/study_loss_attribution.py` — idempotent grid driver for the pre-registered study: pipelines 1–4 and the fiqa reconciliation cell declared as `graphs:`, the flagship HotpotQA pipeline unchanged, runtime estimate per cell, every run through `execute_benchmark` into `results/study/results.db`, per-cell JSON with loss attribution, marginal contributions by replay tier, and per-pair events; completed cells are skipped; no latency rows in any artifact.
 - `pipeline/factory.py` — `adapter.hf_biencoder` nodes accept `config.cache_dir` for the FAISS index cache.
 - `analysis/loss_attribution.py` — per-(query, gold) attribution of recall misses to the last displacing operator from recorded ranks (`gold_events`, `attribute_run`, `summarize`, `self_inflicted_difference`): surfaced / never-surfaced / surfaced-never-in-window / destroyed outcomes, first and last displacer, recovery and re-displacement, loss share by operator class, query-cluster bootstrap intervals (2,000 resamples, seed 17).

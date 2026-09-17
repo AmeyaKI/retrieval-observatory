@@ -21,7 +21,7 @@ retobs integrate . --phase apply --plan retobs/integration-plan.json
 retobs integrate . --phase verify --policy retobs/release-policy.yaml
 ```
 
-Review the plan before apply. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md).
+Review the plan before apply. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md). The planner builds no cross-file call graph; when operators are spread across modules or a project has several entrypoints, wire `@observe` and `@trace_scope` by hand as in the [manual instrumentation guide](guides/manual-instrumentation.md).
 
 ## Release-evidence preflight
 

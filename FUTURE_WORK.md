@@ -15,6 +15,9 @@ stated as fact; anything carried over from earlier reports and not re-verified i
 
 ## Integration
 
+- `retobs production stats --service X` crashes (`'str' object has no attribute 'service_id'`): `_tracelens_stats`
+  in `cli.py` passes the service name positionally to `store.list_traces`, which expects a `TraceQuery`.
+  Found 2026-09-17 while writing the manual instrumentation guide; the keyword form `service=` works.
 - `integrate --phase verify` does not import the patched module itself; an import or syntax error in
   the target project surfaces only when the entrypoint is actually called. When no trace is found,
   verify names the service, pipeline, and database it looked for.

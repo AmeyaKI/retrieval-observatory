@@ -12,6 +12,7 @@ Production guides — each pairs the retrieval-engineering concept with how reto
 - [candidate-lineage-explorer.md](candidate-lineage-explorer.md) — static recorded paths, outcomes, passports, and safe diffs
 - [retrieval-release-decisions.md](retrieval-release-decisions.md) — bounded local/CI promotion evidence
 - [tracelens.md](tracelens.md) — observing production retrieval
+- [manual-instrumentation.md](manual-instrumentation.md) — hand-wiring a class-based, multi-module pipeline into one trace when `retobs integrate` cannot see the whole DAG
 
 Experimental guides live in [experimental/](experimental/). They describe subsystems under
 `retrieval_observatory.experimental` (advisor, forge, auto-instrumentation) and pipeline
