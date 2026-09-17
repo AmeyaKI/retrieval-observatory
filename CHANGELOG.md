@@ -31,6 +31,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+- `results/flagship_demo/CASE_STUDY.md` — Scenario B leads; Scenarios C and C2 are an appendix.
 - `tracing/replay.py` — strict counterfactuals: removing an operator recomputes RRF for FUSE children and otherwise keeps each descendant's observed outputs filtered to what still flows in; a child that would have to decide on documents it never observed makes the replay `indeterminate` instead of receiving fabricated outputs. Multi-parent passthrough targets merge groups by candidate id; SOURCE removal only touches descendants and keeps documents another surviving arm found; every fuse child of a removed source is recomputed; the leaf-target "next span" fallback is gone; projected ranks are renumbered; the RRF constant is read from `rrf_k`.
 - `tracing/candidates.py` — a candidate that passed through an EXPAND/BOOST/etc. keeps its previous `add_reason`; only newly introduced rows get the operator-type reason.
 - `tracing/candidate_history.py`, `tracing/replay.py` `attribute_miss` — non-FIRED spans are ignored, `introduced_at` is never overwritten, and drops on branches that do not reach a final span are noted rather than counted.

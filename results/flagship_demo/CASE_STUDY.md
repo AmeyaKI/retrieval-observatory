@@ -31,72 +31,13 @@ Baseline: **recall@10 of 0.875**, and roughly 50 seconds of wall clock for 400 q
 
 
 
-## Act one: the tool finds something
+## Act one: the regression that passes
 
-Scenario D asks a question no aggregate can answer: *why did this particular query fail?*
-
-The query picked — automatically, by looking for a two-hop question with complete tracing that
-actually lost a gold document — was:
-
-> *In what year was the British actress who starred in a film adaptation of a series of eight
-> children's books written by P. L. Travers born?*
-
-Answering it needs two paragraphs: the film, and the actress. The pipeline returned one.
-
-A metrics dashboard reports that as **recall 0.5 on query 5abccf67** and stops. Here is what
-retobs reported instead:
-
-```
-bm25_lane        gold 1/2   ranks [1]
-dense_lane       gold 2/2   ranks [2, 27]
-hybrid_fusion    gold 1/2   !! dropped: karen_dotrice
-bridge_hop2      gold 2/2   ranks [1, 45]      <- the second hop found it again
-route_merge      gold 1/2   !! dropped: karen_dotrice
-final_selection  gold 1/2
-```
-
-The actress's paragraph was found by the vector lane at rank 27. The merge step kept 40
-candidates, but ranked it below documents that *both* lanes had agreed on, and dropped it.
-Then the two-hop search — working exactly as designed — went and found it again at rank 45.
-And the second merge, also keeping 40, dropped it a second time.
-
-Not "retrieval is bad". Specifically: **your two-hop search is doing its job and your merge
-width is throwing away what it finds.**
-
-## Act two: the fix, and the proof
-
-Merge width 40 → 100. One number.
-
-```
-hotpotqa_hybrid_dag|stage8|recall@10   PASS   +0.0088   CI [+0.0019, +0.0181]   n=400
-```
-
-The confidence interval excludes zero, so this is a real improvement rather than noise. And
-the slice breakdown confirms the mechanism rather than just the outcome:
-
-
-|                                    | effect      |
-| ---------------------------------- | ----------- |
-| bridge questions (two-hop)         | **+0.0096** |
-| comparison questions (single-pass) | +0.0057     |
-
-
-The gain is consistent with the mechanism: the bridge-question interval excludes zero while the
-comparison-question interval touches it, though the two intervals overlap, so the data do not
-prove the slices differ. The second hop is the only place a wider merge could
-possibly help. Diagnosis, fix, verification, all on the same evidence.
-
-Worth saying plainly: reranking now scores 100 candidates instead of 40. `PASS` means quality
-did not regress. It does not mean the trade is worth it — the policy guards recall, not cost.
-That call stays with a human, which is the correct division of labour.
-
----
-
-
-
-## Act three: the regression that passes
-
-Now the part that matters.
+This is the regression in the title, so it goes first. A change improved every number on the
+dashboard and passed the release policy — bounded non-inferiority on the output, every declared
+slice included — and still left the system worse for the people it was meant to help: slower
+per query, single-source, with a whole branch of the architecture dead. None of that is visible
+in the verdict. All of it is visible in the funnel underneath the verdict.
 
 We disable the keyword lane — a realistic change, the kind someone makes to cut latency or
 retire a component. Then we ask retobs whether it is safe to ship.
@@ -163,10 +104,100 @@ a decision someone can actually make.
 
 
 
-## Act four: the comparison that should not be made
+## Act two: the tool finds something
 
-The last two scenarios are about something more basic than "is this better": *is this
-comparison meaningful at all?*
+Act one was a verdict that needed the evidence underneath it. The next two acts run the other
+way: start from one failed query, find the mechanism, fix it, and prove the fix on the same
+evidence.
+
+Scenario D asks a question no aggregate can answer: *why did this particular query fail?*
+
+The query picked — automatically, by looking for a two-hop question with complete tracing that
+actually lost a gold document — was:
+
+> *In what year was the British actress who starred in a film adaptation of a series of eight
+> children's books written by P. L. Travers born?*
+
+Answering it needs two paragraphs: the film, and the actress. The pipeline returned one.
+
+A metrics dashboard reports that as **recall 0.5 on query 5abccf67** and stops. Here is what
+retobs reported instead:
+
+```
+bm25_lane        gold 1/2   ranks [1]
+dense_lane       gold 2/2   ranks [2, 27]
+hybrid_fusion    gold 1/2   !! dropped: karen_dotrice
+bridge_hop2      gold 2/2   ranks [1, 45]      <- the second hop found it again
+route_merge      gold 1/2   !! dropped: karen_dotrice
+final_selection  gold 1/2
+```
+
+The actress's paragraph was found by the vector lane at rank 27. The merge step kept 40
+candidates, but ranked it below documents that *both* lanes had agreed on, and dropped it.
+Then the two-hop search — working exactly as designed — went and found it again at rank 45.
+And the second merge, also keeping 40, dropped it a second time.
+
+Not "retrieval is bad". Specifically: **your two-hop search is doing its job and your merge
+width is throwing away what it finds.**
+
+## Act three: the fix, and the proof
+
+Merge width 40 → 100. One number.
+
+```
+hotpotqa_hybrid_dag|stage8|recall@10   PASS   +0.0088   CI [+0.0019, +0.0181]   n=400
+```
+
+The confidence interval excludes zero, so this is a real improvement rather than noise. And
+the slice breakdown confirms the mechanism rather than just the outcome:
+
+
+|                                    | effect      |
+| ---------------------------------- | ----------- |
+| bridge questions (two-hop)         | **+0.0096** |
+| comparison questions (single-pass) | +0.0057     |
+
+
+The gain is consistent with the mechanism: the bridge-question interval excludes zero while the
+comparison-question interval touches it, though the two intervals overlap, so the data do not
+prove the slices differ. The second hop is the only place a wider merge could
+possibly help. Diagnosis, fix, verification, all on the same evidence.
+
+Worth saying plainly: reranking now scores 100 candidates instead of 40. `PASS` means quality
+did not regress. It does not mean the trade is worth it — the policy guards recall, not cost.
+That call stays with a human, which is the correct division of labour.
+
+---
+
+
+
+## What the whole thing adds up to
+
+
+|                        | a metrics dashboard says | retobs says                                                                       |
+| ---------------------- | ------------------------ | --------------------------------------------------------------------------------- |
+| **A** wider merge      | recall +0.9pt            | real (CI excludes zero), concentrated in two-hop questions, costs 2.5× reranking  |
+| **B** keyword lane off | recall +3pt — ship it    | output improved; retrieval collapsed 5.5pt, reranking cost doubled, a branch died |
+| **C** model swapped    | no change — merge it     | the provenance contradicts itself; these numbers cannot decide anything           |
+| **C2** stale index     | −2pt, borderline         | the vector lane lost 17pt and the healthy half hid it                             |
+| **D** one bad query    | recall 0.5               | found at rank 27, dropped by merge, recovered by the second hop, dropped again    |
+
+
+Four of those five are cases where the headline number is either reassuring or ambiguous, and  
+the thing you needed to know is somewhere else. The two model-swap scenarios are in the
+appendix below.
+
+Reproduce all of it with `./run_demo.sh` — about four minutes, no API keys.
+
+---
+
+
+
+## Appendix: the comparison that should not be made
+
+The remaining two scenarios are about something more basic than "is this better": *is this
+comparison meaningful at all?* They sit outside the three acts because they are not about a
+verdict being right or wrong, but about whether a verdict should be given.
 
 **An engineer swaps the embedding model** and the manifest keeps recording the old index id.
 retobs blocks:
@@ -208,24 +239,3 @@ lie. It caught a combination of facts that makes a comparison meaningless.
 
 That is the property that makes the other verdicts worth anything. A tool that always produces
 an answer gives you no way to tell a real answer from a confidently wrong one.
-
----
-
-
-
-## What the whole thing adds up to
-
-
-|                        | a metrics dashboard says | retobs says                                                                       |
-| ---------------------- | ------------------------ | --------------------------------------------------------------------------------- |
-| **A** wider merge      | recall +0.9pt            | real (CI excludes zero), concentrated in two-hop questions, costs 2.5× reranking  |
-| **B** keyword lane off | recall +3pt — ship it    | output improved; retrieval collapsed 5.5pt, reranking cost doubled, a branch died |
-| **C** model swapped    | no change — merge it     | the provenance contradicts itself; these numbers cannot decide anything           |
-| **C2** stale index     | −2pt, borderline         | the vector lane lost 17pt and the healthy half hid it                             |
-| **D** one bad query    | recall 0.5               | found at rank 27, dropped by merge, recovered by the second hop, dropped again    |
-
-
-Four of those five are cases where the headline number is either reassuring or ambiguous, and  
-the thing you needed to know is somewhere else.
-
-Reproduce all of it with `./run_demo.sh` — about four minutes, no API keys.
