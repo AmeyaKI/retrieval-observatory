@@ -230,6 +230,7 @@ def _build_hf_biencoder_adapter(stage_cfg: dict, corpus: dict | None = None):
         model_name=model_name,
         retriever_id=stage_cfg.get("retriever_id", model_name),
         batch_size=cfg.get("batch_size", 64),
+        cache_dir=cfg.get("cache_dir"),
     )
     return adapter, k
 

@@ -8,6 +8,8 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+- `scripts/study_loss_attribution.py` — idempotent grid driver for the pre-registered study: pipelines 1–4 and the fiqa reconciliation cell declared as `graphs:`, the flagship HotpotQA pipeline unchanged, runtime estimate per cell, every run through `execute_benchmark` into `results/study/results.db`, per-cell JSON with loss attribution, marginal contributions by replay tier, and per-pair events; completed cells are skipped; no latency rows in any artifact.
+- `pipeline/factory.py` — `adapter.hf_biencoder` nodes accept `config.cache_dir` for the FAISS index cache.
 - `analysis/loss_attribution.py` — per-(query, gold) attribution of recall misses to the last displacing operator from recorded ranks (`gold_events`, `attribute_run`, `summarize`, `self_inflicted_difference`): surfaced / never-surfaced / surfaced-never-in-window / destroyed outcomes, first and last displacer, recovery and re-displacement, loss share by operator class, query-cluster bootstrap intervals (2,000 resamples, seed 17).
 - `tracing/attribution.py` — `operator_marginal_contributions()` (plural) applies one Benjamini-Hochberg family across every (operator, segment) p-value; the singular function's family is documented as segments-of-one-operator.
 - `tracing/serialization.py`, `tracing/model.py` — `truncated_string_count` / `NormalizationReport.truncated_strings` count clipped strings separately; `omitted_field_count` is structural only, so a long metadata string no longer marks a trace's lineage partial.
@@ -70,6 +72,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `tracing/replay.py` — a removed final operator hands its terminal role only to FIRED parents; a gate-skipped sibling with no outputs could previously become the counterfactual final output, so the marginal contribution of a terminal fuse read as the entire metric.
 - `tracing/model.py` — `RetrievalTrace.from_dict` reads a legacy singular `final_op_id`.
 - `analysis/scores.py` — calibration bins are half-open; boundary scores were counted twice.
 
