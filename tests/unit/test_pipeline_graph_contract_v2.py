@@ -128,3 +128,43 @@ async def test_conditional_operator_metric_identity_uses_run_union_layout():
         ("fast", "fast"),
         ("slow", "slow"),
     }
+
+
+def _agg_row(stage_index: int, branch_id: str | None, n: int) -> dict:
+    return {
+        "pipeline_id": "conditional",
+        "stage_index": stage_index,
+        "metric_name": "recall",
+        "k": 1,
+        "branch_id": branch_id,
+        "mean": 1.0,
+        "ci_low": 1.0,
+        "ci_high": 1.0,
+        "n": n,
+    }
+
+
+def test_branch_node_metric_carries_served_query_count():
+    """A gate-skipped branch's aggregate covers only the queries it served; the graph says so."""
+    fast = _trace(
+        "fast",
+        [_span("source", "SOURCE", []), _span("fast", "RERANK", ["source"])],
+        final_op_ids=("fast",),
+    )
+    slow = _trace(
+        "slow",
+        [_span("source", "SOURCE", []), _span("slow", "RERANK", ["source"])],
+        final_op_ids=("slow",),
+    )
+    agg = {
+        "conditional|stage0|recall@1": _agg_row(0, None, 2),
+        "conditional|stage1|recall@1|branch=fast": _agg_row(1, "fast", 1),
+    }
+
+    graph = build_pipeline_graphs(agg, [fast, slow])[0]
+    by_id = {node.node_id: node for node in graph.nodes}
+
+    assert by_id["source"].metrics.recall.n == 2
+    assert by_id["fast"].metrics.recall.n == 1
+    assert graph.to_dict()["nodes"][[n.node_id for n in graph.nodes].index("fast")]["metrics"]["recall"]["n"] == 1
+    assert by_id["slow"].metrics.recall is None

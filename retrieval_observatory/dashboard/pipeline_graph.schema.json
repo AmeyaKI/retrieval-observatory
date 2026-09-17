@@ -40,7 +40,8 @@
         "mean": { "type": ["number", "null"] },
         "ci_low": { "type": ["number", "null"] },
         "ci_high": { "type": ["number", "null"] },
-        "k": { "type": ["integer", "null"] }
+        "k": { "type": ["integer", "null"] },
+        "n": { "type": ["integer", "null"] }
       }
     },
     "latency": {

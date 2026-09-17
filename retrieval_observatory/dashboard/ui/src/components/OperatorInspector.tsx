@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchOperatorAttribution, fetchOperatorDag, OperatorAttributionRow, OperatorDagNode } from '../api'
+import InlineReason from './InlineReason'
 import NoData from './NoData'
 import SectionHeading from './SectionHeading'
 
@@ -90,7 +91,8 @@ export default function OperatorInspector({ dbId, runId, selectedOpId }: Props) 
                 </div>
                 <div>
                   <div className="text-gray-500 dark:text-slate-400 mb-0.5">Result</div>
-                  <div className="font-medium" title={firstRow.reason ?? undefined}>{firstRow.result_status}</div>
+                  <div className="font-medium">{firstRow.result_status}</div>
+                  <InlineReason reason={firstRow.reason} />
                 </div>
               </div>
 
@@ -113,7 +115,7 @@ export default function OperatorInspector({ dbId, runId, selectedOpId }: Props) 
                           <span className="text-green-600 text-[10px]">sig</span>
                         )}
                         <span className="text-gray-400 dark:text-slate-500 text-[10px]">n={row.n_pairs}</span>
-                        {row.reason && <span className="text-amber-600 text-[10px]" title={row.reason}>why?</span>}
+                        <InlineReason reason={row.reason} />
                       </div>
                     </div>
                   ))}

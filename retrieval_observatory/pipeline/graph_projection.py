@@ -49,6 +49,7 @@ def _metric_value(entry: Optional[Dict[str, Any]], *, with_k: bool = False) -> O
         ci_low=entry.get("ci_low"),
         ci_high=entry.get("ci_high"),
         k=entry.get("k") if with_k else None,
+        n=entry.get("n"),
     )
 
 

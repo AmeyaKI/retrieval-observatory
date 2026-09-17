@@ -344,6 +344,8 @@ export interface GraphMetricValue {
   ci_low: number | null
   ci_high: number | null
   k?: number | null
+  /** Queries the aggregate covers; smaller than the run total for a gate-skipped branch. */
+  n?: number | null
 }
 
 export interface PipelineGraphNodeMetrics {

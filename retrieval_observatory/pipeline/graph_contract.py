@@ -21,11 +21,14 @@ class GraphMetricValue:
     ci_low: Optional[float]
     ci_high: Optional[float]
     k: Optional[int] = None  # only set for recall@k
+    n: Optional[int] = None  # queries the aggregate covers; a gated branch serves fewer than the run
 
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {"mean": self.mean, "ci_low": self.ci_low, "ci_high": self.ci_high}
         if self.k is not None:
             out["k"] = self.k
+        if self.n is not None:
+            out["n"] = self.n
         return out
 
 

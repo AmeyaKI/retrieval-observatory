@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchOperatorAttribution, OperatorAttributionRow } from '../api'
+import InlineReason from './InlineReason'
 import NoData from './NoData'
 import SectionHeading from './SectionHeading'
 
@@ -15,11 +16,16 @@ const REPLAY_BADGES: Record<string, { label: string; color: string }> = {
   NOT_REPLAYABLE: { label: 'N', color: 'bg-red-100 text-red-700' },
 }
 
-function CellContent({ row }: { row: OperatorAttributionRow | undefined }) {
+export function CellContent({ row }: { row: OperatorAttributionRow | undefined }) {
   if (!row) return <span className="text-gray-300 dark:text-slate-600">—</span>
-  if (row.result_status === 'not_applicable') return <span className="text-gray-400 dark:text-slate-500">—</span>
-  if (row.result_status === 'indeterminate') return <span className="text-gray-400 dark:text-slate-500">?</span>
-  if (row.delta == null) return <span className="text-gray-400 dark:text-slate-500">—</span>
+  if (row.result_status === 'not_applicable' || row.result_status === 'indeterminate' || row.delta == null) {
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-gray-400 dark:text-slate-500">{row.result_status === 'indeterminate' ? '?' : '—'}</span>
+        <InlineReason reason={row.reason} />
+      </div>
+    )
+  }
 
   const badge = REPLAY_BADGES[row.replay_policy]
   const deltaColor = row.delta > 0 ? 'text-green-700' : row.delta < 0 ? 'text-red-700' : 'text-gray-700 dark:text-slate-200'

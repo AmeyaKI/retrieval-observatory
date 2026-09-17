@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { MetricsMap, StageContribution } from '../api'
+import InlineReason from './InlineReason'
 import { MetricTooltip } from './MetricTooltip'
 import { fmtQuality, fmtLatencyMs } from '../utils/format'
 
@@ -138,6 +139,7 @@ function StageContributionCard({
                   insufficient data
                 </span>
               )}
+              {d.indeterminate && <InlineReason reason={d.indeterminate_reason} />}
               {d.q_value != null && (
                 <span className={`text-[10px] px-1 rounded ${d.significant ? 'text-status-positive bg-status-positive/10' : 'text-ink-faint bg-surface-muted'}`}>
                   q={d.q_value.toFixed(3)}{d.significant ? ' ✓' : ''}

@@ -15,6 +15,13 @@ function ci(v: GraphMetricValue | null | undefined): string {
   return `[${fmtQuality(v.ci_low)}, ${fmtQuality(v.ci_high)}]`
 }
 
+/** Denominator note for a branch or gate-skipped node: its mean covers only the queries it served. */
+export function servedNote(v: GraphMetricValue | null | undefined, node: PipelineGraphNode, traceCount?: number): string | null {
+  if (!v || v.n == null) return null
+  if (node.branch_id == null && (traceCount == null || v.n >= traceCount)) return null
+  return traceCount != null ? `${v.n} of ${traceCount} queries served` : `on ${v.n} served queries`
+}
+
 function MetricLine({ label, v, latency }: { label: string; v: GraphMetricValue | null | undefined; latency?: boolean }) {
   if (!v || v.mean == null) return null
   return (
@@ -46,6 +53,7 @@ function NodeCard({
     node.metrics['ndcg@10']?.mean != null ? `NDCG@10 ${fmtQuality(node.metrics['ndcg@10'].mean)}${ci(node.metrics['ndcg@10']) ? ` ${ci(node.metrics['ndcg@10'])}` : ''}` : null,
     node.metrics.recall?.mean != null ? `${recallLabel} ${fmtQuality(node.metrics.recall.mean)}${ci(node.metrics.recall) ? ` ${ci(node.metrics.recall)}` : ''}` : null,
     node.metrics.latency_p50?.mean != null ? `P50 ${fmtLatencyMs(node.metrics.latency_p50.mean)} ms` : null,
+    servedNote(node.metrics.recall ?? node.metrics['ndcg@10'], node),
   ]
     .filter(Boolean)
     .join('\n')
@@ -184,9 +192,13 @@ function GraphSvg({
   )
 }
 
-function NodeInspector({ node }: { node: PipelineGraphNode }) {
+export function NodeInspector({ node, traceCount }: { node: PipelineGraphNode; traceCount?: number }) {
   const accent = OP_ACCENT[node.op_type] ?? OP_ACCENT.TRANSFORM
   const recallLabel = node.metrics.recall?.k ? `Recall@${node.metrics.recall.k}` : 'Recall'
+  const served = (v: GraphMetricValue | null | undefined) => {
+    const note = servedNote(v, node, traceCount)
+    return note ? <span className="block text-[10px] text-ink-faint font-sans">{note}</span> : null
+  }
   return (
     <div className="app-inset p-3 text-xs space-y-2">
       <div className="flex items-center gap-2">
@@ -197,9 +209,9 @@ function NodeInspector({ node }: { node: PipelineGraphNode }) {
         {node.is_merge && <span className="text-[10px] text-ink-faint">merge · depth {node.depth}</span>}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono tabular-nums">
-        <div><span className="text-ink-faint block">NDCG@10</span>{node.metrics['ndcg@10']?.mean != null ? fmtQuality(node.metrics['ndcg@10']!.mean!) : '—'}{ci(node.metrics['ndcg@10']) && ` ${ci(node.metrics['ndcg@10'])}`}</div>
-        <div><span className="text-ink-faint block">{recallLabel}</span>{node.metrics.recall?.mean != null ? fmtQuality(node.metrics.recall.mean) : '—'}{ci(node.metrics.recall) && ` ${ci(node.metrics.recall)}`}</div>
-        <div><span className="text-ink-faint block">P50</span>{node.metrics.latency_p50?.mean != null ? `${fmtLatencyMs(node.metrics.latency_p50.mean)} ms` : '—'}</div>
+        <div><span className="text-ink-faint block">NDCG@10</span>{node.metrics['ndcg@10']?.mean != null ? fmtQuality(node.metrics['ndcg@10']!.mean!) : '—'}{ci(node.metrics['ndcg@10']) && ` ${ci(node.metrics['ndcg@10'])}`}{served(node.metrics['ndcg@10'])}</div>
+        <div><span className="text-ink-faint block">{recallLabel}</span>{node.metrics.recall?.mean != null ? fmtQuality(node.metrics.recall.mean) : '—'}{ci(node.metrics.recall) && ` ${ci(node.metrics.recall)}`}{served(node.metrics.recall)}</div>
+        <div><span className="text-ink-faint block">P50</span>{node.metrics.latency_p50?.mean != null ? `${fmtLatencyMs(node.metrics.latency_p50.mean)} ms` : '—'}{served(node.metrics.latency_p50)}</div>
         <div><span className="text-ink-faint block">Candidates</span>{Math.round(node.candidate_count)}</div>
       </div>
     </div>
@@ -273,7 +285,7 @@ export default function PipelineDagView({ dbId, runId }: Props) {
               selectedId={selectedId}
               onSelect={(id) => setSelectedByPipeline((prev) => ({ ...prev, [g.pipeline_id]: id }))}
             />
-            {selectedNode && <NodeInspector node={selectedNode} />}
+            {selectedNode && <NodeInspector node={selectedNode} traceCount={g.trace_count} />}
             <details>
               <summary className="cursor-pointer text-xs font-medium text-indigo-700 dark:text-indigo-300">Operator table (accessible equivalent)</summary>
               <div className="mt-2"><GraphTable graph={g} /></div>
