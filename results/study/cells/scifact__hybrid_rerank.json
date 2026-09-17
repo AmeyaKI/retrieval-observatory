@@ -10,7 +10,7 @@
  },
  "run_id": "1959cfe4",
  "experiment_name": "study-scifact-hybrid_rerank",
- "db_path": "/Users/ameyakiwalkar/Documents/retrieval-observatory/results/study/results.db",
+ "db_path": "results/study/results.db",
  "max_queries": null,
  "n_queries": 300,
  "n_queries_with_judgments": 300,
@@ -44,7 +44,7 @@
      "model": "sentence-transformers/all-MiniLM-L6-v2",
      "k": 100,
      "batch_size": 64,
-     "cache_dir": "/Users/ameyakiwalkar/Documents/retrieval-observatory/.retobs/study/cache"
+     "cache_dir": ".retobs/study/cache"
     }
    },
    {
@@ -85,7 +85,7 @@
   ],
   "output": "rerank"
  },
- "index_cache_dir": "/Users/ameyakiwalkar/Documents/retrieval-observatory/.retobs/study/cache",
+ "index_cache_dir": ".retobs/study/cache",
  "runtime": {
   "warmup_seconds": 2.776848457986489,
   "probe_ms_per_query": 88.40615840163082,

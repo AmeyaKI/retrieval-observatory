@@ -10,7 +10,7 @@
  },
  "run_id": "b85b9c3d",
  "experiment_name": "study-nfcorpus-bm25_only",
- "db_path": "/Users/ameyakiwalkar/Documents/retrieval-observatory/results/study/results.db",
+ "db_path": "results/study/results.db",
  "max_queries": null,
  "n_queries": 323,
  "n_queries_with_judgments": 323,
@@ -34,7 +34,7 @@
   ],
   "output": "bm25"
  },
- "index_cache_dir": "/Users/ameyakiwalkar/Documents/retrieval-observatory/.retobs/study/cache",
+ "index_cache_dir": ".retobs/study/cache",
  "runtime": {
   "warmup_seconds": 0.10486483410932124,
   "probe_ms_per_query": 4.010933195240796,

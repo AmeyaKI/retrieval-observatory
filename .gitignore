@@ -34,7 +34,6 @@ TODO
 !YAML_GUIDE.md
 !SECURITY.md
 !FUTURE_WORK.md
-!HANDOFF.md
 !CONTRIBUTING.md
 !CODE_OF_CONDUCT.md
 !.github/**/*.md
@@ -43,7 +42,6 @@ TODO
 !docs/informative/*.md
 !docs/guides/*.md
 !docs/guides/experimental/*.md
-!docs/superpowers/**/*.md
 
 # Keep internal / work-in-progress docs untracked
 retobs_audit_remediation/
@@ -61,6 +59,12 @@ docs/verification/
 *.png
 artifacts/
 scripts/export_session.py
-!SESSION_FLAGSHIP_DEMO.md
 *.jsonl
-!SESSION_FLAGSHIP_DEMO.jsonl
+
+# Never publish: internal planning docs, hand-offs, and raw agent session logs.
+# These are local-only. Do not add a "!" allowlist entry for anything below.
+HANDOFF.md
+docs/superpowers/
+SESSION_FLAGSHIP_DEMO.md
+SESSION_FLAGSHIP_DEMO.jsonl
+results/study/STUDY.md

@@ -5,7 +5,7 @@
 set -euo pipefail
 
 RG="${RETOBS_AZ_RG:-rg-retobs-demo}"
-# westus2: inside the "Allowed resource deployment regions" policy on Azure for Students
+# westus2: inside a commonly restrictive "Allowed resource deployment regions" policy
 # (centralus, mexicocentral, westus2, canadacentral, southcentralus) and has Container Apps.
 LOCATION="${RETOBS_AZ_LOCATION:-westus2}"
 ENV_NAME="${RETOBS_AZ_ENV:-retobs-demo-env}"
@@ -47,7 +47,7 @@ echo "==> health check $URL/healthz"
 for _ in $(seq 1 30); do
   if curl -fsS "$URL/healthz" | grep -q '"read_only":true'; then
     echo "OK: $URL"
-    echo "Now put $URL in README.md (Hosted demo line) and HANDOFF.md (provider: Azure Container Apps)."
+    echo "Now put $URL in README.md (Hosted demo line) and docs/deployment.md."
     exit 0
   fi
   sleep 5

@@ -45,6 +45,19 @@ CACHE_DIR = ROOT / ".retobs" / "study" / "cache"
 FLAGSHIP_DIR = ROOT / "results" / "flagship_demo"
 HOTPOT_MANIFEST = STUDY_DIR / "hotpotqa_query_manifest.json"
 
+def repo_relative(path: Path | str) -> str:
+    """Render a path relative to the repo root so cell records stay machine-independent.
+
+    Cell JSON is committed, so an absolute path would publish the operator's home directory
+    and would differ between machines for runs that are otherwise identical.
+    """
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(ROOT).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
 DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 CROSS_ENCODER = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 BEIR_DATASETS = ("nfcorpus", "scifact", "fiqa")
@@ -149,7 +162,7 @@ def _beir_setup(cell: Cell, db_path: Path, build: dict[str, str]):
     cfg = beir_config(cell.dataset, graph, db_path, build)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     pipeline = build_dag_from_config(graph.model_dump(), corpus=dataset.corpus)
-    return dataset, queries, qrels, dataset.corpus, cfg, pipeline, {"index_cache_dir": str(CACHE_DIR)}
+    return dataset, queries, qrels, dataset.corpus, cfg, pipeline, {"index_cache_dir": repo_relative(CACHE_DIR)}
 
 
 # --------------------------------------------------------------------------------------
@@ -302,7 +315,7 @@ async def run_cell(
         "build": build,
         "run_id": artifacts.run_id,
         "experiment_name": cfg.experiment.name,
-        "db_path": str(db_path),
+        "db_path": repo_relative(db_path),
         "max_queries": max_queries,
         "n_queries": len(queries),
         "n_queries_with_judgments": len(qrels),

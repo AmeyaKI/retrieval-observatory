@@ -10,7 +10,7 @@
  },
  "run_id": "fdb60340",
  "experiment_name": "study-fiqa-bm25_only",
- "db_path": "/Users/ameyakiwalkar/Documents/retrieval-observatory/results/study/results.db",
+ "db_path": "results/study/results.db",
  "max_queries": null,
  "n_queries": 648,
  "n_queries_with_judgments": 648,
@@ -34,7 +34,7 @@
   ],
   "output": "bm25"
  },
- "index_cache_dir": "/Users/ameyakiwalkar/Documents/retrieval-observatory/.retobs/study/cache",
+ "index_cache_dir": ".retobs/study/cache",
  "runtime": {
   "warmup_seconds": 1.15363612503279,
   "probe_ms_per_query": 49.91625838447362,

@@ -2,7 +2,7 @@
 
 retobs stays local-first. This page is the **optional** path that publishes a read-only
 dashboard of the committed BEIR sweep on Azure Container Apps. The operational record
-(owner commands, exposure checklist and results, cost, teardown) is
+(maintainer commands, exposure checklist and results, cost, teardown) is
 [`deploy/README.md`](../deploy/README.md); this page explains what is hosted and why.
 
 **Live URL:** https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io (deployed 2026-09-14, Azure Container Apps, westus2).
@@ -11,7 +11,8 @@ dashboard of the committed BEIR sweep on Azure Container Apps. The operational r
 
 - Image: `ghcr.io/ameyaki/retrieval-observatory:demo`, built by the `Demo image` GitHub
   workflow from `deploy/Dockerfile`. No local Docker is needed.
-- Platform: Azure Container Apps, resource group `rg-retobs-demo`, region `westus2` (Azure for Students region policy), scale-to-zero, one replica.
+- Platform: Azure Container Apps, resource group `rg-retobs-demo`, region `westus2` (chosen to satisfy the subscription's allowed-regions policy),
+  scale-to-zero, one replica.
 - Data: three SQLite databases baked into the image at `/data/` (nfcorpus `37d3a79c`,
   scifact `49b423cf`, fiqa `0784ed30`), about 53 MB, prepared by `deploy/prepare_data.py`
   and committed under `deploy/data/`.
@@ -49,4 +50,4 @@ with `az group delete --name rg-retobs-demo --yes`.
 
 If Container Apps is blocked by quota or policy, use Azure App Service for Containers with
 the same image and port 8000; if Azure is blocked entirely, AWS App Runner with the same
-GHCR image. Record which path worked in `deploy/README.md` and `HANDOFF.md`.
+GHCR image. Record which path worked in `deploy/README.md` and on this page.

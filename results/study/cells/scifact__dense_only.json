@@ -10,7 +10,7 @@
  },
  "run_id": "887a82fc",
  "experiment_name": "study-scifact-dense_only",
- "db_path": "/Users/ameyakiwalkar/Documents/retrieval-observatory/results/study/results.db",
+ "db_path": "results/study/results.db",
  "max_queries": null,
  "n_queries": 300,
  "n_queries_with_judgments": 300,
@@ -31,13 +31,13 @@
      "model": "sentence-transformers/all-MiniLM-L6-v2",
      "k": 100,
      "batch_size": 64,
-     "cache_dir": "/Users/ameyakiwalkar/Documents/retrieval-observatory/.retobs/study/cache"
+     "cache_dir": ".retobs/study/cache"
     }
    }
   ],
   "output": "dense"
  },
- "index_cache_dir": "/Users/ameyakiwalkar/Documents/retrieval-observatory/.retobs/study/cache",
+ "index_cache_dir": ".retobs/study/cache",
  "runtime": {
   "warmup_seconds": 8.718722000019625,
   "probe_ms_per_query": 16.61045840010047,

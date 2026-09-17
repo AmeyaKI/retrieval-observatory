@@ -2,9 +2,9 @@
 
 The public URL serves the retobs dashboard over three baked SQLite databases (the BEIR
 sweep: nfcorpus, scifact, fiqa). Nothing on the instance is writable. This file is the
-operational record: what the owner runs, what was checked before exposure, and the results.
+operational record: what a maintainer runs, what was checked before exposure, and the results.
 
-## What the owner runs
+## What a maintainer runs
 
 Two authenticated steps. Everything else is scripted or automated.
 
@@ -24,7 +24,8 @@ Two authenticated steps. Everything else is scripted or automated.
    updates the image if the app exists), then polls `/healthz` until it returns
    `"read_only": true` and prints the URL. Re-run it after every image rebuild to roll forward.
 
-Then paste the URL into the `Hosted demo` line at the top of `README.md` and into `HANDOFF.md`.
+Then paste the URL into the `Hosted demo` line at the top of `README.md` and into
+`docs/deployment.md`.
 
 ## Health check
 
@@ -73,8 +74,8 @@ routes only), and CORS allows any origin (nothing is writable and nothing is aut
 ## Cost and teardown
 
 Scale-to-zero (`--min-replicas 0`) means no compute charge while idle; the first request after
-idle pays a cold start. Log Analytics may show a small residual. Stay on the student or trial
-credit subscription.
+idle pays a cold start. Log Analytics may show a small residual. A free-tier or trial credit
+subscription is sufficient.
 
 ```bash
 az group delete --name rg-retobs-demo --yes     # removes app, environment, and logs
@@ -86,4 +87,4 @@ The GHCR image is not billed by Azure and stays until the GitHub package is dele
 
 Same image, same port: **Azure App Service for Containers**, or **AWS App Runner** if the
 subscription cannot create Container Apps at all. Record what actually worked here and in
-`HANDOFF.md`; the provider name on the resume must be the one used.
+`docs/deployment.md`, and make sure the provider named in the docs is the one actually in use.

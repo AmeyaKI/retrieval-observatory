@@ -32,6 +32,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+- The published tree is now limited to the project's own documentation. Internal planning notes, hand-off records, and development session logs are kept locally and gitignored; `deploy/README.md` and `docs/deployment.md` carry the deployment facts a reader needs, and no published file points at an unpublished one.
+- `scripts/study_loss_attribution.py` — `repo_relative()`: `db_path` and `index_cache_dir` are recorded relative to the repo root, so committed cell records are machine-independent and identical runs on different machines produce identical JSON. The nine existing cell records were rewritten in place; no metric, rank, or run identifier changed.
+- `results/study/PREREGISTRATION.md` — §8 reworded to describe the prior published claim in the project's own terms; recorded as an editorial amendment, with no methodological change.
 - `results/flagship_demo/CASE_STUDY.md` — Scenario B leads; Scenarios C and C2 are an appendix.
 - `dashboard/ui/src/components/OperatorInspector.tsx`, `SegmentOperatorGrid.tsx`, `VerdictCard.tsx` — an `indeterminate` / `not_applicable` / error attribution result shows its `reason` as visible truncated text (full text on hover) next to the status, via `InlineReason.tsx`; previously the reason was a tooltip or absent.
 - `pipeline/graph_contract.py`, `pipeline/graph_projection.py`, `dashboard/pipeline_graph.schema.json` — `GraphMetricValue` carries the aggregate's `n` (optional, additive), so a node's mean states how many queries it covers.

@@ -246,11 +246,12 @@ GATE, TRANSFORM OBSERVED_ABLATION; SOURCE NOT_REPLAYABLE. This study changes non
 reports the indeterminate counts it produces. Only Q2's second statistic and §3.10 depend on
 replay; Q1, Q3, and the headline sentence are computed from recorded ranks alone.
 
-## 8. Resume-claim reconciliation plan (STUDY.md §7)
+## 8. Reconciliation with the prior published claim (STUDY.md §7)
 
-The existing resume bullet cites "+132% NDCG@10 over BM25 on FiQA at 130× lower latency than
-cross-encoder reranking", measured on build 0.1.0 (`results/BENCHMARK_ANALYSIS.md`: BM25 0.159,
-dense 0.369, BM25→rerank 0.260, rrf 0.290 on 648 fiqa queries).
+An earlier published summary of this project cites "+132% nDCG@10 over BM25 on FiQA at 130× lower
+latency than cross-encoder reranking", measured on build 0.1.0 (`results/BENCHMARK_ANALYSIS.md`:
+BM25 0.159, dense 0.369, BM25→rerank 0.260, rrf 0.290 on 648 fiqa queries). This section fixes, in
+advance, how that claim is re-derived on the current build.
 
 - **Dense vs BM25.** Pipelines 2 and 1 on fiqa re-derive the ratio on the current build. Rendered
   side by side with the old 0.369 / 0.159. "Reproduces" means the old ratio lies inside the current
@@ -258,12 +259,12 @@ dense 0.369, BM25→rerank 0.260, rrf 0.290 on 648 fiqa queries).
 - **Rerank comparison.** The old rerank arm was BM25 top-100 → cross-encoder, which is not pipeline
   4 (hybrid → cross-encoder). Pipeline 4 vs pipeline 2 is rendered and labelled as a different
   configuration. In addition, one reconciliation-only cell `bm25_rerank` on fiqa (`bm25` k=100 →
-  `rerank` top_k=100, the old configuration as a graph; decided with the owner 2026-09-17)
-  re-derives the old rerank-vs-dense and rerank-vs-BM25 nDCG@10 ratios directly. It is not a
-  primary, feeds no pooled statistic, and appears only in STUDY.md §7 and the HANDOFF claim table.
-- **Latency.** NOT MEASURED. Out of scope for this study (brief B3); `STUDY.md` says so explicitly
-  and `HANDOFF.md` flags the latency half of the bullet for removal unless the owner re-measures it
-  separately with the machine named.
+  `rerank` top_k=100, the old configuration as a graph; added 2026-09-17) re-derives the old
+  rerank-vs-dense and rerank-vs-BM25 nDCG@10 ratios directly. It is not a primary, feeds no pooled
+  statistic, and appears only in STUDY.md §7.
+- **Latency.** NOT MEASURED. Out of scope for this study (brief B3); `STUDY.md` says so explicitly.
+  The latency half of the prior claim is withdrawn unless it is re-measured separately with the
+  machine named.
 
 ## 9. Exploratory analyses (labelled as such wherever they appear)
 
@@ -282,10 +283,15 @@ Everything below is reported without a pre-registered expectation and cannot bec
 
 No latency claims, no new operators or subsystems, no change to replay or attribution semantics
 (bug fixes get their own commits with tests and are listed in the amendments), no GPU encoders, no
-LLM-as-judge, no additional datasets. The resume framing is chosen after the data, never before.
+LLM-as-judge, no additional datasets. Any framing of the results is chosen after the data,
+never before.
 
 ## Amendments
 
+- **2026-09-17 — editorial, no methodological change.** §8 was reworded to describe the prior
+  published claim in the project's own terms and to drop references to two local, untracked
+  planning documents. No pre-registered question, definition, grid cell, statistic, or decision
+  rule changed; §8 covers the same reconciliation with the same cell and the same criteria.
 - **2026-09-17, before any grid cell ran — bug fix in `tracing/replay.py` (own commit, with a test).**
   Removing a *final* operator handed its terminal role to every parent, including a gate-skipped
   sibling with no outputs, so the counterfactual's final list could be that empty span and the
