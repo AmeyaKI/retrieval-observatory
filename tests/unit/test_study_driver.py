@@ -104,3 +104,73 @@ def test_hotpot_manifest_refuses_a_different_subset(tmp_path: Path, monkeypatch)
     driver._write_hotpot_manifest(["q1", "q2"], source, lambda *a, **k: None)  # identical: fine
     with pytest.raises(SystemExit, match="does not match"):
         driver._write_hotpot_manifest(["q1", "q3"], source, lambda *a, **k: None)
+
+
+def _seed_study_db(path: Path) -> None:
+    import sqlite3
+
+    with sqlite3.connect(str(path)) as db:
+        db.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, experiment_name TEXT, finished_at TEXT)")
+        db.execute("CREATE TABLE traces (run_id TEXT, trace_id TEXT)")
+        db.execute("CREATE TABLE golden_sets (name TEXT)")
+        db.executemany("INSERT INTO runs VALUES (?, ?, ?)", [
+            ("done1", "study-fiqa-dense_only", "2026-09-17T00:00:00"),
+            ("half1", "study-fiqa-dense_only", None),
+            ("other", "study-fiqa-rrf_hybrid", None),
+        ])
+        db.executemany("INSERT INTO traces VALUES (?, ?)", [("done1", "a"), ("half1", "b"), ("half1", "c"), ("other", "d")])
+        db.execute("INSERT INTO golden_sets VALUES ('kept')")
+
+
+def test_purge_unfinished_runs_removes_only_the_interrupted_run_of_that_experiment(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "study.db"
+    _seed_study_db(db_path)
+    assert driver.purge_unfinished_runs(db_path, "study-fiqa-dense_only") == ["half1"]
+    with sqlite3.connect(str(db_path)) as db:
+        assert sorted(r[0] for r in db.execute("SELECT run_id FROM runs")) == ["done1", "other"]
+        assert sorted(r[0] for r in db.execute("SELECT run_id FROM traces")) == ["done1", "other"]
+        assert db.execute("SELECT COUNT(*) FROM golden_sets").fetchone()[0] == 1
+    assert driver.purge_unfinished_runs(db_path, "study-fiqa-dense_only") == []
+    assert driver.purge_unfinished_runs(tmp_path / "missing.db", "anything") == []
+
+
+def test_per_query_scores_reads_the_final_unbranched_stage_only():
+    rows = [
+        {"query_id": "q1", "stage_index": 0, "metric_name": "ndcg", "k": 10, "value": 0.9, "branch_id": "bm25"},
+        {"query_id": "q1", "stage_index": 1, "metric_name": "ndcg", "k": 10, "value": 0.5, "branch_id": None},
+        {"query_id": "q1", "stage_index": 2, "metric_name": "ndcg", "k": 10, "value": 0.4, "branch_id": None},
+        {"query_id": "q2", "stage_index": 2, "metric_name": "ndcg", "k": 10, "value": 0.1, "branch_id": None},
+        {"query_id": "q1", "stage_index": 2, "metric_name": "recall", "k": 10, "value": 1.0, "branch_id": None},
+        {"query_id": "q1", "stage_index": 2, "metric_name": "mrr", "k": 0, "value": 1.0, "branch_id": None},
+        {"query_id": "q1", "stage_index": -1, "metric_name": "latency_ms", "k": 0, "value": 50.0, "branch_id": None},
+    ]
+    scores = driver.per_query_scores(rows)
+    assert scores == {"stage_index": 2, "ndcg@10": {"q1": 0.4, "q2": 0.1}, "recall@10": {"q1": 1.0}}
+    assert driver.per_query_scores([]) == {"stage_index": None, "ndcg@10": {}, "recall@10": {}}
+
+
+def test_backfill_adds_per_query_and_leaves_every_other_key_byte_identical(tmp_path, monkeypatch):
+    path = tmp_path / "cell.json"
+    original = {"cell": "x", "run_id": "r1", "loss": {"n_pairs": 3}, "events": [1, 2]}
+    driver.write_cell(path, original)
+    db_path = tmp_path / "study.db"
+    db_path.write_bytes(b"")
+
+    class FakeStore:
+        def __init__(self, db_path):
+            pass
+
+        async def get_metrics(self, run_id):
+            assert run_id == "r1"
+            return [{"query_id": "q", "stage_index": 0, "metric_name": "ndcg", "k": 10, "value": 0.5, "branch_id": None}]
+
+    import retrieval_observatory.store.sqlite as sqlite_store
+
+    monkeypatch.setattr(sqlite_store, "SQLiteStore", FakeStore)
+    payload = asyncio.run(driver.backfill_per_query(path, db_path, lambda *a, **k: None))
+    assert payload["per_query"]["ndcg@10"] == {"q": 0.5}
+    written = json.loads(path.read_text())
+    assert {k: v for k, v in written.items() if k != "per_query"} == original
+    assert list(written)[-1] == "per_query"

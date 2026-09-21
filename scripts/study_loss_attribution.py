@@ -5,7 +5,8 @@ One cell = one pipeline on one dataset. Every cell runs through `execute_benchma
 same executor `retobs evaluate` uses, into `results/study/results.db`; the cell's statistics
 (PREREGISTRATION.md §3, computed by `analysis/loss_attribution.py`) and the counterfactual
 marginal contributions are written to `results/study/cells/<cell>.json`. A cell whose JSON
-exists is skipped, so the driver can be rerun after an interruption.
+exists is skipped, so the driver can be rerun after an interruption: an interrupted cell leaves
+an unfinished Run in the database, and the driver deletes it before running that cell again.
 
 Usage:
     python scripts/study_loss_attribution.py --list
@@ -23,6 +24,7 @@ import asyncio
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -264,7 +266,7 @@ async def run_cell(
     path = cell_path(cell, out_dir)
     if path.exists():
         log(f"[{cell.id}] complete, skipping ({_rel(path)})")
-        return json.loads(path.read_text(encoding="utf-8"))
+        return await backfill_per_query(path, db_path, log)
 
     log(f"[{cell.id}] preparing")
     build = build_info()
@@ -282,6 +284,9 @@ async def run_cell(
     if estimate_only:
         return {"cell": cell.id, "runtime": runtime, "n_queries": len(queries)}
 
+    purged = purge_unfinished_runs(db_path, cfg.experiment.name)
+    if purged:
+        log(f"  deleted unfinished run(s) {purged} left by an interrupted attempt")
     store = SQLiteStore(db_path=str(db_path))
     await store.init_db()
     started = time.perf_counter()
@@ -332,17 +337,88 @@ async def run_cell(
             **marginal,
         },
         "events": [event.to_dict() for event in attribution.events],
+        "per_query": per_query_scores(await store.get_metrics(artifacts.run_id)),
     }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(payload, indent=1, default=str, allow_nan=False) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    write_cell(path, payload)
     log(f"  wrote {path}")
     return payload
 
 
 def _rel(path: Path) -> Path:
     return path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+
+
+def purge_runs(db_path: Path, run_ids: list[str]) -> None:
+    """Delete every row keyed by one of these run ids, in every table that has a run_id column."""
+    if not run_ids or not Path(db_path).exists():
+        return
+    with sqlite3.connect(str(db_path)) as db:
+        tables = [row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+        marks = ",".join("?" * len(run_ids))
+        for table in tables:
+            columns = {row[1] for row in db.execute(f'PRAGMA table_info("{table}")')}
+            if "run_id" in columns:
+                db.execute(f'DELETE FROM "{table}" WHERE run_id IN ({marks})', run_ids)
+
+
+def purge_unfinished_runs(db_path: Path, experiment_name: str) -> list[str]:
+    """Delete Runs of this experiment that never finished (an interrupted cell) and their rows.
+
+    Only rows keyed by one of those run ids are touched; finished Runs are never deleted. Assumes a
+    single driver writes the study database at a time.
+    """
+    if not Path(db_path).exists():
+        return []
+    with sqlite3.connect(str(db_path)) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='runs'").fetchone():
+            return []
+        run_ids = [row[0] for row in db.execute(
+            "SELECT run_id FROM runs WHERE experiment_name = ? AND finished_at IS NULL", (experiment_name,)
+        )]
+    purge_runs(db_path, run_ids)
+    return run_ids
+
+
+def per_query_scores(metric_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Final-stage nDCG@10 and recall@10 per query, from the Run's own metric rows.
+
+    Committed so paired statistics across cells (PREREGISTRATION.md §8 ratios) can be recomputed
+    from `results/study/cells/` alone. Latency rows are never read.
+    """
+    main = [row for row in metric_rows if not row.get("branch_id") and row["stage_index"] >= 0]
+    if not main:
+        return {"stage_index": None, "ndcg@10": {}, "recall@10": {}}
+    final = max(row["stage_index"] for row in main)
+    scores: dict[str, dict[str, float]] = {"ndcg@10": {}, "recall@10": {}}
+    for row in main:
+        key = f"{row['metric_name']}@{row['k']}"
+        if row["stage_index"] == final and key in scores:
+            scores[key][str(row["query_id"])] = float(row["value"])
+    return {"stage_index": final, **{key: dict(sorted(values.items())) for key, values in scores.items()}}
+
+
+def write_cell(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, indent=1, default=str, allow_nan=False) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+async def backfill_per_query(path: Path, db_path: Path, log: Callable[..., None]) -> dict[str, Any]:
+    """Add `per_query` to a cell written before that field existed. No other key changes."""
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if "per_query" in payload or not Path(db_path).exists():
+        return payload
+    rows = await SQLiteStore(db_path=str(db_path)).get_metrics(payload["run_id"])
+    if not rows:
+        log(f"  run {payload['run_id']} not in {_rel(Path(db_path))}; per_query not backfilled")
+        return payload
+    payload["per_query"] = per_query_scores(rows)
+    write_cell(path, payload)
+    log(f"  backfilled per_query from run {payload['run_id']}")
+    return payload
 
 
 def _plain_log(*parts: Any, **_: Any) -> None:
