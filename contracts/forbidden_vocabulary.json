@@ -31,6 +31,7 @@
     ".venv",
     "CHANGELOG.md",
     "docs/PRODUCT_AUDIT_AND_REDESIGN.md",
+    "docs/rebuild",
     "docs/superpowers",
     "docs/verification",
     "node_modules",
