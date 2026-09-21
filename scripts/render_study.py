@@ -136,11 +136,22 @@ def signed(value: Optional[float], digits: int = 3) -> str:
     return "—" if value is None else f"{value:+.{digits}f}"
 
 
-def pp_ci(rate: Rate) -> str:
+def pp_ci(rate: Rate, digits: int = 2) -> str:
     """A difference of two fractions, in percentage points."""
     if rate.value is None:
         return "undefined"
-    return f"{100 * rate.value:+.1f} pp [{100 * rate.ci_low:+.1f}, {100 * rate.ci_high:+.1f}]"
+    return f"{100 * rate.value:+.{digits}f} pp [{100 * rate.ci_low:+.{digits}f}, {100 * rate.ci_high:+.{digits}f}]"
+
+
+def detected(rate: Rate) -> Optional[str]:
+    """PREREGISTRATION.md §6: a difference is detected only if its interval excludes 0."""
+    if rate.value is None or rate.ci_low is None:
+        return None
+    if rate.ci_low > 0:
+        return "up"
+    if rate.ci_high < 0:
+        return "down"
+    return None
 
 
 def table(header: Sequence[str], rows: Sequence[Sequence[str]], align: Optional[str] = None) -> str:
@@ -521,18 +532,33 @@ def render(cells: Dict[Tuple[str, str], Dict[str, Any]], expected: Sequence[Tupl
         contrib = "; ".join(
             f"{d} {signed(r['delta'])} [{signed(r['ci_low'])}, {signed(r['ci_high'])}]" for d, _, r in diffs
         )
-        w(f"**Q2.** Adding the cross-encoder changed the self-inflicted fraction by {pp_ci(pooled_diff)} pooled "
-          f"({per_diff}). The reranker's marginal contribution to nDCG@10 (OBSERVED_ABLATION): {contrib}. "
-          "*Expected: a positive marginal contribution and a higher self-inflicted fraction.*")
-        raised = pooled_diff.ci_low is not None and pooled_diff.ci_low > 0
         helped = [d for d, _, r in diffs if r["result_status"] == "replayed" and r["ci_low"] > 0]
         hurt = [d for d, _, r in diffs if r["result_status"] == "replayed" and r["ci_high"] < 0]
-        parts = [f"the self-inflicted fraction {'rose, as expected' if raised else 'did not detectably rise, against the expectation'}"]
+        pooled_dir = detected(pooled_diff)
+        rose = [d for d, x, _ in diffs if detected(x) == "up"]
+        fell = [d for d, x, _ in diffs if detected(x) == "down"]
+        flat = [d for d, x, _ in diffs if detected(x) is None]
+        if pooled_dir == "up":
+            parts = ["pooled, the self-inflicted fraction rose, as expected"]
+        elif pooled_dir == "down":
+            parts = ["pooled, the self-inflicted fraction **fell**, against the expectation"]
+        else:
+            parts = ["pooled, no change in the self-inflicted fraction was detected, against the expectation"]
+        if rose:
+            parts.append(f"it rose on {', '.join(rose)}")
+        if fell:
+            parts.append(f"it fell on {', '.join(fell)}")
+        if flat:
+            parts.append(f"no change was detected on {', '.join(flat)}")
         if helped:
             parts.append(f"the reranker raised nDCG@10 on {', '.join(helped)}, as expected")
         if hurt:
             parts.append(f"the reranker **lowered** nDCG@10 on {', '.join(hurt)}, against the expectation")
-        w(" In words: " + "; ".join(parts) + f". Depends on the {RERANK_FIX_AMENDMENT} amendment.\n")
+        w(f"**Q2.** Adding the cross-encoder changed the self-inflicted fraction by {pp_ci(pooled_diff)} pooled "
+          f"({per_diff}). The reranker's marginal contribution to nDCG@10 (OBSERVED_ABLATION): {contrib}. "
+          "*Expected: a positive marginal contribution and a higher self-inflicted fraction.* In words: "
+          + "; ".join(parts) + ". A difference counts as detected only when its interval excludes 0 "
+          f"(PREREGISTRATION.md §6). Depends on the {RERANK_FIX_AMENDMENT} amendment.\n")
     else:
         w("**Q2.** Pending: needs both hybrid pipelines on at least one dataset.\n")
     # Q3

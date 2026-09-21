@@ -174,3 +174,14 @@ def test_backfill_adds_per_query_and_leaves_every_other_key_byte_identical(tmp_p
     written = json.loads(path.read_text())
     assert {k: v for k, v in written.items() if k != "per_query"} == original
     assert list(written)[-1] == "per_query"
+
+
+def test_write_cell_never_commits_an_absolute_repo_path(tmp_path):
+    inside = str(driver.ROOT / ".retobs" / "study" / "cache")
+    payload = {"graph": {"nodes": [{"config": {"cache_dir": inside, "k": 100}}]}, "paths": [inside, "/elsewhere/x"]}
+    path = tmp_path / "cell.json"
+    driver.write_cell(path, payload)
+    written = json.loads(path.read_text())
+    assert written["graph"]["nodes"][0]["config"] == {"cache_dir": ".retobs/study/cache", "k": 100}
+    assert written["paths"] == [".retobs/study/cache", "/elsewhere/x"]
+    assert str(driver.ROOT) not in path.read_text()

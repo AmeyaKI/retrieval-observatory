@@ -397,7 +397,24 @@ def per_query_scores(metric_rows: list[dict[str, Any]]) -> dict[str, Any]:
     return {"stage_index": final, **{key: dict(sorted(values.items())) for key, values in scores.items()}}
 
 
+def portable(value: Any) -> Any:
+    """Every string that is an absolute path inside the repo, rewritten repo-relative, at any depth.
+
+    Node configs carry runtime paths (the dense index `cache_dir`) that must stay absolute while
+    the cell runs but must not reach a committed file.
+    """
+    prefix = str(ROOT) + os.sep
+    if isinstance(value, str):
+        return value[len(prefix):] if value.startswith(prefix) else value
+    if isinstance(value, dict):
+        return {key: portable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [portable(item) for item in value]
+    return value
+
+
 def write_cell(path: Path, payload: dict[str, Any]) -> None:
+    payload = portable(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(payload, indent=1, default=str, allow_nan=False) + "\n", encoding="utf-8")
