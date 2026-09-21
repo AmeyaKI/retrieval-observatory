@@ -299,3 +299,17 @@ never before.
   (observed on the flagship baseline: `final_selection` +0.86 nDCG@10 on the rerank route). Only
   FIRED parents now inherit the role, matching what the runner declares. Affects §3.10 marginal
   contributions of terminal operators in pipeline 5 only; no rank-based statistic changes.
+- **2026-09-20, after 9 of 14 cells ran — bug fix in `pipeline/factory.py` (own commit, with a
+  test); two cells re-run.** In a graph built from config, candidates carry their `metadata` but not
+  a document's `text` attribute, and executors rebuild documents from `metadata["text"]`. The bm25
+  and dense source adapters return text only as an attribute, so the cross-encoder in pipelines 4
+  and R scored `(query, "")` for every candidate and reordered the fused list by noise. A RERANK
+  node built with a corpus now receives the corpus text of any candidate that arrives without text
+  (text an upstream operator supplied is never replaced). Found while rendering the draft write-up:
+  the reranker's marginal contribution on scifact was −0.145 nDCG@10; on a scratch re-run with the
+  fix it is +0.042 [+0.010, +0.074]. The two affected cells already run (`nfcorpus__hybrid_rerank`,
+  `scifact__hybrid_rerank`) were deleted with their Runs and are re-run on the fixed build; every
+  pipeline 4 and R figure comes from the fixed build. Pipeline 5 is unaffected: the flagship
+  pipeline already re-reads paragraph text from the corpus in its own reranker binding. No
+  definition, statistic, threshold, or decision rule changes; Q1 pools pipeline 4, so the Q1
+  figure depends on this fix and `STUDY.md` says so.

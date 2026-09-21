@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib
+import inspect
 import os
 from typing import Any, Callable, List, Union
 
@@ -149,6 +151,8 @@ def build_dag_from_config(
             adapter, k = builder(node_cfg, corpus)
         else:
             adapter, k = builder(node_cfg)
+        if op_type == "RERANK" and corpus is not None and hasattr(adapter, "rerank"):
+            adapter = CorpusTextReranker(adapter, corpus)
         nodes.append(
             DAGNode(
                 node_id=node_cfg["id"],
@@ -164,6 +168,32 @@ def build_dag_from_config(
         nodes=nodes,
         output_id=graph_config["output"],
     )
+
+
+class CorpusTextReranker:
+    """Hand a reranker the corpus text of every candidate that arrives without any.
+
+    Operators in a graph pass candidates, and a candidate carries its ``metadata`` but not a
+    document's ``text`` attribute; executors rebuild documents with ``text=metadata["text"]``.
+    A source adapter that returns text only as an attribute (bm25, hf_biencoder) therefore
+    handed the reranker empty strings, and a cross-encoder scoring ``(query, "")`` pairs
+    silently reorders by noise. Text an upstream operator did supply is never replaced.
+    """
+
+    def __init__(self, adapter: Any, corpus: dict):
+        self._adapter = adapter
+        self._corpus = corpus
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._adapter, name)
+
+    async def rerank(self, query: Any, documents: Any) -> Any:
+        hydrated = [
+            doc if doc.text else dataclasses.replace(doc, text=str(self._corpus.get(doc.id, "")))
+            for doc in documents
+        ]
+        result = self._adapter.rerank(query, hydrated)
+        return await result if inspect.isawaitable(result) else result
 
 
 def _stage_model(stage_cfg: dict) -> str | None:

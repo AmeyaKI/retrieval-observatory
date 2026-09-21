@@ -229,3 +229,58 @@ async def test_import_node_with_explicit_op_type_is_honoured():
 
     assert result.status == "OK"
     assert next(s for s in result.trace.spans if s.op_id == "widen").op_type == "EXPAND"
+
+
+class _TextRecordingReranker:
+    """Scores by how often the query's words occur in the text it is handed, and records that text."""
+
+    def __init__(self):
+        self.seen_text: dict[str, str] = {}
+
+    async def rerank(self, query: Query, documents: list[Document]) -> RetrievalResult:
+        for doc in documents:
+            self.seen_text[doc.id] = doc.text
+        words = query.text.lower().split()
+        scored = sorted(documents, key=lambda d: -sum(d.text.lower().count(w) for w in words))
+        docs = [Document(id=d.id, text=d.text, score=1.0, rank=r) for r, d in enumerate(scored[: query.k], 1)]
+        return RetrievalResult(documents=docs, latency_ms=1.0, retriever_id="rr")
+
+
+@pytest.mark.asyncio
+async def test_config_built_reranker_scores_corpus_text_not_empty_strings(monkeypatch):
+    """Regression: bm25 returns text only as a Document attribute, which candidates do not carry,
+    so a config-built graph used to hand the cross-encoder empty strings for every document."""
+    import retrieval_observatory.pipeline.factory as factory
+
+    reranker = _TextRecordingReranker()
+    monkeypatch.setattr(factory, "_build_hf_crossencoder_adapter", lambda cfg: (reranker, cfg["config"]["k"]))
+    corpus = {
+        "d1": "apples and oranges",
+        "d2": "zebra habitats",
+        "d3": "zebra zebra stripes explained",
+    }
+    graph = GraphPipelineConfig.model_validate({
+        "id": "bm25_rerank",
+        "nodes": [
+            {"id": "bm25", "type": "adapter.bm25", "op_type": "SOURCE", "config": {"k": 3}},
+            {"id": "rerank", "type": "adapter.hf_crossencoder", "op_type": "RERANK", "inputs": ["bm25"],
+             "config": {"model": "unused", "k": 3}},
+        ],
+        "output": "rerank",
+    })
+    pipeline = build_dag_from_config(graph.model_dump(), corpus=corpus)
+    result = await pipeline.run(Query(text="zebra", k=3), query_id="q")
+
+    assert reranker.seen_text, "the reranker was never called"
+    assert all(reranker.seen_text[doc_id] == corpus[doc_id] for doc_id in reranker.seen_text)
+    assert result.status == "OK" and result.snapshots[-1].documents[0].id == "d3"
+
+
+@pytest.mark.asyncio
+async def test_corpus_text_reranker_keeps_text_an_upstream_operator_supplied():
+    from retrieval_observatory.pipeline.factory import CorpusTextReranker
+
+    reranker = _TextRecordingReranker()
+    wrapped = CorpusTextReranker(reranker, {"a": "corpus a", "b": "corpus b"})
+    await wrapped.rerank(Query(text="x", k=2), [Document(id="a", text="chunk text", score=1.0, rank=1), Document(id="b", text="", score=0.5, rank=2)])
+    assert reranker.seen_text == {"a": "chunk text", "b": "corpus b"}

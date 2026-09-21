@@ -82,6 +82,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 - `tracing/replay.py` — a removed final operator hands its terminal role only to FIRED parents; a gate-skipped sibling with no outputs could previously become the counterfactual final output, so the marginal contribution of a terminal fuse read as the entire metric.
 - `tracing/model.py` — `RetrievalTrace.from_dict` reads a legacy singular `final_op_id`.
+- `pipeline/factory.py` — a RERANK node in a config-built graph now scores real passage text. Candidates carry `metadata` but not a document's `text` attribute, and the bm25 and dense sources return text only as an attribute, so `adapter.hf_crossencoder` and `adapter.cohere_rerank` scored `(query, "")` for every candidate and reordered by noise. `CorpusTextReranker` fills empty text from the corpus by id and never replaces text an upstream operator supplied. On scifact the cross-encoder's marginal nDCG@10 went from −0.145 to +0.042. Linear `pipelines:` and the flagship demo (which already re-read text in its own reranker) were unaffected.
 - `analysis/scores.py` — calibration bins are half-open; boundary scores were counted twice.
 
 ### Removed
