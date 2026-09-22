@@ -81,6 +81,13 @@ class _Execution:
     latency_ms: float
     error: str | None = None
     error_traceback: str | None = None
+    # ``invocation_id`` of the span behind each parent group, in ``spec.parents`` order.
+    parent_invocation_ids: tuple[str, ...] = ()
+
+
+def _parent_invocations(spec: Any, invocations: Mapping[str, str]) -> tuple[str, ...]:
+    ids = tuple(invocations.get(parent, "") for parent in spec.parents)
+    return ids if all(ids) else ()
 
 
 def _legacy_graph(pipeline_id: str, nodes: Sequence[DAGNode], output_id: str) -> tuple[PipelineGraphSpec, dict[str, Any]]:
@@ -209,7 +216,7 @@ class DAGPipeline:
         return [[op_id for op_id in self._order if depth[op_id] == value] for value in sorted(set(depth.values()))]
 
     async def _execute(
-        self, spec: Any, query: Query, candidates: Mapping[str, tuple[Any, ...]]
+        self, spec: Any, query: Query, candidates: Mapping[str, tuple[Any, ...]], parent_invocation_ids: tuple[str, ...] = ()
     ) -> _Execution:
         groups = {parent: candidates.get(parent, ()) for parent in spec.parents}
         started = time.perf_counter()
@@ -224,7 +231,7 @@ class DAGPipeline:
                 op_type=spec.op_type,
                 decision_reasons=result.drop_reasons,
             )
-            return _Execution(spec, result, transition, (time.perf_counter() - started) * 1000)
+            return _Execution(spec, result, transition, (time.perf_counter() - started) * 1000, parent_invocation_ids=parent_invocation_ids)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -233,10 +240,14 @@ class DAGPipeline:
             )
             return _Execution(
                 spec, OperatorExecutionResult((), status="ERROR"), transition,
-                (time.perf_counter() - started) * 1000, str(exc), traceback.format_exc(),
+                (time.perf_counter() - started) * 1000, str(exc), traceback.format_exc(), parent_invocation_ids,
             )
 
     def _span(self, execution: _Execution) -> OperatorSpan:
+        """The executor passed each parent's recorded outputs itself, so every link is ``recorded``.
+        A gate-skipped operator received nothing; a TIMEOUT/ERROR operator received its inputs
+        but produced no observable output."""
+        spec, status = execution.spec, "ERROR" if execution.error else execution.result.status
         input_groups = {
             parent: tuple(
                 replace(candidate, drop_reason=execution.result.drop_reasons.get(candidate.doc_id, candidate.drop_reason))
@@ -245,27 +256,40 @@ class DAGPipeline:
             for parent, candidates in execution.transition.input_groups.items()
         }
         return OperatorSpan(
-            op_id=execution.spec.op_id,
-            op_type=execution.spec.op_type,
-            op_name=execution.spec.op_id,
-            parent_ids=tuple(execution.spec.parents),
-            status="ERROR" if execution.error else execution.result.status,
+            op_id=spec.op_id,
+            op_type=spec.op_type,
+            op_name=spec.op_id,
+            parent_ids=tuple(spec.parents),
+            status=status,
             latency_ms=max(0.0, execution.latency_ms),
             input_groups=input_groups,
             outputs=execution.transition.outputs,
-            deterministic=self._deterministic(execution.spec),
-            replay_policy=self._replay_policies[execution.spec.op_id],
-            params={**dict(execution.spec.params), **dict(execution.result.metadata)},
+            deterministic=self._deterministic(spec),
+            replay_policy=self._replay_policies[spec.op_id],
+            params={**dict(spec.params), **dict(execution.result.metadata)},
             gate_values=dict(execution.result.gate_values),
             error=execution.error,
-            branch_id=execution.spec.params.get("branch_id"),
+            branch_id=spec.params.get("branch_id"),
+            **self._invocation_links(spec, execution.parent_invocation_ids, received=status != "SKIPPED_BY_GATE"),
+            output_capture="recorded" if status == "FIRED" else "unavailable",
         )
+
+    @staticmethod
+    def _invocation_links(spec: Any, parent_invocation_ids: tuple[str, ...], *, received: bool) -> dict[str, Any]:
+        return {
+            "invocation_id": uuid.uuid4().hex,
+            "operator_id": spec.op_id,
+            "input_capture": "recorded" if spec.parents and received else "not_applicable",
+            "parent_invocation_ids": parent_invocation_ids,
+            "parent_linkage": "recorded",
+        }
 
     async def run(self, query: Query | str, *, query_id: str | None = None) -> PipelineResult:
         query = Query(str(query), query_id=query_id or "") if isinstance(query, str) else query
         if query_id is not None and query.query_id != query_id:
             query = replace(query, query_id=query_id)
         candidates: dict[str, tuple[Any, ...]] = {}
+        invocations: dict[str, str] = {}
         spans: list[OperatorSpan] = []
         snapshots: list[StageSnapshot] = []
         gate_choices: dict[str, tuple[str, tuple[str, ...]]] = {}
@@ -312,10 +336,10 @@ class DAGPipeline:
                                 (), status="SKIPPED_BY_GATE",
                                 gate_values={"gate_op_id": gate_id, "selected_route": route},
                             ),
-                            transition, 0.0,
+                            transition, 0.0, parent_invocation_ids=_parent_invocations(spec, invocations),
                         )))
                     else:
-                        pending.append(self._execute(spec, query, candidates))
+                        pending.append(self._execute(spec, query, candidates, _parent_invocations(spec, invocations)))
                 executions = list(await asyncio.gather(*pending))
                 active = []
                 errors = []
@@ -328,6 +352,7 @@ class DAGPipeline:
                         errors.append(traceback.format_exc())
                         continue
                     spans.append(span)
+                    invocations[span.op_id] = span.invocation_id or ""
                     if execution.error:
                         errors.append(execution.error_traceback or execution.error)
                         continue
@@ -365,6 +390,8 @@ class DAGPipeline:
                     op_id, spec.op_type, op_id, tuple(spec.parents), "TIMEOUT", elapsed,
                     input_groups=groups, error="Pipeline execution cancelled or timed out",
                     deterministic=self._deterministic(spec), replay_policy=self._replay_policies[op_id],
+                    output_capture="unavailable",
+                    **self._invocation_links(spec, _parent_invocations(spec, invocations), received=True),
                 ))
             return result("TIMEOUT", "Pipeline execution cancelled or timed out")
 

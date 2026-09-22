@@ -81,11 +81,27 @@ def _item_value(item: Any, key: str, default: Any = None) -> Any:
     return getattr(item, key, default)
 
 
+def _observed_id(item: Any, metadata: Mapping[str, Any]) -> Any:
+    """The stable id an application object carries: dict keys or attributes ``doc_id``/``id``,
+    a LlamaIndex node's ``node_id``/``id_`` (also through ``NodeWithScore.node``), or ``metadata["id"]``."""
+    for key in ("doc_id", "id", "node_id", "id_"):
+        value = _item_value(item, key)
+        if value:
+            return value
+    node = _item_value(item, "node")
+    if node is not None:
+        for key in ("node_id", "id_", "id"):
+            value = _item_value(node, key)
+            if value:
+                return value
+    return metadata.get("id")
+
+
 def _item_fields(item: Any, index: int) -> _CandidateFields:
     if isinstance(item, str):
         return _CandidateFields(item, 0.0, index, {})
     metadata = dict(_item_value(item, "metadata", {}) or {})
-    observed_doc_id = _item_value(item, "doc_id") or _item_value(item, "id") or metadata.get("id")
+    observed_doc_id = _observed_id(item, metadata)
     doc_id = str(observed_doc_id or index)
     return _CandidateFields(
         doc_id=doc_id,

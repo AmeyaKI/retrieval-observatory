@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any, Callable, Optional, Sequence
 
-from retrieval_observatory.sdk.observe import current_trace
+from retrieval_observatory.sdk.observe import _append, current_trace
 from retrieval_observatory.tracing.candidates import build_candidate_transition
-from retrieval_observatory.tracing.model import OperatorSpan
+from retrieval_observatory.tracing.model import OperatorSpan, latest_span_of, next_node_id
 from retrieval_observatory.tracing.integrations.operator_registry import ComponentEvent, OperatorRegistry
 
 # Shared span-building logic for the duck-typed framework wrappers (Haystack, DSPy,
@@ -86,25 +87,27 @@ def wrap_callable(
         if trace is None:
             return
         documents = _extract_documents(result, result_key) if status == "FIRED" else []
-        resolved_parents = resolved.parent_ids
-        input_groups = {
-            parent: trace.span(parent).outputs for parent in resolved_parents
-            if any(span.op_id == parent for span in trace.spans)
-        }
+        node_id = next_node_id((span.op_id for span in trace.spans), resolved_op_id)
+        # Inputs are reconstructed from the declared parents' latest invocations (the wrapper
+        # never sees the operator's arguments), so the linkage is ``inferred``.
+        parents = {parent: latest_span_of(trace.spans, parent) for parent in resolved.parent_ids}
+        node_of = {parent: span.op_id if span is not None else parent for parent, span in parents.items()}
+        input_groups = {span.op_id: span.outputs for span in parents.values() if span is not None}
+        invocation_ids = tuple(span.invocation_id for span in parents.values() if span is not None)
         if status == "FIRED":
             transition = build_candidate_transition(
                 input_groups=input_groups,
                 output_items=documents,
-                op_id=resolved_op_id,
+                op_id=node_id,
                 op_type=op_type,
             )
         else:
             transition = None
         span = OperatorSpan(
-            op_id=resolved_op_id,
+            op_id=node_id,
             op_type=op_type,  # type: ignore[arg-type]
             op_name=resolved_op_name,
-            parent_ids=resolved_parents,
+            parent_ids=tuple(node_of[parent] for parent in resolved.parent_ids),
             status=status,  # type: ignore[arg-type]
             latency_ms=elapsed_ms,
             input_groups=transition.input_groups if transition else input_groups,
@@ -112,8 +115,15 @@ def wrap_callable(
             deterministic=deterministic,
             replay_policy=replay_policy,  # type: ignore[arg-type]
             error=error,
+            params={"component_identity": "stable"},
+            invocation_id=uuid.uuid4().hex,
+            operator_id=resolved_op_id,
+            input_capture="inferred" if resolved.parent_ids else "not_applicable",
+            output_capture="recorded" if status == "FIRED" else "unavailable",
+            parent_invocation_ids=invocation_ids if len(invocation_ids) == len(parents) and all(invocation_ids) else (),
+            parent_linkage="inferred" if resolved.parent_ids else "recorded",
         )
-        trace.spans = (*trace.spans, span)
+        _append(trace, span)
 
     def _sync_wrapper(*args: Any, **kwargs: Any) -> Any:
         start = time.perf_counter()
