@@ -211,4 +211,5 @@ async def test_candidate_journeys_hybrid_rerank_drop(hybrid_db: Path) -> None:
     assert gold["dropped_at"] == "rerank"
     assert gold["drop_reason"] == "reranked_out"
     assert gold["survived"] is False
-    assert gold["miss_type"] in {"rerank_demotion", "dropped_by_op", "ranked_below_k"}
+    # Counterfactual miss attribution was retired; journeys report recorded transitions only.
+    assert gold["miss_type"] is None
