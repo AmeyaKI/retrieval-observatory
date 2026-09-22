@@ -18,9 +18,11 @@ app = typer.Typer(
 mcp_app = typer.Typer(name="mcp", help="Run the MCP server and bootstrap agent integration.")
 testsets_app = typer.Typer(name="testsets", help="Generate, inspect, and list retrieval Test Sets.")
 production_app = typer.Typer(name="production", help="Inspect sampled production retrieval traces and findings.")
+storage_app = typer.Typer(name="storage", help="Migrate the results database schema and index runs for investigation.")
 app.add_typer(testsets_app, name="testsets")
 app.add_typer(production_app, name="production")
 app.add_typer(mcp_app, name="mcp")
+app.add_typer(storage_app, name="storage")
 console = Console()
 
 
@@ -67,9 +69,13 @@ def _read_json_records(path: Path):
     if not text:
         return []
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
         return [json.loads(line) for line in text.splitlines() if line.strip()]
+    # A one-line JSONL file parses as a single object; a row (query or judgment) is still one record.
+    if isinstance(parsed, dict) and ("query_id" in parsed or "doc_id" in parsed):
+        return [parsed]
+    return parsed
 
 
 def _evaluate_inputs(module, queries_path: Optional[Path], corpus_path: Optional[Path], qrels_path: Optional[Path]):
@@ -84,11 +90,16 @@ def _evaluate_inputs(module, queries_path: Optional[Path], corpus_path: Optional
     else:
         corpus = corpus_raw
     if isinstance(qrels_raw, list):
-        qrels = {
-            str(row["query_id"]): row.get("relevant_doc_ids", row.get("qrels", {}))
-            for row in qrels_raw
-            if isinstance(row, dict) and row.get("query_id")
-        }
+        qrels = {}
+        for row in qrels_raw:
+            if not (isinstance(row, dict) and row.get("query_id")):
+                continue
+            if "doc_id" in row:  # one judged pair per row: {query_id, doc_id, relevance}
+                graded = qrels.setdefault(str(row["query_id"]), {})
+                if isinstance(graded, dict):
+                    graded[str(row["doc_id"])] = int(row.get("relevance", 1))
+            else:
+                qrels[str(row["query_id"])] = row.get("relevant_doc_ids", row.get("qrels", {}))
     else:
         qrels = qrels_raw
     if not queries or not corpus:
@@ -97,6 +108,13 @@ def _evaluate_inputs(module, queries_path: Optional[Path], corpus_path: Optional
             "or define QUERIES and CORPUS in the target module."
         )
     return queries, corpus, qrels
+
+
+def _read_chunk_map(path: Path):
+    return [
+        (str(row["chunk_id"]), str(row["document_id"]), *([str(row["namespace"])] if row.get("namespace") else []))
+        for row in _read_json_records(path)
+    ]
 
 
 @app.command("evaluate")
@@ -112,6 +130,10 @@ def evaluate_cmd(
     max_queries: Optional[int] = typer.Option(None, "--max-queries", min=1, help="Bound the query sample."),
     format: str = typer.Option("terminal", "--format", help="terminal|json|markdown|html"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the report artifact."),
+    provenance: List[str] = typer.Option(
+        [], "--provenance", help="Release identity KEY=VALUE (repeatable): service_id, deployment_revision, corpus_revision, index_build_id, chunking_revision, embedding_model_revision, reranker_model_revision."
+    ),
+    chunk_map: Optional[Path] = typer.Option(None, "--chunk-map", help="JSONL rows {chunk_id, document_id, namespace?} mapping chunk results to judged documents."),
 ) -> None:
     """Evaluate a Python retrieval callable, or an advanced YAML config with --config."""
     import rich
@@ -138,6 +160,8 @@ def evaluate_cmd(
         else:
             pipeline, module = _load_evaluate_target(str(target))
             query_rows, corpus_map, qrel_map = _evaluate_inputs(module, queries, corpus, qrels)
+            if any("=" not in item for item in provenance):
+                raise ValueError("--provenance expects KEY=VALUE.")
             report = ro.evaluate(
                 pipeline,
                 queries=query_rows,
@@ -147,6 +171,8 @@ def evaluate_cmd(
                 name=name,
                 db_path=db or ".retobs/results.db",
                 max_queries=max_queries,
+                provenance=dict(item.split("=", 1) for item in provenance) or None,
+                chunk_map=_read_chunk_map(chunk_map) if chunk_map else None,
             )
     except Exception as error:
         console.print(f"[red]Evaluation failed:[/red] {error}")
@@ -569,14 +595,14 @@ def mcp_init(
 @app.command("integrate")
 def integrate_cmd(
     project_root: Path = typer.Argument(Path(".")),
-    phase: str = typer.Option("plan", "--phase"),
-    plan_file: Optional[Path] = typer.Option(None, "--plan"),
+    phase: str = typer.Option("plan", "--phase", help="plan | apply | verify | revert."),
+    plan_file: Optional[Path] = typer.Option(None, "--plan", help="Reviewed plan JSON: required by apply; plan re-plans from it (patches regenerated)."),
     output: Optional[Path] = typer.Option(None, "--output"),
     db: str = typer.Option(".retobs/results.db", "--db", help="Trace database; a relative path resolves against the project root."),
     policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML for verify preflight."),
     framework: Optional[str] = typer.Option(None, "--framework", help="Override detection: python, fastapi, langchain, llamaindex, http."),
 ) -> None:
-    """Plan, apply, or verify one canonical project integration."""
+    """Plan, apply, verify, or revert one canonical project integration."""
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
     from retrieval_observatory.integrations.service import integrate_project
     try:
@@ -947,6 +973,96 @@ async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, form
     console.print(
         f"[bold]Next:[/bold] retobs serve --db {db_path}  "
         f"[dim]→ #/runs/{run_id}/queries/{query_id}[/dim]"
+    )
+
+
+def _investigation_request(run_id: str, pipeline_id: Optional[str], k: Optional[int], unit: str, **extra: Optional[str]):
+    from retrieval_observatory.evidence import InvestigationRequest
+
+    return InvestigationRequest.from_mapping({"run_id": run_id, "pipeline_id": pipeline_id, "k": k, "unit": unit, **extra})
+
+
+@app.command("inspect-document")
+def inspect_document_cmd(
+    run_id: str = typer.Argument(..., help="Run ID."),
+    entity: str = typer.Argument(..., help="Evaluation entity as namespace:id, or a bare id (namespace 'default')."),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
+    pipeline_id: Optional[str] = typer.Option(None, "--pipeline", "-p", help="Pipeline ID (required when the run has several)."),
+    k: Optional[int] = typer.Option(None, "--k", help="Evaluation cutoff (defaults to the run's first recall@k)."),
+    unit: str = typer.Option("document", "--unit", help="document|chunk"),
+    format: str = typer.Option("terminal", "--format", help="terminal|json"),
+) -> None:
+    """Inspect one evaluation entity's journey across every query of a run."""
+    if format not in ("terminal", "json"):
+        console.print("[red]--format must be terminal or json.[/red]")
+        raise typer.Exit(2)
+    from retrieval_observatory.evidence import InvestigationError, inspect_document
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    async def _load():
+        store = SQLiteStore(db_path=db_path)
+        await store.init_db()
+        return await inspect_document(store, _investigation_request(run_id, pipeline_id, k, unit, entity=entity))
+
+    try:
+        envelope = asyncio.run(_load())
+    except InvestigationError as error:
+        console.print(f"[red]{error.code}: {error.detail}[/red]")
+        raise typer.Exit(1)
+    if format == "json":
+        typer.echo(json.dumps(envelope, indent=2, sort_keys=True, default=str))
+        return
+    scope = envelope["scope"]
+    console.print(f"[bold]Entity:[/bold] {entity}  [dim](run {scope['run_id']} · pipeline {scope['pipeline_id']} · k={scope['k']})[/dim]")
+    table = Table(title="Queries")
+    for column in ("Query", "Judgment", "Outcome", "Final rank", "Loss boundary"):
+        table.add_column(column)
+    for row in envelope["rows"]:
+        table.add_row(row["query_id"], row["judgment"], row["outcome"], str(row.get("final_rank") or "-"), str(row.get("loss_boundary") or "-"))
+    console.print(table)
+    for finding in envelope["findings"]:
+        console.print(f"[yellow]{finding['code']}:[/yellow] {finding['detail']} → {finding['action']}")
+
+
+@storage_app.command("migrate")
+def storage_migrate(
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
+    backup: bool = typer.Option(True, "--backup/--no-backup", help="Copy the file before changing it."),
+) -> None:
+    """Bring the results database to the current schema (additive; keeps every row)."""
+    from retrieval_observatory.store.migrate import migrate_database
+
+    typer.echo(json.dumps(migrate_database(Path(db_path), backup=backup), indent=2, sort_keys=True))
+
+
+@storage_app.command("index")
+def storage_index(
+    run_id: str = typer.Argument(..., help="Run ID to index."),
+    db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path", help="SQLite database path."),
+    pipeline_id: Optional[str] = typer.Option(None, "--pipeline", "-p", help="Pipeline ID (required when the run has several)."),
+    k: Optional[int] = typer.Option(None, "--k", help="Evaluation cutoff (defaults to the run's first recall@k)."),
+    unit: str = typer.Option("document", "--unit", help="document|chunk"),
+) -> None:
+    """Project a run's traces into investigation rows (the explicit write behind the Investigate views)."""
+    from retrieval_observatory.evidence import InvestigationError, build_projection, resolve_scope
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    async def _index():
+        store = SQLiteStore(db_path=db_path)
+        await store.init_db()
+        resolved = await resolve_scope(store, _investigation_request(run_id, pipeline_id, k, unit))
+        return await build_projection(
+            store, resolved.run_id, resolved.pipeline_id, resolved.spec, judgments=resolved.judgments, chunk_map=resolved.chunk_map
+        )
+
+    try:
+        meta = asyncio.run(_index())
+    except InvestigationError as error:
+        console.print(f"[red]{error.code}: {error.detail}[/red]")
+        raise typer.Exit(1)
+    console.print(
+        f"Indexed {meta['row_count']} row(s) from {meta['trace_count']} trace(s) for run {meta['run_id']} "
+        f"pipeline {meta['pipeline_id']} (evaluation {meta['evaluation_digest'][:12]})."
     )
 
 

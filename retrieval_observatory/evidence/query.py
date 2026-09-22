@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any, Dict
 
+from retrieval_observatory.evidence.service import InvestigationError, InvestigationRequest, inspect_query
 from retrieval_observatory.store.base import TraceQuery
 
 
@@ -31,21 +31,10 @@ async def build_query_evidence(
     has_more = len(trace_page) > trace_limit
     traces = trace_page[:trace_limit]
     lineage = await store.get_query_lineage(query_id)
-
-    from retrieval_observatory.experimental.advisor.recommend import recommend
-
-    findings = [asdict(finding) for finding in await recommend(run_id, store)]
-    diagnostic_labels = {
-        label
-        for diagnostic in diagnostics
-        for label in ([diagnostic["label"]] if diagnostic.get("availability") == "supported" else [])
-    }
-    relevant_findings = [
-        finding
-        for finding in findings
-        if not finding.get("affected_query_categories")
-        or diagnostic_labels.intersection(finding.get("affected_query_categories") or [])
-    ]
+    try:
+        investigation = await inspect_query(store, InvestigationRequest(run_id=run_id, query_id=query_id))
+    except InvestigationError as error:
+        investigation = {"error": error.code, "detail": error.detail}
 
     serialized_traces = [
         _serialize_trace(trace.to_dict(), candidate_limit=candidate_limit)
@@ -92,7 +81,8 @@ async def build_query_evidence(
         "origin": lineage.get("origin"),
         "regression_history": lineage.get("evaluations", []),
         "production_matches": lineage.get("production_matches"),
-        "findings": relevant_findings,
+        "findings": [],
+        "investigation": investigation,
         "availability": {
             "query_metadata": "measured" if query_row else "unavailable",
             "ground_truth": "measured" if relevant_ids else "unavailable",
@@ -103,7 +93,7 @@ async def build_query_evidence(
                 if (lineage.get("production_matches") or {}).get("traces")
                 else "unavailable"
             ),
-            "findings": "heuristic" if relevant_findings else "unavailable",
+            "findings": "unavailable",
         },
         "evidence_health": {
             "status": "warning" if warnings else "ok",

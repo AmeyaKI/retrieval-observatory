@@ -8,7 +8,7 @@ _install_experimental_shims()
 
 from retrieval_observatory.experimental.forge.types import TestSetSummary as TestSet  # noqa: E402
 from retrieval_observatory.integrations import IntegrationOptions
-from retrieval_observatory.sdk import compare, evaluate, generate_testset, inspect_query
+from retrieval_observatory.sdk import compare, evaluate, generate_testset, inspect_document, inspect_query
 from retrieval_observatory.sdk.report import BenchmarkReport as Run
 from retrieval_observatory.sdk.report import ReportModel as Comparison
 from retrieval_observatory.tracing import RetrievalTrace, TraceRecorder, init
@@ -30,5 +30,6 @@ __all__ = [
     "evaluate",
     "generate_testset",
     "init",
+    "inspect_document",
     "inspect_query",
 ]

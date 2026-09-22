@@ -25,6 +25,7 @@ async def _seed_run(db_path: Path, run_id: str, dataset_name: str) -> None:
             "qrel_hash": f"qrels:{dataset_name}",
         },
         "labeling": {"method": "gold", "judge": None, "model": None, "version": None},
+        "evaluation": {"unit": "document", "boundary": "final_retrieval", "k": 10, "relevance_threshold": 1},
         "execution": {"seed": 1, "cache_results": False, "timeout_ms": 5000},
         "git_commit": "commit",
         "git_dirty": False,

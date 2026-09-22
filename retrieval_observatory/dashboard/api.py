@@ -1950,6 +1950,10 @@ def create_app(
 
     from retrieval_observatory.dashboard.analysis_api import build_analysis_router
     app.include_router(build_analysis_router(_store_for))
+    from retrieval_observatory.dashboard.investigation_api import build_investigation_router
+    app.include_router(build_investigation_router(registry))
+    from retrieval_observatory.dashboard.integration_api import build_integration_router
+    app.include_router(build_integration_router(registry))
 
     # ---------------------------------------------------------------------------
     # Test Sets endpoints — synthetic dataset management

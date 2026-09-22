@@ -227,6 +227,26 @@ async def _inspect_query(
     )
 
 
+async def _inspect_document(
+    run_id: str,
+    entity: str,
+    db_path: str = DEFAULT_DB_PATH,
+    pipeline_id: Optional[str] = None,
+    k: Optional[int] = None,
+    unit: str = "document",
+) -> Dict[str, Any]:
+    """Return one evaluation entity's journey rows across every query of a run (``entity`` is ``namespace:id`` or a bare id)."""
+    from retrieval_observatory.evidence import InvestigationError, InvestigationRequest, inspect_document
+
+    store = _store(db_path)
+    await store.init_db()
+    request = {"run_id": run_id, "entity": entity, "pipeline_id": pipeline_id, "k": k, "unit": unit}
+    try:
+        return await inspect_document(store, InvestigationRequest.from_mapping(request))
+    except InvestigationError as error:
+        raise ValueError(f"{error.code}: {error.detail}") from error
+
+
 async def _describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
     from retrieval_observatory.integrations.registry import describe_integration
 
@@ -250,12 +270,16 @@ async def _integrate_project(
     db_path: str = DEFAULT_DB_PATH,
     framework: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Plan, apply, or verify one project integration (phase = plan | apply | verify).
+    """Plan, apply, verify, or revert one project integration (phase = plan | apply | verify | revert).
 
     plan: discover operators and the entrypoint; save the result as retobs/integration-plan.json.
+    plan with plan/plan_path: re-plan from your reviewed operators/scenarios; patches are regenerated
+    (set an operator's capture to "retobs_adapter:<symbol>" to wire a CaptureSpec from retobs_adapter.py).
     apply: pass the reviewed plan (or plan_path); patches files and writes retobs/integration.yaml.
     verify: reads retobs/integration.yaml and the traces in db_path (relative paths resolve
     against project_root); plan/plan_path are optional here and must match the applied plan.
+    revert: restores every file apply patched (refuses if one changed since) and removes
+    retobs/integration.yaml; retobs/integration-plan.json is kept.
     framework: override detection (python, fastapi, langchain, llamaindex, http)."""
     from pathlib import Path
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
@@ -545,6 +569,7 @@ def build_server(config_path: Optional[str] = None):
     server.tool(name="evaluate_file")(_with_config_defaults(config_path, _benchmark_config_file))
     server.tool(name="compare")(_with_config_defaults(config_path, _compare_runs))
     server.tool(name="inspect_query")(_with_config_defaults(config_path, _inspect_query))
+    server.tool(name="inspect_document")(_with_config_defaults(config_path, _inspect_document))
     server.tool(name="get_report")(_with_config_defaults(config_path, _get_report))
     server.tool(name="describe_config")(_describe_config)
     server.tool(name="validate_config")(_validate_config)

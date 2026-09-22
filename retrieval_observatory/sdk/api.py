@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
 from retrieval_observatory.sdk.report import BenchmarkReport, ReportModel, _run_sync
-from retrieval_observatory.sdk.wrappers import as_retriever
+from retrieval_observatory.sdk.wrappers import FunctionRetriever, as_retriever
 
 if TYPE_CHECKING:
     from retrieval_observatory.release.policy import ReleasePolicy
@@ -116,6 +116,8 @@ def benchmark(
     concurrency: int = 8,
     max_queries: Optional[int] = None,
     cache: bool = False,
+    provenance: Optional[Mapping[str, Any]] = None,
+    chunk_map: Optional[Sequence[Sequence[str]]] = None,
 ) -> BenchmarkReport:
     """Benchmark a retrieval pipeline defined in Python.
 
@@ -126,6 +128,11 @@ def benchmark(
     `labels`: "gold" (use provided qrels), "llm-judge" (grade retrieved docs with an LLM —
     no ground truth needed), or "pooled" (merge gold + judged). `judge` selects the provider
     ("gemini"/"openai"/"anthropic") and `judge_model` the model id.
+    `provenance`: release identity recorded in the run manifest (``service_id``,
+    ``deployment_revision``, ``corpus_revision``, ``index_build_id``, ``chunking_revision``,
+    ``embedding_model_revision``, ``reranker_model_revision``); omitted keys stay unknown.
+    `chunk_map`: ``(chunk_id, document_id[, namespace])`` rows so chunk-level results are
+    judged against document-level qrels.
     """
     if max_queries is not None and max_queries < 1:
         raise ValueError(f"max_queries must be at least 1 (got {max_queries})")
@@ -146,6 +153,8 @@ def benchmark(
             concurrency=concurrency,
             max_queries=max_queries,
             cache=cache,
+            provenance=provenance,
+            chunk_map=chunk_map,
         )
     )
 
@@ -219,6 +228,28 @@ def inspect_query(
     return _run_sync(_load())
 
 
+def inspect_document(
+    run_id: str,
+    entity: str,
+    *,
+    db_path: str = ".retobs/results.db",
+    pipeline_id: Optional[str] = None,
+    k: Optional[int] = None,
+    unit: str = "document",
+) -> Dict[str, Any]:
+    """Return one evaluation entity's journey rows across every query of a Run (``entity`` is ``namespace:id`` or a bare id)."""
+    from retrieval_observatory.evidence import InvestigationRequest, inspect_document as _inspect_document
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    async def _load() -> Dict[str, Any]:
+        store = SQLiteStore(db_path=db_path)
+        await store.init_db()
+        request = {"run_id": run_id, "entity": entity, "pipeline_id": pipeline_id, "k": k, "unit": unit}
+        return await _inspect_document(store, InvestigationRequest.from_mapping(request))
+
+    return _run_sync(_load())
+
+
 async def _benchmark_async(
     *,
     pipeline,
@@ -236,6 +267,8 @@ async def _benchmark_async(
     concurrency,
     max_queries,
     cache,
+    provenance,
+    chunk_map,
 ) -> BenchmarkReport:
     from retrieval_observatory.config.schema import (
         DatasetConfig,
@@ -245,6 +278,7 @@ async def _benchmark_async(
         LabelsConfig,
         MetricsConfig,
         PipelineConfig,
+        ReleaseIdentityConfig,
         StageConfig,
     )
     from retrieval_observatory.pipeline.factory import build_pipeline
@@ -259,8 +293,15 @@ async def _benchmark_async(
         loaded_qrels = {qid: rel for qid, rel in loaded_qrels.items() if qid in ids}
     corpus_map = ds_obj.corpus if hasattr(ds_obj, "corpus") else None
 
+    unknown = sorted(set(provenance or ()) - set(ReleaseIdentityConfig.model_fields))
+    if unknown:
+        raise ValueError(f"Unknown provenance key(s) {unknown}. Use one of {sorted(ReleaseIdentityConfig.model_fields)}.")
+
     stages, stage_ids = _build_stages(pipeline, corpus_map)
     pipeline_id = name or "__".join(stage_ids)
+    if len(stages) == 1 and isinstance(stages[0], FunctionRetriever):
+        # A lone callable is the whole pipeline: its own ``@observe`` spans become the run's trace.
+        stages[0].pipeline_id = pipeline_id
     pipeline_obj = build_pipeline(
         pipeline_id=pipeline_id,
         stages=stages,
@@ -280,6 +321,7 @@ async def _benchmark_async(
         labels=LabelsConfig(mode=_labels_mode(labels), judge=judge, model=judge_model),
         metrics=metrics_cfg,
         execution=ExecutionConfig(concurrency=concurrency, cache_results=cache),
+        release_identity=ReleaseIdentityConfig(**dict(provenance or {})),
     )
 
     store = SQLiteStore(db_path=db_path)
@@ -293,6 +335,8 @@ async def _benchmark_async(
         pipelines=[pipeline_obj],
         store=store,
         no_cache=not cache,
+        chunk_map=chunk_map,
+        evaluation_k=k,
     )
     return BenchmarkReport(artifacts, db_path=db_path, experiment_name=cfg.experiment.name)
 
