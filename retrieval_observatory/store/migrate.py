@@ -1,17 +1,26 @@
-"""Clean-beta schema detection and reset helpers.
+"""Clean-beta schema detection, reset, and additive migration helpers.
 
 retobs deliberately does not dual-read obsolete trace schemas. Existing beta
 databases must be reset explicitly before the unified trace store is opened.
+
+Schema history (``PRAGMA user_version``):
+
+* 2 — unified trace store.
+* 3 — adds the investigation projection tables (``investigation_pairs``,
+  ``investigation_summaries``, ``investigation_projections``). Purely additive:
+  no existing table, index, or row is touched, so v2 files migrate in place.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
-from retrieval_observatory.store.sqlite import _created_table_names
+from retrieval_observatory.store.sqlite import _INVESTIGATION_DDL, _created_table_names
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+_SUPPORTED_VERSIONS = (0, 2, SCHEMA_VERSION)
 _LEGACY_RESULTS_TABLE = "raw" + "_results"
 _LEGACY_SPLIT_TRACE_TABLE = "traces" + "_v2"
 _LEGACY_TABLES = frozenset({_LEGACY_RESULTS_TABLE, _LEGACY_SPLIT_TRACE_TABLE, "trace_stages"})
@@ -38,7 +47,7 @@ def ensure_supported_schema(db_path: Path) -> None:
     legacy = _LEGACY_SPLIT_TRACE_TABLE in tables or "trace_stages" in tables or (
         "traces" in tables and not {"service_id", "run_id", "topology_hash", "trace_json"} <= columns
     )
-    if legacy or (version not in (0, SCHEMA_VERSION)):
+    if legacy or (version not in _SUPPORTED_VERSIONS):
         raise IncompatibleSchemaError(
             "Incompatible beta trace schema; run `retobs storage reset` before continuing."
         )
@@ -53,3 +62,54 @@ def reset_database(db_path: Path) -> None:
             db.execute(f'DROP TABLE IF EXISTS "{table}"')
         db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         db.commit()
+
+
+def _table_names(db: sqlite3.Connection) -> set[str]:
+    return {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
+def migrate_database(db_path: Path, *, backup: bool = True) -> dict:
+    """Bring a supported v0/v2 file to v3 in place, additively and transactionally.
+
+    The v2 -> v3 delta only creates tables and indexes, so no row is dropped or rewritten
+    and a package rollback never needs a database downgrade: an older retobs opens the
+    file as before and simply never reads the extra tables.
+
+    With ``backup`` a consistent copy is taken with SQLite's online backup API BEFORE
+    anything changes, at ``<db>.bak-v<old_version>-<UTC timestamp>``. Verify it with
+    ``sqlite3 <bak> 'PRAGMA integrity_check'`` (expects ``ok``). The DDL and the version
+    stamp run inside ``BEGIN IMMEDIATE``; any failure rolls back and leaves the original
+    file exactly as it was. An already-current file returns ``already_current`` without
+    taking a backup.
+    """
+    ensure_supported_schema(db_path)
+    with sqlite3.connect(db_path) as db:
+        version = int(db.execute("PRAGMA user_version").fetchone()[0])
+        before = _table_names(db)
+    if version == SCHEMA_VERSION:
+        return {
+            "status": "already_current", "from_version": version, "to_version": SCHEMA_VERSION,
+            "backup_path": None, "tables_added": [],
+        }
+    backup_path = None
+    if backup:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup_path = db_path.with_name(f"{db_path.name}.bak-v{version}-{stamp}")
+        with sqlite3.connect(db_path) as source, sqlite3.connect(backup_path) as target:
+            source.backup(target)
+    with sqlite3.connect(db_path) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in _INVESTIGATION_DDL:
+                db.execute(statement)
+            db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        after = _table_names(db)
+    return {
+        "status": "migrated", "from_version": version, "to_version": SCHEMA_VERSION,
+        "backup_path": str(backup_path) if backup_path else None,
+        "tables_added": sorted(after - before),
+    }

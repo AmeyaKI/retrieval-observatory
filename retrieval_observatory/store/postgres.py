@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Mapping, Optional, Sequence
 
 from retrieval_observatory.store.base import (
+    json_default,
+    INVESTIGATION_SORT_KEYS,
     InstrumentationHealth,
+    InvestigationFilter,
+    InvestigationPage,
+    InvestigationScope,
     ServiceSummary,
     TopologyVariant,
     TraceQuery,
+    clamp_page_limit,
+    decode_cursor,
+    investigation_where,
+    keyset_page,
+    like_prefix,
 )
+from retrieval_observatory.store.sqlite import _PAIR_COLUMNS, _PROJECTION_COLUMNS, investigation_pair_row
 from retrieval_observatory.tracing.model import RetrievalTrace
 
 
@@ -220,6 +231,69 @@ CREATE TABLE IF NOT EXISTS doc_edges (
 _CREATE_DOC_EDGES_SRC_IDX = "CREATE INDEX IF NOT EXISTS idx_doc_edges_src ON doc_edges(src_doc_id, edge_type)"
 _CREATE_DOC_EDGES_DST_IDX = "CREATE INDEX IF NOT EXISTS idx_doc_edges_dst ON doc_edges(dst_doc_id, edge_type)"
 
+# Schema v3 investigation projections: same logical contract as SQLiteStore (payload kept as
+# TEXT, flags as 0/1/NULL, timestamps as ISO text) so both backends page and filter alike.
+_CREATE_INVESTIGATION_PAIRS = """
+CREATE TABLE IF NOT EXISTS investigation_pairs (
+    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
+    trace_id TEXT NOT NULL, query_id TEXT NOT NULL,
+    namespace TEXT NOT NULL, unit TEXT NOT NULL, entity_id TEXT NOT NULL, entity_revision TEXT,
+    judgment TEXT NOT NULL, grade INT, final_membership TEXT NOT NULL, in_final_output INT,
+    final_rank INT, outcome TEXT NOT NULL, confusion TEXT NOT NULL, capture_state TEXT NOT NULL,
+    observed INT NOT NULL, loss_boundary TEXT, priority INT NOT NULL,
+    derivation_version TEXT NOT NULL, trace_digest TEXT NOT NULL, judgment_digest TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, pipeline_id, evaluation_digest, trace_id, namespace, unit, entity_id)
+)
+"""
+_CREATE_INVESTIGATION_PAIRS_QUERY_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_query ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, query_id)"
+)
+_CREATE_INVESTIGATION_PAIRS_ENTITY_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_entity ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, namespace, entity_id)"
+)
+_CREATE_INVESTIGATION_PAIRS_OUTCOME_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_outcome ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, outcome, loss_boundary)"
+)
+_CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_priority ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, priority, query_id, namespace, entity_id)"
+)
+_CREATE_INVESTIGATION_SUMMARIES = """
+CREATE TABLE IF NOT EXISTS investigation_summaries (
+    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
+    kind TEXT NOT NULL, key TEXT NOT NULL, derivation_version TEXT NOT NULL, payload_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, pipeline_id, evaluation_digest, kind, key)
+)
+"""
+_CREATE_INVESTIGATION_PROJECTIONS = """
+CREATE TABLE IF NOT EXISTS investigation_projections (
+    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    derivation_version TEXT NOT NULL, judgment_digest TEXT NOT NULL,
+    trace_count INT NOT NULL, row_count INT NOT NULL,
+    started_at TEXT NOT NULL, finished_at TEXT, error TEXT,
+    PRIMARY KEY (run_id, pipeline_id, evaluation_digest)
+)
+"""
+_INVESTIGATION_DDL = (
+    _CREATE_INVESTIGATION_PAIRS,
+    _CREATE_INVESTIGATION_PAIRS_QUERY_IDX,
+    _CREATE_INVESTIGATION_PAIRS_ENTITY_IDX,
+    _CREATE_INVESTIGATION_PAIRS_OUTCOME_IDX,
+    _CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX,
+    _CREATE_INVESTIGATION_SUMMARIES,
+    _CREATE_INVESTIGATION_PROJECTIONS,
+)
+_SCOPE_WHERE = "run_id = $1 AND pipeline_id = $2 AND evaluation_digest = $3"
+
+
+def _ph(n: int) -> str:
+    return f"${n}"
+
 
 class PostgresStore:
     """Async Postgres backend using asyncpg connection pooling."""
@@ -229,6 +303,9 @@ class PostgresStore:
         self._min_size = min_size
         self._max_size = max_size
         self._pool = None
+        #: Parity with SQLiteStore; PostgreSQL has no read-only mode here, so `init_db` always
+        #: creates the investigation tables and flips this to True.
+        self.investigation_tables_available = False
 
     async def _get_pool(self):
         if self._pool is None:
@@ -272,6 +349,9 @@ class PostgresStore:
             await conn.execute(_CREATE_DOC_EDGES)
             await conn.execute(_CREATE_DOC_EDGES_SRC_IDX)
             await conn.execute(_CREATE_DOC_EDGES_DST_IDX)
+            for statement in _INVESTIGATION_DDL:
+                await conn.execute(statement)
+            self.investigation_tables_available = True
             try:
                 await conn.execute(_MIGRATE_METRIC_SCORES_BRANCH_ID)
             except Exception:
@@ -849,7 +929,7 @@ class PostgresStore:
                 trace.status,
                 trace.timestamp,
                 trace.topology_hash(),
-                json.dumps(trace.to_dict(), sort_keys=True),
+                json.dumps(trace.to_dict(), sort_keys=True, default=json_default),
             )
             for trace in traces
         ]
@@ -1266,6 +1346,161 @@ class PostgresStore:
         await self.save_analysis_record("check", check_id, payload, version)
     async def append_alert(self, alert_id: str, payload: Dict, version: int = 1) -> None:
         await self.save_analysis_record("alert", alert_id, payload, version)
+
+
+    # -- investigation projections (schema v3); mirrors SQLiteStore ---------------------------
+
+    async def replace_investigation_projection(
+        self,
+        scope: InvestigationScope,
+        *,
+        rows: Sequence[Mapping],
+        summaries: Sequence[Mapping],
+        derivation_version: str,
+        judgment_digest: str,
+        trace_count: int,
+    ) -> None:
+        key = (scope.run_id, scope.pipeline_id, scope.evaluation_digest)
+        pair_rows = [investigation_pair_row(scope, row) for row in rows]
+        summary_rows = [
+            (*key, item["kind"], item["key"], derivation_version, json.dumps(item["payload"], sort_keys=True))
+            for item in summaries
+        ]
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                f"INSERT INTO investigation_projections ({', '.join(_PROJECTION_COLUMNS)}) "
+                "VALUES ($1, $2, $3, 'building', $4, $5, $6, 0, $7, NULL, NULL) "
+                "ON CONFLICT (run_id, pipeline_id, evaluation_digest) DO UPDATE SET status = EXCLUDED.status, "
+                "derivation_version = EXCLUDED.derivation_version, judgment_digest = EXCLUDED.judgment_digest, "
+                "trace_count = EXCLUDED.trace_count, row_count = 0, started_at = EXCLUDED.started_at, "
+                "finished_at = NULL, error = NULL",
+                *key, derivation_version, judgment_digest, int(trace_count), datetime.now(timezone.utc).isoformat(),
+            )
+            for table in ("investigation_pairs", "investigation_summaries"):
+                await conn.execute(f"DELETE FROM {table} WHERE {_SCOPE_WHERE}", *key)
+            await conn.executemany(
+                f"INSERT INTO investigation_pairs ({', '.join(_PAIR_COLUMNS)}) "
+                f"VALUES ({', '.join(_ph(i) for i in range(1, len(_PAIR_COLUMNS) + 1))})",
+                pair_rows,
+            )
+            await conn.executemany(
+                "INSERT INTO investigation_summaries "
+                "(run_id, pipeline_id, evaluation_digest, kind, key, derivation_version, payload_json) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                summary_rows,
+            )
+            await conn.execute(
+                "UPDATE investigation_projections SET status = 'complete', finished_at = $4, row_count = $5 "
+                f"WHERE {_SCOPE_WHERE}",
+                *key, datetime.now(timezone.utc).isoformat(), len(pair_rows),
+            )
+
+    async def delete_investigation_projection(self, scope: InvestigationScope) -> None:
+        key = (scope.run_id, scope.pipeline_id, scope.evaluation_digest)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            for table in ("investigation_pairs", "investigation_summaries", "investigation_projections"):
+                await conn.execute(f"DELETE FROM {table} WHERE {_SCOPE_WHERE}", *key)
+
+    async def get_investigation_projection(self, scope: InvestigationScope) -> Optional[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT {', '.join(_PROJECTION_COLUMNS)} FROM investigation_projections WHERE {_SCOPE_WHERE}",
+                scope.run_id, scope.pipeline_id, scope.evaluation_digest,
+            )
+        return dict(zip(_PROJECTION_COLUMNS, row)) if row else None
+
+    async def list_investigation_projections(self, run_id: str) -> List[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"SELECT {', '.join(_PROJECTION_COLUMNS)} FROM investigation_projections "
+                "WHERE run_id = $1 ORDER BY pipeline_id, evaluation_digest",
+                run_id,
+            )
+        return [dict(zip(_PROJECTION_COLUMNS, row)) for row in rows]
+
+    async def list_investigation_pairs(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> InvestigationPage:
+        keys = INVESTIGATION_SORT_KEYS[order]
+        limit = clamp_page_limit(limit)
+        where, params = investigation_where(scope, filters, _ph)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            total = int(await conn.fetchval(f"SELECT COUNT(*) FROM investigation_pairs WHERE {where}", *params))
+            if cursor is not None:
+                after = decode_cursor(cursor, len(keys))
+                placeholders = ", ".join(_ph(len(params) + i) for i in range(1, len(keys) + 1))
+                where += f" AND ({', '.join(keys)}) > ({placeholders})"
+                params = [*params, *after]
+            rows = await conn.fetch(
+                f"SELECT {', '.join(keys)}, payload_json FROM investigation_pairs WHERE {where} "
+                f"ORDER BY {', '.join(keys)} LIMIT {_ph(len(params) + 1)}",
+                *params, limit + 1,
+            )
+        return keyset_page([tuple(row) for row in rows], limit, total)
+
+    async def get_investigation_pair(
+        self, scope: InvestigationScope, *, trace_id: str, namespace: str, unit: str, entity_id: str
+    ) -> Optional[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            payload = await conn.fetchval(
+                f"SELECT payload_json FROM investigation_pairs WHERE {_SCOPE_WHERE} "
+                "AND trace_id = $4 AND namespace = $5 AND unit = $6 AND entity_id = $7",
+                scope.run_id, scope.pipeline_id, scope.evaluation_digest, trace_id, namespace, unit, entity_id,
+            )
+        return json.loads(payload) if payload is not None else None
+
+    async def list_investigation_summaries(
+        self,
+        scope: InvestigationScope,
+        kind: str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        key_prefix: str | None = None,
+    ) -> InvestigationPage:
+        limit = clamp_page_limit(limit)
+        where, params = investigation_where(scope, None, _ph, kind=kind)
+        if key_prefix is not None:
+            where += f" AND key LIKE {_ph(len(params) + 1)} ESCAPE '\\'"
+            params = [*params, like_prefix(key_prefix)]
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            total = int(await conn.fetchval(f"SELECT COUNT(*) FROM investigation_summaries WHERE {where}", *params))
+            if cursor is not None:
+                where += f" AND key > {_ph(len(params) + 1)}"
+                params = [*params, *decode_cursor(cursor, 1)]
+            rows = await conn.fetch(
+                f"SELECT key, payload_json FROM investigation_summaries WHERE {where} "
+                f"ORDER BY key LIMIT {_ph(len(params) + 1)}",
+                *params, limit + 1,
+            )
+        page = keyset_page([tuple(row) for row in rows], limit, total)
+        return InvestigationPage(
+            rows=[{"key": row[0], "payload": payload} for row, payload in zip(rows, page.rows)],
+            total=total,
+            next_cursor=page.next_cursor,
+        )
+
+    async def get_investigation_summary(self, scope: InvestigationScope, kind: str, key: str) -> Optional[Dict]:
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            payload = await conn.fetchval(
+                f"SELECT payload_json FROM investigation_summaries WHERE {_SCOPE_WHERE} AND kind = $4 AND key = $5",
+                scope.run_id, scope.pipeline_id, scope.evaluation_digest, kind, key,
+            )
+        return {"key": key, "payload": json.loads(payload)} if payload is not None else None
 
     @staticmethod
     def _trace_row_to_dict(d: Dict) -> Dict:

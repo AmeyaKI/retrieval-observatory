@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Dict, List, Optional, Protocol, Sequence, runtime_checkable
+import base64
+import binascii
+import json
+from dataclasses import dataclass, field, fields
+from datetime import date, datetime
+from pathlib import PurePath
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from retrieval_observatory.tracing.model import RetrievalTrace
 
@@ -194,6 +198,71 @@ class BaseStore(Protocol):
 
     async def get_reliability_history(self, run_id: Optional[str] = None, limit: int = 50) -> List[Dict]:
         ...
+
+    async def replace_investigation_projection(
+        self,
+        scope: InvestigationScope,
+        *,
+        rows: Sequence[Mapping],
+        summaries: Sequence[Mapping],
+        derivation_version: str,
+        judgment_digest: str,
+        trace_count: int,
+    ) -> None:
+        ...
+
+    async def get_investigation_projection(self, scope: InvestigationScope) -> Dict | None:
+        ...
+
+    async def list_investigation_projections(self, run_id: str) -> List[Dict]:
+        ...
+
+    async def list_investigation_pairs(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> InvestigationPage:
+        ...
+
+    async def get_investigation_pair(
+        self, scope: InvestigationScope, *, trace_id: str, namespace: str, unit: str, entity_id: str
+    ) -> Dict | None:
+        ...
+
+    async def list_investigation_summaries(
+        self,
+        scope: InvestigationScope,
+        kind: str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        key_prefix: str | None = None,
+    ) -> InvestigationPage:
+        ...
+
+    async def get_investigation_summary(self, scope: InvestigationScope, kind: str, key: str) -> Dict | None:
+        ...
+
+    async def delete_investigation_projection(self, scope: InvestigationScope) -> None:
+        ...
+
+
+def json_default(value: Any) -> Any:
+    """``json.dumps`` fallback for application objects inside trace payloads (candidate metadata
+    such as ``datetime`` or ``Path``): persisted as text rather than failing the whole trace."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, PurePath):
+        return str(value)
+    if isinstance(value, (set, frozenset, tuple)):
+        return list(value)
+    return str(value)
+
+
 @dataclass(frozen=True)
 class TraceQuery:
     service_id: str | None = None
@@ -251,3 +320,96 @@ class InstrumentationHealth:
     observed_at: datetime | None = None
     last_export_at: datetime | None = None
     last_flush_latency_ms: float | None = None
+
+
+@dataclass(frozen=True)
+class InvestigationScope:
+    run_id: str
+    pipeline_id: str
+    evaluation_digest: str
+
+
+@dataclass(frozen=True)
+class InvestigationFilter:
+    """Equality filters on `investigation_pairs` columns; `None` means no filter."""
+
+    query_id: str | None = None
+    trace_id: str | None = None
+    namespace: str | None = None
+    entity_id: str | None = None
+    unit: str | None = None
+    outcome: str | None = None
+    judgment: str | None = None
+    final_membership: str | None = None
+    capture_state: str | None = None
+    loss_boundary: str | None = None
+    confusion: str | None = None
+
+
+@dataclass(frozen=True)
+class InvestigationPage:
+    rows: List[Dict]
+    total: int
+    next_cursor: str | None
+
+
+# Stable total orderings over one scope. `unit` closes the primary key
+# (trace_id, namespace, unit, entity_id) so the keyset cursor can never skip or repeat a row.
+INVESTIGATION_SORT_KEYS: Dict[str, tuple[str, ...]] = {
+    "priority": ("priority", "query_id", "namespace", "entity_id", "trace_id", "unit"),
+    "entity": ("namespace", "entity_id", "priority", "query_id", "trace_id", "unit"),
+}
+INVESTIGATION_PAGE_LIMIT = 200
+
+
+def clamp_page_limit(limit: int) -> int:
+    return max(1, min(int(limit), INVESTIGATION_PAGE_LIMIT))
+
+
+def encode_cursor(values: Sequence[object]) -> str:
+    return base64.urlsafe_b64encode(json.dumps(list(values)).encode()).decode()
+
+
+def decode_cursor(cursor: str, width: int) -> list:
+    try:
+        values = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("malformed pagination cursor") from exc
+    if not isinstance(values, list) or len(values) != width:
+        raise ValueError("malformed pagination cursor")
+    return values
+
+
+def investigation_where(
+    scope: InvestigationScope,
+    filters: InvestigationFilter | None,
+    placeholder: Callable[[int], str],
+    **extra: object,
+) -> tuple[str, list]:
+    """`WHERE` body and positional params for one scope plus equality filters.
+
+    `placeholder(n)` renders the n-th (1-based) parameter for the backend's style.
+    """
+    pairs: list[tuple[str, object]] = [(f.name, getattr(scope, f.name)) for f in fields(scope)]
+    if filters is not None:
+        pairs.extend((f.name, getattr(filters, f.name)) for f in fields(filters))
+    pairs.extend(extra.items())
+    clauses: list[str] = []
+    params: list = []
+    for column, value in pairs:
+        if value is not None:
+            params.append(value)
+            clauses.append(f"{column} = {placeholder(len(params))}")
+    return " AND ".join(clauses), params
+
+
+def like_prefix(prefix: str) -> str:
+    """`LIKE` pattern matching keys that start with `prefix`; pair with `ESCAPE '\\'`."""
+    return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def keyset_page(rows: Sequence[Sequence], limit: int, total: int) -> InvestigationPage:
+    """Build a page from `limit + 1` rows shaped `(*sort_key, payload_json)`."""
+    page = list(rows[:limit])
+    next_cursor = encode_cursor(page[-1][:-1]) if len(rows) > limit else None
+    return InvestigationPage(rows=[json.loads(row[-1]) for row in page], total=total, next_cursor=next_cursor)
