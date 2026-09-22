@@ -4,18 +4,27 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from retrieval_observatory.tracing.lineage_contract import (
     LineageEvidence,
+    ParentLinkage,
     validate_candidate_parentage,
     validate_lineage_evidence,
+    validate_parent_linkage,
     validate_unique_candidate_ids,
 )
 
 OperatorType = Literal["SOURCE", "FUSE", "RERANK", "BOOST", "EXPAND", "FILTER", "GATE", "TRANSFORM", "GENERATE"]
 OperatorStatus = Literal["FIRED", "SKIPPED_BY_GATE", "ERROR", "TIMEOUT"]
 ReplayPolicy = Literal["EXACT", "OBSERVED_ABLATION", "NOT_REPLAYABLE"]
+# How an operator's boundary was captured: its actual bound arguments / returned object
+# ("recorded"), lanes matched to parents by position ("positional"), reconstructed from parent
+# spans ("inferred"), not captured at all ("unavailable"), or a source whose input is the query.
+InputCapture = Literal["recorded", "positional", "inferred", "unavailable", "not_applicable"]
+OutputCapture = Literal["recorded", "truncated", "unavailable"]
+_INPUT_CAPTURE_VALUES = {"recorded", "positional", "inferred", "unavailable", "not_applicable"}
+_OUTPUT_CAPTURE_VALUES = {"recorded", "truncated", "unavailable"}
 
 
 @dataclass
@@ -81,8 +90,33 @@ class Candidate:
         )
 
 
+def next_node_id(existing_op_ids: Iterable[str], operator_id: str) -> str:
+    """The node key for a new invocation of ``operator_id``: the operator id itself, else ``id#n``."""
+    existing = set(existing_op_ids)
+    if operator_id not in existing:
+        return operator_id
+    n = 2
+    while f"{operator_id}#{n}" in existing:
+        n += 1
+    return f"{operator_id}#{n}"
+
+
+def latest_span_of(spans: Iterable["OperatorSpan"], operator_id: str) -> "OperatorSpan | None":
+    """The latest invocation of an operator, falling back to node-key equality for old traces."""
+    spans = list(spans)
+    for span in reversed(spans):
+        if span.operator_id == operator_id:
+            return span
+    for span in reversed(spans):
+        if span.op_id == operator_id:
+            return span
+    return None
+
+
 @dataclass(frozen=True)
 class OperatorSpan:
+    # ``op_id`` is the per-trace NODE key (unique within a trace); ``operator_id`` is the stable
+    # operator identity shared by repeated invocations (``rerank``, ``rerank#2``).
     op_id: str
     op_type: OperatorType
     op_name: str
@@ -99,8 +133,23 @@ class OperatorSpan:
     error: str | None = None
     inputs: tuple[Candidate, ...] = ()
     branch_id: str | None = None
+    invocation_id: str | None = None
+    input_capture: InputCapture = "recorded"
+    output_capture: OutputCapture = "recorded"
+    source_ref: str | None = None
+    operator_id: str | None = None
+    # ``invocation_id`` of the span behind each ``parent_ids`` entry, in that order; empty when unknown.
+    parent_invocation_ids: tuple[str, ...] = ()
+    parent_linkage: ParentLinkage = "declared"
 
     def __post_init__(self) -> None:
+        if self.input_capture not in _INPUT_CAPTURE_VALUES:
+            raise ValueError(f"input_capture must be one of {sorted(_INPUT_CAPTURE_VALUES)}")
+        if self.output_capture not in _OUTPUT_CAPTURE_VALUES:
+            raise ValueError(f"output_capture must be one of {sorted(_OUTPUT_CAPTURE_VALUES)}")
+        validate_parent_linkage(self.parent_linkage)
+        object.__setattr__(self, "operator_id", self.operator_id or self.op_id)
+        object.__setattr__(self, "parent_invocation_ids", tuple(self.parent_invocation_ids))
         groups = {key: tuple(value) for key, value in self.input_groups.items()}
         inputs = tuple(self.inputs)
         if set(groups) - set(self.parent_ids):
@@ -139,23 +188,28 @@ class OperatorSpan:
         payload.pop("inputs", None)
         payload.pop("final_op_id", None)
         payload["parent_ids"] = list(self.parent_ids)
+        payload["parent_invocation_ids"] = list(self.parent_invocation_ids)
         payload["input_groups"] = {key: [asdict(item) for item in value] for key, value in self.input_groups.items()}
         payload["outputs"] = [asdict(item) for item in self.outputs]
         return payload
 
     @classmethod
     def from_dict(cls, value: Mapping[str, Any]) -> "OperatorSpan":
+        parent_ids = tuple(value.get("parent_ids", ()))
+        status = value.get("status", "FIRED")
+        input_groups = {
+            key: tuple(Candidate.from_dict(item) for item in items)
+            for key, items in value.get("input_groups", {}).items()
+        }
+        # Payloads written before boundary capture existed reconstructed inputs from parent spans.
         return cls(
             op_id=str(value["op_id"]),
             op_type=value["op_type"],
             op_name=str(value.get("op_name", value["op_id"])),
-            parent_ids=tuple(value.get("parent_ids", ())),
-            status=value.get("status", "FIRED"),
+            parent_ids=parent_ids,
+            status=status,
             latency_ms=float(value.get("latency_ms", 0.0)),
-            input_groups={
-                key: tuple(Candidate.from_dict(item) for item in items)
-                for key, items in value.get("input_groups", {}).items()
-            },
+            input_groups=input_groups,
             outputs=tuple(Candidate.from_dict(item) for item in value.get("outputs", ())),
             deterministic=bool(value.get("deterministic", False)),
             replay_policy=value.get("replay_policy", "NOT_REPLAYABLE"),
@@ -164,6 +218,14 @@ class OperatorSpan:
             input_variant=str(value.get("input_variant", "raw")),
             error=value.get("error"),
             branch_id=value.get("branch_id"),
+            invocation_id=value.get("invocation_id"),
+            input_capture=value.get("input_capture")
+            or ("not_applicable" if not parent_ids else "inferred" if input_groups else "unavailable"),
+            output_capture=value.get("output_capture") or ("recorded" if status == "FIRED" else "unavailable"),
+            source_ref=value.get("source_ref"),
+            operator_id=value.get("operator_id") or str(value["op_id"]),
+            parent_invocation_ids=tuple(value.get("parent_invocation_ids", ())),
+            parent_linkage=value.get("parent_linkage") or ("declared" if parent_ids else "recorded"),
         )
 
 
@@ -209,6 +271,8 @@ class CaptureMetadata:
     # loses no candidate, decision, or edge, so it never makes lineage partial.
     truncated_string_count: int = 0
     lineage_evidence: LineageEvidence = "recorded"
+    # Spans whose input or output capture is neither "recorded" nor "not_applicable".
+    incomplete_boundary_count: int = 0
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.sample_rate <= 1.0:
@@ -239,6 +303,9 @@ class RetrievalTrace:
     schema_version: int = 1
     lineage_schema_version: int = 2
     final_op_id: str | None = None
+    # Boundary-capture failures recorded by ``@observe``; each is
+    # {"op_id", "invocation_id", "phase", "code", "detail"}. Never raised into the application.
+    capture_failures: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         spans = tuple(self.spans)
@@ -278,6 +345,7 @@ class RetrievalTrace:
         object.__setattr__(self, "spans", spans)
         object.__setattr__(self, "final_op_ids", final_op_ids)
         object.__setattr__(self, "final_op_id", final_op_ids[0] if len(final_op_ids) == 1 else None)
+        object.__setattr__(self, "capture_failures", tuple(dict(item) for item in self.capture_failures))
         if self.lineage_schema_version < 1:
             raise ValueError("lineage schema version must be positive")
         if self.timing is None:
@@ -305,6 +373,7 @@ class RetrievalTrace:
             "error_traceback": self.error_traceback,
             "schema_version": self.schema_version,
             "lineage_schema_version": self.lineage_schema_version,
+            "capture_failures": [dict(item) for item in self.capture_failures],
         }
 
     @property
@@ -312,12 +381,21 @@ class RetrievalTrace:
         return self.timing.wall_clock_ms if self.timing is not None else 0.0
 
     def topology_hash(self) -> str:
-        """Stable graph signature used by both storage backends."""
-        topology = [
-            (span.op_id, span.op_type, tuple(span.parent_ids), span.status)
-            for span in sorted(self.spans, key=lambda item: item.op_id)
-        ]
+        """Stable graph signature used by both storage backends.
+
+        Hashed by operator identity, so repeated invocations of one operator collapse into
+        one node and the signature does not depend on how many times an operator ran."""
+        operator_of = {span.op_id: span.operator_id for span in self.spans}
+        topology = sorted(
+            {
+                (span.operator_id, span.op_type, tuple(sorted(operator_of[p] for p in span.parent_ids)), span.status)
+                for span in self.spans
+            }
+        )
         return sha256(json.dumps(topology, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def invocations_of(self, operator_id: str) -> tuple[OperatorSpan, ...]:
+        return tuple(span for span in self.spans if span.operator_id == operator_id)
 
     def with_identity(self, *, run_id: str | None, service_id: str) -> "RetrievalTrace":
         return RetrievalTrace(
@@ -364,4 +442,5 @@ class RetrievalTrace:
             error_traceback=value.get("error_traceback"),
             schema_version=int(value.get("schema_version", 1)),
             lineage_schema_version=int(value.get("lineage_schema_version", 1)),
+            capture_failures=tuple(dict(item) for item in value.get("capture_failures", ())),
         )

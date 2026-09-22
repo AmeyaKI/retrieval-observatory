@@ -10,7 +10,7 @@ import time
 import traceback
 import uuid
 from asyncio import iscoroutinefunction
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -19,7 +19,30 @@ from typing import Any, Callable, Mapping, Sequence
 import httpx
 
 from retrieval_observatory.tracing.candidates import build_candidate_transition
-from retrieval_observatory.tracing.model import OperatorSpan, RetrievalTrace, TraceTiming, critical_path_latency_ms
+from retrieval_observatory.tracing.capture import (
+    CaptureError,
+    CaptureFailure,
+    CaptureSpec,
+    bind_arguments,
+    capture_is_strict,
+    default_input_groups,
+    extract_outputs,
+    incomplete_boundary_count,
+    snapshot,
+    source_ref,
+)
+from retrieval_observatory.tracing.lineage_contract import ParentLinkage
+from retrieval_observatory.tracing.model import (
+    Candidate,
+    InputCapture,
+    OperatorSpan,
+    OutputCapture,
+    RetrievalTrace,
+    TraceTiming,
+    critical_path_latency_ms,
+    latest_span_of,
+    next_node_id,
+)
 
 # The active trace is any object with a mutable ``spans`` attribute: a RetrievalTrace started by
 # ``start_trace`` or a recorder-managed ``TraceContext`` bound through ``bind_active_trace``. Both
@@ -122,6 +145,7 @@ def finish_trace(status: str = "OK", error_traceback: str | None = None) -> Retr
     trace.timing = TraceTiming(
         wall, critical_path_latency_ms(trace.spans), sum(span.latency_ms for span in trace.spans)
     )
+    trace.capture = replace(trace.capture, incomplete_boundary_count=incomplete_boundary_count(trace.spans))
     _current_trace.set(None)
     _current_trace_started.set(None)
     return trace
@@ -131,6 +155,49 @@ def to_candidates(value: Any, op_id: str):
     from retrieval_observatory.tracing.candidates import to_candidates as convert
 
     return convert(getattr(value, "documents", value), op_id)
+
+
+def record_return_boundary(trace: Any, returned: Sequence[Any] | None, *, error: str | None = None) -> None:
+    """Append what an entrypoint returned as the trace's final boundary: a ``return`` TRANSFORM
+    span fed by the sink operator(s), with ``params={"boundary": "callable_return"}``.
+
+    Skipped when the returned ids are exactly what the sinks emitted, or exactly what one sink
+    emitted (a plan that has not declared an edge yet still has the last operator's output as
+    the final boundary): the sinks already are the final boundary. Otherwise the span records
+    what left the callable after its last observed operator (an untraced post-filter, a
+    failure). ``returned`` is the returned sequence of candidate-like items, or ``None`` when
+    nothing usable was returned.
+    """
+    spans = tuple(trace.spans)
+    parents = {parent for span in spans for parent in span.parent_ids}
+    sinks = [span for span in spans if span.op_id not in parents]
+    node_id = next_node_id((span.op_id for span in spans), "return")
+    outputs = () if returned is None else tuple(to_candidates(list(returned), node_id))
+    returned_ids = [c.doc_id for c in outputs]
+    if error is None and returned is not None and (
+        [c.doc_id for span in sinks for c in span.outputs] == returned_ids
+        or any([c.doc_id for c in span.outputs] == returned_ids for span in sinks)
+    ):
+        return
+    _append(
+        trace,
+        OperatorSpan(
+            node_id,
+            "TRANSFORM",
+            "returned result",
+            tuple(span.op_id for span in sinks),
+            "ERROR" if error else "FIRED",
+            0.0,
+            input_groups={span.op_id: span.outputs for span in sinks},
+            outputs=outputs,
+            params={"boundary": "callable_return"},
+            error=error,
+            input_capture="inferred" if sinks else "not_applicable",
+            output_capture="unavailable" if error or returned is None else "recorded",
+            operator_id="return",
+            parent_linkage="declared",
+        ),
+    )
 
 
 def _json_safe(value: Any, depth: int = 0) -> Any:
@@ -145,6 +212,51 @@ def _json_safe(value: Any, depth: int = 0) -> Any:
     return f"<{type(value).__name__}>"
 
 
+@dataclass
+class _Invocation:
+    """Per-call capture state shared between the pre-call and post-call halves of the wrapper."""
+
+    invocation_id: str
+    trace: Any
+    kwargs: Mapping[str, Any]
+    node_id: str
+    bound: inspect.BoundArguments | None = None
+    # Node keys of the resolved parent spans, in declared order, and their invocation ids.
+    observed_parents: tuple[str, ...] = ()
+    parent_invocation_ids: tuple[str, ...] = ()
+    parent_linkage: ParentLinkage = "recorded"
+    groups: dict[str, tuple[Candidate, ...]] = field(default_factory=dict)
+    input_capture: InputCapture = "not_applicable"
+    failures: list[CaptureFailure] = field(default_factory=list)
+
+
+def _append_failures(trace: Any, failures: Sequence[CaptureFailure]) -> None:
+    if not failures:
+        return
+    recorded = [failure.to_dict() for failure in failures]
+    existing = getattr(trace, "capture_failures", ())
+    if isinstance(existing, list):
+        existing.extend(recorded)
+    else:
+        trace.capture_failures = (*existing, *recorded)
+
+
+def _gate_decision(result: Any) -> dict[str, Any] | None:
+    """The route a GATE returned: a string (or bool) is ``selected_route``; a mapping of scalars is
+    taken as the gate's values; anything else (a candidate list) is not a decision."""
+    if isinstance(result, (str, bool)):
+        return {"selected_route": result}
+    if isinstance(result, Mapping) and result and all(
+        item is None or isinstance(item, (str, bool, int, float)) for item in result.values()
+    ):
+        return {str(key): item for key, item in result.items()}
+    return None
+
+
+def _error_text(exc: BaseException) -> str:
+    return "cancelled" if isinstance(exc, asyncio.CancelledError) else f"{type(exc).__name__}: {exc}"
+
+
 def observe(
     op_type: str,
     *,
@@ -154,70 +266,184 @@ def observe(
     deterministic: bool = False,
     replay_policy: str = "NOT_REPLAYABLE",
     input_variant: str = "raw",
+    capture: CaptureSpec | None = None,
 ):
+    """Record one operator span per call from the call's ACTUAL boundary.
+
+    Inputs are the bound arguments snapshotted before the call and outputs are the returned
+    object; parent-span outputs are used only as a fallback and labelled ``inferred``. The
+    wrapped function is called exactly once, its result is returned unchanged, its exceptions
+    propagate untouched, and capture failures are recorded on the trace instead of raised.
+    """
+    declared_parents = tuple(parent_ids)
+
     def decorate(fn: Callable[..., Any]):
-        def build(result: Any, elapsed: float, status: str, error: str | None, kwargs: dict[str, Any]) -> None:
-            trace = current_trace()
-            if trace is None:
-                return
-            groups = {
-                parent: span.outputs
-                for parent in parent_ids
-                if (span := next((item for item in trace.spans if item.op_id == parent), None)) is not None
+        ref = source_ref(fn)
+
+        def fail(inv: _Invocation, phase: str, code: str, detail: str) -> None:
+            inv.failures.append(CaptureFailure(inv.node_id, inv.invocation_id, phase, code, detail))
+
+        def begin(args: tuple, kwargs: dict[str, Any]) -> _Invocation:
+            inv = _Invocation(uuid.uuid4().hex, current_trace(), kwargs, op_id)
+            if inv.trace is None:
+                return inv
+            inv.bound = bind_arguments(fn, args, kwargs)
+            spans = tuple(inv.trace.spans)
+            inv.node_id = next_node_id((span.op_id for span in spans), op_id)
+            # A declared parent names an operator; its inputs came from that operator's latest invocation.
+            parent_spans = {
+                parent: span for parent in declared_parents if (span := latest_span_of(spans, parent)) is not None
             }
-            observed_parents = tuple(groups)
-            raw_output = getattr(result, "documents", result)
-            output_items = raw_output if isinstance(raw_output, (list, tuple)) else []
-            transition = (
-                build_candidate_transition(
-                    input_groups=groups,
-                    output_items=output_items,
-                    op_id=op_id,
-                    op_type=op_type,
-                )
-                if status == "FIRED"
-                else None
+            inv.observed_parents = tuple(span.op_id for span in parent_spans.values())
+            invocation_ids = tuple(span.invocation_id for span in parent_spans.values())
+            inv.parent_invocation_ids = invocation_ids if all(invocation_ids) else ()  # type: ignore[assignment]
+            # A GATE parent hands down a decision, not candidates: it stays a topology edge but is
+            # not an input group, so a source routed by a gate still has ``not_applicable`` inputs.
+            candidate_parents = tuple(
+                parent for parent in declared_parents
+                if parent not in parent_spans or parent_spans[parent].op_type != "GATE"
             )
-            _append(
-                trace,
-                OperatorSpan(
-                    op_id,
+            candidate_spans = {parent: span for parent, span in parent_spans.items() if parent in candidate_parents}
+            try:
+                if not candidate_parents:
+                    groups, inv.input_capture = None, "not_applicable"
+                elif capture is not None and capture.inputs is not None:
+                    groups = capture.inputs(inv.bound)
+                    inv.input_capture = "unavailable" if groups is None else "recorded"
+                    if groups is not None and set(groups) - set(declared_parents):
+                        fail(inv, "inputs", "undeclared_input_group", repr(sorted(set(groups) - set(declared_parents))))
+                        groups, inv.input_capture = None, "unavailable"
+                else:
+                    groups, inv.input_capture = default_input_groups(inv.bound, candidate_parents)
+                if groups is not None:
+                    inv.parent_linkage = "declared"
+                    for parent, items in groups.items():
+                        if parent in parent_spans:
+                            node = parent_spans[parent].op_id
+                            inv.groups[node] = tuple(snapshot(items, node))
+                        else:
+                            # Real inputs arrived from an operator this trace never observed; a span
+                            # cannot reference a missing parent, so the link is recorded as lost.
+                            fail(inv, "inputs", "producer_not_observed", f"{parent}: {len(items)} candidates")
+                            inv.parent_linkage = "unavailable"
+                elif inv.input_capture == "unavailable" and candidate_spans and not inv.failures:
+                    # No actual inputs could be read: reconstruct them from the parent spans, labelled
+                    # so. A failed mapping is recorded instead of papered over.
+                    inv.groups = {span.op_id: tuple(span.outputs) for span in candidate_spans.values()}
+                    inv.input_capture, inv.parent_linkage = "inferred", "inferred"
+                elif candidate_parents:
+                    inv.parent_linkage = "unavailable"
+            except Exception as exc:
+                fail(inv, "inputs", "input_mapping_failed", repr(exc))
+                inv.groups, inv.input_capture, inv.parent_linkage = {}, "unavailable", "unavailable"
+            return inv
+
+        def complete(inv: _Invocation, result: Any, elapsed: float, status: str, error: str | None) -> None:
+            if inv.trace is None:
+                return
+            groups: Mapping[str, tuple[Candidate, ...]] = inv.groups
+            outputs: tuple[Candidate, ...] = ()
+            output_capture: OutputCapture = "unavailable"
+            gate_values: dict[str, Any] = {}
+            if status == "FIRED":
+                items: Sequence[Any] | None = None
+                try:
+                    if capture is not None and capture.outputs is not None:
+                        items = capture.outputs(result)
+                        if items is None:
+                            fail(inv, "outputs", "output_mapping_returned_none", type(result).__name__)
+                    elif op_type == "GATE" and (decision := _gate_decision(result)) is not None:
+                        # A gate emits a decision, not candidates: the route it selected is the
+                        # recorded output, and no candidate list is invented.
+                        gate_values, items, output_capture = decision, [], "recorded"
+                    else:
+                        items, output_capture, code = extract_outputs(result)
+                        if code is not None:
+                            fail(inv, "outputs", code, type(result).__name__)
+                except Exception as exc:
+                    fail(inv, "outputs", "output_mapping_failed", repr(exc))
+                    items = None
+                decisions: Mapping[str, Any] | None = None
+                if capture is not None and capture.decisions is not None:
+                    try:
+                        decisions = dict(capture.decisions(inv.bound, result))
+                    except Exception as exc:
+                        fail(inv, "decisions", "decision_mapping_failed", repr(exc))
+                if items is not None:
+                    try:
+                        transition = build_candidate_transition(
+                            input_groups=inv.groups,
+                            output_items=list(items),
+                            op_id=inv.node_id,
+                            op_type=op_type,
+                            decision_reasons=decisions,
+                        )
+                        groups, outputs, output_capture = transition.input_groups, transition.outputs, "recorded"
+                    except Exception as exc:
+                        fail(inv, "outputs", "output_mapping_failed", repr(exc))
+                        groups, outputs, output_capture = inv.groups, (), "unavailable"
+            params = {key: _json_safe(value) for key, value in inv.kwargs.items() if key not in {"documents", "docs"}}
+
+            def span(groups: Mapping[str, tuple[Candidate, ...]], outputs: tuple[Candidate, ...], input_capture: str, output_capture: str) -> OperatorSpan:
+                return OperatorSpan(
+                    inv.node_id,
                     op_type,
                     op_name or fn.__name__,
-                    observed_parents,
+                    inv.observed_parents,
                     status,
                     elapsed,
-                    transition.input_groups if transition else groups,
-                    transition.outputs if transition else (),
+                    groups,
+                    outputs,
                     deterministic,
                     replay_policy,
                     input_variant=input_variant,
                     error=error,
-                    params={key: _json_safe(value) for key, value in kwargs.items() if key not in {"documents", "docs"}},
-                ),
-            )
+                    params=params,
+                    gate_values=gate_values,
+                    invocation_id=inv.invocation_id,
+                    input_capture=input_capture,
+                    output_capture=output_capture,
+                    source_ref=ref,
+                    operator_id=op_id,
+                    parent_invocation_ids=inv.parent_invocation_ids,
+                    parent_linkage=inv.parent_linkage,
+                )
+
+            try:
+                recorded = span(groups, outputs, inv.input_capture, output_capture)
+            except Exception as exc:  # e.g. duplicate candidate IDs in the application's own lists
+                fail(inv, "outputs", "span_build_failed", repr(exc))
+                recorded = span({}, (), "unavailable", "unavailable")
+            _append(inv.trace, recorded)
+            _append_failures(inv.trace, inv.failures)
+            if status == "FIRED" and inv.failures and capture_is_strict():
+                raise CaptureError(
+                    f"{inv.node_id}: " + "; ".join(f"{failure.phase}/{failure.code}: {failure.detail}" for failure in inv.failures)
+                )
 
         @functools.wraps(fn)
         async def async_wrapper(*args: Any, **kwargs: Any):
+            inv = begin(args, kwargs)
             started = time.perf_counter()
             try:
                 result = await fn(*args, **kwargs)
-                build(result, (time.perf_counter() - started) * 1000, "FIRED", None, kwargs)
-                return result
-            except Exception as exc:
-                build(None, (time.perf_counter() - started) * 1000, "ERROR", str(exc), kwargs)
+            except BaseException as exc:
+                complete(inv, None, (time.perf_counter() - started) * 1000, "ERROR", _error_text(exc))
                 raise
+            complete(inv, result, (time.perf_counter() - started) * 1000, "FIRED", None)
+            return result
 
         @functools.wraps(fn)
         def sync_wrapper(*args: Any, **kwargs: Any):
+            inv = begin(args, kwargs)
             started = time.perf_counter()
             try:
                 result = fn(*args, **kwargs)
-                build(result, (time.perf_counter() - started) * 1000, "FIRED", None, kwargs)
-                return result
-            except Exception as exc:
-                build(None, (time.perf_counter() - started) * 1000, "ERROR", str(exc), kwargs)
+            except BaseException as exc:
+                complete(inv, None, (time.perf_counter() - started) * 1000, "ERROR", _error_text(exc))
                 raise
+            complete(inv, result, (time.perf_counter() - started) * 1000, "FIRED", None)
+            return result
 
         return async_wrapper if iscoroutinefunction(fn) else sync_wrapper
 
@@ -322,6 +548,20 @@ def trace_scope(service_id: str, pipeline_id: str, db_path: str = ".retobs/resul
                 module_file = getattr(module, "__file__", None)
             return _resolve_scope_db_path(db_path, module_file)
 
+        def record_result(result: Any) -> None:
+            """The entrypoint's return value is the final boundary; an unreadable shape is a
+            recorded capture failure, never an invented output and never an exception."""
+            trace = current_trace()
+            items, _, code = extract_outputs(result)
+            if items is None:
+                detail = f"{type(result).__name__}: {code}"
+                _append_failures(trace, [CaptureFailure("return", None, "outputs", "final_output_shape_unsupported", detail)])
+                return
+            try:
+                record_return_boundary(trace, items)
+            except Exception as exc:  # e.g. duplicate candidate IDs in the returned list
+                _append_failures(trace, [CaptureFailure("return", None, "outputs", "span_build_failed", repr(exc))])
+
         @functools.wraps(fn)
         async def async_wrapper(*args: Any, **kwargs: Any):
             if not begin(args, kwargs):
@@ -331,6 +571,7 @@ def trace_scope(service_id: str, pipeline_id: str, db_path: str = ".retobs/resul
             except Exception:
                 await _persist_trace(finish_trace("ERROR", traceback.format_exc()), resolved_db_path())
                 raise
+            record_result(result)
             await _persist_trace(finish_trace(), resolved_db_path())
             return result
 
@@ -343,6 +584,7 @@ def trace_scope(service_id: str, pipeline_id: str, db_path: str = ".retobs/resul
             except Exception:
                 _persist_trace_sync(finish_trace("ERROR", traceback.format_exc()), resolved_db_path())
                 raise
+            record_result(result)
             _persist_trace_sync(finish_trace(), resolved_db_path())
             return result
 

@@ -40,3 +40,8 @@ def test_observe_roundtrip(tmp_path):
         payload = get_resp.json()
         assert payload["schema_version"] == 1
         assert payload["query_id"] == "q1"
+        span = payload["spans"][0]
+        assert span["invocation_id"] == trace.spans[0].invocation_id
+        assert span["input_capture"] == "not_applicable"
+        assert span["output_capture"] == "recorded"
+        assert payload["capture_failures"] == []
