@@ -14,15 +14,19 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = ROOT / "tests" / "external_projects"
+sys.path.insert(0, str(FIXTURE_ROOT))
+from conftest import FIXTURES  # noqa: E402
+from plan_review import apply_plan_overrides  # noqa: E402
+
+#: Fixtures whose framework needs a pip extra of the wheel; every other fixture installs the base package.
 FIXTURE_EXTRAS = {
-    "python_callable": None,
-    "fastapi_hybrid_dag": None,
     "langchain_retriever": "langchain",
     "llamaindex_retriever": "llamaindex",
 }
 
 DOCUMENTED_INTEGRATION_COMMANDS = {
     "plan": ("integrate", ".", "--phase", "plan", "--output", "retobs/integration-plan.json"),
+    "replan": ("integrate", ".", "--phase", "plan", "--plan", "retobs/integration-plan.json", "--output", "retobs/integration-plan.json"),
     "apply": ("integrate", ".", "--phase", "apply", "--plan", "retobs/integration-plan.json"),
     "verify": ("integrate", ".", "--phase", "verify", "--plan", "retobs/integration-plan.json"),
 }
@@ -33,6 +37,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 
 from retrieval_observatory.mcp.server import _integrate_project
@@ -40,17 +45,28 @@ from retrieval_observatory.mcp.server import _integrate_project
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--project-root", type=Path, required=True)
+parser.add_argument("--fixture-root", type=Path, required=True)
 parser.add_argument("--output", type=Path, required=True)
 args = parser.parse_args()
+sys.path.insert(0, str(args.fixture_root))
+from plan_review import apply_plan_overrides  # noqa: E402
+
 project_root = args.project_root.resolve()
+expected = json.loads((project_root / "expected.json").read_text(encoding="utf-8"))
 plan_path = project_root / "retobs" / "integration-plan.json"
 plan_path.parent.mkdir(parents=True, exist_ok=True)
 
+phases = {}
 plan = asyncio.run(_integrate_project(project_root=str(project_root), phase="plan"))
+phases["plan"] = plan
+if expected.get("plan_overrides"):
+    plan_path.write_text(json.dumps(apply_plan_overrides(plan, expected["plan_overrides"]), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    plan = asyncio.run(_integrate_project(project_root=str(project_root), phase="plan", plan_path=str(plan_path)))
+    phases["replan"] = plan
 plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-apply = asyncio.run(_integrate_project(project_root=str(project_root), phase="apply", plan_path=str(plan_path)))
-verify = asyncio.run(_integrate_project(project_root=str(project_root), phase="verify", plan_path=str(plan_path)))
-args.output.write_text(json.dumps({"plan": plan, "apply": apply, "verify": verify}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+phases["apply"] = asyncio.run(_integrate_project(project_root=str(project_root), phase="apply", plan_path=str(plan_path)))
+phases["verify"] = asyncio.run(_integrate_project(project_root=str(project_root), phase="verify", plan_path=str(plan_path)))
+args.output.write_text(json.dumps(phases, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 '''
 
 
@@ -61,6 +77,7 @@ import argparse
 import asyncio
 import json
 import runpy
+import sys
 from pathlib import Path
 
 from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, start_trace
@@ -81,6 +98,8 @@ def record(call, *, service_id, pipeline_id, query_id, query_text):
 def fastapi_fixture(project, expected):
     from fastapi.testclient import TestClient
 
+    # The root ``retobs_adapter`` the instrumented module imports resolves against the project root.
+    sys.path.insert(0, str(project))
     namespace = runpy.run_path(str(project / "app" / "main.py"))
     app = namespace["app"]
     traces = []
@@ -109,8 +128,24 @@ def fastapi_fixture(project, expected):
 def callable_fixture(project, expected, symbol):
     namespace = runpy.run_path(str(project / "app" / ("retriever.py" if symbol == "retrieve" else "pipeline.py")))
     retrieve = namespace[symbol]
+    # The first query runs twice: cross-run entity alignment compares the ids of a repeated query.
+    queries = (("q-one", "current"), ("q-one-repeat", "current"), ("q-two", "current history"))
+    return record_queries(retrieve, expected, queries), {}
+
+
+def hybrid_module_fixture(project, expected):
+    # The package imports (``from app.fusion import ...``) and the root ``retobs_adapter`` the
+    # instrumented fusion module imports both resolve against the project root.
+    sys.path.insert(0, str(project))
+    from app.pipeline import retrieve
+
+    queries = (("q-hybrid", "hybrid question"), ("q-hybrid-repeat", "hybrid question"), ("q-lexical", "lexical question"))
+    return record_queries(retrieve, expected, queries), {}
+
+
+def record_queries(retrieve, expected, queries):
     traces = []
-    for query_id, query in (("q-one", "current"), ("q-two", "current history")):
+    for query_id, query in queries:
         trace, _ = record(
             lambda query=query: retrieve(query),
             service_id=expected["service_id"],
@@ -119,7 +154,7 @@ def callable_fixture(project, expected, symbol):
             query_text=query,
         )
         traces.append(trace)
-    return traces, {}
+    return traces
 
 
 def telemetry_failure_fixture(project):
@@ -203,6 +238,9 @@ expected = json.loads(args.expected.read_text(encoding="utf-8"))
 if args.fixture == "fastapi_hybrid_dag":
     traces, production = fastapi_fixture(args.project, expected)
     telemetry = telemetry_failure_fixture(args.project)
+elif args.fixture == "hybrid_multi_module":
+    traces, production = hybrid_module_fixture(args.project, expected)
+    telemetry = {"serialization_failures": 0, "export_failures": 0}
 else:
     symbol = "retrieve" if args.fixture == "python_callable" else expected["required_operator_ids"][0]
     traces, production = callable_fixture(args.project, expected, symbol)
@@ -237,31 +275,47 @@ def _fixture_command(python: Path, fixture: str) -> list[str]:
 
 
 def _run_fixture(python: Path, fixture: str, project: Path, env: dict[str, str]) -> str:
-    result = _run(_fixture_command(python, fixture), cwd=project, env=env)
+    # A script run from the project root does not put the root on sys.path; the ``app`` package
+    # imports of the multi-module fixture and the root ``retobs_adapter`` an instrumented module
+    # imports (when the reviewed plan references a capture) resolve through it.
+    result = _run(_fixture_command(python, fixture), cwd=project, env={**env, "PYTHONPATH": str(project)})
     return _canonical_json(result.stdout)
 
 
 def _wheel_spec(wheel: Path, fixture: str) -> str:
     extras = ["dashboard", "mcp"]
-    if framework_extra := FIXTURE_EXTRAS[fixture]:
+    if framework_extra := FIXTURE_EXTRAS.get(fixture):
         extras.append(framework_extra)
     return f"{wheel}[{','.join(extras)}]"
 
 
 def _assert_fixture_result(expected: dict[str, Any], verification: dict[str, Any], telemetry: dict[str, Any]) -> None:
+    capabilities = verification["capabilities"]
+    not_ready = {name: capability["failures"] for name, capability in capabilities.items() if capability["status"] != "ready"}
+    assert verification["status"] == "ready", (verification["status"], verification["errors"], not_ready)
+    assert all(capabilities[name]["status"] == "ready" for name in expected["required_capabilities"]), not_ready
     observed_edges = {
         (parent, node)
         for variant in verification["topology_variants"]
         for node, parents in ast.literal_eval(variant["signature"])
         for parent in parents
     }
-    assert set(expected["required_operator_ids"]) <= set(verification["observed_operator_ids"])
-    assert {tuple(edge) for edge in expected["required_edges"]} <= observed_edges
-    assert verification["status"] == "ready"
-    assert all(verification["capabilities"][name]["available"] for name in expected["required_capabilities"])
+    assert set(expected["required_operator_ids"]) <= set(verification["observed_operator_ids"]), verification["observed_operator_ids"]
+    assert {tuple(edge) for edge in expected["required_edges"]} <= observed_edges, sorted(observed_edges)
     assert verification["telemetry_health"]["serialization_failures"] == 0
     assert verification["telemetry_health"]["export_failures"] == 0
     assert telemetry["serialization_failures"] == 0
+
+
+def _run_documented(retobs: Path, phase: str, project: Path, env: dict[str, str]) -> dict[str, Any]:
+    """One documented ``retobs integrate`` command; plan phases are read back from the plan file they wrote."""
+    command = DOCUMENTED_INTEGRATION_COMMANDS[phase]
+    result = _run([str(retobs), *command], cwd=project, env=env)
+    if phase in ("plan", "replan"):
+        payload = json.loads((project / "retobs" / "integration-plan.json").read_text(encoding="utf-8"))
+    else:
+        payload = json.loads(result.stdout)
+    return {"command": ["retobs", *command], "payload": payload, "stderr": result.stderr, "stdout": result.stdout}
 
 
 def _prepare_documented_callable(project: Path) -> None:
@@ -297,20 +351,13 @@ def _exercise_fixture(wheel: Path, fixture: str, artifacts: Path, keep_workdir: 
         (fixture_artifacts / "before.json").write_text(before, encoding="utf-8")
         db_path = project / ".retobs" / "results.db"
         retobs = venv / "bin" / "retobs"
-        documented = {}
-        for phase in ("plan", "apply"):
-            command = DOCUMENTED_INTEGRATION_COMMANDS[phase]
-            result = _run([str(retobs), *command], cwd=project, env=env)
-            output = result.stdout.strip()
-            documented[phase] = {
-                "command": ["retobs", *command],
-                "stderr": result.stderr,
-                "stdout": result.stdout,
-            }
-            if phase == "plan":
-                documented[phase]["payload"] = json.loads((project / "retobs" / "integration-plan.json").read_text(encoding="utf-8"))
-            else:
-                documented[phase]["payload"] = json.loads(output)
+        plan_path = project / "retobs" / "integration-plan.json"
+        documented = {"plan": _run_documented(retobs, "plan", project, env)}
+        if overrides := expected.get("plan_overrides"):
+            # The reviewer's edits, then a re-plan from the reviewed file so the patches match them.
+            _write_json(plan_path, apply_plan_overrides(documented["plan"]["payload"], overrides))
+            documented["replan"] = _run_documented(retobs, "replan", project, env)
+        documented["apply"] = _run_documented(retobs, "apply", project, env)
         after = _run_fixture(python, fixture, project, env)
         (fixture_artifacts / "after.json").write_text(after, encoding="utf-8")
         assert before == after
@@ -326,26 +373,17 @@ def _exercise_fixture(wheel: Path, fixture: str, artifacts: Path, keep_workdir: 
             cwd=workdir,
             env=env,
         )
-        phase = "verify"
-        command = DOCUMENTED_INTEGRATION_COMMANDS[phase]
-        result = _run([str(retobs), *command], cwd=project, env=env)
-        documented[phase] = {
-            "command": ["retobs", *command],
-            "payload": json.loads(result.stdout),
-            "stderr": result.stderr,
-            "stdout": result.stdout,
-        }
-        (fixture_artifacts / "documented-cli.json").write_text(
-            json.dumps(documented, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        shutil.copy(project / "retobs" / "integration-plan.json", fixture_artifacts / "plan.json")
-        (fixture_artifacts / "apply.json").write_text(
-            json.dumps(documented["apply"]["payload"], indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        documented["verify"] = _run_documented(retobs, "verify", project, env)
+        _write_json(fixture_artifacts / "documented-cli.json", documented)
+        shutil.copy(plan_path, fixture_artifacts / "plan.json")
+        _write_json(fixture_artifacts / "apply.json", documented["apply"]["payload"])
         mcp_script = workdir / "documented_mcp.py"
         mcp_script.write_text(DOCUMENTED_MCP_SCRIPT, encoding="utf-8")
         _run(
-            [str(python), str(mcp_script), "--project-root", str(documented_project), "--output", str(fixture_artifacts / "documented-mcp.json")],
+            [
+                str(python), str(mcp_script), "--project-root", str(documented_project),
+                "--fixture-root", str(FIXTURE_ROOT), "--output", str(fixture_artifacts / "documented-mcp.json"),
+            ],
             cwd=workdir,
             env=env,
         )
@@ -367,7 +405,10 @@ def _exercise_fixture(wheel: Path, fixture: str, artifacts: Path, keep_workdir: 
         )
         verification = json.loads((fixture_artifacts / "verification.json").read_text(encoding="utf-8"))
         telemetry = json.loads((fixture_artifacts / "telemetry-health.json").read_text(encoding="utf-8"))
+        _write_json(fixture_artifacts / "capabilities.json", verification["capabilities"])
         _assert_fixture_result(expected, verification, telemetry)
+        statuses = " ".join(f"{name}={capability['status']}" for name, capability in verification["capabilities"].items())
+        print(f"{fixture}: capabilities {statuses}")
     except subprocess.CalledProcessError as error:
         raise RuntimeError(error.stderr or error.stdout or str(error)) from error
     finally:
@@ -380,14 +421,14 @@ def _exercise_fixture(wheel: Path, fixture: str, artifacts: Path, keep_workdir: 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Exercise external retrieval fixtures against one installed wheel.")
     parser.add_argument("--wheel", type=Path, required=True, help="Exact wheel under test.")
-    parser.add_argument("--fixture", choices=[*FIXTURE_EXTRAS, "all"], required=True, help="Fixture selector.")
+    parser.add_argument("--fixture", choices=[*FIXTURES, "all"], required=True, help="Fixture selector.")
     parser.add_argument("--artifacts", type=Path, required=True, help="Output root for fixture evidence.")
     parser.add_argument("--keep-workdir", action="store_true", help="Retain copied fixture work directories for debugging.")
     args = parser.parse_args()
     wheel = args.wheel.resolve()
     if not wheel.is_file():
         parser.error(f"wheel does not exist: {wheel}")
-    selected = tuple(FIXTURE_EXTRAS) if args.fixture == "all" else (args.fixture,)
+    selected = FIXTURES if args.fixture == "all" else (args.fixture,)
     for fixture in selected:
         _exercise_fixture(wheel, fixture, args.artifacts.resolve(), args.keep_workdir)
         print(f"{fixture}: PASS")

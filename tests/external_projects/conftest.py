@@ -5,4 +5,5 @@ FIXTURES = (
     "fastapi_hybrid_dag",
     "langchain_retriever",
     "llamaindex_retriever",
+    "hybrid_multi_module",
 )

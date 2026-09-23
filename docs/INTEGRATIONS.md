@@ -17,11 +17,13 @@ A first-class path has detection, an exact patch plan, apply, verification, a re
 
 ```bash
 retobs integrate . --phase plan --output retobs/integration-plan.json
+retobs integrate . --phase plan --plan retobs/integration-plan.json --output retobs/integration-plan.json   # re-plan from the reviewed file
 retobs integrate . --phase apply --plan retobs/integration-plan.json
 retobs integrate . --phase verify --policy retobs/release-policy.yaml
+retobs integrate . --phase revert
 ```
 
-Review the plan before apply. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md). The planner builds no cross-file call graph; when operators are spread across modules or a project has several entrypoints, wire `@observe` and `@trace_scope` by hand as in the [manual instrumentation guide](guides/manual-instrumentation.md).
+Review the plan, then re-plan from the reviewed file so the patches match the reviewed operators, parents, scenarios and `capture` references. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database and reports the eight capabilities; revert restores exactly the files apply patched. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md). The planner builds no cross-file call graph; for a class-based or multi-module pipeline the review sets `parent_ids` (and a `CaptureSpec` for boundaries the default rules cannot read) before re-planning, as the `hybrid_multi_module` wheel-only fixture does, or wire `@observe` and `@trace_scope` by hand as in the [manual instrumentation guide](guides/manual-instrumentation.md).
 
 ## Release-evidence preflight
 

@@ -9,6 +9,8 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests" / "external_projects"))
+from conftest import FIXTURES  # noqa: E402
 
 
 def test_external_fixtures_run_against_installed_wheel(tmp_path: Path) -> None:
@@ -35,4 +37,4 @@ def test_external_fixtures_run_against_installed_wheel(tmp_path: Path) -> None:
         text=True,
         env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
     )
-    assert result.stdout.count(": PASS") == 4
+    assert result.stdout.count(": PASS") == len(FIXTURES)

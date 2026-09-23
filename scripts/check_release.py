@@ -97,6 +97,9 @@ def _check_wheel_contents(wheel: Path) -> None:
     required = {
         "retrieval_observatory/dashboard/ui/dist/index.html",
         "retrieval_observatory/examples/evaluate_scifact.yaml",
+        "retrieval_observatory/examples/agent_integration/SKILL.md",
+        "retrieval_observatory/examples/agent_integration/references/plan-review.md",
+        "retrieval_observatory/examples/agent_integration/references/retobs_adapter_example.py",
     }
     missing = sorted(required - names)
     if missing:

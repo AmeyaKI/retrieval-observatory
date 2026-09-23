@@ -1,0 +1,67 @@
+{
+  "service_id": "external-hybrid-multi-module",
+  "pipeline_id": "hybrid-multi-module-v1",
+  "required_operator_ids": ["intent_router", "lexical", "dense", "rrf_fusion", "rerank"],
+  "required_edges": [
+    ["intent_router", "lexical"],
+    ["intent_router", "dense"],
+    ["lexical", "rrf_fusion"],
+    ["dense", "rrf_fusion"],
+    ["rrf_fusion", "rerank"]
+  ],
+  "scenario_ids": ["hybrid", "hybrid-repeat", "lexical_only"],
+  "expected_final_doc_ids": {
+    "hybrid": ["d-lexical", "d-shared", "d-dense"],
+    "hybrid-repeat": ["d-lexical", "d-shared", "d-dense"],
+    "lexical_only": ["d-lexical", "d-shared", "d-stale"]
+  },
+  "required_capabilities": [
+    "topology_observed",
+    "actual_input_output_capture",
+    "candidate_identity",
+    "query_identity",
+    "final_output_capture",
+    "judgment_mapping",
+    "declared_route_coverage",
+    "cross_run_entity_alignment"
+  ],
+  "plan_overrides": {
+    "remove_operators": ["retrieve"],
+    "operators": {
+      "intentrouter_route": {"op_id": "intent_router", "op_type": "GATE", "parent_ids": []},
+      "lexicallane_search": {"op_id": "lexical", "op_type": "SOURCE", "parent_ids": ["intent_router"]},
+      "denselane_search": {"op_id": "dense", "op_type": "SOURCE", "parent_ids": ["intent_router"]},
+      "rrf_fusion": {
+        "op_id": "rrf_fusion",
+        "op_type": "FUSE",
+        "parent_ids": ["lexical", "dense"],
+        "capture": "retobs_adapter:rrf_fusion_capture"
+      },
+      "reranker_rerank": {"op_id": "rerank", "op_type": "RERANK", "parent_ids": ["rrf_fusion"]}
+    },
+    "scenarios": [
+      {
+        "scenario_id": "hybrid",
+        "query_text": "hybrid question",
+        "expected_operator_ids": ["intent_router", "lexical", "dense", "rrf_fusion", "rerank"],
+        "route": "hybrid",
+        "command": "python -c \"from app.pipeline import retrieve; retrieve('hybrid question')\""
+      },
+      {
+        "scenario_id": "hybrid-repeat",
+        "query_text": "hybrid question",
+        "expected_operator_ids": ["intent_router", "lexical", "dense", "rrf_fusion", "rerank"],
+        "route": "hybrid",
+        "command": "python -c \"from app.pipeline import retrieve; retrieve('hybrid question')\""
+      },
+      {
+        "scenario_id": "lexical_only",
+        "query_text": "lexical question",
+        "expected_operator_ids": ["intent_router", "lexical", "rrf_fusion", "rerank"],
+        "route": "lexical_only",
+        "command": "python -c \"from app.pipeline import retrieve; retrieve('lexical question')\""
+      }
+    ],
+    "entrypoint": {"file": "app/pipeline.py", "symbol": "retrieve", "kind": "function"}
+  }
+}

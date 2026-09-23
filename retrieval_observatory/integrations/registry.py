@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 # Single source for agent-facing integration guidance (MCP describe_integration + docs build).
+
+#: The packaged agent runbook (also reported by the plan phase as ``discovery.runbook``).
+RUNBOOK_PATH = Path(__file__).resolve().parents[1] / "examples" / "agent_integration" / "SKILL.md"
 
 INTEGRATION_GUIDES: Dict[str, Dict[str, Any]] = {
     "python": {
@@ -188,6 +192,7 @@ def describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
             "frameworks": list_integration_frameworks(),
             "guides": INTEGRATION_GUIDES,
             "support_levels": SUPPORT_LEVELS,
+            "runbook_path": str(RUNBOOK_PATH),
             "next": "Call describe_integration(framework='...') for one path, then verify_integration after wiring.",
         }
     key = framework.lower().strip()
@@ -199,5 +204,6 @@ def describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
     guide = dict(INTEGRATION_GUIDES[key])
     guide["framework"] = key
     guide["support"] = SUPPORT_LEVELS[key]
+    guide["runbook_path"] = str(RUNBOOK_PATH)
     guide["next"] = "Wire the snippet, run one query, then call verify_integration."
     return guide

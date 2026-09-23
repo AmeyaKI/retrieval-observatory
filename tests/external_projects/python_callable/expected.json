@@ -9,9 +9,16 @@
     "history": ["d-callable-history", "d-callable-current"]
   },
   "required_capabilities": [
-    "candidate_transitions",
-    "operator_debugging",
-    "production_investigation",
-    "stable_topology"
-  ]
+    "topology_observed",
+    "actual_input_output_capture",
+    "candidate_identity",
+    "query_identity",
+    "final_output_capture",
+    "judgment_mapping",
+    "declared_route_coverage",
+    "cross_run_entity_alignment"
+  ],
+  "plan_overrides": {
+    "remove_operators": ["retrieve"]
+  }
 }
