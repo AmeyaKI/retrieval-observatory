@@ -1,0 +1,57 @@
+# Release policy schema 3: semantic selectors (final_retrieval, query, operator:<id>) instead of positional stage keys.
+schema_version: 3
+id: retrieval-release-v3
+
+# What the runs evaluate; k is the default cutoff for recall/precision/ndcg checks.
+evaluation:
+  unit: document
+  boundary: final_retrieval
+  k: 10
+  relevance_threshold: 1
+  unjudged_metric_policy: zero_gain
+  comparison_scope: fixed_corpus
+
+# The change under test; any other recorded difference HOLDs until declared or investigated.
+intervention:
+  expected_changes:
+    - reranker_model_revision
+
+# Identity invariants are always enforced; the two optional flags turn unknowns into BLOCKs.
+evidence:
+  require_index_encoder_compatibility: false
+  require_lineage_for_decision: false
+
+# Seeded paired bootstrap; resamples must satisfy resamples * (1 - adjusted confidence) / 2 >= 20.
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 4000
+  seed: 17
+  min_pair_coverage: 1.0
+
+# One check per line of evidence; every check counts toward the familywise correction.
+metrics:
+  - id: final-recall
+    metric: recall
+    target: final_retrieval
+    direction: higher_is_better
+    max_regression: 0.02
+    min_paired_n: 30
+  - id: query-latency
+    metric: latency_ms
+    target: query
+    estimator: p95
+    direction: lower_is_better
+    max_regression: 50.0
+    min_paired_n: 30
+
+# Slices are frozen on benchmark metadata; metric_ids limits which checks a slice repeats.
+slices:
+  - id: temporal
+    field: scenario
+    value: temporal
+    metric_ids: [final-recall]
+
+# Known execution failures above this share are an operational FAIL, not a quality claim.
+execution:
+  max_failure_rate: 0.0
