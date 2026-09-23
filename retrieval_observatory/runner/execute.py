@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from retrieval_observatory.types import PipelineResult, Query
+
+_logger = logging.getLogger("retrieval_observatory")
 
 # Shared benchmark execution core used by BOTH the CLI (`retobs run`) and the Python SDK
 # (`retrieval_observatory.benchmark`). Keeping a single executor guarantees that both paths
@@ -42,14 +46,20 @@ async def execute_benchmark(
     config_path: Optional[str] = None,
     annotate_difficulty: bool = True,
     log: Optional[Callable[..., None]] = None,
+    chunk_map: Optional[Sequence[Sequence[str]]] = None,
+    evaluation_k: Optional[int] = None,
 ) -> BenchmarkArtifacts:
     """Run all pipelines over all queries, persist results + lineage, compute and store metrics.
 
     `store` must already be initialised (`await store.init_db()`). `pipelines` are pre-built
     pipeline objects. `log` is an optional status-printing callable (the CLI passes
-    `console.print`; the SDK leaves it None for silent operation).
+    `console.print`; the SDK leaves it None for silent operation). `chunk_map` rows are
+    ``(chunk_id, document_id[, namespace])`` and are recorded in the manifest for the
+    investigation projection.
     """
+    from retrieval_observatory.datasets.judgments import ChunkMap, EvaluationSpec, JudgmentSet
     from retrieval_observatory.datasets.validation import dataset_fingerprint
+    from retrieval_observatory.evidence import service as investigation_service
     from retrieval_observatory.diagnostics.engine import DiagnosticEngine, context_for_trace
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.runner.benchmark import BenchmarkRunner
@@ -169,6 +179,18 @@ async def execute_benchmark(
     traces = [result.trace for result in all_results if result.trace is not None]
     if len(traces) != len(all_results):
         raise RuntimeError("every evaluation result must carry a persisted execution trace")
+    # Attempt accounting is exact only if every (pipeline, query) has exactly one trace.
+    observed = Counter((trace.pipeline_id, trace.query_id) for trace in traces)
+    expected = {(pipeline.pipeline_id, query.query_id) for pipeline in pipelines for query in queries}
+    duplicates = sorted(key for key, count in observed.items() if count > 1)
+    strays = sorted(set(observed) - expected)
+    missing = sorted(expected - set(observed))
+    if duplicates or strays or missing:
+        raise RuntimeError(
+            "trace/query association is inconsistent: "
+            f"duplicate (pipeline, query) traces {duplicates}; traces for queries outside the run {strays}; "
+            f"(pipeline, query) pairs without a trace {missing}"
+        )
     await engine.compute_from_traces(
         run_id=run_id,
         store=store,
@@ -203,6 +225,11 @@ async def execute_benchmark(
     corpus_doc_ids = set(corpus_documents) if corpus_documents is not None else None
     configured_cutoffs = list(getattr(cfg.metrics, "recall_at_k", []) or [10])
     diagnostic_cutoff = max(configured_cutoffs)
+    judgments = JudgmentSet.from_qrels(qrels, namespace="default")
+    # The investigation cutoff is the caller's k when given (SDK/CLI evaluate), else the largest
+    # configured recall cutoff; recall_at_k[0] is 1 under the default config and is never meant as k.
+    cutoffs = list(getattr(cfg.metrics, "recall_at_k", []) or [])
+    evaluation_spec = EvaluationSpec(unit="document", k=int(evaluation_k or (max(cutoffs) if cutoffs else 10)))
     diagnostics = []
     diagnostic_engine = DiagnosticEngine.default()
     for trace in traces:
@@ -249,6 +276,11 @@ async def execute_benchmark(
             "labeled": len(labeled_query_ids),
             "metric_eligible": len(completed_query_ids & labeled_query_ids),
         }
+        manifest["judgment_records"] = judgments.to_records()
+        manifest["judgment_digest"] = judgments.digest()
+        manifest["evaluation"] = evaluation_spec.to_dict()
+        if chunk_map:
+            manifest["chunk_map"] = [list(row) for row in chunk_map]
         manifest["duration_semantics"] = {
             "total_latency_ms": "query wall clock",
             "critical_path_ms": "longest observed dependency path",
@@ -272,6 +304,29 @@ async def execute_benchmark(
         manifest["evidence_profile"] = EvidenceProfile.from_run(manifest, traces, health).model_dump(mode="json")
         await store.save_run_manifest(run_id, manifest)
     await store.finish_run(run_id)
+
+    if hasattr(store, "save_run_manifest"):
+        # The explicit projection write behind the Investigate views. A failure is recorded
+        # with its repair command, never raised: the raw run is already persisted.
+        repair = f"retobs storage index {run_id} --db {getattr(store, 'db_path', 'PATH')}"
+        projections: Dict[str, Dict[str, Any]] = {}
+        for pipeline in pipelines:
+            try:
+                meta = await investigation_service.build_projection(
+                    store,
+                    run_id,
+                    pipeline.pipeline_id,
+                    evaluation_spec,
+                    judgments=JudgmentSet.from_records(manifest["judgment_records"]),
+                    chunk_map=ChunkMap.from_pairs([tuple(row) for row in chunk_map]) if chunk_map else None,
+                )
+                projections[pipeline.pipeline_id] = {"status": "complete", "row_count": meta["row_count"]}
+            except Exception as exc:
+                projections[pipeline.pipeline_id] = {"status": "failed", "error": repr(exc), "repair": repair}
+                _logger.warning("investigation projection for run %s pipeline %s failed: %r (repair: %s)", run_id, pipeline.pipeline_id, exc, repair)
+                _log(f"[yellow]Warning:[/yellow] investigation projection for '{pipeline.pipeline_id}' failed: {exc!r}. Repair: {repair}")
+        manifest["investigation_projection"] = projections
+        await store.save_run_manifest(run_id, manifest)
 
     return BenchmarkArtifacts(
         run_id=run_id,
