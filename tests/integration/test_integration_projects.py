@@ -73,12 +73,16 @@ async def test_plan_apply_call_verify_evaluate(name: str, tmp_path: Path) -> Non
     assert f"pipeline_id={plan['pipeline_id']!r}" in empty["errors"][0]
     assert str(root / ".retobs" / "results.db") in empty["errors"][0]
 
-    exercised = _run(root, "-c", EXERCISE[name])
-    assert exercised.returncode == 0, exercised.stderr
-    assert "could not persist trace" not in exercised.stderr
+    # The plan declares the representative scenario and its repeat: the same query twice is what
+    # cross-run entity alignment is verified against.
+    for _ in range(2):
+        exercised = _run(root, "-c", EXERCISE[name])
+        assert exercised.returncode == 0, exercised.stderr
+        assert "could not persist trace" not in exercised.stderr
 
     verified = await _integrate_project(project_root=str(root), phase="verify", plan_path=str(plan_path))
-    assert verified["status"] == "ready", verified["errors"]
+    assert verified["status"] == "ready", {k: v["failures"] for k, v in verified["capabilities"].items() if v["status"] != "ready"}
+    assert {name: c["status"] for name, c in verified["capabilities"].items()} == dict.fromkeys(plan["expected_capabilities"], "ready")
     assert set(verified["observed_operator_ids"]) == {op["op_id"] for op in plan["operators"]}
 
     if name == "proj_b":

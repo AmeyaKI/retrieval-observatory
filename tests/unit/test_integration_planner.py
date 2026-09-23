@@ -1,6 +1,6 @@
 import ast
 
-from retrieval_observatory.integrations.planner import build_integration_plan
+from retrieval_observatory.integrations.planner import INSTRUMENTATION_MARKER, build_integration_plan
 
 
 def test_planner_discovers_concrete_symbols(tmp_path):
@@ -97,4 +97,6 @@ def test_planner_patch_compiles_for_plain_module(tmp_path):
     replacement = build_integration_plan(tmp_path).patches[0].replacement
 
     ast.parse(replacement)
-    assert replacement.startswith("from retrieval_observatory.sdk.observe import observe, trace_scope\n")
+    assert replacement.startswith(
+        INSTRUMENTATION_MARKER + "\nfrom retrieval_observatory.sdk.observe import observe, trace_scope\n"
+    )
