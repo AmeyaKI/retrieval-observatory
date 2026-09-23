@@ -110,6 +110,36 @@ async def test_verify_blocks_only_lineage_diagnosis_when_exits_are_missing(tmp_p
     assert result.release_readiness["promotion"]["findings"][0]["code"] == "paired_metrics_unavailable"
 
 
+def _final_output_only_trace() -> RetrievalTrace:
+    """The filter's actual inputs were never captured: an integration limitation, not a failure."""
+    docs = tuple(Candidate(doc_id, float(3 - index), index + 1, origin_op_ids=("source",)) for index, doc_id in enumerate(("d1", "d2", "d3")))
+    return RetrievalTrace(
+        trace_id="trace-final-only", service_id="service", run_id=None, query_id="query-1",
+        query_text="private query", pipeline_id="pipeline",
+        spans=(
+            OperatorSpan.source("source", "source", docs),
+            OperatorSpan("filter", "FILTER", "filter", ("source",), "FIRED", 1.0, outputs=docs[:2], input_capture="unavailable"),
+        ),
+        final_op_ids=("filter",),
+    )
+
+
+@pytest.mark.asyncio
+async def test_final_output_only_integration_is_partial_and_holds_promotion(tmp_path) -> None:
+    write_manifest(tmp_path, _manifest())
+    store = SQLiteStore(db_path=str(tmp_path / "results.db"))
+    await store.init_db()
+    await store.save_trace(_final_output_only_trace())
+
+    result = await verify_project(tmp_path, store, policy=_policy())
+
+    assert result.status == "partial", result.errors
+    assert result.capabilities["actual_input_output_capture"]["status"] == "unavailable"
+    assert [failure["op_id"] for failure in result.capabilities["actual_input_output_capture"]["failures"] if failure["code"] == "missing_actual_inputs"] == ["filter"]
+    assert result.capabilities["final_output_capture"]["status"] == "ready"
+    assert result.release_readiness["promotion"]["status"] == "HOLD"
+
+
 @pytest.mark.asyncio
 async def test_verify_reports_capture_ready_without_promoting(tmp_path) -> None:
     write_manifest(tmp_path, _manifest())

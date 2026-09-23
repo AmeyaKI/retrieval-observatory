@@ -35,3 +35,18 @@ def test_verification_fails_random_operator_identity() -> None:
 
 def test_verification_accepts_manifest_faithful_trace() -> None:
     assert verify_trace_contract(_manifest(), [_trace()]).ready
+
+
+def test_trace_lacking_a_declared_operator_is_not_topology_drift() -> None:
+    """A conditional operator that did not fire for this query is a route matter, not drift."""
+    candidate = Candidate("d", 1.0, 1, origin_op_ids=("source",))
+    trace = RetrievalTrace(
+        trace_id="trace", service_id="service", run_id="run", query_id="query",
+        query_text="query", pipeline_id="pipeline",
+        spans=(OperatorSpan("source", "SOURCE", "source", (), "FIRED", 1.0, outputs=(candidate,)),),
+        final_op_ids=("source",),
+    )
+    report = verify_trace_contract(_manifest(), [trace])
+    assert report.check("topology_identity").status == "ok"
+    assert "missing_by_trace" not in report.check("topology_identity").details
+    assert report.ready

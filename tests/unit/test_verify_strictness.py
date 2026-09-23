@@ -35,14 +35,24 @@ def test_fabricated_empty_trace_is_not_ready() -> None:
     result = verify_observed_traces(_manifest(), [_fabricated_trace()])
     assert result.status == "failed"
     failing = {check.check_id for check in result.checks if check.status == "error"}
-    assert {"scenario_evidence", "timing"} <= failing
-    assert any("doc_id" in error and "query_text" in error for error in result.errors)
+    assert {"candidate_identity", "query_identity", "declared_route_coverage"} <= failing
+    assert result.capabilities["candidate_identity"]["status"] == "unavailable"
+    assert result.capabilities["query_identity"]["status"] == "unavailable"
+    assert any("doc_id" in error for error in result.errors)
+    assert any("query_text" in error for error in result.errors)
 
 
-def test_real_trace_without_run_id_is_ready() -> None:
+def test_real_trace_without_run_id_is_a_limitation_not_a_failure() -> None:
+    """One trace with no labels: every observed capability is ready, the unobservable ones
+    (labels, a repeated query) are named, and the integration is partial rather than failed."""
     result = verify_observed_traces(_manifest(), [_real_trace()])
-    assert result.status == "ready", result.errors
-    assert {check.check_id for check in result.checks} >= {"scenario_evidence", "stable_identity", "candidate_identity", "timing_semantics"}
+    assert result.status == "partial", result.errors
+    assert result.errors == ()
+    for name in ("topology_observed", "actual_input_output_capture", "candidate_identity", "query_identity", "final_output_capture", "declared_route_coverage"):
+        assert result.capabilities[name]["status"] == "ready", (name, result.capabilities[name]["failures"])
+    assert result.capabilities["judgment_mapping"]["status"] == "unavailable"
+    assert result.capabilities["cross_run_entity_alignment"]["status"] == "partial"
+    assert [check.check_id for check in result.checks] == list(result.capabilities)
 
 
 def test_scenario_requires_every_expected_operator_to_fire() -> None:
@@ -53,8 +63,13 @@ def test_scenario_requires_every_expected_operator_to_fire() -> None:
         (VerificationScenario("representative", "q", ("search", "rerank")),),
     )
     result = verify_observed_traces(manifest, [_real_trace()])
-    assert result.status == "failed"
-    assert any("'representative'" in error and "rerank" in error for error in result.errors)
+    assert result.status == "partial"
+    coverage = result.capabilities["declared_route_coverage"]
+    assert coverage["status"] == "unavailable"
+    assert coverage["evidence"]["missing_by_scenario"] == {"representative": ["rerank"]}
+    [failure] = coverage["failures"]
+    assert failure["code"] == "scenario_unobserved"
+    assert "'representative'" in failure["detail"] and "rerank" in failure["detail"]
 
 
 async def test_no_traces_names_service_pipeline_and_db(tmp_path) -> None:

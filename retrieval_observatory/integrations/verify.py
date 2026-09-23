@@ -4,10 +4,12 @@ import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
-from retrieval_observatory.integrations.model import IntegrationCheck, IntegrationManifest, IntegrationResult
-from retrieval_observatory.tracing.model import RetrievalTrace
+from retrieval_observatory.integrations.model import CAPABILITY_NAMES, IntegrationCheck, IntegrationManifest, IntegrationResult
+from retrieval_observatory.tracing.lineage_contract import validate_unique_candidate_ids
+from retrieval_observatory.tracing.model import OperatorSpan, RetrievalTrace
 
 DEFAULT_DB_PATH = ".retobs/results.db"
 DEFAULT_SERVE_PORT = 4000
@@ -308,9 +310,10 @@ def verify_trace_contract(
         {op_id: actual for op_id, actual in signature.items() if declared.get(op_id) != actual}
         for signature in signatures
     ]
-    missing = [sorted(set(declared) - set(signature)) for signature in signatures]
     unknown = sorted({op_id for signature in signatures for op_id in signature if op_id not in declared})
-    topology_error = bool(unknown or any(drift) or any(missing))
+    # A declared operator absent from one trace is a route that did not fire for that query
+    # (declared_route_coverage's concern), not a topology mismatch.
+    topology_error = bool(unknown or any(drift))
 
     parent_missing = sorted({
         f"{span.op_id}:{parent}"
@@ -342,7 +345,7 @@ def verify_trace_contract(
     checks = (
         VerificationCheck(
             "topology_identity", "error" if topology_error else "ok",
-            {"unknown": unknown, "missing_by_trace": missing, "drift_by_trace": drift},
+            {"unknown": unknown, "drift_by_trace": drift},
         ),
         VerificationCheck(
             "parent_coverage", "error" if parent_missing or grouped_missing else "ok",
@@ -460,39 +463,505 @@ async def verify_integration(
 
 def _trace_has_evidence(trace: RetrievalTrace) -> bool:
     """A trace counts as evidence only if something observable happened in it: a FIRED operator
-    that produced at least one candidate with a doc_id, a query, and measured wall-clock time."""
+    whose output was actually read (a candidate with a doc_id, or a gate's recorded decision,
+    which legitimately yields no candidates on a skip route), a query, and measured wall-clock time."""
     fired_with_output = any(
-        span.status == "FIRED" and any(candidate.doc_id for candidate in span.outputs) for span in trace.spans
+        span.status == "FIRED"
+        and (any(candidate.doc_id for candidate in span.outputs) or (span.op_type == "GATE" and bool(span.gate_values)))
+        for span in trace.spans
     )
     timed = trace.timing is not None and trace.timing.wall_clock_ms > 0
     return fired_with_output and bool(trace.query_text) and timed
 
 
-def _scenario_gaps(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]) -> List[str]:
-    gaps: List[str] = []
+_CORE_CAPABILITIES = ("topology_observed", "query_identity", "candidate_identity", "final_output_capture")
+_CHECK_STATUS = {"ready": "ok", "partial": "warn", "unavailable": "error"}
+_COMPLETE_INPUT_CAPTURE = {"recorded", "not_applicable"}
+_CAPTURE_SPEC_FIX = (
+    "define a CaptureSpec `{op}_capture` in retobs_adapter.py whose `inputs` maps the bound arguments to "
+    "{{parent_id: candidates}} and set capture: 'retobs_adapter:{op}_capture' in the plan"
+)
+_OUTPUT_SHAPE_FIX = (
+    "return a sequence of candidates or a mapping with a `documents` key, "
+    "or declare the last operator's output as the boundary"
+)
+
+
+def _operator_id(span: OperatorSpan) -> str:
+    return span.operator_id or span.op_id
+
+
+def _is_return_boundary(span: OperatorSpan) -> bool:
+    """The ``return`` span ``trace_scope`` and ``evaluate`` synthesize from the entrypoint's result."""
+    return span.params.get("boundary") == "callable_return"
+
+
+def _failure(code: str, detail: str, fix: str, op_id: str | None = None) -> Dict[str, Any]:
+    return {"code": code, "detail": detail, "fix": fix, "op_id": op_id}
+
+
+def _capability(status: str, evidence: Mapping[str, Any], scope: str, failures: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    return {"status": status, "evidence": dict(evidence), "scope": scope, "failures": [dict(item) for item in failures]}
+
+
+def _status(passed: int, checked: int) -> str:
+    """ready when everything checked passed, partial when some did, unavailable when nothing did."""
+    if checked == 0 or passed == 0:
+        return "unavailable"
+    return "ready" if passed == checked else "partial"
+
+
+def _trace_invariant_failures(trace: RetrievalTrace) -> List[Dict[str, Any]]:
+    """Graph invariants one trace must satisfy on its own, whatever the manifest declares."""
+    failures: List[Dict[str, Any]] = []
+    spans = list(trace.spans)
+    by_id: Dict[str, OperatorSpan] = {}
+    for span in spans:
+        if span.op_id in by_id:
+            failures.append(_failure(
+                "duplicate_op_id", f"trace {trace.trace_id}: node key {span.op_id!r} is used by two spans",
+                "give each invocation its own node key (next_node_id yields rerank#2 for a repeated operator)", span.op_id,
+            ))
+        by_id[span.op_id] = span
+    for span in spans:
+        for parent in span.parent_ids:
+            if parent not in by_id:
+                failures.append(_failure(
+                    "parent_unknown", f"trace {trace.trace_id}: {span.op_id} names parent {parent!r}, which is not a span of this trace",
+                    "parents must be operators observed in the same trace", span.op_id,
+                ))
+    if _has_cycle(spans):
+        failures.append(_failure("cyclic_graph", f"trace {trace.trace_id}: the parent graph has a cycle", "an operator cannot be its own ancestor"))
+    invocations: Dict[str, str] = {}
+    for span in spans:
+        if not span.invocation_id:
+            continue
+        if span.invocation_id in invocations:
+            failures.append(_failure(
+                "invocation_id_reused",
+                f"trace {trace.trace_id}: {span.op_id} reuses invocation_id {span.invocation_id} of {invocations[span.invocation_id]}",
+                "record a fresh invocation_id for every call", span.op_id,
+            ))
+        invocations.setdefault(span.invocation_id, span.op_id)
+    for span in spans:
+        for invocation_id in span.parent_invocation_ids:
+            if invocation_id not in invocations:
+                failures.append(_failure(
+                    "parent_invocation_unknown",
+                    f"trace {trace.trace_id}: {span.op_id} references parent invocation {invocation_id}, which no span of this trace carries",
+                    "parent_invocation_ids must name invocations observed in the same trace", span.op_id,
+                ))
+    for span in spans:
+        if span.input_capture != "recorded" or span.parent_linkage not in ("recorded", "declared"):
+            continue
+        for parent_id, group in span.input_groups.items():
+            parent = by_id.get(parent_id)
+            if parent is None or parent.output_capture != "recorded":
+                continue
+            absent = {candidate.doc_id for candidate in group} - {candidate.doc_id for candidate in parent.outputs}
+            if absent:
+                failures.append(_failure(
+                    "parent_inputs_unrelated",
+                    f"trace {trace.trace_id}: {len(absent)} of {len(group)} recorded input ids of {span.op_id} are absent from the "
+                    f"outputs of its parent {parent_id}: an operator between them is not instrumented, or the parent link is fabricated",
+                    f"instrument the operator that feeds {span.op_id}, or declare its actual parent", span.op_id,
+                ))
+    return failures
+
+
+def _return_transition_failures(trace: RetrievalTrace) -> List[Dict[str, Any]]:
+    """A ``return`` boundary whose ids differ from its parents' outputs hides an uninstrumented step."""
+    by_id = {span.op_id: span for span in trace.spans}
+    failures: List[Dict[str, Any]] = []
+    for span in trace.spans:
+        if not _is_return_boundary(span) or span.status != "FIRED" or span.output_capture != "recorded":
+            continue
+        upstream = [c.doc_id for parent in span.parent_ids if parent in by_id for c in by_id[parent].outputs]
+        returned = [c.doc_id for c in span.outputs]
+        if upstream == returned:
+            continue
+        parents = ", ".join(span.parent_ids) or "the observed operators"
+        differing = len(set(upstream) ^ set(returned))
+        change = f"differs from {parents} by {differing} ids" if differing else f"reorders the outputs of {parents}"
+        failures.append(_failure(
+            "unobserved_transition_before_return",
+            f"trace {trace.trace_id}: final output {change}: an operator between them is not instrumented",
+            "instrument the operator that runs after the last observed one, or declare its output as the boundary", span.op_id,
+        ))
+    return failures
+
+
+def _topology_observed(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], no_traces: str) -> Dict[str, Any]:
+    declared = sorted({op.op_id for op in manifest.operators})
+    observed = sorted({_operator_id(span) for trace in traces for span in trace.spans if not _is_return_boundary(span)})
+    undeclared = sorted(set(observed) - set(declared))
+    failures: List[Dict[str, Any]] = []
+    transitions: List[Dict[str, Any]] = []
+    valid = 0
+    for trace in traces:
+        invariants = _trace_invariant_failures(trace)
+        valid += not invariants
+        failures.extend(invariants)
+        transitions.extend(_return_transition_failures(trace))
+    failures.extend(transitions)
+    for op_id in undeclared:
+        failures.append(_failure(
+            "undeclared_operator_observed", f"operator {op_id!r} fired but the manifest does not declare it",
+            f"add {op_id!r} to the plan's operators, or remove its @observe decorator if it is not part of this pipeline", op_id,
+        ))
+    if not traces:
+        failures.append(_failure("no_traces", no_traces, "run one declared scenario, then verify again"))
+        status = "unavailable"
+    elif valid == 0:
+        status = "unavailable"
+    elif valid < len(traces) or undeclared or transitions:
+        status = "partial"
+    else:
+        status = "ready"
+    evidence = {
+        "traces": len(traces), "traces_valid": valid, "declared_operators": declared,
+        "observed_operators": observed, "undeclared_operators": undeclared,
+    }
+    scope = (
+        f"{len(traces)} traces; graph invariants checked per trace independently of the manifest, "
+        f"then observed operators compared with the {len(declared)} declared"
+    )
+    return _capability(status, evidence, scope, failures)
+
+
+def _actual_input_output_capture(traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
+    spans = [span for trace in traces for span in trace.spans if span.status == "FIRED" and not _is_return_boundary(span)]
+    output_codes: Dict[str, set[str]] = {}
+    for trace in traces:
+        for failure in trace.capture_failures:
+            if failure.get("phase") == "outputs":
+                output_codes.setdefault(str(failure.get("op_id")), set()).add(str(failure.get("code")))
+
+    def complete(span: OperatorSpan) -> bool:
+        return span.input_capture in _COMPLETE_INPUT_CAPTURE and span.output_capture == "recorded"
+
+    by_operator: Dict[str, Dict[str, int]] = {}
+    codes_by_operator: Dict[str, set[str]] = {}
+    for span in spans:
+        operator = _operator_id(span)
+        row = by_operator.setdefault(operator, {"recorded": 0, "positional": 0, "inferred": 0, "unavailable": 0, "output_unavailable": 0})
+        row["recorded" if span.input_capture in _COMPLETE_INPUT_CAPTURE else span.input_capture] += 1
+        if span.output_capture != "recorded":
+            row["output_unavailable"] += 1
+            codes_by_operator.setdefault(operator, set()).update(output_codes.get(span.op_id, ()))
+    failures: List[Dict[str, Any]] = []
+    for operator, row in sorted(by_operator.items()):
+        invocations = sum(row[key] for key in ("recorded", "positional", "inferred", "unavailable"))
+        if row["unavailable"]:
+            failures.append(_failure(
+                "missing_actual_inputs", f"{row['unavailable']} of {invocations} invocations of {operator} lack recorded inputs",
+                _CAPTURE_SPEC_FIX.format(op=operator), operator,
+            ))
+        if row["positional"] or row["inferred"]:
+            failures.append(_failure(
+                "inferred_inputs",
+                f"{row['positional'] + row['inferred']} of {invocations} invocations of {operator} have inputs matched by "
+                "position or reconstructed from parent spans rather than read from the call",
+                _CAPTURE_SPEC_FIX.format(op=operator), operator,
+            ))
+        if row["output_unavailable"]:
+            codes = sorted(codes_by_operator.get(operator, ()))
+            failures.append(_failure(
+                "output_capture_unavailable",
+                f"{row['output_unavailable']} of {invocations} invocations of {operator} have no recorded outputs"
+                + (f" ({', '.join(codes)})" if codes else ""),
+                f"return a sequence of candidates or a mapping with a `documents` key from {operator}, or define a CaptureSpec "
+                f"`{operator}_capture` in retobs_adapter.py whose `outputs` maps the returned object to candidates",
+                operator,
+            ))
+    completed = sum(1 for span in spans if complete(span))
+    # Status follows the candidate transitions (spans with parents): a pipeline whose interior
+    # boundaries are all missing is final-output-only, however well its sources are captured.
+    scored = [span for span in spans if span.parent_ids] or spans
+    if not spans:
+        failures.append(_failure("no_fired_operators", "no FIRED operator span was observed", "run one declared scenario against the instrumented entrypoint"))
+        status = "unavailable"
+    elif completed == len(spans):
+        status = "ready"
+    elif not any(complete(span) for span in scored):
+        status = "unavailable"
+    else:
+        status = "partial"
+    evidence = {
+        "spans": len(spans), "complete": completed,
+        "positional_or_inferred": sum(1 for span in spans if span.input_capture in ("positional", "inferred")),
+        "unavailable": sum(1 for span in spans if span.input_capture == "unavailable"),
+        "by_operator": by_operator,
+    }
+    scope = f"{len(spans)} FIRED spans across {len(traces)} traces; inputs must be read from the call and outputs from the returned object"
+    return _capability(status, evidence, scope, failures)
+
+
+def _candidate_identity(traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
+    candidates = [candidate for trace in traces for span in trace.spans for candidate in (*span.inputs, *span.outputs)]
+    blank = sum(1 for candidate in candidates if not candidate.doc_id)
+    invalid_ranks = sum(1 for candidate in candidates if (candidate.output_rank or candidate.rank) < 1)
+    valid = sum(1 for candidate in candidates if candidate.doc_id and (candidate.output_rank or candidate.rank) >= 1)
+    duplicate_spans: List[tuple[str, str]] = []
+    for trace in traces:
+        for span in trace.spans:
+            try:
+                validate_unique_candidate_ids(span.outputs)
+            except ValueError:
+                duplicate_spans.append((trace.trace_id, span.op_id))
+    failures: List[Dict[str, Any]] = []
+    if not candidates:
+        failures.append(_failure(
+            "no_candidates", "no span carries a candidate with a doc_id: outputs were not captured, or candidate_mapping.doc_id does not name the id field",
+            "map candidate_mapping.doc_id to the field holding the document id and capture every operator's outputs",
+        ))
+    if blank:
+        failures.append(_failure("blank_candidate_ids", f"{blank} of {len(candidates)} candidates have an empty doc_id", "emit a non-empty stable document id for every candidate"))
+    if invalid_ranks:
+        failures.append(_failure("invalid_candidate_ranks", f"{invalid_ranks} of {len(candidates)} candidates have a rank below 1", "ranks start at 1 and follow the returned order"))
+    for trace_id, op_id in duplicate_spans:
+        failures.append(_failure(
+            "duplicate_candidate_ids", f"trace {trace_id}: {op_id} emitted the same candidate id twice",
+            "deduplicate candidates before returning them, or give chunks of one document distinct ids", op_id,
+        ))
+    status = "partial" if valid and (blank or invalid_ranks or duplicate_spans) else _status(valid, len(candidates))
+    evidence = {"candidates": len(candidates), "blank_ids": blank, "invalid_ranks": invalid_ranks, "duplicate_output_spans": len(duplicate_spans)}
+    scope = f"{len(candidates)} candidates across every span's inputs and outputs in {len(traces)} traces"
+    return _capability(status, evidence, scope, failures)
+
+
+def _query_identity(traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
+    texts_by_id: Dict[str, set[str]] = {}
+    for trace in traces:
+        texts_by_id.setdefault(trace.query_id, set()).add(trace.query_text)
+    collisions = sorted(query_id for query_id, texts in texts_by_id.items() if query_id and len(texts) > 1)
+    trace_ids = Counter(trace.trace_id for trace in traces)
+    duplicates = sorted(trace_id for trace_id, count in trace_ids.items() if count > 1)
+    missing_text = [trace.trace_id for trace in traces if not trace.query_text]
+    missing_id = [trace.trace_id for trace in traces if not trace.query_id]
+    valid = sum(
+        1 for trace in traces
+        if trace.query_text and trace.query_id and trace.query_id not in collisions and trace_ids[trace.trace_id] == 1
+    )
+    failures: List[Dict[str, Any]] = []
+    if not traces:
+        failures.append(_failure("no_traces", "no trace was observed", "run one declared scenario, then verify again"))
+    if missing_text:
+        failures.append(_failure(
+            "missing_query_text", f"{len(missing_text)} of {len(traces)} traces have no query_text (e.g. {missing_text[0]})",
+            "record the query text on every trace; trace_scope reads it from the entrypoint's query argument",
+        ))
+    if missing_id:
+        failures.append(_failure("missing_query_id", f"{len(missing_id)} of {len(traces)} traces have no query_id", "give every trace a stable query_id"))
+    for query_id in collisions:
+        failures.append(_failure(
+            "query_id_collision", f"query_id {query_id!r} maps to {len(texts_by_id[query_id])} different query texts",
+            "derive query_id from the query text, or pass one stable id per query",
+        ))
+    for trace_id in duplicates:
+        failures.append(_failure("duplicate_trace_id", f"trace_id {trace_id!r} was recorded {trace_ids[trace_id]} times", "give every trace a fresh trace_id"))
+    evidence = {
+        "traces": len(traces), "missing_query_text": len(missing_text), "missing_query_id": len(missing_id),
+        "query_id_collisions": len(collisions), "duplicate_trace_ids": len(duplicates),
+    }
+    scope = f"{len(traces)} traces; each needs a query_id, a query_text, one text per query_id and a unique trace_id"
+    return _capability(_status(valid, len(traces)), evidence, scope, failures)
+
+
+def _final_output_capture(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
+    successful = [trace for trace in traces if trace.status == "OK"]
+    operator_boundary = manifest.boundary.kind == "operator_output"
+    failures: List[Dict[str, Any]] = []
+    captured = 0
+    with_return_boundary = 0
+    for trace in successful:
+        by_id = {span.op_id: span for span in trace.spans}
+        with_return_boundary += any(_is_return_boundary(span) for span in trace.spans)
+        finals = [by_id[op_id] for op_id in trace.final_op_ids if op_id in by_id]
+        fired = [span for span in finals if span.status == "FIRED"]
+        problems: List[Dict[str, Any]] = []
+        if not trace.final_op_ids or len(finals) != len(trace.final_op_ids):
+            problems.append(_failure(
+                "final_boundary_missing", f"trace {trace.trace_id}: final_op_ids {list(trace.final_op_ids)} do not name observed spans",
+                "finish the trace through trace_scope, or set final_op_ids to the operators whose output leaves the application",
+            ))
+        elif not fired:
+            problems.append(_failure(
+                "final_boundary_missing", f"trace {trace.trace_id}: no final operator fired",
+                "finish the trace through trace_scope, or set final_op_ids to the operators whose output leaves the application",
+            ))
+        problems.extend(
+            _failure("final_boundary_missing", f"trace {trace.trace_id}: final operator {span.op_id} has no recorded outputs", _OUTPUT_SHAPE_FIX, span.op_id)
+            for span in fired if span.output_capture != "recorded"
+        )
+        if not operator_boundary:
+            problems.extend(
+                _failure(
+                    "final_output_shape_unsupported",
+                    f"trace {trace.trace_id}: the entrypoint returned {failure.get('detail')}, which is not a candidate sequence",
+                    _OUTPUT_SHAPE_FIX, "return",
+                )
+                for failure in trace.capture_failures if failure.get("code") == "final_output_shape_unsupported"
+            )
+        failures.extend(problems)
+        captured += not problems
+    if not successful:
+        failures.append(_failure("no_successful_traces", "no trace finished with status OK", "run one declared scenario to completion, then verify again"))
+    evidence = {"ok_traces": len(successful), "captured": captured, "with_return_boundary": with_return_boundary}
+    scope = f"{len(successful)} successful traces; the final boundary must be an observed operator with recorded outputs" + (
+        " (the plan declares an operator output as the boundary)" if operator_boundary else ""
+    )
+    return _capability(_status(captured, len(successful)), evidence, scope, failures)
+
+
+def _judgment_mapping(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], project_root) -> Dict[str, Any]:
+    from retrieval_observatory.datasets.custom import _load_qrels
+
+    observed = {c.doc_id for trace in traces for span in trace.spans for c in (*span.inputs, *span.outputs) if c.doc_id}
+    evidence = {"judged_queries": 0, "judged_entities": 0, "observed_entities": len(observed), "matched_entities": 0, "matched_queries": 0}
+    fix = "set plan.judgments.qrels to the labels file; candidate movement inspection works without labels"
+    declared = (manifest.judgments or {}).get("qrels")
+    path = Path(str(declared)) if declared else None
+    if path is not None and not path.is_absolute():
+        path = Path(project_root) / path if project_root is not None else None
+
+    def unavailable(detail: str) -> Dict[str, Any]:
+        scope = f"{len(observed)} observed candidate ids; no judgments to map them against"
+        return _capability("unavailable", evidence, scope, [_failure("judgments_unavailable", detail, fix)])
+
+    if not declared:
+        return unavailable("plan.judgments.qrels is not set")
+    if path is None:
+        return unavailable(f"declared qrels {declared!r} is relative and no project root was given")
+    if not path.is_file():
+        return unavailable(f"declared qrels file {path} does not exist")
+    try:
+        qrels = _load_qrels(str(path))
+    except Exception as exc:
+        return unavailable(f"could not load {path}: {exc}")
+    judged = {doc_id for relevant in qrels.values() for doc_id in relevant}
+    matched = judged & observed
+    evidence.update(
+        judged_queries=len(qrels), judged_entities=len(judged), matched_entities=len(matched),
+        matched_queries=sum(1 for trace in traces if trace.query_id in qrels),
+    )
+    failures: List[Dict[str, Any]] = []
+    if not matched:
+        failures.append(_failure(
+            "judgment_ids_unmatched",
+            f"0 of {len(judged)} judged document ids appear among observed candidates: candidate id field or namespace mismatch",
+            "map candidate_mapping.doc_id (and identity.namespace) to the id space the qrels use",
+        ))
+    scope = f"{len(judged)} judged ids from {path} against {len(observed)} observed candidate ids"
+    return _capability("ready" if matched else "partial", evidence, scope, failures)
+
+
+def _declared_route_coverage(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
+    with_evidence = [trace for trace in traces if _trace_has_evidence(trace)]
+    fired = {trace.trace_id: {_operator_id(span) for span in trace.spans if span.status == "FIRED"} for trace in with_evidence}
+    routes = {
+        trace.trace_id: {
+            str(span.gate_values["selected_route"])
+            for span in trace.spans if span.op_type == "GATE" and span.gate_values.get("selected_route") is not None
+        }
+        for trace in traces
+    }
+    satisfied_by: Dict[str, str] = {}
+    missing_by_scenario: Dict[str, List[str]] = {}
+    failures: List[Dict[str, Any]] = []
     for scenario in manifest.scenarios:
         expected = set(scenario.expected_operator_ids)
-        satisfied = any(
-            _trace_has_evidence(trace)
-            and expected <= {span.op_id for span in trace.spans if span.status == "FIRED"}
-            for trace in traces
-        )
-        if not satisfied:
-            gaps.append(
-                f"scenario '{scenario.scenario_id}' has no qualifying trace: need one trace with FIRED spans for "
-                f"{sorted(expected)}, at least one output candidate carrying a doc_id, a non-empty query_text, "
-                "and positive wall-clock time"
-            )
-    return gaps
+        on_route = [trace for trace in with_evidence if scenario.route is None or scenario.route in routes[trace.trace_id]]
+        qualifying = [trace for trace in on_route if expected <= fired[trace.trace_id]]
+        chosen = next((trace for trace in qualifying if trace.query_text == scenario.query_text), qualifying[0] if qualifying else None)
+        if chosen is not None:
+            satisfied_by[scenario.scenario_id] = chosen.trace_id
+            continue
+        pool = on_route or with_evidence
+        missing = sorted(min((expected - fired[trace.trace_id] for trace in pool), key=len, default=expected))
+        missing_by_scenario[scenario.scenario_id] = missing
+        what = f"no evidence-bearing trace fired {missing} together" if missing else f"no evidence-bearing trace fired all of {sorted(expected)}"
+        if scenario.route is not None:
+            what += f" with a GATE selecting route {scenario.route!r}"
+        failures.append(_failure(
+            "scenario_unobserved",
+            f"scenario '{scenario.scenario_id}' (query_text={scenario.query_text!r}, route={scenario.route!r}) was not observed: {what}",
+            "run the scenario's command, then verify again" + (f": {scenario.command}" if scenario.command else ""),
+        ))
+    if not manifest.scenarios:
+        failures.append(_failure(
+            "no_scenarios_declared", "the manifest declares no verification scenarios",
+            "declare one scenario per route with its query_text, expected operators and command",
+        ))
+    evidence = {
+        "declared_scenarios": len(manifest.scenarios),
+        "observed_scenarios": len(satisfied_by),
+        "unobserved": [scenario.scenario_id for scenario in manifest.scenarios if scenario.scenario_id not in satisfied_by],
+        "missing_by_scenario": missing_by_scenario,
+        "observed_routes": sorted({route for seen in routes.values() for route in seen}),
+        "satisfied_by": satisfied_by,
+    }
+    scope = (
+        f"{len(traces)} traces; {len(satisfied_by)} of {len(manifest.scenarios)} declared scenarios observed; "
+        "coverage is of declared scenarios only"
+    )
+    return _capability(_status(len(satisfied_by), len(manifest.scenarios)), evidence, scope, failures)
+
+
+def _cross_run_entity_alignment(traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
+    has_candidates = any(c.doc_id for trace in traces for span in trace.spans for c in (*span.inputs, *span.outputs))
+    groups: Dict[str, List[RetrievalTrace]] = {}
+    for trace in traces:
+        if trace.query_text:
+            groups.setdefault(trace.query_text, []).append(trace)
+    repeated = {text: group for text, group in groups.items() if len(group) >= 2}
+    consistent = inconsistent = 0
+    unstable: Dict[str, str] = {}
+    for text, group in repeated.items():
+        ids_by_op: Dict[str, List[List[str]]] = {}
+        for trace in group:
+            for span in trace.spans:
+                if span.status == "FIRED" and span.output_capture == "recorded":
+                    ids_by_op.setdefault(span.op_id, []).append([c.doc_id for c in span.outputs])
+        for op_id, observed in ids_by_op.items():
+            if len(observed) < 2:
+                continue
+            if all(ids == observed[0] for ids in observed):
+                consistent += 1
+            else:
+                inconsistent += 1
+                unstable.setdefault(op_id, text)
+    failures = [
+        _failure("unstable_candidate_ids", f"{op_id} returned different ids for identical query {text!r}", "use stable document ids, not per-call ids", op_id)
+        for op_id, text in sorted(unstable.items())
+    ]
+    if not repeated:
+        failures.append(_failure(
+            "alignment_unverified", "no query text was observed twice, so candidate ids could not be compared across runs",
+            "run one scenario twice, e.g. the representative-repeat scenario",
+        ))
+    if not has_candidates:
+        failures.append(_failure("no_candidates", "no candidate ids were observed", "capture operator outputs, then run one scenario twice"))
+        status = "unavailable"
+    elif repeated and not inconsistent:
+        status = "ready"
+    else:
+        status = "partial"
+    evidence = {"repeated_queries": len(repeated), "consistent": consistent, "inconsistent": inconsistent}
+    scope = f"{len(traces)} traces; {len(repeated)} query texts observed more than once; ordered candidate ids compared per operator across their traces"
+    return _capability(status, evidence, scope, failures)
 
 
 def verify_observed_traces(
-    manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], *, db_path: str | None = None
+    manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], *, db_path: str | None = None, project_root=None
 ) -> IntegrationResult:
-    declared = {op.op_id for op in manifest.operators}
-    observed = {span.op_id for trace in traces for span in trace.spans}
-    expected_edges = {(parent, op.op_id) for op in manifest.operators for parent in op.parent_ids}
-    observed_edges = {(parent, span.op_id) for trace in traces for span in trace.spans for parent in span.parent_ids}
+    """Report every capability of master plan section 3.5 from the observed traces.
+
+    Matching the agent-authored manifest is only a structural check: graph invariants, actual
+    boundary snapshots, candidate and query identity and the final boundary are verified from the
+    traces themselves, and scenario coverage is coverage of declared scenarios only.
+    """
+    traces = list(traces)
     # With no traces at all, every declared operator is trivially "missing" and every declared
     # edge trivially absent. Reporting them that way names a symptom and hides the cause, which
     # is that the instrumented code never ran — usually an import error or an unexercised path.
@@ -502,34 +971,41 @@ def verify_observed_traces(
         "different database. Check that the patched modules import cleanly, that the entrypoint was called "
         "(its trace_scope decorator records the trace), and that verify uses the same --db."
     )
-    scenario_gaps = _scenario_gaps(manifest, traces)
-    specifications = (
-        ("trace_sample", bool(traces), no_traces),
-        ("expected_operators", declared <= observed, no_traces if not traces else f"Missing operators: {sorted(declared-observed)}"),
-        ("stable_operator_identity", observed <= declared, f"Unknown operators: {sorted(observed-declared)}"),
-        ("declared_edges", expected_edges <= observed_edges, no_traces if not traces else f"Missing edges: {sorted(expected_edges-observed_edges)}"),
-        ("candidate_transitions", all(not s.parent_ids or bool(s.input_groups) for t in traces for s in t.spans), "Capture parent-grouped candidates."),
-        ("timing", all(t.timing is not None and t.timing.wall_clock_ms > 0 for t in traces), "Capture trace timing with positive wall-clock time."),
-        ("scenario_evidence", not scenario_gaps, no_traces if not traces else "; ".join(scenario_gaps)),
+    builders = {
+        "topology_observed": lambda: _topology_observed(manifest, traces, no_traces),
+        "actual_input_output_capture": lambda: _actual_input_output_capture(traces),
+        "candidate_identity": lambda: _candidate_identity(traces),
+        "query_identity": lambda: _query_identity(traces),
+        "final_output_capture": lambda: _final_output_capture(manifest, traces),
+        "judgment_mapping": lambda: _judgment_mapping(manifest, traces, project_root),
+        "declared_route_coverage": lambda: _declared_route_coverage(manifest, traces),
+        "cross_run_entity_alignment": lambda: _cross_run_entity_alignment(traces),
+    }
+    capabilities = {name: builders[name]() for name in CAPABILITY_NAMES}
+    failed_core = [name for name in _CORE_CAPABILITIES if capabilities[name]["status"] == "unavailable"]
+    if not traces:
+        status, errors = "failed", (no_traces,)
+    elif failed_core:
+        status = "failed"
+        errors = tuple(f"{name}/{item['code']}: {item['detail']}" for name in failed_core for item in capabilities[name]["failures"])
+    elif all(capability["status"] == "ready" for capability in capabilities.values()):
+        status, errors = "ready", ()
+    else:
+        status, errors = "partial", ()
+    checks = tuple(
+        IntegrationCheck(
+            name, _CHECK_STATUS[capability["status"]], "measured", "2.0", len(traces),
+            fix=next((item["fix"] for item in capability["failures"]), None) if capability["status"] != "ready" else None,
+        )
+        for name, capability in capabilities.items()
     )
-    checks = tuple(IntegrationCheck(name, "ok" if passed else "error", "measured", "1.0", len(traces), fix=None if passed else fix) for name, passed, fix in specifications)
-    # The evidence contract MCP verify_integration enforces (identity, topology, timing, candidate
-    # identity) applies here too; a fabricated span with no candidates must not read as ready.
-    if traces:
-        for item in _integration_checks(list(traces), require_run_id=False):
-            status = "error" if item["status"] == "error" and item["required"] else ("warn" if item["status"] != "ok" else "ok")
-            checks += (IntegrationCheck(item["name"], status, "measured", "1.0", len(traces), fix=item.get("fix") if status != "ok" else None),)
-    errors = tuple(check.fix or check.check_id for check in checks if check.status == "error")
+    observed = sorted({_operator_id(span) for trace in traces for span in trace.spans if not _is_return_boundary(span)})
     signatures = Counter(tuple(sorted((span.op_id, tuple(span.parent_ids)) for span in trace.spans)) for trace in traces)
     variants = tuple({"signature": repr(signature), "count": count} for signature, count in signatures.items())
-    available = not errors
-    capabilities = {
-        "candidate_transitions": {"available": available, "status": "ready" if available else "unavailable"},
-        "operator_debugging": {"available": available, "status": "ready" if available else "unavailable"},
-        "production_investigation": {"available": available, "status": "ready" if available else "unavailable"},
-        "stable_topology": {"available": available, "status": "ready" if available else "unavailable"},
-    }
-    return IntegrationResult("verify", "ready" if available else "failed", checks=checks, capabilities=capabilities, observed_operator_ids=tuple(sorted(observed)), topology_variants=variants, errors=errors)
+    return IntegrationResult(
+        "verify", status, checks=checks, capabilities=capabilities,
+        observed_operator_ids=tuple(observed), topology_variants=variants, errors=errors,
+    )
 
 
 def _release_preflight(policy, manifest, traces, health) -> Dict[str, Any]:
@@ -582,14 +1058,15 @@ def _release_preflight(policy, manifest, traces, health) -> Dict[str, Any]:
 
 
 async def verify_project(root, store, policy=None, *, db_path: str | None = None) -> IntegrationResult:
-    from pathlib import Path
     from retrieval_observatory.integrations.manifest import load_manifest
     from retrieval_observatory.store.base import TraceQuery
     if not (Path(root) / "retobs" / "integration.yaml").is_file():
         return IntegrationResult("verify", "failed", errors=("no retobs/integration.yaml: run apply first",))
     manifest = load_manifest(Path(root))
     traces = await store.list_traces(TraceQuery(service_id=manifest.service_id, pipeline_id=manifest.pipeline_id))
-    result = verify_observed_traces(manifest, traces, db_path=db_path or getattr(store, "db_path", None))
+    result = verify_observed_traces(
+        manifest, traces, db_path=db_path or getattr(store, "db_path", None), project_root=Path(root)
+    )
     health = await store.get_instrumentation_health(manifest.service_id)
     telemetry_health = asdict(health) if health is not None else {
         "serialization_failures": 0,
