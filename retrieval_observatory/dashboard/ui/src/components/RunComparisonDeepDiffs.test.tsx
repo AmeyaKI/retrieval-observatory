@@ -6,7 +6,7 @@ vi.hoisted(() => {
   ;(globalThis as { window?: unknown }).window = { location: { origin: 'http://localhost' } }
 })
 
-import RunComparisonDeepDiffs, { queryDeltaClass, queryDiffRoute } from './RunComparisonDeepDiffs'
+import RunComparisonDeepDiffs, { queryDeltaClass } from './RunComparisonDeepDiffs'
 import { QueryDiffs } from '../api'
 
 const baseline = { dbId: 'demo', runId: 'base' }
@@ -36,20 +36,16 @@ describe('query-level winners & losers orientation', () => {
     expect(queryDeltaClass(0)).toBe('text-ink-faint')
   })
 
-  test('diff link opens the candidate run against the baseline run', () => {
-    expect(queryDiffRoute('q-1', baseline, candidate)).toBe('#/runs/cand/queries/q-1/diff?against=base')
-    expect(queryDiffRoute('q-1', { dbId: 'other', runId: 'base' }, candidate)).toBe(
-      '#/runs/cand/queries/q-1/diff?against=base&against_db=other',
-    )
-  })
-
-  test('renders rows with the candidate-minus-baseline labelling', () => {
+  test('renders rows with the candidate-minus-baseline labelling and links each query into Investigate', () => {
     const html = renderToStaticMarkup(
       <RunComparisonDeepDiffs selections={[baseline, candidate]} queryDiffs={queryDiffs} />,
     )
     expect(html).toContain('candidate (B) minus baseline (A)')
     expect(html).toContain('+0.400')
     expect(html).toContain('-0.600')
-    expect(html).toContain('#/runs/cand/queries/q-worse/diff?against=base')
+    expect(html).toContain('Open in Investigate')
+    // The candidate run's Investigate page, diffed against the baseline (static markup escapes "&").
+    expect(html).toContain('href="#/investigate?db=demo&amp;run=cand&amp;view=queries&amp;query=q-worse&amp;compare=base"')
+    expect(html).not.toMatch(/attribution|recommendation/i)
   })
 })

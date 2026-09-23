@@ -1,46 +1,165 @@
-import {
-  CandidateLineageDiffEntry,
-  CandidateLineageDiffResponse,
-  CandidateLineageEdge,
-  CandidateLineageGraphSnapshot,
-  CandidateLineageNode,
-} from '../api'
-import CandidateLineageGraph from './CandidateLineageGraph'
-import StatusPanel from './StatusPanel'
+import { ComparisonEnvelope, JourneySide } from '../api'
+import { alignmentLabel, changeGlyph, changeLabel, diffTotals, sideSummary, sortDiffRows } from '../utils/comparisonDiffs'
 
-function graphProps(graph: CandidateLineageGraphSnapshot): { nodes: CandidateLineageNode[]; edges: CandidateLineageEdge[] } {
-  const nodes = Object.values(graph.candidates).map(candidate => ({
-    ...candidate,
-    node_id: `${graph.trace_id}:${candidate.candidate_id}`,
-    trace_id: graph.trace_id,
-    pipeline_id: graph.pipeline_id,
-  }))
-  const edges = graph.edges.map(edge => ({
-    ...edge,
-    trace_id: graph.trace_id,
-    pipeline_id: graph.pipeline_id,
-    source_node_id: `${graph.trace_id}:${edge.source_candidate_id}`,
-    target_node_id: `${graph.trace_id}:${edge.target_candidate_id}`,
-  }))
-  return { nodes, edges }
+// Run comparison: one row per paired entity, each side in words, the change as glyph + text.
+// Observed differences in recorded journeys only; a changed path is a fact, not an explanation.
+
+function SideCell({ side }: { side: JourneySide | null }) {
+  if (!side) {
+    return (
+      <td className="p-2 text-ink-faint" title="no row in this run">
+        —
+      </td>
+    )
+  }
+  return (
+    <td className="p-2">
+      {sideSummary(side)}
+      {side.capture_state === 'partial' && <span className="text-ink-muted"> · capture partial</span>}
+    </td>
+  )
 }
 
-function Side({ title, graph }: { title: string; graph: CandidateLineageGraphSnapshot }) {
-  const props = graphProps(graph)
-  return <div className="min-w-0 space-y-2"><h4 className="text-xs font-semibold">{title}</h4><CandidateLineageGraph {...props} selectedNodeId={null} onSelect={() => undefined} /></div>
+function OpList({ title, ids }: { title: string; ids: string[] }) {
+  return (
+    <div>
+      <h4 className="font-medium text-ink">{title}</h4>
+      {ids.length === 0 ? (
+        <p className="text-ink-muted">none</p>
+      ) : (
+        <ul className="mt-1 space-y-0.5">
+          {ids.map((id) => (
+            <li key={id}>
+              <code className="font-mono">{id}</code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
-function BlockedDiff({ diff }: { diff: CandidateLineageDiffEntry }) {
-  return <div className="space-y-3"><ul className="list-disc pl-5 text-xs text-ink-muted">{diff.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul><div className="grid gap-4 lg:grid-cols-2"><Side title="Baseline recorded path" graph={diff.baseline} /><Side title="Candidate recorded path" graph={diff.candidate} /></div></div>
+interface Props {
+  envelope: ComparisonEnvelope
+  onSelectEntity: (entity: string, queryId: string) => void
 }
 
-export default function CandidateLineageDiff({ response }: { response: CandidateLineageDiffResponse }) {
-  const blocked = response.readiness.status !== 'READY'
-  const unpaired = response.unpaired ?? { baseline: [], candidate: [] }
-  return <section aria-labelledby="candidate-lineage-diff-heading" className="space-y-4">
-    <div><p className="text-xs uppercase tracking-wide text-ink-muted">Lineage diff</p><h2 id="candidate-lineage-diff-heading" className="text-xl font-bold">{response.readiness.status}</h2><p className="text-xs text-ink-muted">Observed path differences only; route changes do not establish cause.</p></div>
-    {response.readiness.findings.map(finding => <StatusPanel key={finding.code} kind={finding.status === 'BLOCK' ? 'invalid' : 'partial'} title={finding.code} message={<><span>{finding.detail}</span> <span>{finding.next_action}</span></>} />)}
-    {response.diffs.length === 0 && unpaired.baseline.length === 0 && unpaired.candidate.length === 0 ? <StatusPanel kind="unavailable" title="No aligned pipeline pair" message="The selected runs have no pipeline identity in common for this query." /> : response.diffs.map((diff, index) => <div key={`${diff.baseline.trace_id}:${diff.candidate.trace_id}:${index}`} className="rounded border border-slate-200 dark:border-slate-700 p-3 space-y-3"><h3 className="font-mono text-sm font-semibold">{diff.candidate.pipeline_id}</h3>{blocked || diff.status !== 'READY' ? <BlockedDiff diff={diff} /> : diff.changed.length === 0 ? <p className="text-xs text-ink-muted">No observed candidate-path changes for aligned identities.</p> : <div className="overflow-x-auto"><table className="min-w-full text-xs"><thead className="bg-surface-muted text-left"><tr><th className="p-2">Change</th><th className="p-2">Logical chunk</th><th className="p-2">Document revision/hash</th><th className="p-2">Observed detail</th></tr></thead><tbody>{diff.changed.map((change, changeIndex) => <tr key={`${change.logical_chunk_id}:${change.kind}:${changeIndex}`} className="border-t border-slate-200 dark:border-slate-700"><td className="p-2 font-semibold">{change.kind.replace(/_/g, ' ')}</td><td className="p-2 font-mono">{change.logical_chunk_id}</td><td className="p-2 font-mono">{change.document_identity}</td><td className="p-2">{change.detail}</td></tr>)}</tbody></table></div>}</div>)}
-    {unpaired.baseline.length || unpaired.candidate.length ? <div className="grid gap-4 lg:grid-cols-2"><div className="space-y-3"><h3 className="text-sm font-semibold">Unpaired baseline traces</h3>{unpaired.baseline.map(graph => <Side key={graph.trace_id} title={`${graph.pipeline_id} · ${graph.trace_id}`} graph={graph} />)}</div><div className="space-y-3"><h3 className="text-sm font-semibold">Unpaired candidate traces</h3>{unpaired.candidate.map(graph => <Side key={graph.trace_id} title={`${graph.pipeline_id} · ${graph.trace_id}`} graph={graph} />)}</div></div> : null}
-  </section>
+export default function CandidateLineageDiff({ envelope, onSelectEntity }: Props) {
+  const { baseline_run_id, candidate_run_id, compatibility, stage_alignment } = envelope.comparison
+  const totals = diffTotals(envelope.rows)
+  const pairs = envelope.total ?? totals.pairs
+  const showQuery = !envelope.scope.query_id
+  const rows = sortDiffRows(envelope.rows)
+
+  return (
+    <section aria-labelledby="comparison-title" className="app-card space-y-4 p-4 text-sm">
+      <div>
+        <p className="eyebrow">Comparison</p>
+        <h2 id="comparison-title" className="mt-1 font-semibold text-ink">
+          Candidate <span className="font-mono">{candidate_run_id}</span> against baseline <span className="font-mono">{baseline_run_id}</span>
+        </h2>
+        <p className="mt-1 text-xs text-ink-muted">Observed differences in recorded journeys; a changed path is a fact, not an explanation.</p>
+      </div>
+
+      {compatibility.corpus_changed ? (
+        <div role="status" className="app-inset px-3 py-2 text-xs">
+          <span className="font-semibold text-status-warning">matched comparison blocked: corpus changed; showing each run's evidence</span>
+        </div>
+      ) : compatibility.query_inputs_identical === false ? (
+        <div role="status" className="app-inset px-3 py-2 text-xs">
+          <span className="font-semibold text-status-warning">
+            query inputs differ between the runs; unaligned queries carry no change classification
+          </span>
+        </div>
+      ) : null}
+      {compatibility.findings.length > 0 && (
+        <details className="app-inset p-3 text-xs">
+          <summary className="cursor-pointer font-medium text-ink">Compatibility findings ({compatibility.findings.length})</summary>
+          <ul className="mt-2 space-y-1">
+            {compatibility.findings.map((finding, index) => (
+              <li key={`${finding.code}-${index}`}>
+                <span className="font-mono text-ink">{finding.code}</span>
+                <span className="text-ink-muted"> — {finding.detail}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <p className="text-xs text-ink-muted">
+        {pairs} pairs · {totals.byChange.lost} lost · {totals.byChange.gained} gained · {totals.byChange.rank_changed} rank changed ·{' '}
+        {totals.byChange.path_changed} path changed · {totals.captureLimited} evidence-limited
+      </p>
+
+      {rows.length === 0 ? (
+        <p className="text-ink-muted">No paired rows for this scope.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <caption className="pb-2 text-left text-xs text-ink-muted">Paired journeys, most consequential change first</caption>
+            <thead className="bg-surface-muted text-left">
+              <tr>
+                {showQuery && <th className="p-2">Query</th>}
+                <th className="p-2">Entity</th>
+                <th className="p-2">Baseline</th>
+                <th className="p-2">Candidate</th>
+                <th className="p-2">Change</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${row.query_id}:${row.namespace}:${row.entity_id}`} className="border-t border-slate-200 align-top dark:border-slate-700">
+                  {showQuery && <td className="p-2 font-mono">{row.query_id}</td>}
+                  <td className="p-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectEntity(`${row.namespace}:${row.entity_id}`, row.query_id)}
+                      className="font-mono text-accent underline-offset-2 hover:underline"
+                    >
+                      {row.namespace}:{row.entity_id}
+                    </button>
+                  </td>
+                  <SideCell side={row.baseline} />
+                  <SideCell side={row.candidate} />
+                  <td className="p-2">
+                    <span aria-hidden="true">{changeGlyph(row.change)}</span> {changeLabel(row.change)}
+                    {row.alignment !== 'aligned' && (
+                      <span className="ml-1 rounded border border-slate-200 px-1 text-[10px] text-ink-muted dark:border-slate-700">
+                        {alignmentLabel(row.alignment)}
+                      </span>
+                    )}
+                    <div className="text-ink-muted">{row.detail}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {stage_alignment && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-ink">Stage alignment</h3>
+          <div className="grid gap-3 text-xs sm:grid-cols-3">
+            <div>
+              <h4 className="font-medium text-ink">Matched</h4>
+              {stage_alignment.matched.length === 0 ? (
+                <p className="text-ink-muted">none</p>
+              ) : (
+                <ul className="mt-1 space-y-0.5">
+                  {stage_alignment.matched.map(([baseline, candidate]) => (
+                    <li key={`${baseline}↔${candidate}`}>
+                      <code className="font-mono">{baseline}</code> ↔ <code className="font-mono">{candidate}</code>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <OpList title="Baseline only" ids={stage_alignment.baseline_only} />
+            <OpList title="Candidate only" ids={stage_alignment.candidate_only} />
+          </div>
+        </div>
+      )}
+    </section>
+  )
 }

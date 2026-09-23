@@ -1,22 +1,12 @@
 import { useEffect, useState } from 'react'
-import {
-  fetchConfigDiff,
-  fetchOperatorAttribution,
-  fetchAdvisorRecommendations,
-  fetchPipelineGraphs,
-  ConfigDiffResult,
-  OperatorAttributionRow,
-  PipelineGraph,
-  QueryDiffs,
-  Recommendation,
-  RunSelection,
-} from '../api'
-import { diffAttribution, diffRecommendations } from '../utils/comparisonDiffs'
+import { fetchConfigDiff, fetchPipelineGraphs, ConfigDiffResult, PipelineGraph, QueryDiffs, RunSelection } from '../api'
+import { investigateLink } from '../utils/focusedRoutes'
 import NoData from './NoData'
 import SectionHeading from './SectionHeading'
 
 // Item D: deeper Run Comparison diffs. Only meaningful for exactly two runs -- everything
-// here is a pairwise structural or statistical diff, not an N-way aggregate.
+// here is a pairwise diff (per-query metric deltas, topology, config), not an N-way
+// aggregate. Per-query journey diffs live in Investigate (`compare=` names the baseline).
 export default function RunComparisonDeepDiffs({
   selections,
   queryDiffs,
@@ -31,8 +21,6 @@ export default function RunComparisonDeepDiffs({
     <div className="mt-8 space-y-8">
       <QueryDiffsSection queryDiffs={queryDiffs} runA={runA} runB={runB} />
       <TopologyDiffSection runA={runA} runB={runB} />
-      <AttributionDiffSection runA={runA} runB={runB} />
-      <RecommendationDiffSection runA={runA} runB={runB} />
       <ConfigDiffSection runA={runA} runB={runB} />
     </div>
   )
@@ -42,14 +30,6 @@ export default function RunComparisonDeepDiffs({
  * green always means the candidate scored higher on that query. */
 export function queryDeltaClass(delta: number): string {
   return delta > 0 ? 'text-emerald-700' : delta < 0 ? 'text-red-600' : 'text-ink-faint'
-}
-
-/** Route for the per-query lineage diff: the candidate run's page, diffed against the
- * baseline run (and the baseline's database when the two runs live in different stores). */
-export function queryDiffRoute(queryId: string, runA: RunSelection, runB: RunSelection): string {
-  const params = new URLSearchParams({ against: runA.runId })
-  if (runA.dbId !== runB.dbId) params.set('against_db', runA.dbId)
-  return `#/runs/${encodeURIComponent(runB.runId)}/queries/${encodeURIComponent(queryId)}/diff?${params.toString()}`
 }
 
 function QueryDiffsSection({ queryDiffs, runA, runB }: { queryDiffs: QueryDiffs | null | undefined; runA: RunSelection; runB: RunSelection }) {
@@ -84,10 +64,10 @@ function QueryDiffsSection({ queryDiffs, runA, runB }: { queryDiffs: QueryDiffs 
                   </td>
                   <td className="px-3 py-1.5 text-right">
                     <a
-                      href={queryDiffRoute(row.query_id, runA, runB)}
+                      href={investigateLink({ db: runB.dbId, run: runB.runId, compare: runA.runId, view: 'queries', query: row.query_id })}
                       className="text-indigo-700 underline underline-offset-2"
                     >
-                      diff →
+                      Open in Investigate
                     </a>
                   </td>
                 </tr>
@@ -177,122 +157,6 @@ function TopologyDiffSection({ runA, runB }: { runA: RunSelection; runB: RunSele
             )
           })}
         </div>
-      )}
-    </div>
-  )
-}
-
-function AttributionDiffSection({ runA, runB }: { runA: RunSelection; runB: RunSelection }) {
-  const [rowsA, setRowsA] = useState<OperatorAttributionRow[] | null>(null)
-  const [rowsB, setRowsB] = useState<OperatorAttributionRow[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setRowsA(null)
-    setRowsB(null)
-    setError(null)
-    Promise.all([fetchOperatorAttribution(runA.dbId, runA.runId), fetchOperatorAttribution(runB.dbId, runB.runId)])
-      .then(([a, b]) => {
-        setRowsA(a)
-        setRowsB(b)
-      })
-      .catch((e) => setError(e.message))
-  }, [runA.dbId, runA.runId, runB.dbId, runB.runId])
-
-  if (error) return <NoData label={error} />
-  if (!rowsA || !rowsB) return <div className="text-xs text-ink-faint">Loading attribution diff…</div>
-
-  const commonOps = new Set([...rowsA.map((r) => r.op_id), ...rowsB.map((r) => r.op_id)])
-  const flips = diffAttribution(rowsA, rowsB)
-
-  return (
-    <div>
-      <SectionHeading title="Attribution diff" />
-      {commonOps.size === 0 ? (
-        <NoData label="No operator present in both runs' attribution results." />
-      ) : flips.length === 0 ? (
-        <div className="text-xs text-ink-faint">No operator's contribution direction or significance changed.</div>
-      ) : (
-        <table className="w-full text-xs border border-gray-200 dark:border-slate-700 rounded overflow-hidden">
-          <thead className="bg-gray-50 dark:bg-slate-800/60">
-            <tr className="text-left">
-              <th className="px-3 py-1.5">Operator</th>
-              <th className="px-3 py-1.5 text-right">Delta (A)</th>
-              <th className="px-3 py-1.5 text-right">Delta (B)</th>
-              <th className="px-3 py-1.5">Change</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-slate-800">
-            {flips.map(({ opId, a, b, reason }) => (
-              <tr key={opId}>
-                <td className="px-3 py-1.5 font-mono">{opId}</td>
-                <td className="px-3 py-1.5 text-right font-mono">{a.delta?.toFixed(4) ?? '—'}</td>
-                <td className="px-3 py-1.5 text-right font-mono">{b.delta?.toFixed(4) ?? '—'}</td>
-                <td className="px-3 py-1.5 text-amber-700">
-                  {reason === 'direction_flipped' ? 'direction flipped' : 'significance changed'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  )
-}
-
-function RecommendationDiffSection({ runA, runB }: { runA: RunSelection; runB: RunSelection }) {
-  const [recsA, setRecsA] = useState<Recommendation[] | null>(null)
-  const [recsB, setRecsB] = useState<Recommendation[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setRecsA(null)
-    setRecsB(null)
-    setError(null)
-    Promise.all([
-      fetchAdvisorRecommendations(runA.dbId, runA.runId),
-      fetchAdvisorRecommendations(runB.dbId, runB.runId),
-    ])
-      .then(([a, b]) => {
-        setRecsA(a.recommendations)
-        setRecsB(b.recommendations)
-      })
-      .catch((e) => setError(e.message))
-  }, [runA.dbId, runA.runId, runB.dbId, runB.runId])
-
-  if (error) return <NoData label={error} />
-  if (!recsA || !recsB) return <div className="text-xs text-ink-faint">Loading recommendation diff…</div>
-
-  const { newRecs, resolvedRecs, persisting } = diffRecommendations(recsA, recsB)
-
-  return (
-    <div>
-      <SectionHeading title="Recommendation diff" />
-      {newRecs.length === 0 && resolvedRecs.length === 0 && persisting.length === 0 ? (
-        <NoData label="Neither run has any evidence-backed recommendations." />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-          <RecList title="New (A only)" items={newRecs} className="text-amber-700" />
-          <RecList title="Resolved (B only)" items={resolvedRecs} className="text-emerald-700" />
-          <RecList title="Persisting" items={persisting} className="text-ink-muted" />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RecList({ title, items, className }: { title: string; items: Recommendation[]; className: string }) {
-  return (
-    <div className="border border-gray-100 dark:border-slate-800 rounded p-2">
-      <div className={`font-semibold mb-1 ${className}`}>{title} ({items.length})</div>
-      {items.length === 0 ? (
-        <div className="text-ink-faint">—</div>
-      ) : (
-        <ul className="space-y-1">
-          {items.slice(0, 6).map((r, i) => (
-            <li key={i} className="truncate" title={r.action}>{r.action}</li>
-          ))}
-        </ul>
       )}
     </div>
   )
