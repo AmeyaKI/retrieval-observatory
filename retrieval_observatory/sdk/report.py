@@ -11,7 +11,10 @@ from urllib.parse import quote
 from retrieval_observatory.runner.execute import BenchmarkArtifacts
 
 if TYPE_CHECKING:
-    from retrieval_observatory.release.policy import ReleasePolicy
+    from retrieval_observatory.release.assessment import EvidenceAssessment
+    from retrieval_observatory.release.policy import ReleasePolicy, ReleasePolicyV3
+    from retrieval_observatory.release.resolution import RunEvidence
+    from retrieval_observatory.store.base import BaseStore
 
 
 @dataclass
@@ -456,16 +459,80 @@ async def load_run_report(run_id: str, db_path: str) -> ReportModel:
 
 
 def _resolve_release_policy(
-    policy: str | Path | ReleasePolicy | None,
-) -> tuple[ReleasePolicy | None, str | None]:
-    from retrieval_observatory.release.policy import ReleasePolicy, load_release_policy
+    policy: str | Path | ReleasePolicy | ReleasePolicyV3 | None,
+) -> tuple[ReleasePolicy | ReleasePolicyV3 | None, str | None]:
+    from retrieval_observatory.release.policy import ReleasePolicy, ReleasePolicyV3, load_release_policy
 
     if policy is None:
         return None, None
-    if isinstance(policy, ReleasePolicy):
+    if isinstance(policy, (ReleasePolicy, ReleasePolicyV3)):
         return policy, None
     policy_path = Path(policy)
     return load_release_policy(policy_path), str(policy_path)
+
+
+async def _run_evidence(
+    store: BaseStore,
+    run_id: str,
+    manifest: Dict[str, Any],
+    rows: list[Dict[str, Any]],
+    *,
+    load_traces: bool,
+) -> RunEvidence:
+    from retrieval_observatory.release.resolution import (
+        RunEvidence,
+        operator_depths_from_traces,
+        operator_ids_from_traces,
+    )
+    from retrieval_observatory.store.base import TraceQuery
+
+    depths = operator_ids = None
+    if load_traces:
+        traces = await store.list_traces(TraceQuery(run_id=run_id))
+        depths, operator_ids = operator_depths_from_traces(traces), operator_ids_from_traces(traces)
+    return RunEvidence(run_id=run_id, manifest=manifest, metric_rows=rows, operator_depths=depths, operator_ids=operator_ids)
+
+
+async def _expected_query_ids(store: BaseStore, *run_ids: str) -> set[str] | None:
+    """Every query either run attempted, bounded to the ones the metrics engine could score.
+
+    ``run_queries`` lists every attempted query; the engine writes rows (including the failure
+    indicators) only for queries whose qrels hold a relevant document, so an unlabeled query is
+    not a lost pair. None when no run recorded its queries: the rows then define the universe.
+    """
+    attempted = {str(row["query_id"]) for run_id in run_ids for row in await store.get_run_queries(run_id)}
+    if not attempted:
+        return None
+    labeled: set[str] = set()
+    for run_id in run_ids:
+        for query_id, judgments in (await store.get_qrels(run_id) or {}).items():
+            positive = any(grade > 0 for grade in judgments.values()) if isinstance(judgments, dict) else bool(judgments)
+            if positive:
+                labeled.add(str(query_id))
+    return attempted & labeled if labeled else attempted
+
+
+def _with_resolution_findings(assessment: EvidenceAssessment, findings: tuple[Dict[str, Any], ...]) -> EvidenceAssessment:
+    """Add selector-resolution findings to the aggregate scope so an unbound check BLOCKs the decision."""
+    from retrieval_observatory.release.readiness import ClaimReadiness, EvidenceFinding
+
+    scope = "aggregate_or_slice_evaluation"
+    merged = list(assessment.readiness[scope].findings) + [
+        EvidenceFinding(
+            code=finding["code"],
+            scope=scope,
+            status=finding["status"],
+            observed={"check_id": finding["check_id"]},
+            required="one stored metric key per run for every declared check",
+            detail=finding["detail"],
+            next_action=finding["next_action"],
+        )
+        for finding in findings
+    ]
+    # Same precedence as assessment._readiness.
+    status = "BLOCK" if any(item.status == "BLOCK" for item in merged) else "HOLD" if merged else "READY"
+    readiness = {**assessment.readiness, scope: ClaimReadiness(scope=scope, status=status, findings=merged)}
+    return assessment.model_copy(update={"readiness": readiness})
 
 
 async def load_comparison_report(
@@ -500,26 +567,62 @@ async def load_comparison_report(
     candidate_rows = await store.get_metrics(candidate_run_id)
     resolved_policy, policy_source = _resolve_release_policy(policy)
     from retrieval_observatory.release.assessment import assess_evidence
-    from retrieval_observatory.release.decision import decide_release
-    from retrieval_observatory.release.slices import evaluate_declared_slices
-    from retrieval_observatory.release.statistics import evaluate_metric_guards
+    from retrieval_observatory.release.decision import decide_release, decide_release_v3
+    from retrieval_observatory.release.policy import ReleasePolicyV3
+    from retrieval_observatory.release.resolution import (
+        convert_v2_policy,
+        evidence_only_v2_policy,
+        resolve_policy,
+        selectors_need_traces,
+    )
+    from retrieval_observatory.release.slices import evaluate_declared_slices, evaluate_resolved_slices
+    from retrieval_observatory.release.statistics import (
+        evaluate_execution,
+        evaluate_metric_guards,
+        evaluate_resolved_checks,
+    )
+
+    # Bind the policy's selectors to the keys both runs record. A v3 policy is evaluated from the
+    # resolved structure, each run at its own key; a v2 policy runs unchanged and carries its
+    # explicit v3 conversion as information.
+    resolution = conversion = None
+    assessed_policy = resolved_policy  # the evidence/intervention view assess_evidence consumes
+    if resolved_policy is not None:
+        load_traces = selectors_need_traces(resolved_policy)
+        evidence = (
+            await _run_evidence(store, baseline_run_id, baseline_manifest or {}, baseline_rows, load_traces=load_traces),
+            await _run_evidence(store, candidate_run_id, candidate_manifest or {}, candidate_rows, load_traces=load_traces),
+        )
+        resolution = resolve_policy(resolved_policy, *evidence)
+        if isinstance(resolved_policy, ReleasePolicyV3):
+            assessed_policy = evidence_only_v2_policy(resolution)
+        else:
+            conversion = convert_v2_policy(resolved_policy, *evidence)
 
     assessment = assess_evidence(
-        resolved_policy,
+        assessed_policy,
         baseline_manifest or {},
         candidate_manifest or {},
     )
-    aggregate_guards = (
-        evaluate_metric_guards(resolved_policy, baseline_rows, candidate_rows)
-        if resolved_policy is not None
-        else []
-    )
-    slice_results = (
-        evaluate_declared_slices(resolved_policy, baseline_rows, candidate_rows)
-        if resolved_policy is not None
-        else []
-    )
-    decision = decide_release(resolved_policy, assessment, aggregate_guards, slice_results)
+    if resolution is not None and isinstance(resolved_policy, ReleasePolicyV3):
+        assessment = _with_resolution_findings(assessment, resolution.findings)
+        expected_query_ids = await _expected_query_ids(store, baseline_run_id, candidate_run_id)
+        aggregate_guards = evaluate_resolved_checks(resolution, *evidence, expected_query_ids=expected_query_ids)
+        slice_results = evaluate_resolved_slices(resolution, *evidence, expected_query_ids=expected_query_ids)
+        operational = evaluate_execution(resolution, *evidence)
+        decision = decide_release_v3(resolution, assessment, aggregate_guards, slice_results, operational)
+    else:
+        aggregate_guards = (
+            evaluate_metric_guards(resolved_policy, baseline_rows, candidate_rows)
+            if resolved_policy is not None
+            else []
+        )
+        slice_results = (
+            evaluate_declared_slices(resolved_policy, baseline_rows, candidate_rows)
+            if resolved_policy is not None
+            else []
+        )
+        decision = decide_release(resolved_policy, assessment, aggregate_guards, slice_results)
     engine = MetricsEngine()
     baseline_aggregate = await engine.aggregate(baseline_run_id, store)
     candidate_aggregate = await engine.aggregate(candidate_run_id, store)
@@ -559,6 +662,8 @@ async def load_comparison_report(
     decision_payload = {
         "schema_version": 1,
         **decision.model_dump(mode="json"),
+        "provenance_assessment": assessment.provenance.model_dump(mode="json"),
+        "policy_resolution": resolution.to_dict() if resolution is not None else None,
         "investigation": {
             "affected_query_ids": [row["query_id"] for row in affected_queries],
             "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
@@ -573,6 +678,8 @@ async def load_comparison_report(
             ),
         },
     }
+    if conversion is not None:
+        decision_payload["policy_conversion"] = conversion.to_dict()
     policy_argument = (
         f" --policy {policy_source}"
         if policy_source is not None

@@ -12,23 +12,23 @@ def _manifest(
     deployment: str,
     corpus_revision: str | None = "corpus-v1",
     embedding_model_revision: str | None = None,
+    index_build_id: str = "index-v1",
+    index_encoder: dict | None = None,
     exit_coverage: float = 1.0,
 ) -> dict:
-    return {
+    identity = {
+        "service_id": "search", "deployment_revision": deployment,
+        "corpus_revision": corpus_revision, "index_build_id": index_build_id,
+        "embedding_model_revision": embedding_model_revision,
+    }
+    manifest = {
         "dataset": {"query_hash": "queries", "corpus_hash": "corpus", "qrel_hash": "qrels"},
         "labeling": {"method": "gold", "judge": None, "model": None, "version": None},
         "counts": {"attempted": 6, "completed": 6, "labeled": 6, "metric_eligible": 6},
-        "release_identity": {
-            "service_id": "search", "deployment_revision": deployment,
-            "corpus_revision": corpus_revision, "index_build_id": "index-v1",
-            "embedding_model_revision": embedding_model_revision,
-        },
+        "evaluation": {"unit": "document", "boundary": "final_retrieval", "k": 10, "relevance_threshold": 1},
+        "release_identity": identity,
         "evidence_profile": {
-            "release_identity": {
-                "service_id": "search", "deployment_revision": deployment,
-                "corpus_revision": corpus_revision, "index_build_id": "index-v1",
-                "embedding_model_revision": embedding_model_revision,
-            },
+            "release_identity": dict(identity),
             "run_window": {"started_at": "2026-07-22T12:00:00Z", "finished_at": "2026-07-22T12:05:00Z"},
             "lineage": {
                 "trace_coverage": 1.0, "identity_continuity_coverage": 1.0,
@@ -45,15 +45,25 @@ def _manifest(
             "telemetry": None,
         },
     }
+    if index_encoder is not None:
+        manifest["index_encoder"] = index_encoder
+    return manifest
 
 
-def _policy(*, min_paired_n: int = 2, max_regression: float = 0.05, with_slice: bool = False) -> ReleasePolicy:
+def _policy(
+    *,
+    min_paired_n: int = 2,
+    max_regression: float = 0.05,
+    with_slice: bool = False,
+    expected_changes: list[str] | None = None,
+) -> ReleasePolicy:
     return ReleasePolicy.model_validate({
         "id": "workflow-v2", "schema_version": 2,
         "evidence": {
             "promotion": {"required_manifest_fields": ["release_identity.corpus_revision"], "min_label_coverage": 1.0},
             "lineage_diagnosis": {"require_recorded_exit_reasons": True},
         },
+        "intervention": {"expected_changes": expected_changes or []},
         "statistics": {"confidence_level": 0.95, "familywise_alpha": 0.05, "resamples": 100, "seed": 17},
         "metrics": [{
             "metric": "pipeline|stage0|recall@10", "direction": "higher_is_better",
@@ -68,26 +78,32 @@ async def _run_fixture_and_compare(tmp_path, fixture_name: str):
     store = SQLiteStore(db_path=db_path)
     await store.init_db()
     temporal = fixture_name in {"held_underpowered_slice", "failed_temporal_filter_slice"}
+    embedding_change = fixture_name in {"held_undeclared_embedding_change", "passes_declared_embedding_change"}
+    declared = fixture_name == "passes_declared_embedding_change"
     values = {
         "pass_with_lineage_blocked": ([1.0] * 6, [1.0] * 6),
         "held_underpowered_slice": ([1.0] * 6, [1.0] * 6),
         "blocked_corpus_identity": ([1.0] * 6, [1.0] * 6),
-        "blocked_embedding_revision_mismatch": ([1.0] * 6, [1.0] * 6),
+        "held_undeclared_embedding_change": ([1.0] * 6, [1.0] * 6),
+        "passes_declared_embedding_change": ([1.0] * 6, [1.0] * 6),
         "failed_temporal_filter_slice": ([1.0] * 6, [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]),
     }[fixture_name]
     for run_id, deployment, run_values in (
         ("baseline", "deploy-a", values[0]), ("candidate", "deploy-b", values[1])
     ):
+        embedding = {"baseline": "embed-v1", "candidate": "embed-v2"}[run_id] if embedding_change else "embed-v1"
         await store.save_run(run_id, run_id, "{}")
         await store.save_run_manifest(
             run_id,
             _manifest(
                 deployment=deployment,
                 corpus_revision=None if fixture_name == "blocked_corpus_identity" and run_id == "candidate" else "corpus-v1",
-                embedding_model_revision=(
-                    {"baseline": "embed-v1", "candidate": "embed-v2"}[run_id]
-                    if fixture_name == "blocked_embedding_revision_mismatch"
-                    else "embed-v1"
+                embedding_model_revision=embedding,
+                index_build_id="index-v2" if declared and run_id == "candidate" else "index-v1",
+                index_encoder=(
+                    {"index_embedding_model_revision": embedding, "query_embedding_model_revision": embedding, "compatible": True}
+                    if declared
+                    else None
                 ),
                 exit_coverage=0.5 if fixture_name == "pass_with_lineage_blocked" else 1.0,
             ),
@@ -102,6 +118,7 @@ async def _run_fixture_and_compare(tmp_path, fixture_name: str):
         min_paired_n=3 if fixture_name == "held_underpowered_slice" else 2,
         max_regression=0.4 if fixture_name == "failed_temporal_filter_slice" else 0.05,
         with_slice=temporal,
+        expected_changes=["embedding_model_revision", "index_build_id"] if declared else None,
     )
     return await load_comparison_report("baseline", "candidate", db_path, policy=policy)
 
@@ -111,25 +128,39 @@ async def _run_fixture_and_compare(tmp_path, fixture_name: str):
     ("pass_with_lineage_blocked", "PASS"),
     ("held_underpowered_slice", "HOLD"),
     ("blocked_corpus_identity", "BLOCK"),
-    ("blocked_embedding_revision_mismatch", "BLOCK"),
+    ("held_undeclared_embedding_change", "HOLD"),
+    ("passes_declared_embedding_change", "PASS"),
     ("failed_temporal_filter_slice", "FAIL"),
 ])
 async def test_release_workflow_emits_expected_status(tmp_path, fixture_name, expected):
     report = await _run_fixture_and_compare(tmp_path, fixture_name)
     decision = report.comparison["release_decision"]
-    assert decision["status"] == expected
+    assert decision["status"] == expected, decision["reasons"]
     if fixture_name == "pass_with_lineage_blocked":
         assert decision["readiness"]["lineage_diagnosis"]["status"] == "BLOCK"
     if fixture_name == "failed_temporal_filter_slice":
         assert decision["slices"][0]["guards"][0]["affected_query_ids"] == ["q-0", "q-1"]
-    if fixture_name == "blocked_embedding_revision_mismatch":
-        aggregate = decision["readiness"]["aggregate_or_slice_evaluation"]
-        assert aggregate["status"] == "BLOCK"
-        finding = next(
-            item for item in aggregate["findings"] if item["code"] == "release_identity_mismatch"
-        )
-        assert finding["observed"] == ["embed-v1", "embed-v2"]
+    if fixture_name == "held_undeclared_embedding_change":
+        promotion = decision["readiness"]["promotion"]
+        assert promotion["status"] == "HOLD"
+        finding = next(item for item in promotion["findings"] if item["code"] == "undeclared_intervention")
+        assert finding["observed"] == {"embedding_model_revision": ["embed-v1", "embed-v2"]}
         assert "embedding_model_revision" in finding["detail"]
+        assert decision["readiness"]["aggregate_or_slice_evaluation"]["status"] == "READY"
+        embedding = next(
+            item for item in decision["provenance_assessment"]["interventions"]
+            if item["field"] == "release_identity.embedding_model_revision"
+        )
+        assert embedding["classification"] == "unexpected"
+    if fixture_name == "passes_declared_embedding_change":
+        provenance = decision["provenance_assessment"]
+        assert {item["field"]: item["classification"] for item in provenance["interventions"] if not item["equal"]} == {
+            "release_identity.deployment_revision": "expected",
+            "release_identity.embedding_model_revision": "expected",
+            "release_identity.index_build_id": "expected",
+        }
+        assert provenance["consistency"][0]["classification"] == "expected"
+        assert provenance["consistency"][0]["finding_code"] is None
 
 
 @pytest.mark.asyncio
