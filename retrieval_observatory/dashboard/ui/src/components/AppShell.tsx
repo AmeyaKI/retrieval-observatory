@@ -1,69 +1,93 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { DemoContext, fetchDemoContext } from '../api'
 import { useDashboardContext } from '../context/DashboardContext'
+import { buildHash, FocusedRoute, landingWorkspace, parseFocusedHash } from '../utils/focusedRoutes'
 import GlobalContextBar from './GlobalContextBar'
-import DemoQuickLinks from './DemoQuickLinks'
-import HomeWorkspace from './HomeWorkspace'
+import type { PipelineHint } from './InvestigateWorkspace'
+import MigrationNotice from './MigrationNotice'
 import ModeRail, { Mode, ShellMode } from './ModeRail'
-import PlatformTour from './PlatformTour'
 
-const BenchmarksWorkspace = lazy(() => import('./BenchmarksWorkspace'))
-const ForgeWorkspace = lazy(() => import('./ForgeWorkspace'))
+const InvestigateWorkspace = lazy(() => import('./InvestigateWorkspace'))
+const ConnectWorkspace = lazy(() => import('./ConnectWorkspace'))
+const AuditWorkspace = lazy(() => import('./AuditWorkspace'))
 const GlossaryWorkspace = lazy(() => import('./GlossaryWorkspace'))
-const QueryLineagePanel = lazy(() => import('./QueryLineagePanel'))
-const TraceLensWorkspace = lazy(() => import('./TraceLensWorkspace'))
 
-const VALID_MODES: Mode[] = ['home', 'runs', 'compare', 'queries', 'production', 'test-sets']
-
-function parseHash(): { mode: ShellMode; rest: string } {
-  let raw = window.location.hash.replace(/^#\/?/, '')
-  if (raw.startsWith('benchmarks/run/')) {
-    raw = raw.replace(/^benchmarks\/run\//, 'runs/')
-    window.history.replaceState(null, '', `#/${raw}`)
+/** Parse the current hash; a lossless legacy link is rewritten in place (no history entry). */
+function resolveRoute(): FocusedRoute {
+  const route = parseFocusedHash(window.location.hash)
+  if (route.redirectTo) {
+    window.history.replaceState(null, '', route.redirectTo)
+    return parseFocusedHash(route.redirectTo)
   }
-  const [path] = raw.split('?'); const [modePart, ...rest] = path.split('/')
-  if (modePart === 'glossary') return { mode: 'glossary', rest: '' }
-  const mode = (VALID_MODES as string[]).includes(modePart) ? (modePart as Mode) : 'home'
-  return { mode, rest: rest.join('/') }
+  return route
+}
+
+function railMode(route: FocusedRoute): ShellMode | null {
+  switch (route.workspace) {
+    case 'investigate':
+    case 'connect':
+    case 'audit':
+    case 'help':
+      return route.workspace
+    default:
+      return null
+  }
 }
 
 export default function AppShell() {
-  const [{ mode, rest }, setRoute] = useState(parseHash)
-  const [demoContext, setDemoContext] = useState<DemoContext | null>(null)
-  const [tourOpen, setTourOpen] = useState(false)
-  const { selection } = useDashboardContext(); const dbId = selection.db
+  const { selection, databases, databasesLoaded } = useDashboardContext()
+  const [route, setRoute] = useState<FocusedRoute>(resolveRoute)
+  const [pipelineHint, setPipelineHint] = useState<PipelineHint | null>(null)
 
   useEffect(() => {
-    const onHash = () => setRoute(parseHash())
+    const onHash = () => {
+      const before = window.location.hash
+      setRoute(resolveRoute())
+      // A redirect rewrote the URL: let the scope provider re-read it.
+      if (window.location.hash !== before) window.dispatchEvent(new HashChangeEvent('hashchange'))
+    }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
+  // Landing (`#/` or empty): Investigate when any database has runs, else Connect. Decided
+  // only once the database list is known so the wrong workspace never flashes.
   useEffect(() => {
-    fetchDemoContext().then(setDemoContext).catch(() => setDemoContext(null))
-  }, [])
+    if (route.workspace !== 'landing' || !databasesLoaded) return
+    window.history.replaceState(null, '', buildHash(landingWorkspace(databases), { db: selection.db }))
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }, [route.workspace, databasesLoaded, databases, selection.db])
 
-  const selectMode = (next: Mode) => { window.location.hash = `#/${next}` }
-  const showDemoBar = Boolean(demoContext?.baseline_run_id) && mode !== 'glossary'
+  const selectMode = (mode: Mode) => {
+    window.location.hash = buildHash(mode, selection)
+  }
+
+  const loading = (
+    <div className="p-6 text-sm text-ink-muted" role="status">
+      Loading workspace…
+    </div>
+  )
 
   return (
     <div className="flex h-screen bg-canvas text-ink font-sans">
-      <ModeRail mode={mode} onSelect={selectMode} onOpenTour={() => setTourOpen(true)} showTourLink={Boolean(demoContext?.baseline_run_id)} />
+      <ModeRail mode={railMode(route)} onSelect={selectMode} helpHref={buildHash('help', selection)} />
       <div className="flex flex-1 flex-col min-w-0 pb-16 sm:pb-0">
-        {showDemoBar && demoContext && <DemoQuickLinks context={demoContext} onOpenTour={() => setTourOpen(true)} />}
-        <GlobalContextBar />
-        <Suspense fallback={<div className="p-6 text-sm text-ink-muted" role="status">Loading workspace…</div>}>
-          {mode === 'home' && <HomeWorkspace context={demoContext} />}
-          {mode === 'runs' && <BenchmarksWorkspace demoContext={demoContext} route={rest} view="runs" />}
-          {mode === 'compare' && <BenchmarksWorkspace demoContext={demoContext} view="compare" />}
-          {mode === 'queries' && rest && dbId && <QueryLineagePanel dbId={dbId} queryId={rest} />}
-          {mode === 'queries' && !rest && <BenchmarksWorkspace demoContext={demoContext} view="queries" />}
-          {mode === 'production' && dbId && <TraceLensWorkspace dbId={dbId} route={rest} />}
-          {mode === 'test-sets' && dbId && <ForgeWorkspace dbId={dbId} route={rest} />}
-          {mode === 'glossary' && <GlossaryWorkspace />}
+        <GlobalContextBar workspace={route.workspace} pipelineHint={pipelineHint} />
+        <Suspense fallback={loading}>
+          {route.workspace === 'landing' && loading}
+          {route.workspace === 'investigate' && <InvestigateWorkspace onPipelines={setPipelineHint} />}
+          {route.workspace === 'connect' && <ConnectWorkspace />}
+          {route.workspace === 'audit' && <AuditWorkspace />}
+          {route.workspace === 'help' && <GlossaryWorkspace />}
+          {route.workspace === 'migration' && route.retired && (
+            <MigrationNotice
+              destination={route.retired.destination}
+              replacement={route.retired.replacement}
+              message={route.retired.message}
+              href={buildHash(route.retired.replacement, { db: selection.db })}
+            />
+          )}
         </Suspense>
       </div>
-      {demoContext && <PlatformTour context={demoContext} open={tourOpen} onClose={() => setTourOpen(false)} />}
     </div>
   )
 }
