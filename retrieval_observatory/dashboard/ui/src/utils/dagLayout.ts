@@ -110,3 +110,75 @@ export function layoutPipelineGraph(graph: PipelineGraph): DagLayout {
   const height = PAD * 2 + colHeight
   return { nodes: [...positioned.values()], edges, width, height }
 }
+
+// ── Repeated invocations ────────────────────────────────────────────────────────────
+// A trace names the second call of an operator `op#2`, the third `op#3` (tracing/model.py
+// next_node_id). The investigation graph folds them onto the stable operator by default.
+
+const REPEAT = /^(.+)#\d+$/
+
+/** `rerank#2` → `rerank`; a node id without a repeat suffix is returned unchanged. */
+export function collapsedNodeId(nodeId: string): string {
+  return nodeId.match(REPEAT)?.[1] ?? nodeId
+}
+
+/** Number of repeat-invocation nodes (`op#2`, `op#3`, …) in the graph. */
+export function repeatedInvocationCount(graph: PipelineGraph): number {
+  return graph.nodes.filter((node) => REPEAT.test(node.node_id)).length
+}
+
+function sumCounts(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
+  const out = { ...a }
+  for (const [key, value] of Object.entries(b)) out[key] = (out[key] ?? 0) + value
+  return out
+}
+
+/** Merge every `op#N` node into `op`: counts are summed, `trace_coverage` takes the max, `depth`
+ * the min, the label stays the base node's; edges are remapped, self-loops dropped and duplicates
+ * merged. A graph without repeats is returned as is. */
+export function collapseInvocations(graph: PipelineGraph): PipelineGraph {
+  if (repeatedInvocationCount(graph) === 0) return graph
+  const merged = new Map<string, PipelineGraphNode>()
+  for (const node of graph.nodes) {
+    const id = collapsedNodeId(node.node_id)
+    const base = merged.get(id)
+    if (!base) {
+      merged.set(id, { ...node, node_id: id, status_counts: { ...node.status_counts } })
+      continue
+    }
+    // Insertion order follows graph.nodes, so a base node that appears after its repeats still wins the label.
+    const isBase = node.node_id === id
+    merged.set(id, {
+      ...base,
+      label: isBase ? node.label : base.label,
+      depth: Math.min(base.depth, node.depth),
+      observed_count: base.observed_count + node.observed_count,
+      candidate_count: base.candidate_count + node.candidate_count,
+      input_candidate_count: base.input_candidate_count + node.input_candidate_count,
+      final_output_count: base.final_output_count + node.final_output_count,
+      status_counts: sumCounts(base.status_counts, node.status_counts),
+      trace_coverage: Math.max(base.trace_coverage, node.trace_coverage),
+      is_final_output: base.is_final_output || node.is_final_output,
+    })
+  }
+  const edges = new Map<string, PipelineGraph['edges'][number]>()
+  for (const edge of graph.edges) {
+    const source = collapsedNodeId(edge.source)
+    const target = collapsedNodeId(edge.target)
+    if (source === target) continue
+    const key = `${source}→${target}`
+    const existing = edges.get(key)
+    edges.set(
+      key,
+      existing
+        ? { ...existing, observed_count: existing.observed_count + edge.observed_count, trace_coverage: Math.max(existing.trace_coverage, edge.trace_coverage) }
+        : { ...edge, source, target },
+    )
+  }
+  return {
+    ...graph,
+    nodes: [...merged.values()],
+    edges: [...edges.values()],
+    final_output_ids: [...new Set(graph.final_output_ids.map(collapsedNodeId))],
+  }
+}

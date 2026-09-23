@@ -1624,3 +1624,470 @@ export async function fetchAdvisorReliabilityHistory(dbId: string, runId?: strin
   if (!res.ok) throw new Error('Failed to fetch reliability history')
   return res.json()
 }
+
+// ---------------------------------------------------------------------------
+// Investigation (journey rows): /dbs/{db}/investigation/runs/{run}/...
+// ---------------------------------------------------------------------------
+
+export interface InvestigationScope {
+  run_id: string
+  pipeline_id: string
+  boundary: string
+  unit: 'document' | 'chunk'
+  k: number | null
+  relevance_threshold: number
+  evaluation_digest: string
+  judgment_digest: string
+  query_id?: string
+  trace_id?: string
+  entity?: string
+  /** What `rows` holds: stored per-query summaries (unfiltered queries list), document summaries, or candidate pairs. */
+  rows_kind?: 'query_summaries' | 'document_summaries' | 'pairs'
+}
+
+export interface InvestigationCapabilities {
+  projection: 'ready' | 'partial' | 'unavailable'
+  judgments: 'ready' | 'unavailable'
+  capture: { complete_rows: number; partial_rows: number }
+}
+
+export interface InvestigationCoverage {
+  queries_attempted: number | null
+  queries_with_traces: number | null
+  queries_projected: number | null
+  pairs: number | null
+  events: number | null
+}
+
+export interface JourneyEvent {
+  op_id: string
+  operator_id: string
+  invocation_id: string | null
+  branch: string | null
+  occurrence_entity_id: string
+  candidate_id: string
+  kind: 'introduced' | 'retained' | 'promoted' | 'demoted' | 'removed' | 'recovered' | 'transformed' | 'unknown'
+  input_present: boolean
+  output_present: boolean
+  input_rank: number | null
+  output_rank: number | null
+  input_occurrences: number
+  reason: string | null
+  reason_evidence: 'recorded' | 'inferred' | 'unavailable'
+  boundary_complete: boolean
+  input_evidence: string
+  source_occurrences: string[]
+  /** Optional captured content (`text`, `title`, `preview`); absent from the projection today. */
+  metadata?: Record<string, unknown> | null
+}
+
+export interface JourneyRow {
+  schema_version: number
+  derivation_version: string
+  run_id: string | null
+  pipeline_id: string
+  trace_id: string
+  query_id: string
+  namespace: string
+  entity_id: string
+  unit: 'document' | 'chunk'
+  entity_revision: string | null
+  judgment: 'relevant' | 'nonrelevant' | 'unjudged' | 'unmapped'
+  grade: number | null
+  judgment_source: string | null
+  final_membership: 'included' | 'excluded' | 'unknown'
+  in_final_output: boolean | null
+  final_rank: number | null
+  outcome:
+    | 'relevant_delivered'
+    | 'relevant_excluded'
+    | 'retained_below_cutoff'
+    | 'not_observed'
+    | 'judged_nonrelevant'
+    | 'unjudged'
+    | 'insufficient_evidence'
+  confusion: 'TP' | 'FP' | 'FN' | 'TN' | 'unknown'
+  capture_state: 'complete' | 'partial'
+  observed: boolean
+  loss_boundary: string | null
+  priority: number
+  events: JourneyEvent[]
+  occurrence_entity_ids: string[]
+  evaluation_digest: string
+  judgment_digest: string
+  trace_digest: string
+  investigation_link: string
+  /** Optional captured content (`text`, `title`, `preview`); absent from the projection today. */
+  metadata?: Record<string, unknown> | null
+}
+
+export interface InvestigationStage {
+  op_id: string
+  operator_id: string
+  invocation_id: string | null
+  op_type: string
+  status: string
+  branch: string | null
+  parent_ids: string[]
+  input_capture: string
+  output_capture: string
+  received: number
+  emitted: number
+  removed: number
+  introduced: number
+  source_ref?: string | null
+  params?: Record<string, unknown>
+  gate_values?: Record<string, unknown>
+  error?: string | null
+}
+
+/** Stored per-operator aggregate over every trace of the scope (list envelopes only). */
+export interface StageSummary {
+  op_id: string
+  operator_id: string
+  queries_served: number
+  queries_skipped: number
+  candidates_received: number
+  removal_events: number
+  introduced: number
+  partial_boundaries: number
+}
+
+export function isStageSummary(stage: InvestigationStage | StageSummary): stage is StageSummary {
+  return 'queries_served' in stage
+}
+
+export interface InvestigationFinding {
+  code: string
+  detail: string
+  action: string
+}
+
+/** Document-view rows are entity summaries; query views carry JourneyRow. */
+export interface InvestigationDocumentRow {
+  entity: string
+  queries: number
+  delivered: number
+  excluded: number
+  not_observed: number
+  unknown: number
+  judged_relevant_queries: string[]
+}
+
+/** Queries-view rows once the projection is complete and no pair-level filter is set: the stored per-query summaries. */
+export interface QuerySummaryRow {
+  query_id: string
+  query_text: string | null
+  pairs: number
+  TP: number
+  FP: number
+  FN: number
+  TN: number
+  unknown: number
+  relevant_excluded: number
+  insufficient: number
+  capture_partial: number
+  relevant_delivered: number
+  relevant_missed: number
+  unjudged_included: number
+  unknown_capture: number
+  /** Final loss boundary → pair count, including `not_observed` and `unknown` when present. */
+  loss_boundaries: Record<string, number>
+  trace_ids: string[]
+}
+
+export interface InvestigationEnvelope<Row = JourneyRow> {
+  schema_version: number
+  scope: InvestigationScope
+  capabilities: InvestigationCapabilities
+  coverage: InvestigationCoverage
+  rows: Row[]
+  total: number | null
+  next_cursor: string | null
+  summary: Record<string, unknown> | null
+  /** Per-trace spans on a query envelope; stored aggregates on a list envelope; null when unavailable. */
+  stages: InvestigationStage[] | StageSummary[] | null
+  findings: InvestigationFinding[]
+}
+
+// Run comparison (paired journey rows): .../investigation/runs/{candidate}/compare[/{query}]?against={baseline}
+
+export type JourneyChangeKind = 'lost' | 'gained' | 'membership_changed' | 'rank_changed' | 'path_changed' | 'unchanged' | 'unaligned'
+export type JourneyAlignment =
+  | 'aligned'
+  | 'query_unaligned'
+  | 'entity_revision_changed'
+  | 'missing_in_baseline'
+  | 'missing_in_candidate'
+  | 'corpus_changed'
+
+export interface JourneySide {
+  trace_id: string
+  outcome: JourneyRow['outcome']
+  final_membership: JourneyRow['final_membership']
+  in_final_output: boolean | null
+  final_rank: number | null
+  loss_boundary: string | null
+  capture_state: 'complete' | 'partial'
+  judgment: JourneyRow['judgment']
+  grade: number | null
+  /** `op_id:kind` per event, e.g. `select:removed`. */
+  events_summary: string[]
+  investigation_link: string
+}
+
+export interface JourneyDiffRow {
+  query_id: string
+  namespace: string
+  entity_id: string
+  unit: 'document' | 'chunk'
+  alignment: JourneyAlignment
+  change: JourneyChangeKind
+  /** e.g. `included at rank 3 → excluded (select)` */
+  detail: string
+  /** null when the entity has no row in that run */
+  baseline: JourneySide | null
+  candidate: JourneySide | null
+  capture_limited: boolean
+  /** 0 lost, 1 gained, 2 membership_changed, 3 rank_changed, 4 path_changed, 5 unaligned, 6 unchanged */
+  priority: number
+}
+
+export interface StageAlignment {
+  /** [baseline op_id, candidate op_id] */
+  matched: [string, string][]
+  baseline_only: string[]
+  candidate_only: string[]
+}
+
+export interface ProvenanceFieldComparison {
+  field: string
+  baseline: unknown
+  candidate: unknown
+  equal: boolean
+  classification: 'invariant' | 'expected' | 'unexpected' | 'evidence_invalid' | 'unknown'
+  finding_code: string | null
+}
+
+export interface ComparisonCompatibility {
+  provenance: {
+    invariants: ProvenanceFieldComparison[]
+    interventions: ProvenanceFieldComparison[]
+    consistency: ProvenanceFieldComparison[]
+    unknown_fields: string[]
+  }
+  findings: EvidenceFinding[]
+  corpus_changed: boolean
+  query_inputs_identical: boolean | null
+}
+
+export interface ComparisonSummary {
+  pairs: number
+  by_change: Record<string, number>
+  by_alignment: Record<string, number>
+  capture_limited: number
+}
+
+export interface ComparisonEnvelope extends InvestigationEnvelope<JourneyDiffRow> {
+  comparison: {
+    baseline_run_id: string
+    candidate_run_id: string
+    compatibility: ComparisonCompatibility
+    /** Only on the single-query route. */
+    stage_alignment: StageAlignment | null
+    summary: ComparisonSummary
+  }
+}
+
+export interface InvestigationProjection {
+  status: 'building' | 'complete' | 'failed' | 'unavailable'
+  run_id?: string
+  pipeline_id?: string
+  evaluation_digest?: string
+  derivation_version?: string
+  judgment_digest?: string
+  trace_count?: number
+  row_count?: number
+  started_at?: string
+  finished_at?: string | null
+  error?: string | null
+}
+
+export type InvestigationParams = Record<string, string | number | undefined | null>
+
+function investigationBase(dbId: string, runId: string): string {
+  return `${dbBase(dbId)}/investigation/runs/${encodeURIComponent(runId)}`
+}
+
+function investigationQuery(params: InvestigationParams): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') search.set(key, String(value))
+  }
+  const query = search.toString()
+  return query ? `?${query}` : ''
+}
+
+export async function fetchInvestigationQueries(dbId: string, runId: string, params: InvestigationParams = {}): Promise<InvestigationEnvelope<JourneyRow | QuerySummaryRow>> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/queries${investigationQuery(params)}`)
+  return parseJson<InvestigationEnvelope<JourneyRow | QuerySummaryRow>>(res, 'fetchInvestigationQueries')
+}
+
+export async function fetchInvestigationQuery(dbId: string, runId: string, queryId: string, params: InvestigationParams = {}): Promise<InvestigationEnvelope> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}${investigationQuery(params)}`)
+  return parseJson<InvestigationEnvelope>(res, 'fetchInvestigationQuery')
+}
+
+/** `runId` is the candidate run; `params.against` names the baseline run. */
+export async function fetchInvestigationComparison(dbId: string, runId: string, params: InvestigationParams = {}): Promise<ComparisonEnvelope> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/compare${investigationQuery(params)}`)
+  return parseJson<ComparisonEnvelope>(res, 'fetchInvestigationComparison')
+}
+
+export async function fetchInvestigationComparisonQuery(dbId: string, runId: string, queryId: string, params: InvestigationParams = {}): Promise<ComparisonEnvelope> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/compare/${encodeURIComponent(queryId)}${investigationQuery(params)}`)
+  return parseJson<ComparisonEnvelope>(res, 'fetchInvestigationComparisonQuery')
+}
+
+export async function fetchInvestigationDocuments(dbId: string, runId: string, params: InvestigationParams = {}): Promise<InvestigationEnvelope<InvestigationDocumentRow>> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/documents${investigationQuery(params)}`)
+  return parseJson<InvestigationEnvelope<InvestigationDocumentRow>>(res, 'fetchInvestigationDocuments')
+}
+
+export async function fetchInvestigationDocument(dbId: string, runId: string, entity: string, params: InvestigationParams = {}): Promise<InvestigationEnvelope> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/documents/${encodeURIComponent(entity)}${investigationQuery(params)}`)
+  return parseJson<InvestigationEnvelope>(res, 'fetchInvestigationDocument')
+}
+
+export async function fetchInvestigationProjection(dbId: string, runId: string, params: InvestigationParams = {}): Promise<InvestigationProjection> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/projection${investigationQuery(params)}`)
+  return parseJson<InvestigationProjection>(res, 'fetchInvestigationProjection')
+}
+
+export async function buildInvestigationProjection(
+  dbId: string,
+  runId: string,
+  body: { pipeline_id?: string; unit?: 'document' | 'chunk'; k?: number } = {},
+): Promise<InvestigationProjection> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/projection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return parseJson<InvestigationProjection>(res, 'buildInvestigationProjection')
+}
+
+// ---------------------------------------------------------------------------
+// Connect: persisted integration verification records (dashboard/integration_api.py).
+// ---------------------------------------------------------------------------
+
+export const CAPABILITY_NAMES = [
+  'topology_observed',
+  'actual_input_output_capture',
+  'candidate_identity',
+  'query_identity',
+  'final_output_capture',
+  'judgment_mapping',
+  'declared_route_coverage',
+  'cross_run_entity_alignment',
+] as const
+
+export type CapabilityName = (typeof CAPABILITY_NAMES)[number]
+export type IntegrationStatus = 'ready' | 'partial' | 'failed'
+export type IntegrationDepth = 'internal' | 'final_only'
+export type CapabilityStatus = 'ready' | 'partial' | 'unavailable'
+
+export interface IntegrationSummary {
+  integration_id: string
+  service_id: string
+  pipeline_id: string
+  plan_id: string
+  status: IntegrationStatus
+  depth: IntegrationDepth
+  verified_at: string
+  version: number
+}
+
+export interface CapabilityFailure {
+  code: string
+  detail: string
+  fix: string
+  op_id: string | null
+}
+
+export interface CapabilityReport {
+  status: CapabilityStatus
+  evidence: Record<string, unknown>
+  scope: string
+  failures: CapabilityFailure[]
+}
+
+export interface IntegrationOperator {
+  op_id: string
+  op_type: string
+  symbol: string
+  relative_path: string
+  parent_ids: string[]
+  confidence: number
+  input_mapping: string
+  output_mapping: string
+  capture: string | null
+  invocation: 'sync' | 'async'
+}
+
+export interface IntegrationScenario {
+  scenario_id: string
+  query_text: string
+  expected_operator_ids: string[]
+  expected_edges: [string, string][]
+  command: string | null
+  route: string | null
+}
+
+export interface PlannedAction {
+  kind: 'install' | 'source_edit' | 'benchmark_setup' | 'scenario_execution'
+  description: string
+  command: string | null
+  performed_by: 'apply' | 'user'
+}
+
+export interface IntegrationRecord extends IntegrationSummary {
+  schema_version: number
+  project_root: string
+  db_path: string
+  created_at: string
+  capabilities: Record<CapabilityName, CapabilityReport>
+  errors: string[]
+  observed_operator_ids: string[]
+  operators: IntegrationOperator[]
+  scenarios: IntegrationScenario[]
+  boundary: { kind: 'entrypoint_return' | 'operator_output' | 'unresolved'; symbol: string | null; relative_path: string | null; op_id: string | null }
+  identity: {
+    candidate_id_field: string
+    unit: 'document' | 'chunk'
+    namespace: string
+    corpus_revision: string | null
+    query_id: string
+    query_text_parameter: string | null
+  }
+  judgments: { queries?: string | null; qrels?: string | null; corpus?: string | null; status?: 'resolved' | 'unresolved'; notes?: string[] }
+  expected_capabilities: Record<string, CapabilityStatus>
+  actions: PlannedAction[]
+  open_questions: string[]
+  unresolved: string[]
+  telemetry_health: Record<string, unknown>
+  release_readiness: Record<string, unknown>
+  /** The newest run carrying this pipeline, or null before the benchmark has been run. */
+  investigation: { run_id: string; pipeline_id: string } | null
+}
+
+export async function fetchIntegrations(dbId: string): Promise<IntegrationSummary[]> {
+  const res = await fetch(`${dbBase(dbId)}/integrations`)
+  const body = await parseJson<{ integrations: IntegrationSummary[] }>(res, 'fetchIntegrations')
+  return body.integrations ?? []
+}
+
+export async function fetchIntegration(dbId: string, integrationId: string): Promise<IntegrationRecord> {
+  const res = await fetch(`${dbBase(dbId)}/integrations/${encodeURIComponent(integrationId)}`)
+  return parseJson<IntegrationRecord>(res, 'fetchIntegration')
+}

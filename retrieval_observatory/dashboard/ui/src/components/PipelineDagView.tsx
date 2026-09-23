@@ -97,7 +97,7 @@ function NodeCard({
   )
 }
 
-function GraphTable({ graph }: { graph: PipelineGraph }) {
+export function GraphTable({ graph }: { graph: PipelineGraph }) {
   const parents = new Map<string, string[]>()
   for (const edge of graph.edges) parents.set(edge.target, [...(parents.get(edge.target) ?? []), edge.source])
   return (

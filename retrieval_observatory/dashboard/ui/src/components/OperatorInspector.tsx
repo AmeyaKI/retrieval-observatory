@@ -1,130 +1,106 @@
-import { useEffect, useMemo, useState } from 'react'
-import { fetchOperatorAttribution, fetchOperatorDag, OperatorAttributionRow, OperatorDagNode } from '../api'
-import InlineReason from './InlineReason'
-import NoData from './NoData'
-import SectionHeading from './SectionHeading'
+import { InvestigationStage, StageSummary } from '../api'
+import { OP_ACCENT, OP_LABEL } from '../utils/opTypeColors'
 
-const REPLAY_COLORS: Record<string, string> = {
-  EXACT: 'bg-green-100 text-green-800 border-green-200',
-  OBSERVED_ABLATION: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  NOT_REPLAYABLE: 'bg-red-100 text-red-800 border-red-200',
+// The selected operator, read from the investigation envelopes only: the stored aggregate over
+// every trace of the scope and, when one query is open, that trace's span. Every count is shown
+// with its denominator; skipped invocations are reported as skipped, never as zero quality.
+
+export interface OperatorInspectorProps {
+  /** The operator node id (`stage` URL parameter). */
+  opId: string
+  /** The selected trace's span at this operator; null in aggregate views or when the trace did not run it. */
+  stage: InvestigationStage | null
+  /** Stored per-scope aggregate; null before the projection is built. */
+  aggregate: StageSummary | null
 }
 
-interface Props {
-  dbId: string
-  runId: string
-  selectedOpId?: string | null
+export const STATUS_GLYPHS: Record<string, string> = {
+  FIRED: '●',
+  SKIPPED_BY_GATE: '⊘',
+  ERROR: '✕',
+  TIMEOUT: '⏱',
 }
 
-export default function OperatorInspector({ dbId, runId, selectedOpId }: Props) {
-  const [rows, setRows] = useState<OperatorAttributionRow[]>([])
-  const [dagNodes, setDagNodes] = useState<OperatorDagNode[]>([])
+export function statusGlyph(status: string): string {
+  return STATUS_GLYPHS[status] ?? '·'
+}
 
-  useEffect(() => {
-    fetchOperatorAttribution(dbId, runId).then(setRows).catch(() => setRows([]))
-    fetchOperatorDag(dbId, runId).then((dag) => setDagNodes(dag.nodes)).catch(() => setDagNodes([]))
-  }, [dbId, runId])
+export function captureGlyph(capture: string): string {
+  if (capture === 'recorded' || capture === 'not_applicable') return ''
+  if (capture === 'unavailable') return '✕'
+  return '⚠'
+}
 
-  const opIds = useMemo(() => {
-    const ids = Array.from(new Set(rows.map((r) => r.op_id))).sort()
-    if (selectedOpId && ids.includes(selectedOpId)) {
-      return [selectedOpId, ...ids.filter((id) => id !== selectedOpId)]
-    }
-    return ids
-  }, [rows, selectedOpId])
-
-  const rowsByOp = useMemo(() => {
-    const m = new Map<string, OperatorAttributionRow[]>()
-    for (const r of rows) m.set(r.op_id, [...(m.get(r.op_id) || []), r])
-    return m
-  }, [rows])
-
-  const dagByOp = useMemo(() => {
-    const m = new Map<string, OperatorDagNode>()
-    for (const n of dagNodes) m.set(n.op_id, n)
-    return m
-  }, [dagNodes])
-
-  if (rows.length === 0) return <NoData label="No operator rows to inspect." />
-
+function Count({ label, value, of, unit }: { label: string; value: number; of?: number | null; unit: string }) {
   return (
     <div>
-      <SectionHeading title="Operator inspector" />
-      <div className="space-y-3">
-        {opIds.map((opId) => {
-          const opRows = rowsByOp.get(opId) || []
-          const dagNode = dagByOp.get(opId)
-          const firstRow = opRows[0]
-          if (!firstRow) return null
-          const isSelected = opId === selectedOpId
-          const replayColor = REPLAY_COLORS[firstRow.replay_policy] || 'bg-gray-100 dark:bg-slate-800'
-
-          return (
-            <div
-              key={opId}
-              className={`rounded border p-3 text-xs ${isSelected ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900'}`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-semibold text-sm">{opId}</span>
-                  {dagNode && (
-                    <span className="text-gray-400 dark:text-slate-500 text-[10px]">{dagNode.op_type}</span>
-                  )}
-                </div>
-                <span className={`px-2 py-0.5 rounded border text-[10px] font-medium ${replayColor}`}>
-                  {firstRow.replay_policy}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 mb-2">
-                <div>
-                  <div className="text-gray-500 dark:text-slate-400 mb-0.5">Fire rate</div>
-                  <div className="font-medium">
-                    {firstRow.fire_rate != null ? `${(firstRow.fire_rate * 100).toFixed(1)}%` : '—'}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500 dark:text-slate-400 mb-0.5">Avg latency</div>
-                  <div className="font-medium">
-                    {dagNode?.avg_latency_ms != null ? `${dagNode.avg_latency_ms.toFixed(1)}ms` : '—'}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-gray-500 dark:text-slate-400 mb-0.5">Result</div>
-                  <div className="font-medium">{firstRow.result_status}</div>
-                  <InlineReason reason={firstRow.reason} />
-                </div>
-              </div>
-
-              <div className="border-t border-gray-100 dark:border-slate-800 pt-2">
-                <div className="text-gray-500 dark:text-slate-400 mb-1 font-medium">Attribution by segment</div>
-                <div className="grid gap-1">
-                  {opRows.map((row) => (
-                    <div key={`${row.op_id}:${row.segment}`} className="flex items-center justify-between">
-                      <span className="text-gray-600 dark:text-slate-300">{row.segment}</span>
-                      <div className="flex items-center gap-2">
-                        <span className={row.delta != null && row.delta > 0 ? 'text-green-700' : row.delta != null && row.delta < 0 ? 'text-red-700' : 'text-gray-500 dark:text-slate-400'}>
-                          {row.delta == null ? '—' : `${row.delta > 0 ? '+' : ''}${row.delta.toFixed(4)}`}
-                        </span>
-                        {row.ci_low != null && row.ci_high != null && (
-                          <span className="text-gray-400 dark:text-slate-500 text-[10px]">
-                            [{row.ci_low.toFixed(3)}, {row.ci_high.toFixed(3)}]
-                          </span>
-                        )}
-                        {row.significant === true && (
-                          <span className="text-green-600 text-[10px]">sig</span>
-                        )}
-                        <span className="text-gray-400 dark:text-slate-500 text-[10px]">n={row.n_pairs}</span>
-                        <InlineReason reason={row.reason} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      <dt className="text-ink-faint">{label}</dt>
+      <dd className="font-mono tabular-nums text-ink">
+        {value}
+        {of != null && <span className="text-ink-muted"> of {of}</span>} <span className="font-sans text-ink-muted">{unit}</span>
+      </dd>
     </div>
+  )
+}
+
+export default function OperatorInspector({ opId, stage, aggregate }: OperatorInspectorProps) {
+  const opType = stage?.op_type ?? null
+  const accent = OP_ACCENT[opType ?? ''] ?? OP_ACCENT.TRANSFORM
+  const operatorId = stage?.operator_id ?? aggregate?.operator_id ?? null
+  const invocations = aggregate ? aggregate.queries_served + aggregate.queries_skipped : null
+  return (
+    <section aria-labelledby="operator-inspector-title" className="app-inset p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 id="operator-inspector-title" className="font-mono font-semibold text-ink">
+          {opId}
+        </h3>
+        {opType && (
+          <span className="rounded px-1.5 py-0.5 text-[10px]" style={{ background: accent.fill, color: accent.text }}>
+            {OP_LABEL[opType] ?? opType}
+          </span>
+        )}
+        {operatorId && operatorId !== opId && <span className="text-ink-faint">operator {operatorId}</span>}
+        {stage?.branch && <span className="text-ink-faint">branch {stage.branch}</span>}
+      </div>
+      {aggregate ? (
+        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3">
+          <Count label="Served" value={aggregate.queries_served} of={invocations} unit="queries" />
+          <Count label="Skipped by gate" value={aggregate.queries_skipped} of={invocations} unit="queries" />
+          <Count label="Received" value={aggregate.candidates_received} unit={`candidates over ${aggregate.queries_served} served queries`} />
+          <Count label="Removed" value={aggregate.removal_events} unit="events" />
+          <Count label="Introduced" value={aggregate.introduced} unit="events" />
+          <Count label="Partial boundaries" value={aggregate.partial_boundaries} of={aggregate.queries_served} unit="served queries" />
+        </dl>
+      ) : (
+        <p className="mt-2 text-ink-muted">No stored aggregate for this operator; index the run to count served queries and candidates.</p>
+      )}
+      {stage && (
+        <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-hairline pt-2 sm:grid-cols-3">
+          <div>
+            <dt className="text-ink-faint">This query</dt>
+            <dd className="text-ink">
+              <span aria-hidden="true">{statusGlyph(stage.status)}</span> {stage.status}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-ink-faint">Input capture</dt>
+            <dd className="text-ink">
+              {captureGlyph(stage.input_capture) && <span aria-hidden="true">{captureGlyph(stage.input_capture)} </span>}
+              {stage.input_capture}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-ink-faint">Output capture</dt>
+            <dd className="text-ink">
+              {captureGlyph(stage.output_capture) && <span aria-hidden="true">{captureGlyph(stage.output_capture)} </span>}
+              {stage.output_capture}
+            </dd>
+          </div>
+          <Count label="Received" value={stage.received} unit="candidates" />
+          <Count label="Emitted" value={stage.emitted} unit="candidates" />
+          <Count label="Removed / introduced" value={stage.removed} unit={`removed · ${stage.introduced} introduced`} />
+        </dl>
+      )}
+    </section>
   )
 }

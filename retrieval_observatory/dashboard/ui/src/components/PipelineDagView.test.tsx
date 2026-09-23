@@ -4,8 +4,8 @@ import { describe, expect, test, vi } from 'vitest'
 vi.hoisted(() => {
   ;(globalThis as { window?: unknown }).window = { location: { origin: 'http://localhost' } }
 })
-import { NodeInspector, servedNote } from './PipelineDagView'
-import { PipelineGraphNode } from '../api'
+import { GraphTable, NodeInspector, servedNote } from './PipelineDagView'
+import { PipelineGraph, PipelineGraphNode } from '../api'
 
 function node(overrides: Partial<PipelineGraphNode>): PipelineGraphNode {
   return {
@@ -65,5 +65,28 @@ describe('PipelineDagView served-count note', () => {
   test('servedNote falls back to the served count alone when the run total is unknown', () => {
     expect(servedNote({ mean: 0.6, ci_low: null, ci_high: null, n: 12 }, node({}))).toBe('on 12 served queries')
     expect(servedNote({ mean: 0.6, ci_low: null, ci_high: null }, node({}))).toBeNull()
+  })
+})
+
+describe('GraphTable', () => {
+  test('renders one row per operator with its parents, statuses and evidence', () => {
+    const graph: PipelineGraph = {
+      pipeline_id: 'hybrid',
+      contract_version: 2,
+      projection_mode: 'run_union',
+      trace_count: 40,
+      complete_trace_count: 40,
+      status_counts: { OK: 40 },
+      final_output_ids: ['fuse'],
+      timing_semantics: {},
+      warnings: [],
+      nodes: [node({}), node({ node_id: 'fuse', label: 'Fuse', op_type: 'FUSE', depth: 1, branch_id: null, is_merge: true, status_counts: { FIRED: 40 } })],
+      edges: [{ source: 'bm25', target: 'fuse', kind: 'fan_in', observed_count: 40, trace_coverage: 1, conditional: false, source_evidence: 'measured' }],
+    }
+    const html = renderToStaticMarkup(<GraphTable graph={graph} />)
+    expect(html).toContain('Accessible operator table for pipeline hybrid')
+    expect(html.match(/scope="row"/g)).toHaveLength(2)
+    expect(html).toContain('FIRED 12, SKIPPED_BY_GATE 28')
+    expect(html).toContain('bm25</td>')
   })
 })

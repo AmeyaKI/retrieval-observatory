@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutPipelineGraph, NODE_W, NODE_H, COL_GAP, PAD, nodeCardHeight } from './dagLayout'
+import { collapseInvocations, collapsedNodeId, layoutPipelineGraph, NODE_W, NODE_H, COL_GAP, PAD, nodeCardHeight, repeatedInvocationCount } from './dagLayout'
 import type { PipelineGraph } from '../api'
 
 const emptyMetrics = { 'ndcg@10': null, recall: null, latency_p50: null }
@@ -68,5 +68,60 @@ describe('layoutPipelineGraph', () => {
     const b = layoutPipelineGraph(FIXTURE)
     expect(a.nodes.map((n) => [n.node_id, n.x, n.y, n.h])).toEqual(b.nodes.map((n) => [n.node_id, n.x, n.y, n.h]))
     expect(a.width).toBe(PAD * 2 + 3 * NODE_W + 2 * COL_GAP)
+  })
+})
+
+describe('collapseInvocations', () => {
+  const node = (node_id: string, depth: number, extra: Partial<PipelineGraph['nodes'][number]> = {}) => ({ ...FIXTURE.nodes[0], node_id, label: node_id, depth, ...extra })
+  const edge = (source: string, target: string, kind: 'flow' | 'fan_in' = 'flow') => ({ ...FIXTURE.edges[0], source, target, kind })
+  const REPEATED: PipelineGraph = {
+    ...FIXTURE,
+    final_output_ids: ['fuse'],
+    nodes: [
+      node('source', 0, { op_type: 'SOURCE' }),
+      node('rerank', 1, { op_type: 'RERANK', observed_count: 3, candidate_count: 10, trace_coverage: 1, status_counts: { FIRED: 3 } }),
+      node('rerank#2', 2, { op_type: 'RERANK', observed_count: 2, candidate_count: 4, trace_coverage: 0.5, status_counts: { FIRED: 1, SKIPPED_BY_GATE: 1 } }),
+      node('fuse', 3, { op_type: 'FUSE', is_merge: true }),
+    ],
+    edges: [edge('source', 'rerank'), edge('rerank', 'rerank#2'), edge('rerank', 'fuse', 'fan_in'), edge('rerank#2', 'fuse', 'fan_in')],
+  }
+
+  it('maps a repeat suffix to the stable operator id', () => {
+    expect(collapsedNodeId('rerank#2')).toBe('rerank')
+    expect(collapsedNodeId('rerank@dense')).toBe('rerank@dense')
+    expect(repeatedInvocationCount(REPEATED)).toBe(1)
+    expect(repeatedInvocationCount(FIXTURE)).toBe(0)
+  })
+
+  it('folds rerank#2 into rerank, summing counts and de-duplicating remapped edges', () => {
+    const collapsed = collapseInvocations(REPEATED)
+    expect(collapsed.nodes.map((n) => n.node_id)).toEqual(['source', 'rerank', 'fuse'])
+    const rerank = collapsed.nodes.find((n) => n.node_id === 'rerank')!
+    expect(rerank.label).toBe('rerank')
+    expect(rerank.depth).toBe(1)
+    expect(rerank.observed_count).toBe(5)
+    expect(rerank.candidate_count).toBe(14)
+    expect(rerank.trace_coverage).toBe(1)
+    expect(rerank.status_counts).toEqual({ FIRED: 4, SKIPPED_BY_GATE: 1 })
+    expect(collapsed.edges.map((e) => [e.source, e.target])).toEqual([
+      ['source', 'rerank'],
+      ['rerank', 'fuse'],
+    ])
+    expect(collapsed.final_output_ids).toEqual(['fuse'])
+    expect(REPEATED.nodes).toHaveLength(4)
+  })
+
+  it('returns a graph without repeats unchanged and lays it out identically', () => {
+    const collapsed = collapseInvocations(FIXTURE)
+    expect(collapsed).toEqual(FIXTURE)
+    expect(layoutPipelineGraph(collapsed)).toEqual(layoutPipelineGraph(FIXTURE))
+  })
+
+  it('lays the collapsed graph out deterministically', () => {
+    const a = layoutPipelineGraph(collapseInvocations(REPEATED))
+    const b = layoutPipelineGraph(collapseInvocations(REPEATED))
+    expect(a).toEqual(b)
+    expect(a.nodes.map((n) => n.node_id)).toEqual(['source', 'rerank', 'fuse'])
+    expect(a.edges).toHaveLength(2)
   })
 })
