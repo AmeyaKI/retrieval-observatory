@@ -27,6 +27,6 @@ A relative `db_path` resolves against `project_root`. `framework` overrides dete
 
 MCP is a transport: the server grants no filesystem access of its own and does not replace source instrumentation. The plan is a file the agent edits with its own tools, and a `CaptureSpec` lives in the project's root `retobs_adapter.py`. `describe_integration()` returns the runbook's installed path as `runbook_path`. See [AGENT_QUICKSTART.md](AGENT_QUICKSTART.md) for the whole loop.
 
-The release-gated tool inventory is `evaluate`, `evaluate_file`, `compare`, `inspect_query`, `get_report`, `describe_config`, `validate_config`, `integrate_project`, `verify_integration`, `push_traces`, and `get_pipeline_graph`.
+The release-gated tool inventory is `evaluate`, `evaluate_file`, `compare`, `inspect_query`, `inspect_document`, `get_report`, `describe_config`, `validate_config`, `integrate_project`, `verify_integration`, `push_traces`, and `get_pipeline_graph`. `compare` with `format="audit"` returns the same `audit-1` release audit as `retobs compare --artifacts`.
 
 MCP results preserve evidence limits: a missing candidate transition, unsupported integration mapping, or failed exporter stays unavailable or failed rather than becoming a quality claim.

@@ -83,7 +83,7 @@ def test_evaluate_report_contract_and_artifacts(tmp_path):
     assert payload["schema_version"] == 1
     assert payload["run_id"] == rep.run_id
     assert payload["verdict"] in {"needs_attention", "no_diagnosed_failures", "partial"}
-    assert payload["dashboard_url"].endswith(f"#/runs/{rep.run_id}/overview")
+    assert payload["dashboard_url"].endswith(f"#/investigate?run={rep.run_id}")
     assert "Evidence" in rep.to_markdown()
     assert "<!doctype html>" in rep.to_html()
     assert rep.write(tmp_path / "report.json").exists()

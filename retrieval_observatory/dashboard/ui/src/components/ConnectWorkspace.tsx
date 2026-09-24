@@ -13,7 +13,7 @@ import { buildHash, investigateLink } from '../utils/focusedRoutes'
 export const AGENT_REQUEST =
   'Ask your coding agent to connect retobs to this existing retrieval pipeline, run your benchmark, and open a document-flow investigation.'
 
-export const AGENT_QUICKSTART_HREF = 'docs/integrations/AGENT_QUICKSTART.md'
+export const AGENT_QUICKSTART_HREF = 'https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/integrations/AGENT_QUICKSTART.md'
 
 const codeClass = 'app-inset mt-2 overflow-x-auto px-3 py-2 font-mono text-xs text-ink'
 const linkClass = 'text-accent underline-offset-2 hover:underline'

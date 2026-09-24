@@ -48,7 +48,7 @@ export function workspaceLabel(workspace: Workspace): string {
 }
 
 /** Relative to the dashboard origin; the guide arrives with the migration docs task. */
-export const MIGRATION_GUIDE_HREF = 'docs/guides/migrating-to-focused-retobs.md'
+export const MIGRATION_GUIDE_HREF = 'https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/guides/migrating-to-focused-retobs.md'
 
 export const RETIRED_MESSAGES = {
   home: 'The Home page was retired. Investigate opens directly on the selected run; Connect covers setup when no runs exist.',

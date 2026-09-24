@@ -44,7 +44,8 @@ python scripts/export_results.py \
 # Recompute analytics extract (all publish DBs must exist locally)
 python scripts/bench_analytics.py > results/analytics_extract.json
 
-# Regenerate dashboard screenshots
+# Regenerate the stage-contribution and recall-funnel figures (the classifier-calibration and
+# Pareto figures in screenshots/ came from 0.6.0 and are not regenerated)
 python scripts/generate_dashboard_screenshots.py
 ```
 
@@ -59,6 +60,6 @@ Configs: [configs/beir_publish/](../configs/beir_publish/)
 
 ## Screenshots and release checklist
 
-Dashboard visualizations for the README and [BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md): [screenshots/](screenshots/)
+Figures for [BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md): [screenshots/](screenshots/)
 
 Pre-release spot-check: [dashboard_audit.md](dashboard_audit.md)

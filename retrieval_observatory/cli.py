@@ -985,7 +985,7 @@ async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, form
     console.print(table)
     console.print(
         f"[bold]Next:[/bold] retobs serve --db {db_path}  "
-        f"[dim]→ #/runs/{run_id}/queries/{query_id}[/dim]"
+        f"[dim]→ #/investigate?db={Path(db_path).stem}&run={run_id}&view=queries&query={query_id}[/dim]"
     )
 
 

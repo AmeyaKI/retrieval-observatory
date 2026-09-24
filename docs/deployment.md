@@ -7,6 +7,13 @@ dashboard of the committed BEIR sweep on Azure Container Apps. The operational r
 
 **Live URL:** https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io (deployed 2026-09-14, Azure Container Apps, westus2).
 
+**Status: pending redeploy.** The deployed image serves the three BEIR databases baked for 0.6.0.
+They have no investigation tables (schema v3), so the 0.7.0 dashboard's Investigate views are
+empty for them and the pages they were built for (runs, production, comparison) are retired.
+Until the image is rebuilt with data that carries investigation rows (for example `retobs demo`
+output baked with `deploy/prepare_data.py demo=.retobs/demo/results.db`, and the Dockerfile's
+`COPY` and `RETOBS_DASHBOARD_DBS` updated to match), use `retobs demo` locally.
+
 ## What is hosted
 
 - Image: `ghcr.io/ameyaki/retrieval-observatory:demo`, built by the `Demo image` GitHub

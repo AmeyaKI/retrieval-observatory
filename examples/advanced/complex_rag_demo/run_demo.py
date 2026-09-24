@@ -1,5 +1,5 @@
 r"""Complex RAG demo: a gated, multi-source retrieval pipeline fully instrumented
-with retobs's trace-native operator DAG (RetrievalTraceV2).
+with retobs's trace-native operator DAG (RetrievalTrace).
 
 The pipeline models a support/on-call knowledge-base search:
 
@@ -15,8 +15,8 @@ The pipeline models a support/on-call knowledge-base search:
 All 8 operator types in retobs's model (SOURCE, FUSE, EXPAND, FILTER,
 TRANSFORM, RERANK, BOOST, GATE) appear in this trace, on a small custom
 JSONL dataset (see corpus.jsonl / queries.jsonl / edges.jsonl in this
-directory), so the dashboard's segment/operator attribution grid, operator
-inspector, and counterfactual replay all have something real to show.
+directory), so Investigate has every operator type, a gated branch, and recorded
+removals to show.
 
 Run:
     python examples/advanced/complex_rag_demo/run_demo.py
@@ -35,8 +35,7 @@ from pathlib import Path
 
 import retrieval_observatory as ro
 from retrieval_observatory.corpus.graph import EdgeStore, load_graph_corpus
-from retrieval_observatory.tracing.attribution import operator_marginal_contribution
-from retrieval_observatory.tracing.model_v2 import Candidate, OperatorSpan
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan
 
 HERE = Path(__file__).parent
 DB_PATH = ".retobs/complex_rag_demo.db"
@@ -273,27 +272,18 @@ async def main() -> None:
         async with recorder.trace(query["text"], PIPELINE_ID, query_id=query["query_id"]) as t:
             await run_pipeline(t, query, corpus, edge_store)
 
-    # Persist qrels so the dashboard's /operator-attribution and /miss-attribution
-    # endpoints can recover ground truth (store.get_qrels) after this process exits.
+    # Persist qrels so Investigate can state each candidate's judgment
+    # (store.get_qrels) after this process exits.
     qrels = {q["query_id"]: {doc_id: 1 for doc_id in q["relevant_doc_ids"]} for q in queries}
     await store.save_qrels(RUN_ID, qrels)
 
     await store.finish_run(RUN_ID)
     print(f"\nWrote {len(queries)} traces to {DB_PATH} under run_id={RUN_ID!r}")
 
-    # Offline attribution preview -- the same engine the dashboard's /operator-attribution
-    # endpoint calls, run here directly against the traces we just wrote.
-    traces = await store.get_traces_v2(RUN_ID)
-    op_ids = ["source_bm25", "source_dense", "fuse_rrf", "filter_cap", "expand_thread", "rerank_cross", "boost_recency"]
-    print("\nOperator marginal contribution (recall@10):")
-    for op_id in op_ids:
-        for result in operator_marginal_contribution(traces, op_id=op_id, qrels=qrels, metric="recall", k=10):
-            print(
-                f"  {op_id:16s} segment={result.segment:24s} delta={result.delta} "
-                f"n_pairs={result.n_pairs} replay={result.replay_policy} status={result.result_status}"
-            )
-
-    print(f"\nNow run:\n  retobs serve --db {DB_PATH}\nand open run '{RUN_ID}' to see the Operator Attribution Grid and Operator Inspector panels.")
+    print(
+        f"\nNow run:\n  retobs storage index {RUN_ID} --db {DB_PATH}\n  retobs serve --db {DB_PATH}\n"
+        f"and open #/investigate?run={RUN_ID} to follow each candidate through the operators."
+    )
 
 
 if __name__ == "__main__":

@@ -1,105 +1,131 @@
 # retobs
 
-[PyPI](https://pypi.org/project/retrieval-observatory/) · [Case study](results/flagship_demo/CASE_STUDY.md)
+[PyPI](https://pypi.org/project/retrieval-observatory/) · [Docs](docs/START.md) · [Migrating from 0.6](docs/guides/migrating-to-focused-retobs.md)
 
-**Hosted demo (read-only dashboard):** [retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io](https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io) — the BEIR sweep on Azure Container Apps; see [deployment](docs/deployment.md).
+**Hosted demo:** pending redeploy. The read-only dashboard at
+[retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io](https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io)
+still serves the 0.6.0 databases, which predate the Investigate views; run the demo below
+locally until it is rebuilt. See [deployment](docs/deployment.md).
 
-retobs tells you which stage of your retrieval pipeline earned or destroyed your metric, with attribution you can audit.
+A relevant document goes missing somewhere in a multi-stage retrieval pipeline. Recall drops,
+and nobody can say which operator dropped it: the retriever never found it, a filter removed it,
+fusion pushed it out, or the reranker cut it below `k`. retobs records what every operator
+actually received and returned for each query, then shows, for each relevant document, where it
+was lost and whether that is recorded or only inferred.
 
-A metrics dashboard says *recall 0.5 on query 5abccf67* and stops. retobs records every candidate through every operator, so it can say this instead:
+![Investigate: the relevant document kb:doc-guide is introduced by the lexical retriever and removed by recency_filter for query q-outage](docs/assets/investigate-lost-document.png)
 
-```
-bm25_lane        gold 1/2   ranks [1]
-dense_lane       gold 2/2   ranks [2, 27]
-hybrid_fusion    gold 1/2   !! dropped: karen_dotrice
-bridge_hop2      gold 2/2   ranks [1, 45]      <- the second hop found it again
-route_merge      gold 1/2   !! dropped: karen_dotrice
-final_selection  gold 1/2
-```
+*`retobs demo`, baseline run: `kb:doc-guide` is judged relevant for `q-outage`, is introduced by
+the lexical retriever, and is removed at `recency_filter` (reason `min_score`, recorded). The
+dense branch never retrieved it, so that removal is its loss boundary.*
 
-The vector lane found the missing document at rank 27. Fusion, keeping 40 candidates, dropped it. The two-hop expansion found it again at rank 45. The second merge dropped it again. The fix was one number, merge width 40 to 100, and the same tool then proved the fix held: recall@10 +0.0088, 95% CI [+0.0019, +0.0181], n=400, concentrated in the two-hop questions where a wider merge is the only thing that could help. The full story, including a change that passed every metric while making the system worse, is in the [case study](results/flagship_demo/CASE_STUDY.md).
-
-## Install
-
-```bash
-pip install "retrieval-observatory[dashboard,mcp]"
-```
-
-## See it work first
-
-One command, no arguments, no API keys or models. It evaluates a deterministic hybrid pipeline twice (a filter that loses a relevant document, then the repaired filter) and hands you a database to compare and investigate.
+## Try it (no models, no keys)
 
 ```bash
+pip install "retrieval-observatory[dashboard]"
 retobs demo
-retobs serve --db .retobs/demo/results.db
+retobs serve --db .retobs/demo/results.db     # http://127.0.0.1:4000
 ```
 
-Everything below is the same workflow pointed at your own code.
+`retobs demo` evaluates a small deterministic hybrid pipeline twice: a baseline whose recency
+filter loses `kb:doc-guide`, and a validation run with the filter repaired. It prints the exact
+`compare`, `inspect-document`, and `inspect-query` commands for the two run IDs it created.
 
-## Integrate an existing project
+## The loop
 
-Plan first, review the plan, then apply. Verify reports ready only after it has seen real traces from the instrumented pipeline.
+### 1. Connect
 
 ```bash
-retobs integrate . --phase plan --output retobs/integration-plan.json
-retobs integrate . --phase apply --plan retobs/integration-plan.json
-retobs integrate . --phase verify --plan retobs/integration-plan.json
+pip install retrieval-observatory
 ```
 
-Apply refuses unresolved mappings and stale file hashes, lists every changed file, and keeps reversal information. For agents, the same three phases are one MCP tool; see the [agent runbook](docs/integrations/AGENT_QUICKSTART.md).
+Then give your coding agent one request, from the repository root:
 
-## Evaluate a callable
+> Ask your coding agent to connect retobs to this existing retrieval pipeline, run your benchmark, and open a document-flow investigation.
+
+The agent follows the packaged runbook: plan, review, re-plan, apply, run the scenarios, verify
+eight capabilities, and revert if needed ([agent runbook](docs/integrations/AGENT_QUICKSTART.md)).
+By hand, start with:
 
 ```bash
-retobs evaluate mypackage.search:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl --corpus data/corpus.jsonl
+retobs integrate . --phase plan --output retobs/integration-plan.json   # review, then apply and verify
 ```
 
-The returned Run ID feeds `retobs report`, `retobs compare`, and `retobs inspect-query`.
+Apply adds `@observe` to each operator and `@trace_scope` to the entrypoint; your code's return
+values, order, and exceptions are unchanged. To wire a pipeline yourself, see
+[manual instrumentation](docs/guides/manual-instrumentation.md).
 
-## Gate a release
-
-```bash
-retobs compare BASELINE CANDIDATE --db .retobs/results.db --policy retobs/release-policy.yaml --format html --output artifacts/retobs-release.html --fail-on hold-or-block-or-fail
-```
-
-The verdict is one of four words. `PASS`: bounded non-inferiority under the declared policy. `HOLD`: valid but inconclusive. `BLOCK`: required evidence is missing or the two runs are not comparable (different corpus, index, or model revision). `FAIL`: a proven regression on a policy-critical metric. Paired bootstrap confidence intervals, seeded, with multiple-comparison correction. See [retrieval release decisions](docs/guides/retrieval-release-decisions.md).
-
-## Attribution you can audit
-
-Two mechanisms produce the per-stage story above, and both are inspectable in the dashboard and through the SDK.
-
-- **Candidate lineage.** Every candidate's rank and score at the input and output of every operator, recorded by the instrumentation rather than inferred afterwards. When an integration cannot supply a field, retobs reports it as unavailable instead of guessing. See the [Candidate Lineage Explorer](docs/guides/candidate-lineage-explorer.md).
-- **Counterfactual replay.** For a given operator, retobs re-executes the recorded trace without it and reports the metric delta, labelled by how trustworthy that replay is: exact, observed ablation, or not replayable. See [counterfactual replay](docs/guides/counterfactual-replay.md).
-
-## Investigate locally
+### 2. Investigate
 
 ```bash
+retobs evaluate app/search.py:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl \
+  --corpus data/corpus.jsonl --name search --db .retobs/results.db
 retobs serve --db .retobs/results.db
 ```
 
-The dashboard binds to `127.0.0.1` by default and is unauthenticated. Put it behind trusted controls before exposing it beyond loopback.
+Open `#/investigate` for the run: the executed pipeline, each query's candidates, and for each
+document its judgment, final outcome (`relevant_delivered`, `relevant_excluded`,
+`retained_below_cutoff`, `not_observed`, `judged_nonrelevant`, `unjudged`,
+`insufficient_evidence`), recorded transitions, and loss boundary. Without a browser:
 
-## What retobs records
+```bash
+retobs inspect-document RUN_ID kb:doc-guide --db .retobs/results.db
+retobs inspect-query RUN_ID QUERY_ID --db .retobs/results.db
+```
 
-Evaluation Runs with their manifests, per-query evidence, and operator traces; production traces scoped to a service and pipeline, including candidate transitions when instrumentation provides them; and instrumentation health (sampling, drops, serialization failures, export failures). A recorded field is a contract about what was observed, not a guarantee that every integration can supply it.
+Walkthrough: [investigate your pipeline](docs/guides/investigate-your-pipeline.md).
 
-## Integration support
+### 3. Audit
 
-First-class: plain Python, HTTP, FastAPI, LangChain, LlamaIndex. Supported examples with narrower guarantees: DSPy, Haystack, OpenAI Agents. See [integration support](docs/INTEGRATIONS.md).
+```bash
+retobs compare BASELINE CANDIDATE --db .retobs/results.db --policy retobs/release-policy.yaml \
+  --artifacts artifacts/ --fail-on hold-or-block-or-fail
+```
 
-## Privacy and production safety
+One release audit (`release-audit.json` and a standalone `release-audit.html`) is shared by the
+CLI, SDK, MCP, dashboard (`#/audit`), and CI. With `--fail-on hold-or-block-or-fail` the exit code
+is the decision:
 
-Queries, candidates, metadata, labels, and traces may be sensitive. Redaction runs before enqueue and persistence; queue capacity, overflow policy, and sampling are explicit configuration. Read [privacy](docs/PRIVACY.md) and [security](SECURITY.md) before production use.
+| Exit | Decision | Meaning |
+|---|---|---|
+| 0 | `PASS` | Every declared check proves non-inferiority within its tolerance. |
+| 1 | `FAIL` | A declared check proves a regression, or the failure-rate cap is exceeded. |
+| 2 | `BLOCK` | Required evidence is missing or the runs are not comparable. |
+| 3 | `HOLD` | Valid evidence, but inconclusive. |
+| 64 / 70 | none | Usage error / the comparison could not be produced. |
+
+Policies are local YAML (schema v3) with semantic selectors such as `target: final_retrieval`.
+On the demo, the packaged policy passes. See
+[retrieval release decisions](docs/guides/retrieval-release-decisions.md).
+
+## Support boundary
+
+What has been measured: the full connect, verify, evaluate, and investigate loop runs against an
+installed wheel on five fixtures: a plain Python callable, a FastAPI hybrid pipeline with a gate,
+a LangChain retriever, a LlamaIndex retriever, and a class-based multi-module hybrid pipeline. An
+agent trial on an unfamiliar repository has not been recorded yet. A pipeline observed only at
+its final output (a remote endpoint, an uninstrumented function) supports evaluation and
+delivered/missed outcomes, not loss boundaries. Details: [integration support](docs/INTEGRATIONS.md)
+and [evidence limitations](docs/guides/evidence-limitations.md).
+
+retobs is not an answer evaluator, a leaderboard, or a production monitoring system. 0.7.0
+removed synthetic test-set generation, the difficulty classifier, recommendations, counterfactual
+replay and attribution, drift and hotspot monitoring, and tradeoff views; the
+[migration guide](docs/guides/migrating-to-focused-retobs.md) lists replacements and the pinned
+0.6.0 reproduction.
+
+## Privacy
+
+Queries, candidates, metadata, judgments, and traces may be sensitive. Redaction runs before
+persistence. `retobs serve` binds to `127.0.0.1` and is unauthenticated; put it behind trusted
+controls before exposing it. Read [privacy](docs/PRIVACY.md) and [security](SECURITY.md).
 
 ## Documentation
 
-- [Start](docs/START.md)
-- [Workflow](docs/WORKFLOW.md)
-- [Concepts](docs/CONCEPTS.md)
-- [CLI, SDK, and MCP reference](docs/REFERENCE.md)
-- [Guides](docs/guides/README.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Known limitations](FUTURE_WORK.md)
+- [Start](docs/START.md) · [Workflow](docs/WORKFLOW.md) · [Concepts](docs/CONCEPTS.md) · [Reference](docs/REFERENCE.md)
+- [Guides](docs/guides/README.md) · [Architecture](docs/ARCHITECTURE.md) · [Known limitations](FUTURE_WORK.md)
+- Historical experiments (produced with 0.6.0 and earlier, not regenerated):
+  [BEIR benchmark results](results/RESULTS_OVERVIEW.md), [flagship case study](results/flagship_demo/CASE_STUDY.md)
 - [Releases](https://github.com/AmeyaKI/retrieval-observatory/releases)
 
 License: [MIT](LICENSE).

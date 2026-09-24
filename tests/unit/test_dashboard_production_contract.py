@@ -19,7 +19,7 @@ from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.store.sqlite import SQLiteStore
 from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace, TraceTiming
 
-# Optional: the hosted demo database (gitignored). RETOBS_DEMO_DB overrides the default location.
+# Optional: `retobs demo` output (gitignored). RETOBS_DEMO_DB overrides the default location.
 DEMO_DB = Path(os.environ.get("RETOBS_DEMO_DB", Path(__file__).resolve().parents[2] / ".retobs" / "demo" / "results.db"))
 
 
@@ -121,7 +121,7 @@ def test_trace_list_filters_difficulty_and_suspected(production_client: TestClie
     assert paged["total"] == 2 and len(paged["items"]) == 1 and paged["next_offset"] == 1
 
 
-@pytest.mark.skipif(not DEMO_DB.is_file(), reason="hosted demo database not present")
+@pytest.mark.skipif(not DEMO_DB.is_file(), reason="`retobs demo` output not present")
 def test_demo_database_production_contract() -> None:
     registry = DbRegistry([str(DEMO_DB)], read_only=True)
     client = TestClient(create_app(registry=registry, enable_uploads=False))

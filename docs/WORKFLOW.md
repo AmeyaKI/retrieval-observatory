@@ -1,11 +1,24 @@
-# Retrieval reliability workflow
+# Retrieval debugging workflow
 
-1. **Plan and integrate.** Review `retobs/integration-plan.json`; apply only that plan, then verify observed instrumentation and the local policy with `retobs integrate . --phase verify --policy retobs/release-policy.yaml`.
-2. **Evaluate.** Run the baseline and candidate against the same intended query, corpus, qrel, and label identities.
-3. **Compare.** `retobs compare BASELINE_RUN CANDIDATE_RUN --db .retobs/results.db --policy retobs/release-policy.yaml` returns canonical `PASS`, `HOLD`, `BLOCK`, or `FAIL`. Underpowered evidence holds; missing policy-required identity or labels block.
-4. **Inspect an affected query.** Open it from Compare to preserve the decision → guard/slice → query chain. The static Candidate Lineage Explorer shows recorded routes and explicit unknown/partial evidence before optional recorded replay.
-5. **Validate a change.** Make the smallest change supported by that evidence, rerun the same Test Set, and compare the validation Run with the candidate.
+1. **Connect.** Plan, review, re-plan, apply, run the scenarios, and verify
+   (`retobs integrate . --phase verify --db .retobs/results.db`). Verification reports eight
+   capabilities from observed traces; a `partial` capability is a stated limitation, not a
+   failure. See the [agent runbook](integrations/AGENT_QUICKSTART.md).
+2. **Evaluate.** Run the instrumented entrypoint on judged queries with `retobs evaluate`. The
+   Run records each operator's actual inputs and outputs per query and is indexed for
+   investigation when it finishes.
+3. **Investigate.** Open the Run in `#/investigate`. Start from a query with a relevant document
+   missed, select the document, and read its recorded transitions and loss boundary. Check its
+   capture labels before trusting a removal: `recorded`, `inferred`, or `unknown`. See
+   [investigate your pipeline](guides/investigate-your-pipeline.md).
+4. **Change one thing.** Make the smallest change the evidence supports and evaluate again on the
+   same queries, corpus, and judgments.
+5. **Audit.** `retobs compare BASELINE CANDIDATE --policy retobs/release-policy.yaml --artifacts artifacts/`
+   returns `PASS`, `HOLD`, `BLOCK`, or `FAIL` under the declared policy. From Audit, open each
+   changed query in Investigate with `compare=BASELINE` to see which documents were gained or
+   lost and where. See [retrieval release decisions](guides/retrieval-release-decisions.md).
 
-Production traces enrich investigation when they have a matching service/pipeline scope. They are not retrieval-quality measurements without joined ground truth.
-
-Promotion readiness and lineage readiness are separate. Document-level qrels require an explicit, complete qrel-to-chunk mapping before RetObs makes chunk-level relevance claims. See [retrieval release decisions](guides/retrieval-release-decisions.md) and [Candidate Lineage Explorer](guides/candidate-lineage-explorer.md).
+An audit's promotion readiness and its lineage readiness are separate claims: a comparison can
+support promotion while partial capture blocks lineage diagnosis. Document-level judgments score
+chunk results only through an explicit chunk map. See
+[evidence limitations](guides/evidence-limitations.md).

@@ -1,24 +1,29 @@
-# retobs Guides
+# retobs guides
 
 Start here:
 
-- **[getting-started.md](getting-started.md)** — the beginner journey: install → run →
-  debug a failure → improve → validate, in under an hour.
+- **[getting-started.md](getting-started.md)**: the demo end to end, then your own pipeline.
+- **[investigate-your-pipeline.md](investigate-your-pipeline.md)**: from a Run to a query's
+  candidates to one document's journey and loss boundary.
+- **[retrieval-release-decisions.md](retrieval-release-decisions.md)**: audit a baseline against a
+  candidate under a v3 policy, locally and in CI.
+- **[evidence-limitations.md](evidence-limitations.md)**: judgments and units, unjudged documents,
+  partial capture, skipped branches, and what an audit does and does not certify.
+- **[migrating-to-focused-retobs.md](migrating-to-focused-retobs.md)**: what 0.7.0 removed and what
+  replaces it.
 
-Production guides — each pairs the retrieval-engineering concept with how retobs diagnoses it:
+Pipeline guides:
 
-- [hybrid-retrieval.md](hybrid-retrieval.md) — combining lexical and dense arms
-- [counterfactual-replay.md](counterfactual-replay.md) — how attribution actually works
-- [candidate-lineage-explorer.md](candidate-lineage-explorer.md) — static recorded paths, outcomes, passports, and safe diffs
-- [retrieval-release-decisions.md](retrieval-release-decisions.md) — bounded local/CI promotion evidence
-- [tracelens.md](tracelens.md) — observing production retrieval
-- [manual-instrumentation.md](manual-instrumentation.md) — hand-wiring a class-based, multi-module pipeline into one trace when `retobs integrate` cannot see the whole DAG
+- [manual-instrumentation.md](manual-instrumentation.md): hand-wiring a class-based, multi-module
+  pipeline into one trace when `retobs integrate` cannot see the whole DAG.
+- [hybrid-retrieval.md](hybrid-retrieval.md): lexical and dense lanes, fused.
+- [experimental/](experimental/README.md): pipeline-pattern guides (reranking, parallel lanes,
+  gates, auto-instrumentation) and the subsystems retired in 0.7.0 with the pinned release that
+  reproduces them.
 
-Experimental guides live in [experimental/](experimental/README.md): pipeline patterns whose
-guides have not been re-verified against the current build, and the subsystems retired in 0.7.0
-with the pinned release that reproduces them.
+Retired pages kept so old links resolve: [candidate-lineage-explorer.md](candidate-lineage-explorer.md)
+(now Investigate), [counterfactual-replay.md](counterfactual-replay.md), and
+[tracelens.md](tracelens.md).
 
-For the full CLI/config reference see [../USAGE.md](../USAGE.md) and
-[../YAML_GUIDE.md](../YAML_GUIDE.md).
-
-For the current task-oriented entry points, start with [Start](../START.md), [Workflow](../WORKFLOW.md), and [Reference](../REFERENCE.md). Guides that retain Test Sets, Production, or Findings in their filename describe the corresponding Test Sets, Production, or embedded Findings engine; those names are no longer peer products in navigation.
+For the CLI, SDK, and MCP reference see [../REFERENCE.md](../REFERENCE.md); for advanced YAML
+pipelines see [../YAML_GUIDE.md](../YAML_GUIDE.md).

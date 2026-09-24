@@ -10,6 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 HEADING = re.compile(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$")
 SKIP_PARTS = {".git", ".venv", "node_modules", ".archive", "superpowers", "verification", "retobs_audit_remediation"}
+# Local-only files (gitignored) checked when present, skipped silently otherwise.
+OPTIONAL = ("RETOBS_MASTER_PLAN.md",)
+# Pages other surfaces link to by path (the dashboard's migration notice, the README).
+REQUIRED = (
+    "docs/guides/investigate-your-pipeline.md",
+    "docs/guides/evidence-limitations.md",
+    "docs/guides/migrating-to-focused-retobs.md",
+)
 
 
 def markdown_files() -> list[Path]:
@@ -18,11 +26,13 @@ def markdown_files() -> list[Path]:
         ROOT / "CONTRIBUTING.md",
         ROOT / "SECURITY.md",
         ROOT / "CODE_OF_CONDUCT.md",
+        *(ROOT / name for name in OPTIONAL),
+        *(ROOT / name for name in REQUIRED),
     ]
-    roots.extend((ROOT / "docs").rglob("*.md"))
+    roots.extend((ROOT / "docs").rglob("*.md"))  # includes docs/rebuild/*.md
     roots.extend((ROOT / "examples").rglob("*.md"))
     roots.extend((ROOT / "results").rglob("*.md"))
-    return sorted(path for path in roots if path.is_file() and not SKIP_PARTS.intersection(path.parts))
+    return sorted({path for path in roots if path.is_file() and not SKIP_PARTS.intersection(path.parts)})
 
 
 def local_target(source: Path, raw: str) -> tuple[Path | None, str | None]:
@@ -50,7 +60,7 @@ def heading_ids(path: Path) -> set[str]:
 
 
 def main() -> int:
-    failures: list[str] = []
+    failures: list[str] = [f"{name}: required page is missing" for name in REQUIRED if not (ROOT / name).is_file()]
     anchors: dict[Path, set[str]] = {}
     for source in markdown_files():
         for line_number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):

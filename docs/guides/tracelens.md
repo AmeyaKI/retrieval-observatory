@@ -1,40 +1,15 @@
-# Production — observing retrieval traces
+# Production trace views (retired)
 
-`tracelens` is the internal package and deprecated CLI alias. The public task is `retobs production` and the dashboard page is Production.
+The Production workspace, the `retobs production` subcommands, and the monitoring views built on
+production traces (hotspots, drift, clusters, distributions, test-set origin lookup) were retired
+in 0.7.0.
 
-Runs show how your pipeline behaves on a fixed evaluation set. Production shows how it is
-behaving on real traffic and links those observations back to the same query debugger.
+Traces your application records with `@trace_scope`, a framework callback, or `push_traces` are
+still stored. To see where relevant documents were lost, evaluate the instrumented entrypoint on
+judged queries and open the Run in Investigate: see
+[investigate your pipeline](investigate-your-pipeline.md). Integration verification is described
+in the [agent runbook](../integrations/AGENT_QUICKSTART.md).
 
-## How it works
-
-Your production pipeline emits `RetrievalTrace` records via a framework adapter (LangChain,
-LlamaIndex, FastAPI, or the raw `@observe` SDK — see
-[../../retrieval_observatory/integrations/registry.py] and `describe_integration`). Each trace
-is the same operator-DAG structure as an evaluation Run, so every retobs view works on
-production data too.
-
-## What you get
-
-- **Hotspots** — clusters of production queries sharing a failure pattern.
-- **Query lineage** — a production query matched back to its Test Set origin and evaluation
-  results, so a live failure is debugged with the full history.
-- **Findings correlation** — production hotspots become evidence-scoped findings when a live
-  failure pattern matches an evaluation diagnostic.
-
-## Verifying the integration
-
-After applying an integration plan, verify observed evidence:
-
-```bash
-retobs integrate . --phase verify --plan retobs/integration-plan.json
-```
-
-Verify checks observed topology, candidate evidence, and telemetry health so you know
-instrumentation is healthy *before* you rely on the data (`verify_integration` in
-`retrieval_observatory/integrations/verify.py`).
-
-## Monitoring as the end of the loop
-
-Production is the final step of the retobs workflow: evaluate → understand → debug → improve →
-validate → **monitor**. Production traces close the loop by showing whether a fix validated
-offline is also behaving as expected on live traffic.
+What changed and what replaces it: [migrating to focused retobs](migrating-to-focused-retobs.md).
+To reproduce the retired views, pin `retrieval-observatory==0.6.0` (repository revision
+`29c67b8`).

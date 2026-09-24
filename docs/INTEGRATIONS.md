@@ -15,6 +15,10 @@ Support levels are release claims. The first-class and supported-example paths b
 
 A first-class path has detection, an exact patch plan, apply, verification, a real framework wheel-only CI fixture, an owner, a tested version boundary, and documented limits. A supported example has a maintained example only; it does not promise project detection or framework-specific patching.
 
+**Plain Python first.** `@observe` on each operator and `@trace_scope` on the entrypoint record every operator's actual arguments and returned candidates, which is what loss boundaries need. The framework paths build on the same trace: FastAPI requests run under `instrument_fastapi`, and LangChain and LlamaIndex callbacks add spans whose inputs are labeled `inferred` (the callback sees the framework's view, not the function's arguments). Decorated functions called inside those framework traces join them. A path observed only at its final output (HTTP, an uninstrumented function) supports evaluation and delivered/missed outcomes but no internal transitions; see [evidence limitations](guides/evidence-limitations.md#final-output-only-integrations).
+
+**Measured boundary.** Plan, review, re-plan, apply, scenario runs, and verification with all eight capabilities `ready` are exercised against an installed wheel on five fixtures: plain Python, FastAPI with a gate, LangChain, LlamaIndex, and a class-based multi-module hybrid pipeline. No agent trial on an unfamiliar repository has been recorded yet.
+
 ```bash
 retobs integrate . --phase plan --output retobs/integration-plan.json
 retobs integrate . --phase plan --plan retobs/integration-plan.json --output retobs/integration-plan.json   # re-plan from the reviewed file

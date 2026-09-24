@@ -307,7 +307,7 @@ describe('MigrationNotice', () => {
     expect(html).toContain(RETIRED_MESSAGES.home)
     expect(html).toContain('href="#/investigate?db=main"')
     expect(html).toContain('Open Investigate')
-    expect(html).toContain('href="docs/guides/migrating-to-focused-retobs.md"')
+    expect(html).toContain('href="https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/guides/migrating-to-focused-retobs.md"')
     expect(html).toContain('Learn more')
   })
 })

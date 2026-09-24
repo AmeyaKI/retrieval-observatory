@@ -8,7 +8,6 @@ from collections import OrderedDict, defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
-from urllib.parse import quote
 
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.comparison import (
@@ -499,7 +498,7 @@ async def _build_comparison(
     query_diffs = await _query_diffs(selections, registry, all_metric_keys) if validity.decision_allowed else None
     release_decision = audit = None
     if len(selections) == 2:
-        from retrieval_observatory.release.audit import build_release_audit
+        from retrieval_observatory.release.audit import build_release_audit, investigate_link as _investigate_link
         from retrieval_observatory.release.policy import load_release_policy
 
         (baseline_db_id, baseline_run_id), (candidate_db_id, candidate_run_id) = selections
@@ -518,17 +517,11 @@ async def _build_comparison(
             **(report.comparison or {})["release_decision"],
             "investigation": {
                 "affected_query_ids": affected_query_ids,
-                "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
-                "diff_route_template": (
-                    f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
-                    f"{quote(str(baseline_run_id), safe='')}"
-                    f"&against_db={quote(str(baseline_db_id), safe='')}"
-                    + (
-                        f"&policy_path={quote(policy_path, safe='')}"
-                        if policy_path
-                        else ""
-                    )
-                ),
+                "query_route_template": _investigate_link(db_id=candidate_db_id, run_id=candidate_run_id, pipeline_id=None, query_id="{query_id}", compare="").replace("%7Bquery_id%7D", "{query_id}"),
+                # Investigate compares runs of one database; a baseline from another database is named
+                # so the link stays honest about what it cannot yet show.
+                "diff_route_template": _investigate_link(db_id=candidate_db_id, run_id=candidate_run_id, pipeline_id=None, query_id="{query_id}", compare=baseline_run_id).replace("%7Bquery_id%7D", "{query_id}")
+                + (f"&compare_db={baseline_db_id}" if baseline_db_id != candidate_db_id else ""),
             },
         }
 

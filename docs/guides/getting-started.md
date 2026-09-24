@@ -1,15 +1,9 @@
-# Getting Started — from install to a fixed pipeline in under an hour
+# Getting started
 
-This is the beginner journey. It follows the way engineers actually debug retrieval:
-**run → understand → find the failure → locate the stage → improve → validate.** By the
-end you will have run a benchmark, read the dashboard, debugged a failing query down to the
-responsible operator, applied a fix, and confirmed it helped.
+This walkthrough runs the whole retobs loop on deterministic demo data in about ten minutes, then
+points it at your own pipeline. No API keys, models, or network access are needed for the demo.
 
-No API keys are required for the walkthrough.
-
----
-
-## 1. Install and run (5 minutes)
+## 1. Run the demo
 
 ```bash
 pip install "retrieval-observatory[dashboard]"
@@ -17,100 +11,81 @@ retobs demo
 retobs serve --db .retobs/demo/results.db
 ```
 
-`retobs demo` evaluates a deterministic hybrid pipeline twice, with no models or network:
-a baseline whose recency filter loses a relevant document, and a validation run with the
-filter repaired. It prints the `retobs compare` and `retobs inspect-document` commands to run
-next; `retobs serve` opens the dashboard at `http://localhost:4000`.
+`retobs demo` evaluates a small hybrid pipeline (dense and lexical lanes, a recency filter,
+rerankers, RRF fusion, a gated expansion, a context selector) on three judged queries, twice: a
+baseline whose recency filter uses `min_score: 0.85`, and a validation run with it repaired to
+`0.30`. It writes `.retobs/demo/demo_manifest.json` with both run IDs and copies the release
+policy next to it, then prints the exact `compare`, `inspect-document`, and `inspect-query`
+commands for this invocation. Run IDs change on every invocation; below they are `BASELINE` and
+`VALIDATION`.
 
-The newest run loads automatically on the Runs page — you should not need to
-refresh and click before Overview appears.
+`retobs serve` opens the dashboard at `http://127.0.0.1:4000` on Investigate; pick a run in the
+scope bar at the top.
 
-### Longer multi-stage demo (<10 minutes)
+## 2. Find the lost document
 
-For candidate-flow diagnosis you need a pipeline that actually filters documents
-(single-stage BM25 alone is a weak showcase). Prefer the SciFact hybrid smoke:
+In Investigate, choose the `golden-demo-baseline` run. The diagram shows the nine operators
+that ran, with how many queries each served (`expand` served 1 of 3: the gate skipped it for the
+other two). In the queries table, `q-outage` ("why is the site down") has one relevant document
+missed.
+
+Select `q-outage`, then `kb:doc-guide`. Its journey is two events: introduced by `lexical` at rank
+1, removed by `recency_filter` with the recorded reason `min_score`. The dense lane never found it,
+so that removal is its loss boundary. The same answer from the command line:
 
 ```bash
-pip install -e ".[dense,dashboard]"
-# SciFact + max_queries:50 — typically a few minutes; first dense index is the slow part
+retobs inspect-document BASELINE kb:doc-guide --db .retobs/demo/results.db
+```
+
+The table also shows what else was delivered for `q-outage`: `kb:doc-faq`, judged nonrelevant,
+and `kb:doc-news`, which has no judgment and is shown as `unjudged` rather than as a miss.
+[Investigate your pipeline](investigate-your-pipeline.md) explains every column.
+
+## 3. Audit the fix
+
+```bash
+retobs compare BASELINE VALIDATION --db .retobs/demo/results.db \
+  --policy .retobs/demo/release-policy-golden-v3.yaml --artifacts artifacts/demo-audit \
+  --fail-on hold-or-block-or-fail
+echo $?    # 0: PASS
+```
+
+In the dashboard, open Audit, choose the two runs, and apply the same policy path. The decision is
+`PASS`: final recall@3 improves by +0.33 over three paired queries and no query failed. Lineage
+diagnosis is reported as blocked in the same audit, because the demo deliberately truncates one
+operator's recorded output; promotion does not depend on it. See
+[retrieval release decisions](retrieval-release-decisions.md).
+
+To see what changed per document, open the validation run in Investigate with
+`compare=BASELINE` on `q-outage`: `kb:doc-guide` is `Gained`, from excluded at `recency_filter` to
+included at rank 2.
+
+## 4. Your own pipeline
+
+1. Connect it: ask your coding agent to follow the [agent runbook](../integrations/AGENT_QUICKSTART.md),
+   or instrument it by hand with the [manual instrumentation guide](manual-instrumentation.md).
+2. Evaluate it on judged queries:
+
+   ```bash
+   retobs evaluate app/search.py:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl \
+     --corpus data/corpus.jsonl --name search --db .retobs/results.db
+   retobs serve --db .retobs/results.db
+   ```
+
+3. Investigate a query with a missed relevant document, change the smallest thing the evidence
+   supports, evaluate again on the same queries and judgments, and audit the two runs.
+
+For a larger multi-stage example on a public dataset (downloads an embedding model on first run):
+
+```bash
+pip install "retrieval-observatory[dense,dashboard]"
 retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_scifact.yaml
 retobs serve --db .retobs/hybrid_scifact_demo.db
 ```
 
-**Public CLI reminder:** use `retobs evaluate --config …` (not `retobs run`, which is removed).
-Other common commands: `retobs demo`, `retobs serve --db …`, `retobs compare`,
-`retobs inspect-query`, `retobs inspect-document`.
-
-**60-second click path after serve:** Runs (auto-selected) → Architecture (DAG boxes readable) →
-Queries → open a low-recall query → click an FN row → **Play** on the stage flowchart →
-Production tab (services/summary load as JSON, not HTML errors).
-
-## 2. Understand overall performance (the Overview)
-
-The dashboard opens on the run overview. Read it top-down — it is designed so the most
-important conclusion is first:
-
-- **Headline quality** (recall@k, nDCG@k) and **latency** for each pipeline.
-- **Biggest failures** — the queries dragging your score down.
-- **Recommended next steps** — evidence-scoped findings (experimental; see
-  [experimental/advisor.md](experimental/advisor.md)).
-- **Evidence health** — dataset fingerprint, seed, sample size, and validation warnings.
-
-You should not need to open another page to know whether the run is good.
-
-## 3. Find a failing query
-
-From the overview, open **Queries**. The list leads with **query text** (not opaque IDs).
-Filter to failures (toggle *Mismatches only*, or search). Pick a query with a weak
-outcome — one where a relevant chunk did not make the final top-k.
-
-## 4. Locate the responsible stage (candidate flow)
-
-This is the core debugging move. Open a failing query. The page leads with diagnosis:
-
-1. A **stage flowchart** at the top animates how a selected chunk moves through each
-   operator (introduced → passed → dropped/survived). Use **Play** / Prev / Next.
-2. Below it, an **expected vs retrieved** table labels every seen candidate as
-   **TP / FP / FN / TN** (seen-candidate universe — not corpus-wide negatives). Rows show
-   chunk preview, pipeline, where it was lost, and why. Click a row to drive the flowchart.
-
-If the drop reason was not explicitly recorded, the UI marks it as *inferred* — retobs never
-fabricates an explanation. Replay assumptions for the dropping operator remain inspectable
-under the table.
-
-Deep-link a specific document with
-`#/runs/<run>/queries/<query>/candidates/<doc_id>`.
-
-## 5. Confirm the cause (attribution)
-
-Open **Per-stage attribution**. Each operator's contribution is shown with a confidence
-interval, a significance verdict (BH-corrected), and honest *low-power* / *not replayable*
-states. If the reranker that dropped your document shows a significant negative contribution,
-you have found the culprit — with evidence.
-
-## 6. Improve and validate
-
-Apply the evidence-backed recommendation (for example, swap or tune the reranker, increase
-first-stage `k`, or add a dense arm — see [hybrid-retrieval.md](hybrid-retrieval.md)). Then
-run again:
-
-```bash
-retobs evaluate --config your-config.yaml
-```
-
-Open **Compare**, select the baseline and candidate runs, and read the diff. The **validity
-banner** at the top warns you if the two runs are not actually comparable (different dataset
-content, seed, code version). If they are comparable, confirm the failing query recovered and
-that overall quality improved without a latency regression you can't afford.
-
-That is the full loop. Everything else in retobs is a deeper version of one of these steps.
-
----
-
 ## Where to go next
 
-- [hybrid-retrieval.md](hybrid-retrieval.md) — combine lexical + dense retrieval
-- [multi-stage-reranking.md](experimental/multi-stage-reranking.md) — reranking without dropping recall (experimental guide)
-- [counterfactual-replay.md](counterfactual-replay.md) — how attribution actually works
-- [candidate-lineage-explorer.md](candidate-lineage-explorer.md) — per-query candidate paths and outcomes
-- [conditional-pipelines.md](experimental/conditional-pipelines.md) — gated / routed pipelines (experimental guide)
+- [evidence-limitations.md](evidence-limitations.md): what each outcome and each audit status can claim
+- [hybrid-retrieval.md](hybrid-retrieval.md): lexical and dense lanes
+- [multi-stage-reranking.md](experimental/multi-stage-reranking.md): reranking without losing recall
+- [conditional-pipelines.md](experimental/conditional-pipelines.md): gated and routed pipelines

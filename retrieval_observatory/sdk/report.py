@@ -438,7 +438,7 @@ def build_run_report(
         },
         next_action=next_action,
         reproduce=f"retobs report {run_id} --db {db_path}",
-        dashboard_url=f"http://127.0.0.1:4000/#/runs/{run_id}/overview",
+        dashboard_url=f"http://127.0.0.1:4000/#/investigate?run={run_id}",
     )
 
 
@@ -592,7 +592,7 @@ class BenchmarkReport:
 
         app = create_app(registry=DbRegistry([self.db_path]))
         display_host = "localhost" if host in ("0.0.0.0", "::") else host
-        print(f"Dashboard: http://{display_host}:{port}/#/runs/{self.run_id}/overview")
+        print(f"Dashboard: http://{display_host}:{port}/#/investigate?run={self.run_id}")
         uvicorn.run(app, host=host, port=port)
 
     def assert_no_regression(

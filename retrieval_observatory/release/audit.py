@@ -116,6 +116,16 @@ def _with_resolution_findings(assessment: EvidenceAssessment, findings: tuple[Di
     return assessment.model_copy(update={"readiness": readiness})
 
 
+def investigation_pipeline_hint(metric_key: str | None) -> str | None:
+    """The pipeline a metric key belongs to, for links; None when no metric was selected."""
+    from retrieval_observatory.metrics.comparison import parse_metric_key
+
+    try:
+        return parse_metric_key(metric_key)[0] if metric_key else None
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 def investigate_link(*, db_id: str | None, run_id: str, pipeline_id: str | None, query_id: str, compare: str) -> str:
     """The dashboard's Investigate link (``investigateLink`` in ``focusedRoutes.ts``), encoded alike."""
     pairs = [("db", db_id), ("run", run_id), ("pipeline", pipeline_id), ("view", "queries"), ("query", query_id), ("compare", compare)]
@@ -232,7 +242,15 @@ async def build_release_audit(
     regressions = [result for result in results.values() if result.decision == "candidate_worse"]
     improvements = [result for result in results.values() if result.decision == "candidate_better"]
 
-    selected = (regressions or improvements or list(results.values()))[:1]
+    # The decision metric: the policy's first check at the candidate's key when a policy resolved
+    # (so the changed queries are the ones the decision was made on), else the first paired
+    # regression, improvement, or metric.
+    policy_keys = [
+        key for guard in decision.aggregate_guards
+        for key in [getattr(guard, "metric_key_by_run", {}).get(candidate_run_id) if hasattr(guard, "metric_key_by_run") else guard.metric]
+        if key and key in results
+    ]
+    selected = [results[policy_keys[0]]] if policy_keys else (regressions or improvements or list(results.values()))[:1]
     affected_queries: list[Dict[str, Any]] = []
     query_diff_metric = None
     if validity.decision_allowed and selected:
@@ -241,18 +259,13 @@ async def build_release_audit(
         baseline_scores = _scores_for(baseline_rows, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
         candidate_scores = _scores_for(candidate_rows, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
         for query_id in set(baseline_scores) & set(candidate_scores):
-            encoded_query_id = quote(str(query_id), safe="")
-            encoded_baseline = quote(str(baseline_run_id), safe="")
-            encoded_candidate = quote(str(candidate_run_id), safe="")
             affected_queries.append({
                 "query_id": query_id,
                 "baseline": baseline_scores[query_id],
                 "candidate": candidate_scores[query_id],
                 "delta": candidate_scores[query_id] - baseline_scores[query_id],
-                "investigation_route": f"#/runs/{encoded_candidate}/queries/{encoded_query_id}",
-                "diff_route": (
-                    f"#/runs/{encoded_candidate}/queries/{encoded_query_id}/diff?against={encoded_baseline}"
-                ),
+                "investigation_route": investigate_link(db_id=candidate_db_id, run_id=candidate_run_id, pipeline_id=pipeline_id, query_id=str(query_id), compare=""),
+                "diff_route": investigate_link(db_id=candidate_db_id, run_id=candidate_run_id, pipeline_id=pipeline_id, query_id=str(query_id), compare=baseline_run_id),
             })
         affected_queries.sort(key=lambda row: (-abs(row["delta"]), str(row["query_id"])))
         affected_queries = affected_queries[:20]
@@ -266,16 +279,8 @@ async def build_release_audit(
         "policy_resolution": resolution.to_dict() if resolution is not None else None,
         "investigation": {
             "affected_query_ids": [row["query_id"] for row in affected_queries],
-            "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
-            "diff_route_template": (
-                f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
-                f"{quote(str(baseline_run_id), safe='')}"
-                + (
-                    f"&policy_path={quote(policy_source, safe='')}"
-                    if policy_source
-                    else ""
-                )
-            ),
+            "query_route_template": investigate_link(db_id=candidate_db_id, run_id=candidate_run_id, pipeline_id=investigation_pipeline_hint(query_diff_metric), query_id="{query_id}", compare="").replace("%7Bquery_id%7D", "{query_id}"),
+            "diff_route_template": investigate_link(db_id=candidate_db_id, run_id=candidate_run_id, pipeline_id=investigation_pipeline_hint(query_diff_metric), query_id="{query_id}", compare=baseline_run_id).replace("%7Bquery_id%7D", "{query_id}"),
         },
     }
     if conversion is not None:
@@ -389,6 +394,7 @@ async def build_release_audit(
                     ),
                 }
                 for row in affected_queries
+                if row["delta"] != 0
             ],
             "dashboard_base_url": DASHBOARD_BASE_URL,
             "requires_local_dashboard": True,
@@ -414,7 +420,7 @@ async def build_release_audit(
         reproduce=(
             f"retobs compare {baseline_run_id} {candidate_run_id} --db {db_path or '<db-path>'}{policy_argument}"
         ),
-        dashboard_url=f"{DASHBOARD_BASE_URL}/#/compare",
+        dashboard_url=f"{DASHBOARD_BASE_URL}/#/audit?baseline={quote(str(baseline_run_id), safe='')}&candidate={quote(str(candidate_run_id), safe='')}",
         comparison={
             "baseline_run_id": baseline_run_id,
             "candidate_run_id": candidate_run_id,

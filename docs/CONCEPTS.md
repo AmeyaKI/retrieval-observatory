@@ -1,35 +1,60 @@
 # Concepts
 
-## Run and query evidence
+## Run
 
-A Run is a persisted evaluation with manifest identity, queries, labels, metrics, and complete or partial traces. `query_id` links a scoped query to its Run; it does not justify joining unrelated databases, services, or time windows. `QueryEvidence` is the scoped document CLI, SDK, MCP, and the dashboard render for one `(db, run, query)`.
+A Run is one persisted evaluation: a manifest (query input identity, corpus, judgments and their
+digest, evaluation unit and `k`, release identity from `--provenance`), per-query metrics, and one
+trace per query and pipeline. `query_id` links a query to its Run; it never justifies joining
+unrelated databases or services.
 
-## Operators and candidates
+## Operators, invocations, and traces
 
-An observed retrieval pipeline is a DAG of typed operators. Candidate origins and transitions record what an integration emitted; missing inputs, outputs, or branches remain unavailable rather than reconstructed from a diagram. Trace envelopes use `schema_version=1`; candidate lineage fields use an independent lineage schema version.
+An instrumented pipeline is a DAG of typed operators (`SOURCE`, `FILTER`, `RERANK`, `FUSE`,
+`GATE`, `EXPAND`, `TRANSFORM`, `BOOST`, `GENERATE`). Each execution of an operator is an
+invocation with its own id; repeated calls of one operator (a reranker used on two lanes) are
+invocations of one stable `operator_id`, not separate stages. Each invocation records its actual
+inputs and outputs and says how they were captured (`recorded`, `positional`, `inferred`,
+`truncated`, `unavailable`). A gated operator that did not run is `SKIPPED_BY_GATE`.
+
+## Judgments and entities
+
+A judgment grades one entity for one query. Entities are namespaced (`kb:doc-guide`) at a unit
+(`document` or `chunk`). A missing judgment is `unjudged`, never nonrelevant. Chunk results are
+scored against document judgments only through an explicit chunk map. See
+[evidence limitations](guides/evidence-limitations.md).
+
+## Journeys and outcomes
+
+A journey is one entity's ordered events through one query's trace (`introduced`, `retained`,
+`promoted`, `demoted`, `removed`, `recovered`, `transformed`, `unknown`), each labeled recorded or
+inferred. Its outcome at the evaluated boundary is one of `relevant_delivered`,
+`relevant_excluded`, `retained_below_cutoff`, `not_observed`, `judged_nonrelevant`, `unjudged`,
+or `insufficient_evidence`. The loss boundary is the last recorded removal on the path to that
+boundary. Journeys are stored as investigation rows (schema v3) so the dashboard, CLI, SDK, and
+MCP read the same answer. See [investigate your pipeline](guides/investigate-your-pipeline.md).
 
 ## Integration readiness
 
-An integration plan declares operators, candidate mappings, and verification scenarios. `retobs integrate --phase verify` reports `ready`, `partially_instrumented`, or `failed` from observed topology, candidate, and telemetry evidence. Declared instrumentation without observation is not ready.
+An integration plan declares operators, input and output mappings, the final boundary, identity,
+judgments, and scenarios. Verification reports eight capabilities as `ready`, `partial`, or
+`unavailable` from observed traces, and persists an integration record that Connect shows.
+Declared instrumentation without observation is not ready.
 
-## Comparison, release decisions, and production evidence
+## Release audit
 
-Comparison requires compatible query, corpus, qrel, and labeling identity. With a local release policy, `retobs compare` returns one of `PASS`, `HOLD`, `BLOCK`, or `FAIL` under that policy's budgets and slices. Without a policy, comparison fields remain available but the release decision is `HOLD`.
-
-Promotion readiness and lineage-diagnosis readiness are separate claim scopes. Document-level qrels require an explicit, complete qrel-to-chunk mapping before retobs makes chunk-level relevance claims. Production trace summaries report sampled operational evidence; without ground-truth linkage they are not recall, ranking quality, or causal proof.
-
-## Candidate lineage
-
-Candidate lineage is a static, evidence-aware view of recorded routes, exits, ranks/scores when present, and operational outcomes. A candidate passport aggregates that evidence for one identity. Baseline/candidate lineage diffs align only when query, document revision, and topology evidence agree—or when the policy declares exact one-to-one equivalent stages. Otherwise retobs keeps side-by-side recorded paths and blocks the diff claim.
-
-## Findings
-
-Findings are embedded inside Runs, Compare, and Queries; they are planning aids over recorded diagnostics, not a separate product surface. Synthetic test-set generation was removed in 0.7.0; see [retired subsystems](guides/experimental/README.md).
+`retobs compare` with a local v3 policy produces one `audit-1` release audit: compatibility of
+the two Runs, each declared check with its paired interval and tolerance, slices, the failure-rate
+cap, and changed queries linked into Investigate. The decision is `PASS`, `HOLD`, `BLOCK`, or
+`FAIL`, with `BLOCK` > `FAIL` > `HOLD` > `PASS` precedence. Without a policy the decision is
+`HOLD`. See [retrieval release decisions](guides/retrieval-release-decisions.md).
 
 ## Instrumentation health
 
-Telemetry health reports accepted/exported traces, sampling, queue drops, serialization failures, retries, and permanent export failures. It explains capture limits without changing application responses.
+Telemetry health reports accepted and exported traces, sampling, queue drops, serialization
+failures, retries, and permanent export failures. It explains capture limits without changing
+application responses.
 
 ## Evidence classes
 
-Use [evidence and trust](EVIDENCE_AND_TRUST.md) for `measured`, `statistical`, `replayed`, `heuristic`, `inferred`, and `unavailable` semantics, latency definitions, and replay limits.
+See [evidence and trust](EVIDENCE_AND_TRUST.md) for the `measured`, `statistical`, `heuristic`,
+`inferred`, and `unavailable` labels and for latency definitions.

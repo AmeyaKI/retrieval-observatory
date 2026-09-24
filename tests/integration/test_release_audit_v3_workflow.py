@@ -197,7 +197,7 @@ def test_dashboard_no_longer_uses_v2_evaluators_for_v3_policies(seeded):
     assert guard["resolution_status"] == "resolved"
     assert decision["operational"] is not None
     assert decision["policy"]["id"] == "audit-workflow-v3"
-    assert "against_db=" in decision["investigation"]["diff_route_template"]
+    assert decision["investigation"]["diff_route_template"].startswith("#/investigate?db=") and "compare=" in decision["investigation"]["diff_route_template"]
 
 
 def test_baseline_is_explicit(monkeypatch, seeded):

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Generate publication dashboard screenshots from publish SQLite DBs.
+"""Generate the historical benchmark figures from the publish SQLite DBs.
 
-Writes PNGs to results/screenshots/ (embedded in BENCHMARK_ANALYSIS.md and README).
+Writes the stage-contribution and recall-funnel PNGs to results/screenshots/ (embedded in
+results/BENCHMARK_ANALYSIS.md). The README's dashboard screenshots come from
+scripts/generate_demo_assets.py instead.
 """
 from __future__ import annotations
 

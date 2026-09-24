@@ -34,6 +34,7 @@
     "CHANGELOG.md",
     "docs/PRODUCT_AUDIT_AND_REDESIGN.md",
     "docs/guides/experimental/README.md",
+    "docs/guides/migrating-to-focused-retobs.md",
     "docs/rebuild",
     "docs/superpowers",
     "docs/verification",
