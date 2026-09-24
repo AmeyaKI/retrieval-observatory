@@ -1,0 +1,37 @@
+# Release policy (schema 3) for the CI example: `retobs demo` baseline vs its validated fix.
+# One final-retrieval recall check; `release-policy-v3.yaml` shows latency and slice checks.
+schema_version: 3
+id: retrieval-release-demo-v3
+
+# The demo runs evaluate documents at k=20 on one fixed corpus.
+evaluation:
+  unit: document
+  boundary: final_retrieval
+  k: 20
+  relevance_threshold: 1
+  unjudged_metric_policy: zero_gain
+  comparison_scope: fixed_corpus
+
+# The change under test; any other recorded difference HOLDs until declared or investigated.
+intervention:
+  expected_changes: []
+
+# Seeded paired bootstrap; resamples must satisfy resamples * (1 - adjusted confidence) / 2 >= 20.
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 4000
+  seed: 17
+  min_pair_coverage: 1.0
+
+metrics:
+  - id: final-recall
+    metric: recall
+    target: final_retrieval
+    direction: higher_is_better
+    max_regression: 0.02
+    min_paired_n: 20
+
+# Known execution failures above this share are an operational FAIL, not a quality claim.
+execution:
+  max_failure_rate: 0.0

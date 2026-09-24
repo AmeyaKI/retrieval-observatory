@@ -405,11 +405,17 @@ def compare(
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the comparison artifact."),
     policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML path."),
     fail_on: str = typer.Option("never", "--fail-on", help="never|fail|hold-or-block-or-fail"),
+    artifacts: Optional[Path] = typer.Option(
+        None, "--artifacts", help="Directory for release-audit.json and release-audit.html."
+    ),
 ) -> None:
-    """Compare an explicit baseline and candidate through the canonical validity/statistics contract."""
-    report = asyncio.run(
-        _compare(run_id_1, run_id_2, db_path, format=format, output=output, policy=policy)
-    )
+    """Compare an explicit baseline and candidate through the canonical validity/statistics contract.
+
+    Exit status: 0 PASS (or not gated), 1 FAIL, 2 BLOCK, 3 HOLD when --fail-on selects the
+    decision; 64 invalid usage; 70 the comparison could not be produced (no decision).
+    """
+    from retrieval_observatory.release.audit import EXIT_CODES, render_audit_html
+
     aliases = {
         "regression": "fail",
         "regression-or-no-decision": "hold-or-block-or-fail",
@@ -423,11 +429,22 @@ def compare(
     allowed = {"never", "fail", "hold-or-block-or-fail"}
     if fail_on not in allowed:
         console.print(f"[red]--fail-on must be one of: {', '.join(sorted(allowed))}.[/red]")
-        raise typer.Exit(2)
-    if fail_on == "fail" and report.verdict == "FAIL":
-        raise typer.Exit(1)
-    if fail_on == "hold-or-block-or-fail" and report.verdict in {"HOLD", "BLOCK", "FAIL"}:
-        raise typer.Exit(1)
+        raise typer.Exit(64)
+    report = asyncio.run(
+        _compare(run_id_1, run_id_2, db_path, format=format, output=output, policy=policy)
+    )
+    if artifacts is not None:
+        artifacts.mkdir(parents=True, exist_ok=True)
+        audit = report.audit or {}
+        json_path = artifacts / "release-audit.json"
+        html_path = artifacts / "release-audit.html"
+        json_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        html_path.write_text(render_audit_html(audit), encoding="utf-8")
+        console.print(f"[green]Audit:[/green] {json_path.resolve()}")
+        console.print(f"[green]Audit:[/green] {html_path.resolve()}")
+    gated = {"never": set(), "fail": {"FAIL"}, "hold-or-block-or-fail": {"HOLD", "BLOCK", "FAIL"}}[fail_on]
+    if report.verdict in gated:
+        raise typer.Exit(EXIT_CODES[report.verdict])
 
 
 async def _compare(
@@ -441,12 +458,15 @@ async def _compare(
 ):
     from retrieval_observatory.sdk.report import load_comparison_report
 
+    selected = format.lower()
+    if selected not in {"terminal", "json", "markdown", "md", "html"}:
+        console.print("[red]--format must be terminal, json, markdown, or html.[/red]")
+        raise typer.Exit(64)
     try:
         report = await load_comparison_report(run_id_1, run_id_2, db_path, policy=policy)
     except Exception as error:
         console.print(f"[red]Comparison failed:[/red] {error}")
-        raise typer.Exit(1)
-    selected = format.lower()
+        raise typer.Exit(70)
     renderers = {
         "terminal": report.to_markdown,
         "json": report.to_json,
@@ -454,9 +474,6 @@ async def _compare(
         "md": report.to_markdown,
         "html": report.to_html,
     }
-    if selected not in renderers:
-        console.print("[red]--format must be terminal, json, markdown, or html.[/red]")
-        raise typer.Exit(2)
     if output:
         report.write(output, format="md" if selected == "terminal" else selected)
         console.print(f"[green]Report:[/green] {output.resolve()}")

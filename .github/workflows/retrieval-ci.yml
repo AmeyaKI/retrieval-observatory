@@ -39,25 +39,34 @@ jobs:
           echo "BASELINE=$BASELINE" >> "$GITHUB_ENV"
           echo "CANDIDATE=$CANDIDATE" >> "$GITHUB_ENV"
       - name: Compare baseline with validated change
+        id: compare
         run: |
           mkdir -p artifacts
           WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
           WHEEL_DIGEST=$(shasum -a 256 "$WHEEL" | awk '{print $1}')
-          printf 'Wheel SHA-256: `%s`\n\n' "$WHEEL_DIGEST" > artifacts/comparison.md
-          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format markdown --fail-on regression >> artifacts/comparison.md
-          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --format html --output artifacts/comparison.html --fail-on regression
-          WHEEL_DIGEST="$WHEEL_DIGEST" /tmp/retobs-retrieval-ci/bin/python - <<'PY'
-          import os
-          from pathlib import Path
-
-          path = Path("artifacts/comparison.html")
-          digest = os.environ["WHEEL_DIGEST"]
-          path.write_text(path.read_text(encoding="utf-8").replace("<body>", f"<body><p><strong>Wheel SHA-256:</strong> <code>{digest}</code></p>", 1), encoding="utf-8")
-          PY
+          printf 'Wheel SHA-256: `%s`\n\n' "$WHEEL_DIGEST" | tee artifacts/wheel-sha256.md >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --policy examples/ci/release-policy-demo-v3.yaml --artifacts artifacts/release-audit --fail-on hold-or-block-or-fail > artifacts/comparison.md
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
           cat artifacts/comparison.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload reviewable comparison
+      - name: Upload release audit
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: retrieval-comparison
           path: artifacts/
+
+      - name: Release gate
+        env:
+          CODE: ${{ steps.compare.outputs.code }}
+        run: |
+          case "$CODE" in
+            0) echo "release gate: PASS" ;;
+            1) echo "release gate: FAIL (see release-audit.html)"; exit 1 ;;
+            2) echo "release gate: BLOCK (see release-audit.html)"; exit 1 ;;
+            3) echo "release gate: HOLD (see release-audit.html)"; exit 1 ;;
+            *) echo "release gate: tool error, no decision (exit ${CODE:-unset})"; exit 1 ;;
+          esac

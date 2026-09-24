@@ -1,20 +1,53 @@
 import { useEffect, useState } from 'react'
-import { fetchRuns, Run } from '../api'
+import { fetchComparison, fetchRuns, ReleaseAudit, ReleaseDecision, Run } from '../api'
 import { useDashboardContext } from '../context/DashboardContext'
-import ComparePanel from './ComparePanel'
+import AuditReport, { AuditFallback } from './AuditReport'
 import { runLabel } from './GlobalContextBar'
+import StatusPanel from './StatusPanel'
 
-// Audit: pick a baseline and a candidate run (URL: baseline/candidate) and compare them.
-// The `policy` param is carried untouched for the release-policy task.
+// Audit: pick a baseline and a candidate run (URL: baseline/candidate) and an optional local
+// release-policy path (URL: policy), then render the release audit the server builds for them.
+// Baseline selection stays explicit: nothing defaults to the latest run.
+
+type AuditResult =
+  | { key: string; audit: ReleaseAudit | null; decision: ReleaseDecision | null }
+  | { key: string; error: string }
 
 const selectClass =
   'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-60 max-w-[20rem]'
 
 export default function AuditWorkspace() {
   const { selection, updateSelection } = useDashboardContext()
-  const { db, baseline, candidate } = selection
+  const { db, baseline, candidate, policy } = selection
   const [runs, setRuns] = useState<Run[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [policyDraft, setPolicyDraft] = useState(policy ?? '')
+  const [result, setResult] = useState<AuditResult | null>(null)
+  const ready = Boolean(db && baseline && candidate && baseline !== candidate)
+  const key = JSON.stringify([db, baseline, candidate, policy])
+
+  useEffect(() => setPolicyDraft(policy ?? ''), [policy])
+
+  useEffect(() => {
+    if (!ready || !db || !baseline || !candidate) return
+    let cancelled = false
+    fetchComparison(
+      [
+        { dbId: db, runId: baseline },
+        { dbId: db, runId: candidate },
+      ],
+      policy || undefined,
+    )
+      .then((data) => {
+        if (!cancelled) setResult({ key, audit: data.audit ?? null, decision: data.release_decision ?? null })
+      })
+      .catch((raw: unknown) => {
+        if (!cancelled) setResult({ key, error: raw instanceof Error ? raw.message : 'Could not load the audit' })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [key, ready])
 
   useEffect(() => {
     let cancelled = false
@@ -78,15 +111,21 @@ export default function AuditWorkspace() {
         Baseline and candidate are the same run; pick two different runs.
       </p>
     )
-  } else {
+  } else if (!result || result.key !== key) {
+    body = <StatusPanel kind="loading" message="Loading the release audit…" />
+  } else if ('error' in result) {
+    const readOnly = /\b403\b/.test(result.error) && result.error.includes('policy_path')
     body = (
-      <ComparePanel
-        selections={[
-          { dbId: db, runId: baseline },
-          { dbId: db, runId: candidate },
-        ]}
+      <StatusPanel
+        kind="error"
+        title={readOnly ? 'This server does not read local policy files' : 'Audit could not be loaded'}
+        message={result.error}
       />
     )
+  } else if (result.audit) {
+    body = <AuditReport audit={result.audit} db={db} />
+  } else {
+    body = <AuditFallback decision={result.decision} db={db} baseline={baseline} candidate={candidate} />
   }
 
   return (
@@ -111,6 +150,34 @@ export default function AuditWorkspace() {
             </span>
           )}
         </div>
+        <form
+          className="mb-4 flex flex-wrap items-end gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            updateSelection({ policy: policyDraft.trim() || null })
+          }}
+        >
+          <label className="min-w-0 flex-1 text-xs text-ink-muted sm:max-w-md">
+            Local release-policy path
+            <input
+              value={policyDraft}
+              onChange={(event) => setPolicyDraft(event.target.value)}
+              placeholder="retobs/release-policy.yaml"
+              className="mt-1 w-full rounded-md border border-hairline bg-surface px-2 py-1 font-mono text-xs text-ink"
+            />
+          </label>
+          <button type="submit" className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white">
+            Apply policy
+          </button>
+          {policy && (
+            <button type="button" onClick={() => updateSelection({ policy: null })} className="rounded-md border border-hairline px-3 py-1 text-xs text-ink">
+              Clear
+            </button>
+          )}
+          <p className="basis-full text-[10px] text-ink-faint">
+            The path is read locally by this RetObs process; policy content is not sent to an external service.
+          </p>
+        </form>
         {body}
       </div>
     </main>

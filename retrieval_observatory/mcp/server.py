@@ -173,11 +173,13 @@ async def _get_report(
     report = await load_run_report(run_id, db_path)
     if format == "json":
         return report.to_dict()
+    if format == "audit":
+        return report.audit or {}
     if format in {"markdown", "md", "terminal"}:
         return report.to_markdown()
     if format == "html":
         return report.to_html()
-    raise ValueError("format must be json, markdown, or html")
+    raise ValueError("format must be json, audit, markdown, or html")
 
 
 async def _compare_runs(
@@ -187,7 +189,7 @@ async def _compare_runs(
     db_path: str = DEFAULT_DB_PATH,
     policy_path: Optional[str] = None,
 ) -> Dict[str, Any] | str:
-    """Release comparison using an optional explicit local policy path."""
+    """Release comparison using an optional explicit local policy path; ``format="audit"`` returns the release audit."""
     from retrieval_observatory.sdk.report import load_comparison_report
 
     report = await load_comparison_report(
@@ -198,11 +200,13 @@ async def _compare_runs(
     )
     if format == "json":
         return report.to_dict()
+    if format == "audit":
+        return report.audit or {}
     if format in {"markdown", "md", "terminal"}:
         return report.to_markdown()
     if format == "html":
         return report.to_html()
-    raise ValueError("format must be json, markdown, or html")
+    raise ValueError("format must be json, audit, markdown, or html")
 
 
 async def _inspect_query(

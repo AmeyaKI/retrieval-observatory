@@ -8,6 +8,7 @@ from retrieval_observatory.sdk.report import BenchmarkReport
 
 class _Report:
     comparison = {"release_decision": {"schema_version": 1, "status": "HOLD"}}
+    audit = {"schema_version": "audit-1", "decision": {"status": "HOLD", "exit_code": 3}}
 
     def to_dict(self):
         return {"comparison": self.comparison}
@@ -72,7 +73,7 @@ def test_benchmark_report_compare_reuses_canonical_artifact(monkeypatch):
 
     payload = candidate.compare(baseline, policy=policy)
 
-    assert payload == _Report.comparison
+    assert payload == {**_Report.comparison, "audit": _Report.audit}
     assert captured == {
         "policy": policy,
         "baseline": "base",
@@ -100,3 +101,14 @@ async def test_mcp_compare_accepts_only_explicit_local_policy_path(monkeypatch, 
 
     assert payload == _Report().to_dict()
     assert captured["policy"] == str(policy_path)
+
+
+async def test_mcp_compare_audit_format_returns_only_the_audit(monkeypatch):
+    async def fake_load(baseline, candidate, db_path, *, policy=None):
+        return _Report()
+
+    monkeypatch.setattr("retrieval_observatory.sdk.report.load_comparison_report", fake_load)
+
+    payload = await server._compare_runs("base", "candidate", format="audit")
+
+    assert payload == _Report.audit

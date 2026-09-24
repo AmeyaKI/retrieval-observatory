@@ -179,6 +179,137 @@ export interface ReleaseDecision {
   }
 }
 
+// ── Release audit (`audit-1`): the one artifact shared by `POST /compare`, the CLI and CI ──
+export type AuditStatus = 'PASS' | 'FAIL' | 'BLOCK' | 'HOLD'
+
+export interface AuditSourceRun {
+  db_id: string | null
+  run_id: string
+  experiment_name: string | null
+  manifest_schema_version: number | null
+  dataset: { name?: string; query_hash?: string; corpus_hash?: string; qrel_hash?: string }
+  judgment_digest: string | null
+  release_identity: Record<string, unknown> | null
+  evaluation: Record<string, unknown> | null
+  counts: Record<string, unknown> | null
+}
+
+export interface AuditFieldComparison {
+  field: string
+  baseline: unknown
+  candidate: unknown
+  equal: boolean
+  classification: 'invariant' | 'expected' | 'unexpected' | 'evidence_invalid' | 'unknown'
+  finding_code: string | null
+}
+
+export interface AuditFinding {
+  code: string
+  scope: string
+  status: string
+  observed: unknown
+  required: unknown
+  detail: string
+  next_action: string
+}
+
+export interface AuditCheck {
+  id: string
+  check_id?: string
+  metric: string
+  target?: string
+  status: AuditStatus
+  direction: 'higher_is_better' | 'lower_is_better'
+  estimator: string
+  effect: number | null
+  ci_low: number | null
+  ci_high: number | null
+  tolerance: number
+  boundary: number
+  max_regression: number
+  paired_n: number
+  attempted_n: number
+  min_paired_n: number
+  pair_coverage: number | null
+  confidence_level: number
+  adjusted_confidence_level: number
+  resamples: number
+  seed: number
+  interval_method: string
+  sample_limitation: string | null
+  affected_query_ids: string[]
+  resolution_status?: string
+  metric_key_by_run?: Record<string, string | null>
+}
+
+export interface AuditOperationalRun {
+  run_id: string
+  attempted_n: number | null
+  failed_n: number
+  failure_rate: number | null
+}
+
+export interface ReleaseAudit {
+  schema_version: 'audit-1'
+  generated_at: string
+  tool: { retrieval_observatory: string; python: string }
+  decision: { status: AuditStatus; reasons: string[]; next_action: string; exit_code: 0 | 1 | 2 | 3 }
+  sources: { baseline: AuditSourceRun; candidate: AuditSourceRun }
+  policy: {
+    configured: boolean
+    id: string | null
+    schema_version: number | null
+    digest: string | null
+    source: string | null
+    resolution: Record<string, unknown> | null
+    conversion: Record<string, unknown> | null
+  }
+  evaluation: { unit: string | null; boundary: string | null; k: number | null; relevance_threshold: number | null; comparison_scope: string | null }
+  compatibility: {
+    status: 'READY' | 'HOLD' | 'BLOCK'
+    findings: AuditFinding[]
+    provenance: {
+      invariants: AuditFieldComparison[]
+      interventions: AuditFieldComparison[]
+      consistency: AuditFieldComparison[]
+      unknown_fields: string[]
+    }
+    validity: Record<string, unknown>
+  }
+  readiness: Record<string, { scope: string; status: string; findings: { code: string; detail: string; next_action: string; status: string }[] }>
+  coverage: {
+    expected_query_count: number | null
+    min_pair_coverage: number | null
+    per_check: Record<string, { attempted_n: number; paired_n: number; pair_coverage: number | null }>
+  }
+  checks: AuditCheck[]
+  slices: { id: string; field: string; value: unknown; status: string; paired_n: number; sample_limitation: string | null; guards: AuditCheck[] }[]
+  operational: {
+    status: 'PASS' | 'BLOCK' | 'FAIL'
+    code: string | null
+    max_failure_rate: number
+    baseline: AuditOperationalRun
+    candidate: AuditOperationalRun
+    detail: string
+  } | null
+  statistics: {
+    confidence_level: number | null
+    familywise_alpha: number | null
+    resamples: number | null
+    seed: number | null
+    interval_method: string | null
+    family_size: number | null
+    adjusted_confidence_level: number | null
+  }
+  investigation: {
+    scope: { db_id: string | null; baseline_run_id: string; candidate_run_id: string; pipeline_id: string | null }
+    changed_queries: { query_id: string; metric: string; baseline: number; candidate: number; delta: number; link: string }[]
+    dashboard_base_url: string
+    requires_local_dashboard: boolean
+  }
+  metrics: Record<string, { baseline_mean: number | null; candidate_mean: number | null; effect: number | null; q_value: number | null; paired_n: number; decision: string }>
+}
+
 export async function fetchDbs(): Promise<DbSource[]> {
   const res = await fetch(`${BASE}/dbs`)
   if (!res.ok) throw new Error('Failed to fetch databases')
@@ -232,6 +363,7 @@ export async function fetchComparison(
   comparability?: ComparabilityReport
   query_diffs?: QueryDiffs | null
   release_decision?: ReleaseDecision | null
+  audit?: ReleaseAudit | null
 }> {
   const res = await fetch(`${BASE}/compare`, {
     method: 'POST',

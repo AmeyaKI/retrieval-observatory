@@ -467,33 +467,25 @@ async def _build_comparison(
         comparison.append(entry)
 
     query_diffs = await _query_diffs(selections, registry, all_metric_keys) if validity.decision_allowed else None
-    release_decision = None
+    release_decision = audit = None
     if len(selections) == 2:
-        from retrieval_observatory.release.assessment import assess_evidence
-        from retrieval_observatory.release.decision import decide_release
+        from retrieval_observatory.release.audit import build_release_audit
         from retrieval_observatory.release.policy import load_release_policy
-        from retrieval_observatory.release.slices import evaluate_declared_slices
-        from retrieval_observatory.release.statistics import evaluate_metric_guards
 
-        policy = load_release_policy(policy_path) if policy_path else None
-        assessment = assess_evidence(policy, manifests[0] or {}, manifests[1] or {})
-        aggregate_guards = (
-            evaluate_metric_guards(policy, metric_rows[keys[0]], metric_rows[keys[1]])
-            if policy is not None
-            else []
+        (baseline_db_id, baseline_run_id), (candidate_db_id, candidate_run_id) = selections
+        report, audit = await build_release_audit(
+            registry.get_store(baseline_db_id),
+            registry.get_store(candidate_db_id),
+            baseline_run_id,
+            candidate_run_id,
+            policy=load_release_policy(policy_path) if policy_path else None,
+            policy_source=policy_path,
+            baseline_db_id=baseline_db_id,
+            candidate_db_id=candidate_db_id,
         )
-        slices = (
-            evaluate_declared_slices(policy, metric_rows[keys[0]], metric_rows[keys[1]])
-            if policy is not None
-            else []
-        )
-        decision = decide_release(policy, assessment, aggregate_guards, slices)
-        candidate_run_id = selections[1][1]
-        baseline_db_id, baseline_run_id = selections[0]
         affected_query_ids = [row["query_id"] for row in (query_diffs or {}).get("rows", [])]
         release_decision = {
-            "schema_version": 1,
-            **decision.model_dump(mode="json"),
+            **(report.comparison or {})["release_decision"],
             "investigation": {
                 "affected_query_ids": affected_query_ids,
                 "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
@@ -526,6 +518,7 @@ async def _build_comparison(
         "comparability": comparability,
         "query_diffs": query_diffs,
         "release_decision": release_decision,
+        "audit": audit,
     }
 
 
@@ -735,7 +728,8 @@ def create_app(
                 aggregate_cache=aggregate_cache,
             )
         except (OSError, TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=f"Invalid local release policy: {exc}") from exc
+            label = "Comparison failed" if "Run not found" in str(exc) else "Invalid local release policy"
+            raise HTTPException(status_code=422, detail=f"{label}: {exc}") from exc
         if "run_ids" in body and registry.is_single:
             result["run_ids"] = body["run_ids"]
         return result
@@ -846,7 +840,8 @@ def create_app(
                 aggregate_cache=aggregate_cache,
             )
         except (OSError, TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=f"Invalid local release policy: {exc}") from exc
+            label = "Comparison failed" if "Run not found" in str(exc) else "Invalid local release policy"
+            raise HTTPException(status_code=422, detail=f"{label}: {exc}") from exc
 
     @db_router.get("/runs/{run_id}/metrics")
     async def get_run_metrics(db_id: str, run_id: str, include_branches: bool = False) -> Dict[str, Any]:

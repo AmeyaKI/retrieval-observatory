@@ -43,4 +43,19 @@ When an intentional topology revision only renames equivalent operators, declare
 
 The [example workflow](../../examples/ci/retrieval-ci.yml) evaluates the candidate, compares it with a repository-selected baseline, publishes Markdown/HTML artifacts, and exits nonzero on `HOLD`, `BLOCK`, or `FAIL`. It requires no hosted RetObs service or RetObs secret. Your dataset, model, or external provider may have separate credentials and data-handling requirements.
 
+### Exit codes
+
+`retobs compare --fail-on hold-or-block-or-fail` exits with the decision's own code, so CI can tell the outcomes apart; `--fail-on fail` exits nonzero only on `FAIL`, and the default `--fail-on never` exits 0 whenever a decision was produced.
+
+| Exit | Meaning |
+|---|---|
+| `0` | `PASS`, or the decision is not gated by `--fail-on` |
+| `1` | `FAIL` |
+| `2` | `BLOCK` (also a command-line usage error such as a missing run ID, reported by the argument parser) |
+| `3` | `HOLD` |
+| `64` | Invalid `--fail-on` or `--format` value |
+| `70` | Tool error: the comparison could not be produced (run not found, invalid policy); no decision and no artifact |
+
+Compatibility: earlier releases exited `1` for every gated `HOLD`, `BLOCK`, or `FAIL`, `2` for an invalid option value, and `1` for a tool error. `--artifacts DIR` writes `release-audit.json` and the standalone `release-audit.html` before the exit status is chosen, so a gated run still leaves its audit behind.
+
 RetObs complements general tracing, experiment tracking, and evaluation systems by adding this retrieval-specific policy and lineage boundary. It does not claim broader observability coverage or replace those systems.
