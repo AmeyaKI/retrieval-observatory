@@ -172,7 +172,7 @@ def _entities(candidate: Candidate, spec: EvaluationSpec, chunk_map: ChunkMap | 
     """(row entity, entity to resolve the judgment with) for one occurrence."""
     entity = entity_of_candidate(candidate, spec.unit)
     if spec.unit == "document" and candidate.document_id is None and chunk_map is not None:
-        chunk = entity_of_candidate(candidate, "chunk")
+        chunk = replace(chunk_map.chunk_ref(str(candidate.logical_chunk_id), candidate.metadata.get("namespace")), revision=candidate.document_revision)
         mapped = chunk_map.document_for(chunk)
         return (replace(mapped, revision=candidate.document_revision) if mapped is not None else entity), chunk
     return entity, entity
@@ -200,7 +200,14 @@ def project_trace_journeys(
     spec: EvaluationSpec,
     *,
     chunk_map: ChunkMap | None = None,
+    evaluation_digest: str | None = None,
+    judgment_digest: str | None = None,
 ) -> list[JourneyRow]:
+    """``evaluation_digest``/``judgment_digest`` are ``spec.digest()``/``judgments.digest()``, passed
+    in by callers that project many traces under one spec so they are hashed once, not per row."""
+    evaluation_digest = evaluation_digest or spec.digest()
+    judgment_digest = judgment_digest or judgments.digest()
+    digest = trace_digest(trace)
     final_ops = _final_op_ids(trace)
     on_path = _on_final_path(trace, final_ops)
     final_complete = all(_output_complete(trace.span(op_id)) for op_id in final_ops)
@@ -299,9 +306,9 @@ def project_trace_journeys(
                 events=events,
                 occurrence_entity_ids=tuple(dict.fromkeys(event.occurrence_entity_id for event in events))
                 or ((group.entity.entity_id,) if spec.unit == "chunk" else ()),
-                evaluation_digest=spec.digest(),
-                judgment_digest=judgments.digest(),
-                trace_digest=trace_digest(trace),
+                evaluation_digest=evaluation_digest,
+                judgment_digest=judgment_digest,
+                trace_digest=digest,
                 investigation_link=_link(trace, group.entity),
             )
         )
@@ -324,18 +331,25 @@ def summarize_journeys(rows: Sequence[JourneyRow]) -> dict[str, Any]:
         entity["excluded"] += row.final_membership == "excluded"
         entity["not_observed"] += row.outcome == "not_observed"
         entity["unknown"] += row.outcome == "insufficient_evidence"
+    return {**summarize_pair_counts(rows, sum(len(row.events) for row in rows)), "by_query": by_query, "by_entity": by_entity}
+
+
+def summarize_pair_counts(rows: Sequence[Any], events: int) -> dict[str, Any]:
+    """The pair-level counts of ``summarize_journeys`` (no per-query/per-entity breakdown).
+
+    ``rows`` need ``outcome``, ``confusion``, ``judgment``, ``final_membership``, ``observed`` and
+    ``loss_boundary`` (a ``JourneyRow`` or a stored pair's columns); ``events`` is their event total.
+    """
     relevant = [row for row in rows if row.judgment == "relevant"]
     return {
         "pairs": len(rows),
-        "events": sum(len(row.events) for row in rows),
+        "events": events,
         "by_outcome": dict(Counter(row.outcome for row in rows)),
         "by_confusion": dict(Counter(row.confusion for row in rows)),
         "relevant_final_misses_observed_upstream": sum(row.final_membership == "excluded" and row.observed for row in relevant),
         "relevant_final_misses_never_observed": sum(not row.observed for row in relevant),
         "unknown_capture": sum(row.outcome == "insufficient_evidence" for row in rows),
         "by_loss_boundary": dict(Counter(row.loss_boundary for row in rows if row.loss_boundary is not None)),
-        "by_query": by_query,
-        "by_entity": by_entity,
     }
 
 

@@ -34,6 +34,18 @@ export interface NodeOverlay {
 
 const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
+/** Most overlay lines any mode renders (aggregate mode: 4; query mode: 3). */
+export const MAX_OVERLAY_LINES = 4
+/** Pinned stage-card geometry in px; StageCard's classes set exactly these line heights. */
+export const CARD_GEOMETRY = { border: 5, paddingY: 16, gap: 2, header: 16, label: 18, line: 12, path: 16 }
+/** Every card reserves the header, the label, MAX_OVERLAY_LINES overlay lines and the path-event
+ * line, so selecting a journey neither overlaps text nor reflows the graph. */
+export const STAGE_CARD_H = (() => {
+  const g = CARD_GEOMETRY
+  const rows = 2 + MAX_OVERLAY_LINES + 1
+  return g.border + g.paddingY + g.header + g.label + MAX_OVERLAY_LINES * g.line + g.path + (rows - 1) * g.gap
+})()
+
 function matching<S extends InvestigationStage | StageSummary>(nodeId: string, stages: S[], collapsed: boolean): S[] {
   return stages.filter((stage) => (collapsed ? collapsedNodeId(stage.op_id) : stage.op_id) === nodeId)
 }
@@ -98,7 +110,7 @@ function mapHighlight(highlight: PathHighlight | null, collapsed: boolean): { no
   return { nodes, edges, incomplete }
 }
 
-function StageCard({
+export function StageCard({
   node,
   overlay,
   kind,
@@ -121,7 +133,7 @@ function StageCard({
         type="button"
         onClick={() => onSelect(node.node_id)}
         aria-pressed={selected}
-        className="box-border flex h-full w-full flex-col gap-0.5 rounded-xl px-2.5 py-2 text-left"
+        className="box-border flex h-full w-full flex-col gap-0.5 rounded-xl px-2.5 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
         style={{
           background: accent.fill,
           border: `${selected || onPath ? 2.5 : 1.5}px solid ${selected ? accent.text : onPath ? 'rgb(var(--accent))' : accent.stroke}`,
@@ -132,24 +144,25 @@ function StageCard({
         }}
         title={[node.label, node.node_id, ...overlay.lines].join('\n')}
       >
-        <div className="flex min-w-0 items-center justify-between gap-1">
+        <div className="flex h-4 min-w-0 shrink-0 items-center gap-1">
           <span className="truncate text-[9px] font-bold uppercase tracking-wide" style={{ color: accent.text }}>
             {OP_LABEL[node.op_type] ?? node.op_type}
           </span>
+          {selected && <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wide text-ink">selected</span>}
           {overlay.glyph && (
-            <span className="shrink-0 text-[11px] text-ink" aria-hidden="true">
+            <span className={`shrink-0 text-[11px] leading-4 text-ink ${selected ? '' : 'ml-auto'}`} aria-hidden="true">
               {overlay.glyph}
             </span>
           )}
         </div>
-        <div className="truncate text-xs font-semibold leading-snug text-ink">{node.label}</div>
+        <div className="shrink-0 truncate text-xs font-semibold leading-[18px] text-ink">{node.label}</div>
         {overlay.lines.map((line) => (
-          <div key={line} className={`truncate text-[9px] leading-tight ${overlay.observed ? 'text-ink-muted' : 'text-ink-faint italic'}`}>
+          <div key={line} className={`shrink-0 truncate text-[9px] leading-[12px] ${overlay.observed ? 'text-ink-muted' : 'text-ink-faint italic'}`}>
             {line}
           </div>
         ))}
         {kind && (
-          <div className="mt-auto text-[10px] font-medium text-ink">
+          <div className="mt-auto shrink-0 text-[10px] font-medium leading-4 text-ink">
             <span aria-hidden="true">{KIND_GLYPHS[kind]}</span> {kind}
           </div>
         )}
@@ -171,7 +184,7 @@ export default function InvestigationGraph({ graph, stages, mode, selectedStageI
   const [zoomIndex, setZoomIndex] = useState(2)
   const zoom = ZOOM_STEPS[zoomIndex]
   const shown = useMemo(() => (graph ? (collapsed ? collapseInvocations(graph) : graph) : null), [graph, collapsed])
-  const layout = useMemo(() => (shown ? layoutPipelineGraph(shown) : null), [shown])
+  const layout = useMemo(() => (shown ? layoutPipelineGraph(shown, () => STAGE_CARD_H) : null), [shown])
   const repeats = graph ? repeatedInvocationCount(graph) : 0
   const path = useMemo(() => mapHighlight(highlight, collapsed), [highlight, collapsed])
 
@@ -223,7 +236,7 @@ export default function InvestigationGraph({ graph, stages, mode, selectedStageI
           height={layout.height * zoom}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
           className="block"
-          role="img"
+          role="group"
           aria-label={summary}
         >
           <defs>

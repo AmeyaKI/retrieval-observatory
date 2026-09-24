@@ -180,6 +180,47 @@ function traceStagesOf(envelope: Envelope): InvestigationStage[] | null {
 
 type BuildState = { kind: 'idle' } | { kind: 'running' } | { kind: 'refused'; message: string } | { kind: 'failed'; message: string }
 
+/** Starts `request` for `cursor` unless a request for that cursor is already in flight: two fast
+ * "Load more" clicks share one render's closure, so the disabled button alone cannot stop the
+ * second. Returns null when skipped; the slot is released when the request settles. */
+export function singleFlight<T>(inFlight: { current: string | null }, cursor: string, request: () => Promise<T>): Promise<T> | null {
+  if (inFlight.current === cursor) return null
+  inFlight.current = cursor
+  return request().finally(() => {
+    if (inFlight.current === cursor) inFlight.current = null
+  })
+}
+
+/** Applies an index build's outcome only while the scope it started for (db/run/pipeline) is still
+ * selected; a late result after a run switch is dropped. */
+export function settleBuild(
+  build: Promise<{ status: string; error?: string | null }>,
+  isCurrent: () => boolean,
+  run: string,
+  setBuild: (state: BuildState) => void,
+  reload: () => void,
+): Promise<void> {
+  return build
+    .then((result) => {
+      if (!isCurrent()) return
+      if (result.status === 'failed') setBuild({ kind: 'failed', message: result.error ?? 'Indexing failed' })
+      else {
+        setBuild({ kind: 'idle' })
+        reload()
+      }
+    })
+    .catch((raw: unknown) => {
+      if (!isCurrent()) return
+      const error = describeInvestigationError(raw)
+      if (error.status === 409) {
+        setBuild({
+          kind: 'refused',
+          message: `This database is opened read-only, so the index cannot be built from the dashboard. Run \`retobs storage index ${run}\` where the database is writable.`,
+        })
+      } else setBuild({ kind: 'failed', message: error.detail ?? error.message })
+    })
+}
+
 function Notice({ tone, title, children }: { tone: 'warning' | 'neutral' | 'negative'; title: string; children?: React.ReactNode }) {
   const color = tone === 'warning' ? 'text-status-warning' : tone === 'negative' ? 'text-status-negative' : 'text-status-neutral'
   return (
@@ -201,7 +242,7 @@ function Panel({ title, children, id }: { title: string; children: React.ReactNo
   )
 }
 
-const linkClass = 'text-accent underline-offset-2 hover:underline'
+const linkClass = 'text-accent underline underline-offset-2'
 const buttonClass =
   'rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
 
@@ -222,6 +263,11 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const [collapsed, setCollapsed] = useState(true)
   const sequence = useRef(0)
   const scopeSequence = useRef(0)
+  const loadingCursor = useRef<string | null>(null)
+  // The scope an index build belongs to; excludes reloadTick so a Retry mid-build keeps its result.
+  const buildScope = JSON.stringify([db, run, selection.pipeline])
+  const buildScopeRef = useRef(buildScope)
+  buildScopeRef.current = buildScope
   const onPipelinesRef = useRef(onPipelines)
   onPipelinesRef.current = onPipelines
 
@@ -292,8 +338,12 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const loadMore = () => {
     if (phase.kind !== 'ready' || !phase.envelope.next_cursor || !db || !run) return
     const mySequence = sequence.current
+    const cursor = phase.envelope.next_cursor
+    // Keyed by sequence too: a new scope may hand out the same cursor while the old request is pending.
+    const request = singleFlight(loadingCursor, `${mySequence}:${cursor}`, () => requestFor(db, run, selection, cursor))
+    if (!request) return
     setPhase({ ...phase, loadingMore: true, moreError: null })
-    requestFor(db, run, selection, phase.envelope.next_cursor)
+    request
       .then((envelope) => {
         if (mySequence !== sequence.current) return
         setPhase((current) =>
@@ -320,28 +370,19 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const buildIndex = () => {
     if (!db || !run || phase.kind !== 'ready') return
     const envelopeScope = phase.envelope.scope
+    const started = buildScope
     setBuild({ kind: 'running' })
-    buildInvestigationProjection(db, run, {
-      pipeline_id: selection.pipeline ?? envelopeScope.pipeline_id,
-      unit: envelopeScope.unit,
-      k: envelopeScope.k ?? undefined,
-    })
-      .then((result) => {
-        if (result.status === 'failed') setBuild({ kind: 'failed', message: result.error ?? 'Indexing failed' })
-        else {
-          setBuild({ kind: 'idle' })
-          reload()
-        }
-      })
-      .catch((raw: unknown) => {
-        const error = describeInvestigationError(raw)
-        if (error.status === 409) {
-          setBuild({
-            kind: 'refused',
-            message: `This database is opened read-only, so the index cannot be built from the dashboard. Run \`retobs storage index ${run}\` where the database is writable.`,
-          })
-        } else setBuild({ kind: 'failed', message: error.detail ?? error.message })
-      })
+    void settleBuild(
+      buildInvestigationProjection(db, run, {
+        pipeline_id: selection.pipeline ?? envelopeScope.pipeline_id,
+        unit: envelopeScope.unit,
+        k: envelopeScope.k ?? undefined,
+      }),
+      () => buildScopeRef.current === started,
+      run,
+      setBuild,
+      reload,
+    )
   }
 
   const select = (patch: Partial<DashboardSelection>) => updateSelection(patch)

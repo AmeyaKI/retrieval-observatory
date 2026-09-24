@@ -126,6 +126,11 @@ function plain(markup: string): string {
 }
 
 describe('AuditReport', () => {
+  test('scrolling tables are focusable named regions and links are underlined, not colour alone', () => {
+    expect(section('audit-compatibility')).toContain('tabindex="0" role="region" aria-label="Provenance fields"')
+    expect(section('audit-checks')).toContain('class="ml-2 font-sans text-accent underline underline-offset-2"')
+  })
+
   test('renders the decision with glyph, text, reasons, next action and exit code', () => {
     const decision = section('audit-decision')
     expect(plain(decision)).toContain('✕ FAIL')

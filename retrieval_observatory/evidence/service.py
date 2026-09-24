@@ -12,6 +12,7 @@ import json
 
 from collections import Counter
 from dataclasses import dataclass, fields, replace
+from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Literal, Mapping, Sequence, get_args
 
 from retrieval_observatory.datasets.judgments import ChunkMap, EvaluationSpec, EvaluationUnit, JudgmentSet, query_input_identity
@@ -23,12 +24,13 @@ from retrieval_observatory.evidence.investigation import (
     Membership,
     Outcome,
 )
-from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_journeys, summarize_stages
+from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_journeys, summarize_pair_counts, summarize_stages
 from retrieval_observatory.store.base import (
     INVESTIGATION_PAGE_LIMIT,
     InvestigationFilter,
     InvestigationPage,
     InvestigationScope,
+    TraceDecodeError,
     TraceQuery,
     clamp_page_limit,
     decode_cursor,
@@ -50,13 +52,21 @@ _PROJECTION_ACTION = "POST /dbs/{db_id}/investigation/runs/{run_id}/projection o
 
 
 class InvestigationError(Exception):
-    """400 invalid request, 404 not found, 409 write refused, 422 unsupported value."""
+    """400 invalid request, 404 not found, 409 write refused, 422 unsupported value or unreadable stored trace."""
 
     def __init__(self, status: int, code: str, detail: str):
         super().__init__(detail)
         self.status = status
         self.code = code
         self.detail = detail
+
+
+async def _list_traces(store: Any, query: TraceQuery) -> list[RetrievalTrace]:
+    """``store.list_traces`` with a stored trace that does not decode as a coded 422 naming it."""
+    try:
+        return await store.list_traces(query)
+    except TraceDecodeError as error:
+        raise InvestigationError(422, "trace_unreadable", f"{error}; delete or re-ingest trace {error.trace_id!r}") from error
 
 
 def _finding(code: str, detail: str, action: str) -> dict[str, str]:
@@ -165,11 +175,11 @@ async def resolve_scope(store: Any, request: InvestigationRequest) -> ResolvedSc
     pipelines = [str(p["id"]) for p in config.get("pipelines") or [] if p.get("id")]
     if request.pipeline_id is not None:
         pipeline_id = request.pipeline_id
-        if pipeline_id not in pipelines and not await store.list_traces(TraceQuery(run_id=run_id, pipeline_id=pipeline_id, limit=1)):
+        if pipeline_id not in pipelines and pipeline_id not in await store.list_pipeline_ids(run_id):
             raise InvestigationError(404, "pipeline_not_found", f"pipeline {pipeline_id!r} not found in run {run_id!r}")
     else:
-        if not pipelines:  # no manifest listing: one scan of the run's traces
-            pipelines = sorted({trace.pipeline_id for trace in await store.list_traces(TraceQuery(run_id=run_id))})
+        if not pipelines:  # no manifest listing (legacy/production runs, graph-only configs): the traces' pipeline ids
+            pipelines = await store.list_pipeline_ids(run_id)
         if len(pipelines) == 1:
             pipeline_id = pipelines[0]
         elif not pipelines:
@@ -250,23 +260,26 @@ async def build_projection(
     """EXPLICIT WRITE: project every trace of run+pipeline and replace the stored projection."""
     if getattr(store, "read_only", False):
         raise InvestigationError(409, "read_only", "the store is read-only; index from a writable process")
-    traces = await store.list_traces(TraceQuery(run_id=run_id, pipeline_id=pipeline_id))
-    rows = [row for trace in traces for row in project_trace_journeys(trace, judgments, spec, chunk_map=chunk_map)]
+    traces = await _list_traces(store, TraceQuery(run_id=run_id, pipeline_id=pipeline_id))
+    digests = {"evaluation_digest": spec.digest(), "judgment_digest": judgments.digest()}
+    rows = [row for trace in traces for row in project_trace_journeys(trace, judgments, spec, chunk_map=chunk_map, **digests)]
     get_run_queries = getattr(store, "get_run_queries", None)
     queries = await get_run_queries(run_id) if get_run_queries is not None else []
     query_text = {str(query["query_id"]): query.get("query_text") for query in queries}
-    scope = InvestigationScope(run_id, pipeline_id, spec.digest())
+    scope = InvestigationScope(run_id, pipeline_id, digests["evaluation_digest"])
     try:
         await store.replace_investigation_projection(
             scope,
             rows=[row.to_dict() for row in rows],
             summaries=_summaries(rows, traces, query_text),
             derivation_version=DERIVATION_VERSION,
-            judgment_digest=judgments.digest(),
+            judgment_digest=digests["judgment_digest"],
             trace_count=len(traces),
         )
     except RuntimeError as error:  # investigation tables unavailable (pre-v3 file)
         raise InvestigationError(409, "read_only", str(error))
+    except Exception as error:  # e.g. a read-only file or a full disk; the store's rebuild is one transaction
+        raise InvestigationError(409, "projection_write_failed", f"projection not written: {error}") from error
     return await store.get_investigation_projection(scope)
 
 
@@ -305,6 +318,12 @@ def _summary(payload: Mapping[str, Any] | None) -> dict | None:
 
 def _summarize(rows: Sequence[dict]) -> dict:
     return _summary(summarize_journeys([JourneyRow.from_dict(row) for row in rows])) or {}
+
+
+async def _summarize_matching(store: Any, scope: InvestigationScope, filters: InvestigationFilter, order: str) -> dict:
+    """``_summarize`` over every pair matching ``filters``, from one store read of the counted columns."""
+    facts = await store.list_investigation_pair_facts(scope, filters, order=order)
+    return summarize_pair_counts([SimpleNamespace(**fact) for fact in facts], sum(fact["events"] for fact in facts))
 
 
 def _stages(trace: RetrievalTrace) -> list[dict]:
@@ -437,7 +456,7 @@ async def inspect_investigation(store: Any, request: InvestigationRequest) -> di
         if filtered:
             page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order="priority")
             rows = page.rows
-            summary = _summarize(await _all_rows(store, scope, filters, "priority"))
+            summary = await _summarize_matching(store, scope, filters, "priority")
             rows_kind = "pairs"
             findings.append(_finding("filtered_pairs", "rows are the candidate pairs matching the filters; counts reflect matching pairs, not whole queries", "clear the filters for the per-query summaries"))
         else:
@@ -457,7 +476,7 @@ async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
     if not request.query_id:
         raise InvestigationError(400, "query_id_required", "query_id is required")
     resolved = await resolve_scope(store, request)
-    traces = await store.list_traces(TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
+    traces = await _list_traces(store, TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
     if not traces:
         raise InvestigationError(404, "query_not_found", f"no traces for query {request.query_id!r} in run {resolved.run_id!r} pipeline {resolved.pipeline_id!r}")
     meta, state, findings = await _projection_state(store, resolved)
@@ -489,7 +508,7 @@ async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
         page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order="priority")
         rows, total, next_cursor = page.rows, page.total, page.next_cursor
         run_payload = await _run_payload_stored(store, scope)
-        summary = _summarize(await _all_rows(store, scope, filters, "priority"))
+        summary = await _summarize_matching(store, scope, filters, "priority")
     stages = _stages(selected) if selected is not None else None
     return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=stages, findings=findings, rows_kind="pairs")
 
@@ -509,7 +528,7 @@ async def inspect_document(store: Any, request: InvestigationRequest) -> dict:
         raise InvestigationError(404, "entity_not_found", f"entity {namespace}:{entity_id} has no rows in this scope")
     filters = request.filters()
     page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order="entity")
-    summary = _summarize(await _all_rows(store, scope, filters, "entity"))
+    summary = await _summarize_matching(store, scope, filters, "entity")
     run_payload = await _run_payload_stored(store, scope)
     return _envelope(resolved, request, projection=state, rows=page.rows, total=page.total, next_cursor=page.next_cursor, run_payload=run_payload, summary=summary, stages=None, findings=findings, rows_kind="pairs")
 
@@ -534,7 +553,7 @@ async def _comparison_rows(store: Any, resolved: ResolvedScope, request: Investi
     findings = [_finding("projection_unavailable", f"no complete projection for run {resolved.run_id!r} pipeline {resolved.pipeline_id!r}", _PROJECTION_ACTION)]
     if request.query_id is None:
         return [], state, findings
-    traces = await store.list_traces(TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
+    traces = await _list_traces(store, TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
     projected = [row.to_dict() for trace in traces for row in project_trace_journeys(trace, resolved.judgments, resolved.spec, chunk_map=resolved.chunk_map)]
     return [row for row in projected if _matches(row, filters)], state, findings
 
@@ -559,7 +578,7 @@ async def _query_alignment(store: Any, baseline_run_id: str, candidate_run_id: s
 
 
 async def _selected_trace(store: Any, resolved: ResolvedScope, request: InvestigationRequest) -> RetrievalTrace | None:
-    traces = await store.list_traces(TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
+    traces = await _list_traces(store, TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
     return next((trace for trace in traces if trace.trace_id == request.trace_id), traces[0] if traces else None)
 
 

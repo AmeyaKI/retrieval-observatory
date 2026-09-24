@@ -41,6 +41,16 @@ describe('layoutPipelineGraph', () => {
     expect(byId.bm25.h).toBeGreaterThanOrEqual(NODE_H)
   })
 
+  it('uses the caller card height for every node and anchors edges at its middle', () => {
+    const layout = layoutPipelineGraph(FIXTURE, () => 131)
+    expect(layout.nodes.every((n) => n.h === 131)).toBe(true)
+    const byId = Object.fromEntries(layout.nodes.map((n) => [n.node_id, n]))
+    const toRerank = layout.edges.find((e) => e.source === 'fuse')!
+    expect(toRerank.path.startsWith(`M ${byId.fuse.x + NODE_W} ${byId.fuse.y + 131 / 2}`)).toBe(true)
+    // The default (metric cards) is unchanged.
+    expect(layoutPipelineGraph(FIXTURE).nodes.map((n) => n.h)).toEqual(FIXTURE.nodes.map(() => NODE_H))
+  })
+
   it('grows node height when metrics are present', () => {
     const withMetrics: PipelineGraph = {
       ...FIXTURE,

@@ -16,7 +16,7 @@ export const AGENT_REQUEST =
 export const AGENT_QUICKSTART_HREF = 'https://github.com/AmeyaKI/retrieval-observatory/blob/main/docs/integrations/AGENT_QUICKSTART.md'
 
 const codeClass = 'app-inset mt-2 overflow-x-auto px-3 py-2 font-mono text-xs text-ink'
-const linkClass = 'text-accent underline-offset-2 hover:underline'
+const linkClass = 'text-accent underline underline-offset-2'
 const monoClass = 'font-mono text-ink'
 const thClass = 'py-1 pr-3 text-left font-medium text-ink-faint'
 const tdClass = 'py-1 pr-3 align-top'
@@ -60,6 +60,15 @@ function VerifiedAt({ iso }: { iso: string }) {
   const date = new Date(iso)
   const text = Number.isNaN(date.getTime()) ? iso : date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   return <time dateTime={iso}>{text}</time>
+}
+
+/** A command block that may scroll sideways: focusable and named so keyboard users can scroll it. */
+function Command({ children }: { children: string }) {
+  return (
+    <pre tabIndex={0} role="region" aria-label={`Command: ${children.trim().split('\n')[0]}`} className={`${codeClass} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600`}>
+      {children}
+    </pre>
+  )
 }
 
 function Code({ children }: { children: string }) {
@@ -160,16 +169,14 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
       </p>
 
       <SubHeading>Setup</SubHeading>
-      {install?.command && <pre className={codeClass}>{install.command}</pre>}
-      <pre className={codeClass}>
+      {install?.command && <Command>{install.command}</Command>}
+      <Command>
         {`${integrate} --phase plan --output retobs/integration-plan.json\n${integrate} --phase apply --plan retobs/integration-plan.json\n${integrate} --phase verify --db ${record.db_path}`}
-      </pre>
+      </Command>
       {scenarios.length > 0 && <p className="mt-2">Exercise each verification scenario before verifying:</p>}
       {scenarios.map((action, index) =>
         action.command ? (
-          <pre key={index} className={codeClass}>
-            {action.command}
-          </pre>
+          <Command key={index}>{action.command}</Command>
         ) : (
           <p key={index} className="mt-1">
             {action.description}
@@ -179,7 +186,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
       {benchmark?.command && (
         <>
           <p className="mt-2">Run the benchmark through the instrumented callable:</p>
-          <pre className={codeClass}>{benchmark.command}</pre>
+          <Command>{benchmark.command}</Command>
         </>
       )}
 
@@ -198,7 +205,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
           ? 'Internal transitions are observed'
           : 'Final output only: per-stage loss attribution is unavailable until internal operators are instrumented'}
       </p>
-      <div className="mt-2 overflow-x-auto">
+      <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" tabIndex={0} role="region" aria-label={`Operators of ${record.integration_id}`}>
         <table className="w-full text-xs" aria-label={`Operators of ${record.integration_id}`}>
           <thead>
             <tr>
@@ -240,7 +247,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
       </div>
 
       <SubHeading>Verified capabilities</SubHeading>
-      <div className="mt-2 overflow-x-auto">
+      <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" tabIndex={0} role="region" aria-label={`Verified capabilities of ${record.integration_id}`}>
         <table className="w-full text-xs" aria-label={`Verified capabilities of ${record.integration_id}`}>
           <thead>
             <tr>
@@ -312,7 +319,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
       ) : (
         <>
           <p className="mt-1">No run for this pipeline yet.</p>
-          {benchmark && (benchmark.command ? <pre className={codeClass}>{benchmark.command}</pre> : <p>{benchmark.description}</p>)}
+          {benchmark && (benchmark.command ? <Command>{benchmark.command}</Command> : <p>{benchmark.description}</p>)}
           <p className="mt-2">Run the benchmark, then verify again to record the first investigation.</p>
         </>
       )}
@@ -385,7 +392,7 @@ export default function ConnectWorkspace() {
 
   return (
     <main className="flex-1 overflow-auto p-4 sm:p-6" aria-labelledby="connect-title">
-      <div className="mx-auto max-w-4xl space-y-4">
+      <div className="mx-auto max-w-4xl space-y-4 break-words">
         <header>
           <p className="eyebrow">Connect</p>
           <h1 id="connect-title" className="mt-1 text-xl font-semibold text-ink">
@@ -398,7 +405,7 @@ export default function ConnectWorkspace() {
         </header>
 
         <Step n={1} title="Install">
-          <pre className={codeClass}>pip install retrieval-observatory</pre>
+          <Command>pip install retrieval-observatory</Command>
         </Step>
 
         <Step n={2} title="Ask your coding agent">
@@ -416,15 +423,15 @@ export default function ConnectWorkspace() {
           <ol className="list-decimal space-y-2 pl-5">
             <li>
               Propose and apply the integration patch:
-              <pre className={codeClass}>retobs integrate .</pre>
+              <Command>retobs integrate .</Command>
             </li>
             <li>
               Run your benchmark through the instrumented callable:
-              <pre className={codeClass}>retobs evaluate module:callable --queries queries.jsonl --qrels qrels.tsv</pre>
+              <Command>retobs evaluate module:callable --queries queries.jsonl --qrels qrels.tsv</Command>
             </li>
             <li>
               Open the dashboard:
-              <pre className={codeClass}>retobs serve</pre>
+              <Command>retobs serve</Command>
             </li>
           </ol>
         </Step>
@@ -482,7 +489,7 @@ export default function ConnectWorkspace() {
                 <li key={item.db_id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                   <span>
                     <span className="font-medium text-ink">{item.label}</span>
-                    <span className="ml-2 font-mono text-xs text-ink-muted">{item.path}</span>
+                    <span className="ml-2 font-mono text-xs text-ink-muted [overflow-wrap:anywhere]">{item.path}</span>
                   </span>
                   <span className="text-xs text-ink-muted">
                     {item.run_count} {item.run_count === 1 ? 'run' : 'runs'}

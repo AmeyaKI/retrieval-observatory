@@ -43,7 +43,8 @@ export function nodeCardHeight(node: PipelineGraphNode): number {
   return 58 + metrics * 22
 }
 
-export function layoutPipelineGraph(graph: PipelineGraph): DagLayout {
+/** `cardHeight` defaults to the metric-card height; callers that render a different card pass their own. */
+export function layoutPipelineGraph(graph: PipelineGraph, cardHeight: (node: PipelineGraphNode) => number = nodeCardHeight): DagLayout {
   const byDepth = new Map<number, PipelineGraphNode[]>()
   for (const node of graph.nodes) {
     const list = byDepth.get(node.depth) ?? []
@@ -59,7 +60,7 @@ export function layoutPipelineGraph(graph: PipelineGraph): DagLayout {
   for (const [depth, list] of byDepth) {
     heightsByDepth.set(
       depth,
-      list.map((n) => nodeCardHeight(n)),
+      list.map((n) => cardHeight(n)),
     )
   }
 

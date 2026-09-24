@@ -101,7 +101,12 @@ export function GraphTable({ graph }: { graph: PipelineGraph }) {
   const parents = new Map<string, string[]>()
   for (const edge of graph.edges) parents.set(edge.target, [...(parents.get(edge.target) ?? []), edge.source])
   return (
-    <div className="overflow-x-auto rounded border border-slate-200 dark:border-slate-700">
+    <div
+      className="overflow-x-auto rounded border border-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:border-slate-700"
+      tabIndex={0}
+      role="region"
+      aria-label={`Operator table for pipeline ${graph.pipeline_id}`}
+    >
       <table className="w-full text-left text-xs">
         <caption className="sr-only">Accessible operator table for pipeline {graph.pipeline_id}</caption>
         <thead className="bg-surface-muted">

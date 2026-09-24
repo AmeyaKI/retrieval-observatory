@@ -13,6 +13,7 @@ from retrieval_observatory.store.base import (
     json_default,
     normalize_dataset_name,
     INVESTIGATION_SORT_KEYS,
+    PAIR_FACT_COLUMNS,
     InstrumentationHealth,
     InvestigationFilter,
     InvestigationPage,
@@ -22,9 +23,11 @@ from retrieval_observatory.store.base import (
     TraceQuery,
     clamp_page_limit,
     decode_cursor,
+    decode_trace,
     investigation_where,
     keyset_page,
     like_prefix,
+    pair_facts,
 )
 from retrieval_observatory.tracing.model import RetrievalTrace
 
@@ -283,6 +286,16 @@ _CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX = (
     "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_priority ON investigation_pairs"
     "(run_id, pipeline_id, evaluation_digest, priority, query_id, namespace, entity_id)"
 )
+# Filter columns followed by the full sort key, so an entity or outcome page is one index range
+# read in order, not a walk of the priority index over the whole scope.
+_CREATE_INVESTIGATION_PAIRS_ENTITY_ORDER_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_entity_order ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, namespace, entity_id, priority, query_id, trace_id, unit)"
+)
+_CREATE_INVESTIGATION_PAIRS_OUTCOME_ORDER_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_outcome_order ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, outcome, priority, query_id, namespace, entity_id, trace_id, unit)"
+)
 
 _CREATE_INVESTIGATION_SUMMARIES = """
 CREATE TABLE IF NOT EXISTS investigation_summaries (
@@ -304,6 +317,11 @@ CREATE TABLE IF NOT EXISTS investigation_projections (
 """
 
 _INVESTIGATION_TABLES = ("investigation_pairs", "investigation_summaries", "investigation_projections")
+# Indexes added within schema v3; `migrate_database` also applies them to files already at v3.
+_INVESTIGATION_ORDER_INDEX_DDL = (
+    _CREATE_INVESTIGATION_PAIRS_ENTITY_ORDER_IDX,
+    _CREATE_INVESTIGATION_PAIRS_OUTCOME_ORDER_IDX,
+)
 # The whole v2 -> v3 delta, in order; `migrate_database` replays it under one transaction.
 _INVESTIGATION_DDL = (
     _CREATE_INVESTIGATION_PAIRS,
@@ -311,6 +329,7 @@ _INVESTIGATION_DDL = (
     _CREATE_INVESTIGATION_PAIRS_ENTITY_IDX,
     _CREATE_INVESTIGATION_PAIRS_OUTCOME_IDX,
     _CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX,
+    *_INVESTIGATION_ORDER_INDEX_DDL,
     _CREATE_INVESTIGATION_SUMMARIES,
     _CREATE_INVESTIGATION_PROJECTIONS,
 )
@@ -566,7 +585,7 @@ class SQLiteStore:
         async with self._connect() as db:
             async with db.execute("SELECT trace_json FROM traces WHERE trace_id = ?", (trace_id,)) as cursor:
                 row = await cursor.fetchone()
-        return RetrievalTrace.from_dict(json.loads(row[0])) if row else None
+        return decode_trace(trace_id, row[0]) if row else None
 
     async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
         if query is None:
@@ -589,7 +608,7 @@ class SQLiteStore:
             clauses.append("timestamp <= ?")
             params.append(query.until.isoformat())
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
+        sql = f"SELECT trace_id, trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
         if query.limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend((query.limit, query.offset))
@@ -598,12 +617,20 @@ class SQLiteStore:
             params.append(query.offset)
         async with self._connect() as db:
             async with db.execute(sql, params) as cursor:
-                rows = await cursor.fetchall()
-        return [RetrievalTrace.from_dict(json.loads(row[0])) for row in rows]
+                # Decoded as fetched, so the raw JSON of the whole run is never held beside the traces.
+                return [decode_trace(row[0], row[1]) async for row in cursor]
 
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
         """Every trace for a run. Unbounded by design — callers compute run-wide statistics."""
         return await self.list_traces(TraceQuery(run_id=run_id))
+
+    async def list_pipeline_ids(self, run_id: str) -> List[str]:
+        """The distinct pipeline ids of a run's traces, sorted; reads no trace payload."""
+        await self._ensure_schema()
+        async with self._connect() as db:
+            async with db.execute("SELECT DISTINCT pipeline_id FROM traces WHERE run_id = ?", (run_id,)) as cursor:
+                rows = await cursor.fetchall()
+        return sorted(row[0] for row in rows)
 
     async def list_services(self) -> List[ServiceSummary]:
         await self._ensure_schema()
@@ -1496,6 +1523,33 @@ class SQLiteStore:
             ) as cursor_rows:
                 rows = await cursor_rows.fetchall()
         return keyset_page(rows, limit, total)
+
+    async def list_investigation_pair_facts(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> List[Dict]:
+        """Every matching pair's summary columns and event count, in page order; one query, no payload decode.
+
+        Sorted here rather than by ``ORDER BY`` so SQLite plans the read on the filter's own index
+        (without a LIMIT it would walk the priority index over the scope). The sort keys are NOT NULL
+        integers and BINARY-collated text, whose order Python's tuple comparison reproduces exactly.
+        """
+        keys = INVESTIGATION_SORT_KEYS[order]
+        where, params = investigation_where(scope, filters, lambda _n: "?")
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return []
+            async with db.execute(
+                f"SELECT {', '.join(keys)}, {', '.join(PAIR_FACT_COLUMNS)}, json_array_length(payload_json, '$.events') "
+                f"FROM investigation_pairs WHERE {where}",
+                params,
+            ) as cursor:
+                rows = await cursor.fetchall()
+        rows.sort(key=lambda row: row[: len(keys)])
+        return [pair_facts(row[len(keys):]) for row in rows]
 
     async def get_investigation_pair(
         self, scope: InvestigationScope, *, trace_id: str, namespace: str, unit: str, entity_id: str

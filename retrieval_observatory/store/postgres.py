@@ -8,6 +8,7 @@ from retrieval_observatory.store.base import (
     json_default,
     normalize_dataset_name,
     INVESTIGATION_SORT_KEYS,
+    PAIR_FACT_COLUMNS,
     InstrumentationHealth,
     InvestigationFilter,
     InvestigationPage,
@@ -17,9 +18,11 @@ from retrieval_observatory.store.base import (
     TraceQuery,
     clamp_page_limit,
     decode_cursor,
+    decode_trace,
     investigation_where,
     keyset_page,
     like_prefix,
+    pair_facts,
 )
 from retrieval_observatory.store.sqlite import _PAIR_COLUMNS, _PROJECTION_COLUMNS, investigation_pair_row
 from retrieval_observatory.tracing.model import RetrievalTrace
@@ -263,6 +266,14 @@ _CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX = (
     "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_priority ON investigation_pairs"
     "(run_id, pipeline_id, evaluation_digest, priority, query_id, namespace, entity_id)"
 )
+_CREATE_INVESTIGATION_PAIRS_ENTITY_ORDER_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_entity_order ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, namespace, entity_id, priority, query_id, trace_id, unit)"
+)
+_CREATE_INVESTIGATION_PAIRS_OUTCOME_ORDER_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_outcome_order ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, outcome, priority, query_id, namespace, entity_id, trace_id, unit)"
+)
 _CREATE_INVESTIGATION_SUMMARIES = """
 CREATE TABLE IF NOT EXISTS investigation_summaries (
     run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
@@ -286,6 +297,8 @@ _INVESTIGATION_DDL = (
     _CREATE_INVESTIGATION_PAIRS_ENTITY_IDX,
     _CREATE_INVESTIGATION_PAIRS_OUTCOME_IDX,
     _CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX,
+    _CREATE_INVESTIGATION_PAIRS_ENTITY_ORDER_IDX,
+    _CREATE_INVESTIGATION_PAIRS_OUTCOME_ORDER_IDX,
     _CREATE_INVESTIGATION_SUMMARIES,
     _CREATE_INVESTIGATION_PROJECTIONS,
 )
@@ -963,7 +976,7 @@ class PostgresStore:
             params.append(query.until)
             clauses.append(f"timestamp <= ${len(params)}")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
+        sql = f"SELECT trace_id, trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
         if query.limit is not None:
             params.extend((query.limit, query.offset))
             sql += f" LIMIT ${len(params) - 1} OFFSET ${len(params)}"
@@ -973,17 +986,24 @@ class PostgresStore:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch(sql, *params)
-        return [_trace_from_json(row["trace_json"]) for row in rows]
+        return [decode_trace(row["trace_id"], row["trace_json"]) for row in rows]
 
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
         """Every trace for a run. Unbounded by design — callers compute run-wide statistics."""
         return await self.list_traces(TraceQuery(run_id=run_id))
 
+    async def list_pipeline_ids(self, run_id: str) -> List[str]:
+        """The distinct pipeline ids of a run's traces, sorted in Python (not by the server's collation)."""
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("SELECT DISTINCT pipeline_id FROM traces WHERE run_id = $1", run_id)
+        return sorted(row["pipeline_id"] for row in rows)
+
     async def get_trace(self, trace_id: str) -> Optional[RetrievalTrace]:
         pool = await self._get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT trace_json FROM traces WHERE trace_id = $1", trace_id)
-        return _trace_from_json(row["trace_json"]) if row else None
+        return decode_trace(trace_id, row["trace_json"]) if row else None
 
     async def list_topology_variants(self, query: TraceQuery) -> List[TopologyVariant]:
         traces = await self.list_traces(query)
@@ -1426,6 +1446,23 @@ class PostgresStore:
                 *params, limit + 1,
             )
         return keyset_page([tuple(row) for row in rows], limit, total)
+
+    async def list_investigation_pair_facts(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> List[Dict]:
+        where, params = investigation_where(scope, filters, _ph)
+        pool = await self._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"SELECT {', '.join(PAIR_FACT_COLUMNS)}, json_array_length(payload_json::json -> 'events') "
+                f"FROM investigation_pairs WHERE {where} ORDER BY {', '.join(INVESTIGATION_SORT_KEYS[order])}",
+                *params,
+            )
+        return [pair_facts(tuple(row)) for row in rows]
 
     async def get_investigation_pair(
         self, scope: InvestigationScope, *, trace_id: str, namespace: str, unit: str, entity_id: str

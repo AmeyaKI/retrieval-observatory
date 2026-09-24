@@ -54,7 +54,8 @@ async def execute_benchmark(
     pipeline objects. `log` is an optional status-printing callable (the CLI passes
     `console.print`; the SDK leaves it None for silent operation). `chunk_map` rows are
     ``(chunk_id, document_id[, namespace])`` and are recorded in the manifest for the
-    investigation projection.
+    investigation projection; with gold labels and no `judgments`, the run is scored as if
+    `judgments` held `qrels` with each document in the namespace `chunk_map` gives it.
 
     `judgments` is a namespaced ``JudgmentSet`` that replaces `qrels`: the run records it as
     its judgments and scores metrics and diagnostics on documents, each candidate counting as
@@ -71,6 +72,15 @@ async def execute_benchmark(
     from retrieval_observatory.runner.manifest import build_run_manifest, detect_forge_dataset_id
 
     _log = log or (lambda *a, **k: None)
+    dataset_qrels = qrels
+    map_to_documents = judgments is None and bool(chunk_map) and cfg.labels.mode == "gold"
+    if map_to_documents:
+        # Chunk results are scored against the caller's document qrels; the dataset fingerprint
+        # keeps those qrels so the run stays comparable with a run scored without a chunk map.
+        document_namespaces = _document_namespaces(chunk_map)
+        judgments = _chunk_map_judgments(qrels, document_namespaces)
+    elif judgments is not None:
+        dataset_qrels = _document_qrels(judgments)
     if judgments is not None:
         qrels = _document_qrels(judgments)
     run_started_at = datetime.now(timezone.utc)
@@ -101,7 +111,7 @@ async def execute_benchmark(
     fingerprint = dataset_fingerprint(
         cfg.dataset.name,
         queries,
-        qrels,
+        dataset_qrels,
         corpus if isinstance(corpus, dict) else None,
     )
     if hasattr(store, "save_run_manifest"):
@@ -230,6 +240,10 @@ async def execute_benchmark(
 
     corpus_documents = getattr(dataset, "corpus_documents", None)
     corpus_doc_ids = set(corpus_documents) if corpus_documents is not None else None
+    if corpus_doc_ids is not None and map_to_documents:  # relevant ids below are ``namespace:document_id``
+        corpus_doc_ids = {
+            f"{namespace}:{doc_id}" for doc_id in corpus_doc_ids for namespace in document_namespaces.get(str(doc_id), {"default"})
+        }
     configured_cutoffs = list(getattr(cfg.metrics, "recall_at_k", []) or [10])
     diagnostic_cutoff = max(configured_cutoffs)
     if judgments is None:
@@ -390,17 +404,48 @@ def _document_qrels(judgments) -> Dict[str, Dict[str, int]]:
     return qrels
 
 
+def _document_namespaces(chunk_map) -> Dict[str, set]:
+    """document_id -> the namespaces ``chunk_map`` rows place it in (``default`` for 2-tuple rows)."""
+    namespaces: Dict[str, set] = {}
+    for row in chunk_map:
+        namespaces.setdefault(str(row[1]), set()).add(str(row[2]) if len(row) > 2 else "default")
+    return namespaces
+
+
+def _chunk_map_judgments(qrels, document_namespaces: Dict[str, set]):
+    """Gold document qrels as judgments, each document in the namespace the chunk map gives it (else ``default``)."""
+    from retrieval_observatory.datasets.judgments import JudgmentSet
+
+    by_namespace: Dict[str, Dict[str, Dict[str, int]]] = {}
+    for query_id, rels in qrels.items():
+        for doc_id, grade in (rels.items() if isinstance(rels, dict) else ((doc_id, 1) for doc_id in rels)):
+            namespaces = document_namespaces.get(str(doc_id), {"default"})
+            if len(namespaces) > 1:
+                raise ValueError(
+                    f"qrels document {doc_id!r} is in chunk_map namespaces {sorted(namespaces)}; "
+                    "a judged document must belong to exactly one namespace"
+                )
+            by_namespace.setdefault(next(iter(namespaces)), {}).setdefault(query_id, {})[doc_id] = grade
+    return JudgmentSet.from_records(
+        record
+        for namespace, namespaced in sorted(by_namespace.items())
+        for record in JudgmentSet.from_qrels(namespaced, namespace=namespace).to_records()
+    )
+
+
 def _document_view(trace, chunk_map):
     """A copy of ``trace`` whose candidates are scored as ``namespace:document_id``."""
     from dataclasses import replace
 
-    from retrieval_observatory.datasets.judgments import EntityRef
-
     def document(candidate):
+        # A bare chunk id (no namespace, no document) takes the namespace the chunk map gives it, as
+        # the investigation projection does (``ChunkMap.chunk_ref``); otherwise ``default`` as before.
+        explicit = candidate.metadata.get("namespace") or (None if candidate.document_id is None else "default")
+        mapped = chunk_map.document_for(chunk_map.chunk_ref(candidate.doc_id, explicit)) if chunk_map else None
+        if mapped:
+            return replace(candidate, doc_id=f"{mapped.namespace}:{mapped.entity_id}")
         namespace = str(candidate.metadata.get("namespace") or "default")
-        mapped = chunk_map.document_for(EntityRef(namespace, candidate.doc_id, "chunk")) if chunk_map else None
-        document_id = mapped.entity_id if mapped else (candidate.document_id or candidate.doc_id)
-        return replace(candidate, doc_id=f"{namespace}:{document_id}")
+        return replace(candidate, doc_id=f"{namespace}:{candidate.document_id or candidate.doc_id}")
 
     spans = tuple(
         replace(

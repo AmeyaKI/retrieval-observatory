@@ -9,6 +9,8 @@ Schema history (``PRAGMA user_version``):
 * 3 — adds the investigation projection tables (``investigation_pairs``,
   ``investigation_summaries``, ``investigation_projections``). Purely additive:
   no existing table, index, or row is touched, so v2 files migrate in place.
+  Later v3 releases add indexes only (``_INVESTIGATION_ORDER_INDEX_DDL``); migrating a
+  file already at v3 creates any that are missing, with no version bump.
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
 
-from retrieval_observatory.store.sqlite import _INVESTIGATION_DDL, _created_table_names
+from retrieval_observatory.store.sqlite import _INVESTIGATION_DDL, _INVESTIGATION_ORDER_INDEX_DDL, _created_table_names
 
 
 SCHEMA_VERSION = 3
@@ -68,6 +70,10 @@ def _table_names(db: sqlite3.Connection) -> set[str]:
     return {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
 
+def _index_names(db: sqlite3.Connection) -> set[str]:
+    return {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+
+
 def migrate_database(db_path: Path, *, backup: bool = True) -> dict:
     """Bring a supported v0/v2 file to v3 in place, additively and transactionally.
 
@@ -86,10 +92,25 @@ def migrate_database(db_path: Path, *, backup: bool = True) -> dict:
     with sqlite3.connect(db_path) as db:
         version = int(db.execute("PRAGMA user_version").fetchone()[0])
         before = _table_names(db)
+        indexes_before = _index_names(db)
     if version == SCHEMA_VERSION:
+        # Additive index DDL only (`IF NOT EXISTS`), so no backup; a reset file has no pairs table.
+        if "investigation_pairs" in before:
+            with sqlite3.connect(db_path) as db:
+                db.execute("BEGIN IMMEDIATE")
+                try:
+                    for statement in _INVESTIGATION_ORDER_INDEX_DDL:
+                        db.execute(statement)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    raise
+                indexes_after = _index_names(db)
+        else:
+            indexes_after = indexes_before
         return {
             "status": "already_current", "from_version": version, "to_version": SCHEMA_VERSION,
-            "backup_path": None, "tables_added": [],
+            "backup_path": None, "tables_added": [], "indexes_added": sorted(indexes_after - indexes_before),
         }
     backup_path = None
     if backup:
@@ -108,8 +129,9 @@ def migrate_database(db_path: Path, *, backup: bool = True) -> dict:
             db.rollback()
             raise
         after = _table_names(db)
+        indexes_after = _index_names(db)
     return {
         "status": "migrated", "from_version": version, "to_version": SCHEMA_VERSION,
         "backup_path": str(backup_path) if backup_path else None,
-        "tables_added": sorted(after - before),
+        "tables_added": sorted(after - before), "indexes_added": sorted(indexes_after - indexes_before),
     }

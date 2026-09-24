@@ -8,9 +8,9 @@ import type { InvestigationDocumentRow, InvestigationStage, JourneyEvent, Journe
 import { DEFAULT_SELECTION } from '../context/dashboardQuery'
 import { nextIndexForKey, pathHighlight } from '../utils/queryDebugger'
 import InvestigationDetail from './InvestigationDetail'
-import InvestigationGraph, { nodeOverlay } from './InvestigationGraph'
+import InvestigationGraph, { CARD_GEOMETRY, MAX_OVERLAY_LINES, nodeOverlay, STAGE_CARD_H, StageCard } from './InvestigationGraph'
 import InvestigationTable from './InvestigationTable'
-import { modeFor } from './InvestigateWorkspace'
+import { modeFor, settleBuild, singleFlight } from './InvestigateWorkspace'
 import OperatorInspector from './OperatorInspector'
 
 // Fixtures mirror tests/fixtures/investigation_cases.py (golden-hybrid).
@@ -434,7 +434,7 @@ describe('InvestigationGraph', () => {
     expect(nodeOverlay('ghost', AGGREGATE, 'aggregate', true).lines).toEqual(['no invocations recorded'])
     const html = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} />)
     expect(html).toContain('served 1 of 3 queries')
-    expect(html).toContain('role="img"')
+    expect(html).toContain('role="group"')
     expect(html).toContain('aria-label="Pipeline golden-hybrid: 9 operators, 9 edges; showing counts over the whole run"')
     expect(html).toContain('aria-label="Legend"')
     expect(html).toContain('SKIPPED_BY_GATE')
@@ -477,6 +477,47 @@ describe('InvestigationGraph', () => {
     expect(expandedHtml).toContain('4 operators, 4 edges')
   })
 
+  test('every card reserves the maximum overlay lines plus the path-event line, with or without a selected journey', () => {
+    const g = CARD_GEOMETRY
+    const content = g.header + g.label + MAX_OVERLAY_LINES * g.line + g.path + (MAX_OVERLAY_LINES + 2) * g.gap
+    expect(STAGE_CARD_H).toBeGreaterThanOrEqual(g.border + g.paddingY + content)
+    // No overlay renders more lines than the card reserves, in either mode or when unobserved.
+    for (const id of GRAPH.nodes.map((n) => n.node_id).concat('ghost')) {
+      expect(nodeOverlay(id, AGGREGATE, 'aggregate', true).lines.length).toBeLessThanOrEqual(MAX_OVERLAY_LINES)
+      expect(nodeOverlay(id, REFUND_STAGES, 'query', true).lines.length).toBeLessThanOrEqual(MAX_OVERLAY_LINES)
+      expect(nodeOverlay(id, null, 'query', true).lines.length).toBeLessThanOrEqual(MAX_OVERLAY_LINES)
+    }
+    const heights = (html: string) => [...html.matchAll(/<foreignObject[^>]*height="([\d.]+)"/g)].map((m) => Number(m[1]))
+    const plain = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} />)
+    const highlighted = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} highlight={pathHighlight(policy, GRAPH)} />)
+    expect(heights(plain)).toHaveLength(GRAPH.nodes.length)
+    expect(new Set(heights(plain))).toEqual(new Set([STAGE_CARD_H]))
+    // Layout is stable: selecting a journey does not move or resize any card.
+    expect(heights(highlighted)).toEqual(heights(plain))
+    expect(highlighted.match(/<foreignObject[^>]*>/g)).toEqual(plain.match(/<foreignObject[^>]*>/g))
+    // The classes that pin the geometry above (py-2 = 16px, h-4/leading-4 = 16px, label 18px, lines 12px).
+    for (const pinned of ['py-2', 'flex h-4', 'leading-[18px]', 'leading-[12px]', 'font-medium leading-4']) expect(highlighted).toContain(pinned)
+  })
+
+  test('operator cards are keyboard-reachable buttons that select the stage like a click', () => {
+    const html = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} selectedStageId="fuse" />)
+    // The container is a named group, not an image, so its buttons stay in the accessibility tree.
+    expect(html).not.toContain('role="img"')
+    expect(html.match(/<button type="button" aria-pressed="(true|false)"/g)).toHaveLength(GRAPH.nodes.length)
+    expect(html).not.toContain('tabindex="-1"')
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
+    const onSelect = vi.fn()
+    const fuse = { ...GRAPH.nodes.find((n) => n.node_id === 'fuse')!, x: 0, y: 0, w: 200, h: STAGE_CARD_H }
+    const card = StageCard({ node: fuse, overlay: nodeOverlay('fuse', AGGREGATE, 'aggregate', true), kind: null, selected: true, dimmed: false, onSelect })
+    const button = card.props.children
+    expect(button.type).toBe('button')
+    // Enter and Space activate a native button through the same onClick.
+    button.props.onClick()
+    expect(onSelect).toHaveBeenCalledWith('fuse')
+    // Selection is stated in text, not only by the border colour.
+    expect(renderToStaticMarkup(card)).toContain('>selected<')
+  })
+
   test('says so when no topology was recorded', () => {
     const html = renderToStaticMarkup(<InvestigationGraph graph={null} stages={AGGREGATE} mode="aggregate" {...graphProps} />)
     expect(html).toContain('No pipeline topology recorded')
@@ -510,5 +551,88 @@ describe('modeFor', () => {
     expect(modeFor({ ...DEFAULT_SELECTION, query: 'q' })).toBe('query-candidates')
     expect(modeFor({ ...DEFAULT_SELECTION, view: 'documents' })).toBe('documents')
     expect(modeFor({ ...DEFAULT_SELECTION, view: 'documents', entity: 'kb:doc' })).toBe('document-queries')
+  })
+})
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+describe('Investigate stale-response guards', () => {
+  test('two fast load-more clicks for one cursor send one request', async () => {
+    const inFlight = { current: null as string | null }
+    const pending = deferred<string[]>()
+    const request = vi.fn(() => pending.promise)
+    const first = singleFlight(inFlight, '1:cursor-2', request)
+    const second = singleFlight(inFlight, '1:cursor-2', request)
+    expect(first).not.toBeNull()
+    expect(second).toBeNull()
+    expect(request).toHaveBeenCalledTimes(1)
+    // The same cursor under a newer scope (sequence) is a different request and goes through.
+    const newScope = singleFlight(inFlight, '2:cursor-2', () => Promise.resolve(['other-scope']))
+    expect(newScope).not.toBeNull()
+    await newScope
+    pending.resolve(['row-51'])
+    expect(await first).toEqual(['row-51'])
+    // The slot is released once the request settles; the next cursor goes through.
+    expect(singleFlight(inFlight, 'cursor-3', () => Promise.resolve([]))).not.toBeNull()
+  })
+
+  test('a failed load-more releases the cursor so it can be retried', async () => {
+    const inFlight = { current: null as string | null }
+    const pending = deferred<string[]>()
+    const first = singleFlight(inFlight, 'cursor-2', () => pending.promise)
+    pending.reject(new Error('boom'))
+    await expect(first).rejects.toThrow('boom')
+    expect(inFlight.current).toBeNull()
+  })
+
+  test('an index build that resolves after a run switch never lands on the new scope', async () => {
+    let scope = 'run-a'
+    const started = scope
+    const setBuild = vi.fn()
+    const reload = vi.fn()
+    const build = deferred<{ status: string; error?: string | null }>()
+    const settled = settleBuild(build.promise, () => scope === started, 'run-a', setBuild, reload)
+    scope = 'run-b'
+    build.resolve({ status: 'complete' })
+    await settled
+    expect(setBuild).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  test('builds resolving out of order: only the one for the current scope applies', async () => {
+    let scope = 'run-a'
+    const setBuild = vi.fn()
+    const reload = vi.fn()
+    const buildA = deferred<{ status: string; error?: string | null }>()
+    const settledA = settleBuild(buildA.promise, () => scope === 'run-a', 'run-a', setBuild, reload)
+    scope = 'run-b'
+    const buildB = deferred<{ status: string; error?: string | null }>()
+    const settledB = settleBuild(buildB.promise, () => scope === 'run-b', 'run-b', setBuild, reload)
+    buildB.resolve({ status: 'failed', error: 'B failed' })
+    await settledB
+    buildA.reject(new Error('buildInvestigationProjection: 409 Conflict — {"detail":{"code":"read_only"}}'))
+    await settledA
+    expect(setBuild).toHaveBeenCalledTimes(1)
+    expect(setBuild).toHaveBeenCalledWith({ kind: 'failed', message: 'B failed' })
+    expect(reload).not.toHaveBeenCalled()
+  })
+
+  test('a build for the still-selected scope applies its outcome', async () => {
+    const setBuild = vi.fn()
+    const reload = vi.fn()
+    await settleBuild(Promise.resolve({ status: 'complete' }), () => true, 'run-a', setBuild, reload)
+    expect(setBuild).toHaveBeenCalledWith({ kind: 'idle' })
+    expect(reload).toHaveBeenCalledTimes(1)
+    const refused = vi.fn()
+    await settleBuild(Promise.reject(new Error('buildInvestigationProjection: 409 Conflict — {}')), () => true, 'run-a', refused, reload)
+    expect(refused.mock.calls[0][0]).toMatchObject({ kind: 'refused' })
   })
 })

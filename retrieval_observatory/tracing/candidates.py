@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import collections.abc
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterable, List, Mapping, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 
 from retrieval_observatory.tracing.model import Candidate
 
@@ -53,7 +54,7 @@ def clone_candidate(candidate: Candidate) -> Candidate:
     )
 
 
-@dataclass(frozen=True)
+@dataclass  # internal and never mutated; not frozen because frozen __init__ costs ~2x per captured item
 class _CandidateFields:
     doc_id: str
     score: float
@@ -75,23 +76,25 @@ class _CandidateFields:
     score_model: str | None = None
 
 
-def _item_value(item: Any, key: str, default: Any = None) -> Any:
-    if isinstance(item, Mapping):
-        return item.get(key, default)
-    return getattr(item, key, default)
+def _item_getter(item: Any) -> Callable[..., Any]:
+    """``get(key, default=None)`` for one item: mapping keys or attributes, decided once per item."""
+    if isinstance(item, collections.abc.Mapping):  # the ABC itself: `typing.Mapping` checks via a slower proxy
+        return item.get
+    return lambda key, default=None: getattr(item, key, default)
 
 
-def _observed_id(item: Any, metadata: Mapping[str, Any]) -> Any:
+def _observed_id(get: Callable[..., Any], metadata: Mapping[str, Any]) -> Any:
     """The stable id an application object carries: dict keys or attributes ``doc_id``/``id``,
     a LlamaIndex node's ``node_id``/``id_`` (also through ``NodeWithScore.node``), or ``metadata["id"]``."""
     for key in ("doc_id", "id", "node_id", "id_"):
-        value = _item_value(item, key)
+        value = get(key)
         if value:
             return value
-    node = _item_value(item, "node")
+    node = get("node")
     if node is not None:
+        node_get = _item_getter(node)
         for key in ("node_id", "id_", "id"):
-            value = _item_value(node, key)
+            value = node_get(key)
             if value:
                 return value
     return metadata.get("id")
@@ -100,28 +103,29 @@ def _observed_id(item: Any, metadata: Mapping[str, Any]) -> Any:
 def _item_fields(item: Any, index: int) -> _CandidateFields:
     if isinstance(item, str):
         return _CandidateFields(item, 0.0, index, {})
-    metadata = dict(_item_value(item, "metadata", {}) or {})
-    observed_doc_id = _observed_id(item, metadata)
+    get = _item_getter(item)
+    metadata = dict(get("metadata", {}) or {})
+    observed_doc_id = _observed_id(get, metadata)
     doc_id = str(observed_doc_id or index)
     return _CandidateFields(
         doc_id=doc_id,
-        score=float(_item_value(item, "score", 0.0)),
-        rank=int(_item_value(item, "rank", index)),
+        score=float(get("score", 0.0)),
+        rank=int(get("rank", index)),
         metadata=metadata,
-        candidate_id=_item_value(item, "candidate_id"),
-        logical_chunk_id=_item_value(item, "logical_chunk_id"),
-        document_id=_item_value(item, "document_id"),
-        document_revision=_item_value(item, "document_revision"),
-        content_hash=_item_value(item, "content_hash"),
-        char_start=_item_value(item, "char_start"),
-        char_end=_item_value(item, "char_end"),
-        parent_candidate_ids=tuple(_item_value(item, "parent_candidate_ids", ()) or ()),
-        identity_evidence=_item_value(item, "identity_evidence") or ("partial" if not observed_doc_id else None),
-        decision_reason=_item_value(item, "decision_reason"),
-        decision_evidence=_item_value(item, "decision_evidence"),
-        add_reason=_item_value(item, "add_reason"),
-        score_type=_item_value(item, "score_type"),
-        score_model=_item_value(item, "score_model"),
+        candidate_id=get("candidate_id"),
+        logical_chunk_id=get("logical_chunk_id"),
+        document_id=get("document_id"),
+        document_revision=get("document_revision"),
+        content_hash=get("content_hash"),
+        char_start=get("char_start"),
+        char_end=get("char_end"),
+        parent_candidate_ids=tuple(get("parent_candidate_ids", ()) or ()),
+        identity_evidence=get("identity_evidence") or ("partial" if not observed_doc_id else None),
+        decision_reason=get("decision_reason"),
+        decision_evidence=get("decision_evidence"),
+        add_reason=get("add_reason"),
+        score_type=get("score_type"),
+        score_model=get("score_model"),
     )
 
 
@@ -185,17 +189,22 @@ def build_candidate_transition(
     decision_reasons = decision_reasons or {}
     known_input_ids = {candidate.candidate_id for candidates in input_groups.values() for candidate in candidates}
 
+    # An input's output rank is the rank of the FIRST output row that names it (as the row's
+    # candidate id or one of its parents); failing that, of the first identity-less row with
+    # its doc id. First occurrence wins, exactly as a scan in output order would find it.
+    rank_by_id: Dict[Any, int] = {}
+    rank_by_doc: Dict[str, int] = {}
+    for row in output_rows:
+        for key in (row.candidate_id, *row.parent_candidate_ids):
+            rank_by_id.setdefault(key, row.rank)
+        identity_is_unmatched = row.candidate_id is None or row.candidate_id not in known_input_ids
+        if identity_is_unmatched and not row.parent_candidate_ids:
+            rank_by_doc.setdefault(row.doc_id, row.rank)
+
     def output_rank(candidate: Candidate) -> int | None:
-        for row in output_rows:
-            if row.candidate_id == candidate.candidate_id:
-                return row.rank
-            if candidate.candidate_id in row.parent_candidate_ids:
-                return row.rank
-        for row in output_rows:
-            identity_is_unmatched = row.candidate_id is None or row.candidate_id not in known_input_ids
-            if identity_is_unmatched and not row.parent_candidate_ids and row.doc_id == candidate.doc_id:
-                return row.rank
-        return None
+        if candidate.candidate_id in rank_by_id:
+            return rank_by_id[candidate.candidate_id]
+        return rank_by_doc.get(candidate.doc_id)
 
     normalized_groups: Dict[str, List[Candidate]] = {}
     inputs_by_doc: Dict[str, List[tuple[str, Candidate]]] = {}

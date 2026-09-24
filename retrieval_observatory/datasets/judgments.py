@@ -269,10 +269,12 @@ class ChunkMap:
     pairs: tuple[tuple[EntityRef, EntityRef], ...] = ()
     _by_chunk: Dict[tuple[str, str, str], EntityRef] = field(init=False, repr=False, compare=False)
     _by_document: Dict[tuple[str, str, str], tuple[EntityRef, ...]] = field(init=False, repr=False, compare=False)
+    _namespaces: Dict[str, frozenset[str]] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         by_chunk: Dict[tuple[str, str, str], EntityRef] = {}
         by_document: Dict[tuple[str, str, str], list[EntityRef]] = {}
+        namespaces: Dict[str, set[str]] = {}
         for chunk, document in self.pairs:
             if chunk.unit != "chunk" or document.unit != "document":
                 raise ValueError(f"ChunkMap pairs are (chunk, document); got ({chunk.unit}, {document.unit})")
@@ -280,7 +282,9 @@ class ChunkMap:
                 raise ValueError(f"chunk namespace {chunk.namespace!r} differs from document namespace {document.namespace!r}")
             by_chunk[chunk.key()] = document
             by_document.setdefault(document.key(), []).append(chunk)
+            namespaces.setdefault(chunk.entity_id, set()).add(chunk.namespace)
         object.__setattr__(self, "_by_chunk", by_chunk)
+        object.__setattr__(self, "_namespaces", {k: frozenset(v) for k, v in namespaces.items()})
         object.__setattr__(self, "_by_document", {k: tuple(sorted(v, key=_entity_sort_key)) for k, v in by_document.items()})
 
     @classmethod
@@ -304,6 +308,18 @@ class ChunkMap:
 
     def document_for(self, chunk: EntityRef) -> EntityRef | None:
         return self._by_chunk.get(chunk.key())
+
+    def chunk_ref(self, chunk_id: str, namespace: str | None = None) -> EntityRef:
+        """The chunk a candidate names. An explicit ``namespace`` is used as given. Without one the
+        chunk is ``default`` if mapped there, else the one namespace the map places ``chunk_id`` in;
+        an id mapped under several non-default namespaces stays ``default`` (unmapped), never guessed.
+        """
+        if not namespace:
+            namespace = "default"
+            candidates = self._namespaces.get(chunk_id, frozenset())
+            if namespace not in candidates and len(candidates) == 1:
+                (namespace,) = candidates
+        return EntityRef(namespace, chunk_id, "chunk")
 
     def chunks_for(self, document: EntityRef) -> tuple[EntityRef, ...]:
         return self._by_document.get(document.key(), ())

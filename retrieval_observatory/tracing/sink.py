@@ -14,6 +14,8 @@ from retrieval_observatory.tracing.serialization import NormalizedTrace, normali
 class FlushResult:
     timed_out: bool
     unflushed: int
+    # Traces whose export failed permanently (retries exhausted) while this flush waited: dropped, not persisted.
+    failed: int = 0
 
 
 class BufferedTraceSink:
@@ -38,6 +40,7 @@ class BufferedTraceSink:
         self._worker: asyncio.Task[None] | None = None
         self._accepting = True
         self._in_flight = 0
+        self._failed = 0
 
     async def start(self) -> None:
         if not self._accepting:
@@ -92,6 +95,7 @@ class BufferedTraceSink:
             except Exception:
                 if attempt == self.config.max_retries:
                     self.counters.permanent_failed(len(batch))
+                    self._failed += len(batch)
                     return
                 self.counters.retried(len(batch))
                 delay = self.config.retry_base_s * (2**attempt)
@@ -123,11 +127,12 @@ class BufferedTraceSink:
     async def flush(self, timeout_s: float | None = None) -> FlushResult:
         timeout = self.config.shutdown_timeout_s if timeout_s is None else max(0.0, timeout_s)
         started = time.perf_counter()
+        failed_before = self._failed
         try:
             await asyncio.wait_for(self.queue.join(), timeout)
-            result = FlushResult(False, 0)
+            result = FlushResult(False, 0, self._failed - failed_before)
         except asyncio.TimeoutError:
-            result = FlushResult(True, self._unflushed())
+            result = FlushResult(True, self._unflushed(), self._failed - failed_before)
         self.counters.flush_latency((time.perf_counter() - started) * 1000)
         return result
 

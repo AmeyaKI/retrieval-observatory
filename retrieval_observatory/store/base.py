@@ -62,6 +62,9 @@ class BaseStore(Protocol):
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
         ...
 
+    async def list_pipeline_ids(self, run_id: str) -> List[str]:
+        ...
+
     async def list_services(self) -> List[ServiceSummary]:
         ...
 
@@ -239,6 +242,15 @@ class BaseStore(Protocol):
     ) -> InvestigationPage:
         ...
 
+    async def list_investigation_pair_facts(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> List[Dict]:
+        ...
+
     async def get_investigation_pair(
         self, scope: InvestigationScope, *, trace_id: str, namespace: str, unit: str, entity_id: str
     ) -> Dict | None:
@@ -260,6 +272,25 @@ class BaseStore(Protocol):
 
     async def delete_investigation_projection(self, scope: InvestigationScope) -> None:
         ...
+
+
+class TraceDecodeError(ValueError):
+    """A stored trace row that does not decode into a ``RetrievalTrace`` (invalid JSON or an invalid
+    field such as ``input_capture``). Names the trace; the payload itself is never included."""
+
+    def __init__(self, trace_id: str, reason: str):
+        super().__init__(f"trace {trace_id!r} is unreadable: {reason}")
+        self.trace_id = trace_id
+        self.reason = reason
+
+
+def decode_trace(trace_id: str, payload: str | Mapping[str, Any]) -> RetrievalTrace:
+    """One stored ``trace_json`` (text, or a mapping from a JSONB column) as a ``RetrievalTrace``."""
+    try:
+        return RetrievalTrace.from_dict(payload if isinstance(payload, Mapping) else json.loads(payload))
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        # str(error) only: a JSONDecodeError's `.doc` holds the whole payload, which may carry document text.
+        raise TraceDecodeError(trace_id, f"{type(error).__name__}: {error}") from error
 
 
 def json_default(value: Any) -> Any:
@@ -371,6 +402,8 @@ INVESTIGATION_SORT_KEYS: Dict[str, tuple[str, ...]] = {
     "entity": ("namespace", "entity_id", "priority", "query_id", "trace_id", "unit"),
 }
 INVESTIGATION_PAGE_LIMIT = 200
+# The `investigation_pairs` columns a filtered summary counts (`summarize_pair_counts`).
+PAIR_FACT_COLUMNS = ("outcome", "confusion", "judgment", "final_membership", "observed", "loss_boundary")
 
 
 def clamp_page_limit(limit: int) -> int:
@@ -417,6 +450,14 @@ def investigation_where(
 def like_prefix(prefix: str) -> str:
     """`LIKE` pattern matching keys that start with `prefix`; pair with `ESCAPE '\\'`."""
     return prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def pair_facts(row: Sequence) -> Dict:
+    """`(*PAIR_FACT_COLUMNS, event_count)` from either backend as one dict."""
+    facts = dict(zip(PAIR_FACT_COLUMNS, row))
+    facts["observed"] = bool(facts["observed"])
+    facts["events"] = int(row[len(PAIR_FACT_COLUMNS)])
+    return facts
 
 
 def keyset_page(rows: Sequence[Sequence], limit: int, total: int) -> InvestigationPage:

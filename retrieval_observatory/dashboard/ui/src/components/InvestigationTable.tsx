@@ -62,17 +62,22 @@ const CAPTIONS: Record<TableShape, string> = {
 
 function Outcome({ outcome }: { outcome: string }) {
   return (
-    <>
+    <span className="whitespace-nowrap">
       <span aria-hidden="true" className="mr-1.5 inline-block w-3 text-center">
         {outcomeGlyph(outcome)}
       </span>
       {outcomeLabel(outcome)}
-    </>
+    </span>
   )
 }
 
 function mono(value: ReactNode): ReactNode {
   return <span className="font-mono text-xs">{value}</span>
+}
+
+/** Query and entity ids never wrap at their hyphens; the table scrolls inside its own container instead. */
+function monoId(value: ReactNode): ReactNode {
+  return <span className="whitespace-nowrap font-mono text-xs">{value}</span>
 }
 
 // The per-query counts shared by a stored summary and a client-side rollup.
@@ -99,7 +104,7 @@ function boundariesCell(boundaries: string[]): ReactNode {
 }
 
 const QUERY_COLUMNS: Column<QueryRollup>[] = [
-  { key: 'query', header: 'Query', cell: (row) => mono(row.query_id), sortValue: (row) => row.query_id },
+  { key: 'query', header: 'Query', cell: (row) => monoId(row.query_id), sortValue: (row) => row.query_id },
   ...QUERY_COUNT_COLUMNS,
   { key: 'boundaries', header: 'Principal loss boundaries', cell: (row) => boundariesCell(row.boundaries), sortValue: (row) => row.boundaries[0] ?? null },
 ]
@@ -111,10 +116,10 @@ const QUERY_SUMMARY_COLUMNS: Column<QuerySummaryRow>[] = [
     cell: (row) =>
       row.query_text ? (
         <>
-          {row.query_text} <span className="ml-1 font-mono text-xs text-ink-muted">{row.query_id}</span>
+          {row.query_text} <span className="ml-1 whitespace-nowrap font-mono text-xs text-ink-muted">{row.query_id}</span>
         </>
       ) : (
-        mono(row.query_id)
+        monoId(row.query_id)
       ),
     sortValue: (row) => row.query_id,
   },
@@ -129,7 +134,7 @@ const QUERY_SUMMARY_COLUMNS: Column<QuerySummaryRow>[] = [
 
 function candidateColumns(isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
   return [
-    { key: 'entity', header: 'Entity', cell: (row) => mono(entityKey(row)), sortValue: entityKey },
+    { key: 'entity', header: 'Entity', cell: (row) => monoId(entityKey(row)), sortValue: entityKey },
     {
       key: 'judgment',
       header: 'Judgment',
@@ -182,7 +187,7 @@ function candidateColumns(isSource?: (opId: string) => boolean): Column<JourneyR
 }
 
 const DOCUMENT_COLUMNS: Column<InvestigationDocumentRow>[] = [
-  { key: 'entity', header: 'Document', cell: (row) => mono(row.entity), sortValue: (row) => row.entity },
+  { key: 'entity', header: 'Document', cell: (row) => monoId(row.entity), sortValue: (row) => row.entity },
   {
     key: 'relevant',
     header: 'Judged-relevant queries',
@@ -201,7 +206,7 @@ const DOCUMENT_COLUMNS: Column<InvestigationDocumentRow>[] = [
 ]
 
 const DOCUMENT_QUERY_COLUMNS: Column<JourneyRow>[] = [
-  { key: 'query', header: 'Query', cell: (row) => mono(row.query_id), sortValue: (row) => row.query_id },
+  { key: 'query', header: 'Query', cell: (row) => monoId(row.query_id), sortValue: (row) => row.query_id },
   {
     key: 'judgment',
     header: 'Judgment for this entity',
@@ -226,7 +231,7 @@ const DOCUMENT_QUERY_COLUMNS: Column<JourneyRow>[] = [
   {
     key: 'transitions',
     header: 'Recorded transition sequence',
-    cell: (row) => (row.events.length ? mono(transitionText(row)) : <span className="text-ink-faint">not observed</span>),
+    cell: (row) => (row.events.length ? <span className="block min-w-[16rem] font-mono text-xs">{transitionText(row)}</span> : <span className="text-ink-faint">not observed</span>),
     sortValue: (row) => row.events.length,
     numeric: true,
   },
@@ -382,7 +387,8 @@ export default function InvestigationTable(props: InvestigationTableProps) {
         </button>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        {/* A floor width: on narrow screens the table scrolls in this container instead of squeezing columns. */}
+        <table className="w-full min-w-[48rem] text-sm">
           <caption className="sr-only">{CAPTIONS[shape]}</caption>
           <thead className="text-left text-xs text-ink-faint">
             <tr>

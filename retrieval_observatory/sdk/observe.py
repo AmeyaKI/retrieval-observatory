@@ -20,6 +20,7 @@ import httpx
 
 from retrieval_observatory.tracing.candidates import build_candidate_transition
 from retrieval_observatory.tracing.capture import (
+    _CANDIDATE_PARAMETERS,
     CaptureError,
     CaptureFailure,
     CaptureSpec,
@@ -228,6 +229,8 @@ class _Invocation:
     groups: dict[str, tuple[Candidate, ...]] = field(default_factory=dict)
     input_capture: InputCapture = "not_applicable"
     failures: list[CaptureFailure] = field(default_factory=list)
+    # Keyword arguments whose values supplied the captured input candidates (never copied into params).
+    input_arguments: set[str] = field(default_factory=set)
 
 
 def _append_failures(trace: Any, failures: Sequence[CaptureFailure]) -> None:
@@ -239,6 +242,22 @@ def _append_failures(trace: Any, failures: Sequence[CaptureFailure]) -> None:
         existing.extend(recorded)
     else:
         trace.capture_failures = (*existing, *recorded)
+
+
+def _arguments_supplying(kwargs: Mapping[str, Any], groups: Mapping[str, Sequence[Any]]) -> set[str]:
+    """Keyword arguments that hold a captured input group or one of its items (directly, or in a list or mapping)."""
+    supplied = {id(group) for group in groups.values()} | {id(item) for group in groups.values() for item in group}
+
+    def holds(value: Any, depth: int = 0) -> bool:
+        if id(value) in supplied:
+            return True
+        if depth < 2 and isinstance(value, (list, tuple)):
+            return any(holds(item, depth + 1) for item in value)
+        if depth < 2 and isinstance(value, Mapping):
+            return any(holds(item, depth + 1) for item in value.values())
+        return False
+
+    return {name for name, value in kwargs.items() if holds(value)}
 
 
 def _gate_decision(result: Any) -> dict[str, Any] | None:
@@ -276,6 +295,7 @@ def observe(
     propagate untouched, and capture failures are recorded on the trace instead of raised.
     """
     declared_parents = tuple(parent_ids)
+    candidate_arguments = {*_CANDIDATE_PARAMETERS, *declared_parents}
 
     def decorate(fn: Callable[..., Any]):
         ref = source_ref(fn)
@@ -316,6 +336,7 @@ def observe(
                 else:
                     groups, inv.input_capture = default_input_groups(inv.bound, candidate_parents)
                 if groups is not None:
+                    inv.input_arguments = _arguments_supplying(inv.kwargs, groups)
                     inv.parent_linkage = "declared"
                     for parent, items in groups.items():
                         if parent in parent_spans:
@@ -382,7 +403,12 @@ def observe(
                     except Exception as exc:
                         fail(inv, "outputs", "output_mapping_failed", repr(exc))
                         groups, outputs, output_capture = inv.groups, (), "unavailable"
-            params = {key: _json_safe(value) for key, value in inv.kwargs.items() if key not in {"documents", "docs"}}
+            # Candidate arguments are lineage, not configuration: never copy their content into params.
+            params = {
+                key: _json_safe(value)
+                for key, value in inv.kwargs.items()
+                if key not in candidate_arguments and key not in inv.input_arguments
+            }
 
             def span(groups: Mapping[str, tuple[Candidate, ...]], outputs: tuple[Candidate, ...], input_capture: str, output_capture: str) -> OperatorSpan:
                 return OperatorSpan(

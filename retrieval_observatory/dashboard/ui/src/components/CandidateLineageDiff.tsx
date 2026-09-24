@@ -95,7 +95,7 @@ export default function CandidateLineageDiff({ envelope, onSelectEntity }: Props
         <p className="text-ink-muted">No paired rows for this scope.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full text-xs">
+          <table className="w-full min-w-[40rem] text-xs">
             <caption className="pb-2 text-left text-xs text-ink-muted">Paired journeys, most consequential change first</caption>
             <thead className="bg-surface-muted text-left">
               <tr>
@@ -109,12 +109,12 @@ export default function CandidateLineageDiff({ envelope, onSelectEntity }: Props
             <tbody>
               {rows.map((row) => (
                 <tr key={`${row.query_id}:${row.namespace}:${row.entity_id}`} className="border-t border-slate-200 align-top dark:border-slate-700">
-                  {showQuery && <td className="p-2 font-mono">{row.query_id}</td>}
+                  {showQuery && <td className="whitespace-nowrap p-2 font-mono">{row.query_id}</td>}
                   <td className="p-2">
                     <button
                       type="button"
                       onClick={() => onSelectEntity(`${row.namespace}:${row.entity_id}`, row.query_id)}
-                      className="font-mono text-accent underline-offset-2 hover:underline"
+                      className="whitespace-nowrap font-mono text-accent underline-offset-2 hover:underline"
                     >
                       {row.namespace}:{row.entity_id}
                     </button>

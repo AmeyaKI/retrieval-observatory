@@ -10,7 +10,7 @@ import StatusPanel from './StatusPanel'
 const thClass = 'py-1 pr-3 text-left font-medium text-ink-faint'
 const tdClass = 'py-1 pr-3 align-top'
 const monoClass = 'font-mono text-ink'
-const linkClass = 'text-accent underline-offset-2 hover:underline'
+const linkClass = 'text-accent underline underline-offset-2'
 
 /** Status vocabulary: a glyph next to the word, never colour alone. */
 const GLYPHS: Record<string, string> = { PASS: '●', READY: '●', HOLD: '◐', BLOCK: '○', FAIL: '✕' }
@@ -68,7 +68,7 @@ function Section({ id, title, children }: { id: string; title: ReactNode; childr
 
 function Table({ label, headers, children }: { label: string; headers: string[]; children: ReactNode }) {
   return (
-    <div className="mt-2 overflow-x-auto">
+    <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" tabIndex={0} role="region" aria-label={label}>
       <table className="w-full text-xs" aria-label={label}>
         <thead>
           <tr>
@@ -152,7 +152,7 @@ export default function AuditReport({ audit, db }: { audit: ReleaseAudit; db: st
         <p className="mt-2">
           <span className="font-medium text-ink">Next action:</span> {decision.next_action}
         </p>
-        <p className="mt-1 text-xs">
+        <p className="mt-1 break-words text-xs">
           exit code {decision.exit_code}
           {' · '}
           {policy.configured ? (
@@ -171,8 +171,13 @@ export default function AuditReport({ audit, db }: { audit: ReleaseAudit; db: st
           {provenance.map((row) => (
             <tr key={row.field}>
               <td className={`${tdClass} ${monoClass}`}>{row.field}</td>
-              <td className={`${tdClass} font-mono break-all`}>{text(row.baseline)}</td>
-              <td className={`${tdClass} font-mono break-all`}>{text(row.candidate)}</td>
+              {/* Full values are evidence: at least 20 characters per line, the table scrolls sideways. */}
+              <td className={tdClass}>
+                <div className="min-w-[20ch] break-all font-mono">{text(row.baseline)}</div>
+              </td>
+              <td className={tdClass}>
+                <div className="min-w-[20ch] break-all font-mono">{text(row.candidate)}</div>
+              </td>
               <td className={tdClass}>{CLASSIFICATIONS[row.classification] ?? row.classification}</td>
             </tr>
           ))}

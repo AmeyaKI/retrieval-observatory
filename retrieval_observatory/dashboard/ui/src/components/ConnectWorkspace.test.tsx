@@ -96,6 +96,14 @@ describe('IntegrationPanel', () => {
     expect(html).toContain('retobs evaluate app.search:search --queries bench/queries.jsonl --qrels bench/qrels.tsv')
   })
 
+  test('scrollable command blocks and tables are focusable named regions (axe scrollable-region-focusable)', () => {
+    const html = panel(RECORD)
+    expect(html).toContain('<pre tabindex="0" role="region" aria-label="Command: python -m app.search --query refund-policy"')
+    expect(html).toContain('tabindex="0" role="region" aria-label="Operators of shop-search:hybrid"')
+    expect(html).toContain('tabindex="0" role="region" aria-label="Verified capabilities of shop-search:hybrid"')
+    expect(html).not.toContain('hover:underline')
+  })
+
   test('renders the plan summary with operators, boundary, identity, judgments and depth', () => {
     const html = panel(RECORD)
     expect(html).toContain('Final output: what <code class="font-mono text-ink">search</code> returns in <code class="font-mono text-ink">app/main.py</code>')

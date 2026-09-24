@@ -14,7 +14,7 @@ type AuditResult =
   | { key: string; error: string }
 
 const selectClass =
-  'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-60 max-w-[20rem]'
+  'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-60 min-w-0 max-w-[20rem]'
 
 export default function AuditWorkspace() {
   const { selection, updateSelection } = useDashboardContext()
@@ -71,7 +71,7 @@ export default function AuditWorkspace() {
   const renderSelect = (label: string, key: 'baseline' | 'candidate', value: string | null) => {
     const known = !value || runs === null || runs.some((r) => r.run_id === value)
     return (
-      <label className="flex items-center gap-1.5 text-xs text-ink-muted">
+      <label className="flex min-w-0 max-w-full items-center gap-1.5 text-xs text-ink-muted">
         {label}
         <select
           aria-label={label}
