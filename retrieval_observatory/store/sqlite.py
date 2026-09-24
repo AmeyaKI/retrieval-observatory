@@ -11,6 +11,7 @@ import aiosqlite
 
 from retrieval_observatory.store.base import (
     json_default,
+    normalize_dataset_name,
     INVESTIGATION_SORT_KEYS,
     InstrumentationHealth,
     InvestigationFilter,
@@ -987,8 +988,6 @@ class SQLiteStore:
 
     async def list_runs_for_dataset(self, dataset_name: str) -> List[Dict]:
         """Return finished runs whose config dataset.name matches (normalized)."""
-        from retrieval_observatory.experimental.classifier.labels import normalize_dataset_name
-
         target = normalize_dataset_name(dataset_name)
         runs = await self.list_runs()
         matched = []
@@ -1034,28 +1033,6 @@ class SQLiteStore:
                 (dataset_id, datetime.now(timezone.utc).isoformat(), corpus_path, output_dir, summary_json),
             )
             await db.commit()
-
-    async def get_forge_datasets(self) -> List[Dict]:
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT dataset_id, created_at, corpus_path, output_dir, summary_json FROM forge_datasets ORDER BY created_at DESC"
-            ) as cursor:
-                rows = await cursor.fetchall()
-        result = []
-        for row in rows:
-            d = dict(row)
-            try:
-                from retrieval_observatory.experimental.forge.types import TestSetSummary
-
-                d["summary"] = TestSetSummary.from_dict(
-                    json.loads(d.pop("summary_json", "{}")),
-                    dataset_id=d["dataset_id"],
-                ).to_dict()
-            except Exception:
-                d["summary"] = TestSetSummary.from_dict({}, dataset_id=d["dataset_id"]).to_dict()
-            result.append(d)
-        return result
 
     async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
         scenarios = json.loads(scenarios_json)

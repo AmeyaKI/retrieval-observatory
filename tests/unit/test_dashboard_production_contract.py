@@ -1,5 +1,5 @@
-"""Production trace API contract: the flattened shape ui/src/api.ts TraceRow / TraceDetail /
-TraceService read, on real responses -- so the UI and the API cannot drift apart silently."""
+"""Production trace API contract: the flattened list/detail/service shapes the retained trace
+routes return, checked on real responses so historical traces stay readable."""
 from __future__ import annotations
 
 import os

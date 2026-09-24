@@ -29,15 +29,17 @@ jobs:
         run: |
           python -m venv /tmp/retobs-retrieval-ci
           WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
-          /tmp/retobs-retrieval-ci/bin/pip install --index-url https://pypi.org/simple "${WHEEL}[demo,dashboard,dense]"
+          /tmp/retobs-retrieval-ci/bin/pip install --index-url https://pypi.org/simple "${WHEEL}"
 
-      - name: Generate deterministic regression story
+      - name: Generate deterministic demo runs
         run: |
-          /tmp/retobs-retrieval-ci/bin/retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci --n-traces 30
+          /tmp/retobs-retrieval-ci/bin/retobs demo --db .retobs/ci/results.db --output-dir .retobs/ci
           BASELINE=$(/tmp/retobs-retrieval-ci/bin/python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['baseline_run_id'])")
           CANDIDATE=$(/tmp/retobs-retrieval-ci/bin/python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['validation_run_id'])")
           echo "BASELINE=$BASELINE" >> "$GITHUB_ENV"
+          POLICY=$(/tmp/retobs-retrieval-ci/bin/python -c "import json; print(json.load(open('.retobs/ci/demo_manifest.json'))['policy_path'])")
           echo "CANDIDATE=$CANDIDATE" >> "$GITHUB_ENV"
+          echo "POLICY=$POLICY" >> "$GITHUB_ENV"
       - name: Compare baseline with validated change
         id: compare
         run: |
@@ -46,7 +48,7 @@ jobs:
           WHEEL_DIGEST=$(shasum -a 256 "$WHEEL" | awk '{print $1}')
           printf 'Wheel SHA-256: `%s`\n\n' "$WHEEL_DIGEST" | tee artifacts/wheel-sha256.md >> "$GITHUB_STEP_SUMMARY"
           set +e
-          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --policy examples/ci/release-policy-demo-v3.yaml --artifacts artifacts/release-audit --fail-on hold-or-block-or-fail > artifacts/comparison.md
+          /tmp/retobs-retrieval-ci/bin/retobs compare "$BASELINE" "$CANDIDATE" --db .retobs/ci/results.db --policy "$POLICY" --artifacts artifacts/release-audit --fail-on hold-or-block-or-fail > artifacts/comparison.md
           code=$?
           set -e
           echo "code=$code" >> "$GITHUB_OUTPUT"

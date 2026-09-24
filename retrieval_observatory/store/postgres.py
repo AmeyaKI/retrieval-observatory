@@ -6,6 +6,7 @@ from typing import Dict, List, Literal, Mapping, Optional, Sequence
 
 from retrieval_observatory.store.base import (
     json_default,
+    normalize_dataset_name,
     INVESTIGATION_SORT_KEYS,
     InstrumentationHealth,
     InvestigationFilter,
@@ -726,8 +727,6 @@ class PostgresStore:
         return [dict(row) for row in rows]
 
     async def list_runs_for_dataset(self, dataset_name: str) -> List[Dict]:
-        from retrieval_observatory.experimental.classifier.labels import normalize_dataset_name
-
         target = normalize_dataset_name(dataset_name)
         runs = await self.list_runs()
         matched = []
@@ -779,27 +778,6 @@ class PostgresStore:
                 output_dir,
                 summary_json,
             )
-
-    async def get_forge_datasets(self) -> List[Dict]:
-        pool = await self._get_pool()
-        async with pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT dataset_id, created_at, corpus_path, output_dir, summary_json FROM forge_datasets ORDER BY created_at DESC"
-            )
-        result = []
-        for row in rows:
-            d = dict(row)
-            try:
-                from retrieval_observatory.experimental.forge.types import TestSetSummary
-
-                d["summary"] = TestSetSummary.from_dict(
-                    json.loads(d.pop("summary_json", "{}")),
-                    dataset_id=d["dataset_id"],
-                ).to_dict()
-            except Exception:
-                d["summary"] = TestSetSummary.from_dict({}, dataset_id=d["dataset_id"]).to_dict()
-            result.append(d)
-        return result
 
     async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
         scenarios = json.loads(scenarios_json)

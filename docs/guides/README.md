@@ -14,10 +14,9 @@ Production guides — each pairs the retrieval-engineering concept with how reto
 - [tracelens.md](tracelens.md) — observing production retrieval
 - [manual-instrumentation.md](manual-instrumentation.md) — hand-wiring a class-based, multi-module pipeline into one trace when `retobs integrate` cannot see the whole DAG
 
-Experimental guides live in [experimental/](experimental/). They describe subsystems under
-`retrieval_observatory.experimental` (advisor, forge, auto-instrumentation) and pipeline
-patterns whose guides have not been re-verified against the current build. No compatibility
-guarantee.
+Experimental guides live in [experimental/](experimental/README.md): pipeline patterns whose
+guides have not been re-verified against the current build, and the subsystems retired in 0.7.0
+with the pinned release that reproduces them.
 
 For the full CLI/config reference see [../USAGE.md](../USAGE.md) and
 [../YAML_GUIDE.md](../YAML_GUIDE.md).

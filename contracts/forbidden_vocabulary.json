@@ -11,6 +11,8 @@
     "\\bForge\\b": "use Test Sets",
     "\\bAdvisor\\b": "use findings or compare",
     "\\bBenchmarks\\b": "use Runs or evaluations",
+    "\\bexperimental\\.(forge|classifier|advisor|diagram)\\b": "removed in 0.7.0; see docs/guides/experimental/README.md",
+    "\\bgenerate_testset\\b": "removed in 0.7.0; import a prepared benchmark instead",
     "deprecated=True": "delete the deprecated registration",
     "removed in v1\\.0": "delete the compatibility message",
     "legacy (alias|surface|reader|route|recorder|trace)": "delete the compatibility implementation"
@@ -31,6 +33,7 @@
     ".venv",
     "CHANGELOG.md",
     "docs/PRODUCT_AUDIT_AND_REDESIGN.md",
+    "docs/guides/experimental/README.md",
     "docs/rebuild",
     "docs/superpowers",
     "docs/verification",

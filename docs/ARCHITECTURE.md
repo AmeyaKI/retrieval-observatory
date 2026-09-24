@@ -7,14 +7,13 @@ retobs is a local-first evidence-control plane for multi-stage retrieval pipelin
 ```text
 integrate plan → reviewed apply → verify (optional release policy)
 evaluate callable/config ──┐
-push_traces (production) ──┼→ scoped store (SQLite | PostgreSQL)
-testsets generate ─────────┘
+push_traces (production) ──┴→ scoped store (SQLite | PostgreSQL)
         ↓
 compare + local release policy → PASS | HOLD | BLOCK | FAIL
         ↓
 inspect-query / Candidate Lineage Explorer → passport → optional recorded replay
         ↓
-validate: smallest fix → same Test Set → compare again
+validate: smallest fix → same queries and judgments → compare again
 ```
 
 The dashboard reads store projections only. It does not invent topology, candidate movement, release status, or causal explanations.
@@ -31,7 +30,6 @@ The dashboard reads store projections only. It does not invent topology, candida
 | `tracing/` | Unified `RetrievalTrace`, buffered export, candidate lineage, lineage diffs, and instrumentation health. |
 | `evidence/` | Scoped query-evidence documents for CLI, SDK, MCP, and dashboard. |
 | `diagnostics/` | Rule engine over recorded traces; findings surface inside Runs, Compare, and Queries. |
-| `experimental/` | Demoted subsystems (`advisor`, `classifier`, `diagram`, `forge`); no compatibility guarantee. `forge` still backs the public `retobs testsets` CLI and SDK `generate_testset`. |
 | `sdk/`, `mcp/`, `cli.py`, `dashboard/` | Task-parity surfaces gated by `contracts/public_surface.json`. |
 
 ## Public task surface

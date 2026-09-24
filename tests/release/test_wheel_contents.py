@@ -24,6 +24,8 @@ def test_release_wheel_contains_required_runtime_assets(release_wheel: Path) -> 
     required_suffixes = {
         "retrieval_observatory/dashboard/ui/dist/index.html",
         "retrieval_observatory/examples/evaluate_scifact.yaml",
+        "retrieval_observatory/examples/golden_fixture.py",
+        "retrieval_observatory/examples/release-policy-golden-v3.yaml",
         "retrieval_observatory/examples/agent_integration/SKILL.md",
         "retrieval_observatory/examples/agent_integration/references/plan-review.md",
         "retrieval_observatory/examples/agent_integration/references/retobs_adapter_example.py",
@@ -31,3 +33,5 @@ def test_release_wheel_contains_required_runtime_assets(release_wheel: Path) -> 
     assert required_suffixes <= names
     assert not any("quickstart" in name.lower() for name in names)
     assert not any("migration" in name.lower() for name in names)
+    assert not any(name.startswith("retrieval_observatory/experimental/") for name in names)
+    assert not any(name.endswith(".pyc") for name in names)

@@ -9,8 +9,8 @@
 | `retobs compare BASELINE CANDIDATE --policy POLICY` | Produce the canonical policy-bounded `PASS`/`HOLD`/`BLOCK`/`FAIL` comparison artifact. |
 | `retobs inspect-query RUN QUERY` | Render scoped query evidence. |
 | `retobs report RUN` | Render one canonical Run report. |
-| `retobs production` | Inspect persisted production trace evidence. |
-| `retobs testsets` | Manage Test Set evidence. |
+| `retobs inspect-document RUN ENTITY` | Render one document's journey across every query of a Run. |
+| `retobs demo` | Write two deterministic demo runs and `demo_manifest.json`. |
 | `retobs serve` | Serve the local dashboard on `127.0.0.1` by default. |
 
 The supported command inventory is release-gated by `contracts/public_surface.json`.
@@ -19,7 +19,7 @@ The supported command inventory is release-gated by `contracts/public_surface.js
 
 ## SDK
 
-The supported SDK exports are `evaluate`, `compare`, `inspect_query`, `init`, `generate_testset`, and their public models: `Comparison`, `Document`, `IntegrationOptions`, `Query`, `QueryEvidence`, `RetrievalTrace`, `Run`, `TestSet`, and `TraceRecorder`.
+The supported SDK exports are `evaluate`, `compare`, `inspect_query`, `inspect_document`, `init`, and their public models: `Comparison`, `Document`, `IntegrationOptions`, `Query`, `QueryEvidence`, `RetrievalTrace`, `Run`, and `TraceRecorder`. The synthetic test-set API was removed in 0.7.0 with no replacement; see [retired subsystems](guides/experimental/README.md).
 
 ## MCP
 

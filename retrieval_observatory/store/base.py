@@ -11,6 +11,20 @@ from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Protoc
 from retrieval_observatory.tracing.model import RetrievalTrace
 
 
+_BEIR_DATASETS = frozenset({
+    "nfcorpus", "trec-covid", "nq", "hotpotqa", "fiqa", "arguana", "quora",
+    "dbpedia-entity", "scidocs", "fever", "climate-fever", "scifact", "trec-news",
+})
+
+
+def normalize_dataset_name(name: str) -> str:
+    """Normalize dataset identifiers for matching (e.g. beir/nfcorpus vs nfcorpus)."""
+    name = (name or "").strip().lower()
+    if name.startswith("beir/") or name not in _BEIR_DATASETS:
+        return name
+    return f"beir/{name}"
+
+
 @runtime_checkable
 class BaseStore(Protocol):
     async def save_analysis_record(self, kind: str, record_id: str, payload: Dict, version: int = 1) -> None: ...
@@ -152,9 +166,6 @@ class BaseStore(Protocol):
         ...
 
     async def save_forge_dataset(self, dataset_id: str, summary_json: str, corpus_path: str, output_dir: str) -> None:
-        ...
-
-    async def get_forge_datasets(self) -> List[Dict]:
         ...
 
     async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:

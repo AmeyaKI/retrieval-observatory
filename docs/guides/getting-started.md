@@ -12,13 +12,15 @@ No API keys are required for the walkthrough.
 ## 1. Install and run (5 minutes)
 
 ```bash
-pip install "retrieval-observatory[demo,dashboard]"
+pip install "retrieval-observatory[dashboard]"
 retobs demo
+retobs serve --db .retobs/demo/results.db
 ```
 
-`retobs demo` scans a synthetic corpus, builds stress-test queries, runs a BM25
-benchmark, seeds a few production traces, and opens the dashboard at
-`http://localhost:4000`. When it finishes you are looking at a real run.
+`retobs demo` evaluates a deterministic hybrid pipeline twice, with no models or network:
+a baseline whose recency filter loses a relevant document, and a validation run with the
+filter repaired. It prints the `retobs compare` and `retobs inspect-document` commands to run
+next; `retobs serve` opens the dashboard at `http://localhost:4000`.
 
 The newest run loads automatically on the Runs page — you should not need to
 refresh and click before Overview appears.
@@ -35,12 +37,9 @@ retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_scifact.yaml
 retobs serve --db .retobs/hybrid_scifact_demo.db
 ```
 
-Alternatively (no BEIR download): `retobs demo --full`, then
-`retobs serve --db .retobs/demo/results.db` (adds a BM25→rerank ablation on the synthetic corpus).
-
 **Public CLI reminder:** use `retobs evaluate --config …` (not `retobs run`, which is removed).
 Other common commands: `retobs demo`, `retobs serve --db …`, `retobs compare`,
-`retobs inspect-query`, `retobs production demo`.
+`retobs inspect-query`, `retobs inspect-document`.
 
 **60-second click path after serve:** Runs (auto-selected) → Architecture (DAG boxes readable) →
 Queries → open a low-recall query → click an FN row → **Play** on the stage flowchart →

@@ -1,3 +1,5 @@
+> Retired in 0.7.0: this subsystem is absent from the package; see [README.md](README.md) to reproduce it on 0.6.0.
+
 # Findings — from diagnostics to a validation plan
 
 `advisor` is the internal rules package and deprecated CLI group. Findings now appear inside Runs, Compare, and Queries; regression gating uses `retobs compare --fail-on`.

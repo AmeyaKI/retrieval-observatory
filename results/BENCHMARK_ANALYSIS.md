@@ -196,7 +196,7 @@ The classifier predicts whether a query will be hard for retrieval **before** ru
 ### Training
 
 - **Model:** `HistGradientBoostingClassifier` (200 iterations, max depth 6)
-- **Features:** 14 query-text features — token count, lexical density, temporal anchors, negation, question type one-hot, etc. ([experimental/classifier/features.py](../retrieval_observatory/experimental/classifier/features.py))
+- **Features:** 14 query-text features — token count, lexical density, temporal anchors, negation, question type one-hot, etc. ([experimental/classifier/features.py](https://github.com/AmeyaKI/retrieval-observatory/blob/29c67b8/retrieval_observatory/experimental/classifier/features.py))
 - **Validation:** 5-fold `StratifiedGroupKFold` CV (grouped by normalized query text)
 - **Training data:** Full NFCorpus sweep (323 queries) → easy 13 / medium 107 / hard 203
 

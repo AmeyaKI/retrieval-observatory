@@ -5,7 +5,7 @@ Run:  python examples/basic/evaluate_callable.py
 import retrieval_observatory as ro
 
 # A tiny corpus + labeled queries. In practice these come from your own data /
-# vector DB; see `ro.generate_testset(corpus)` to synthesize labels with zero ground truth.
+# vector DB or a prepared benchmark (JSONL or BEIR).
 CORPUS = {
     "d1": "The mitochondrion is the powerhouse of the cell.",
     "d2": "Photosynthesis converts light energy into chemical energy.",

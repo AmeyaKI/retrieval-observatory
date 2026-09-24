@@ -25,13 +25,17 @@ REMOVED = {
     "bootstrap" + "_project",
     "classifier",
     "forge",
+    "generate" + "_testset",
     "get_pareto_frontier",
     "get_pipeline_diagram",
     "get_recommendations",
     "plan" + "_integration",
+    "production",
     "quickstart",
     "run",
+    "testsets",
     "tracelens",
+    "TestSet",
     "wire",
     "wire" + "_project",
 }
@@ -52,7 +56,7 @@ def test_cli_help_matches_contract_exactly() -> None:
     assert REMOVED.isdisjoint(commands)
 
 
-@pytest.mark.parametrize("command", sorted(REMOVED & {"advisor", "classifier", "forge", "quickstart", "run", "tracelens", "wire"}))
+@pytest.mark.parametrize("command", sorted(REMOVED & {"advisor", "classifier", "forge", "production", "quickstart", "run", "testsets", "tracelens", "wire"}))
 def test_removed_cli_commands_are_unknown(command: str) -> None:
     result = CliRunner().invoke(app, [command, "--help"])
     assert result.exit_code != 0

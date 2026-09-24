@@ -22,9 +22,9 @@ Promotion readiness and lineage-diagnosis readiness are separate claim scopes. D
 
 Candidate lineage is a static, evidence-aware view of recorded routes, exits, ranks/scores when present, and operational outcomes. A candidate passport aggregates that evidence for one identity. Baseline/candidate lineage diffs align only when query, document revision, and topology evidence agree—or when the policy declares exact one-to-one equivalent stages. Otherwise retobs keeps side-by-side recorded paths and blocks the diff claim.
 
-## Test Sets and findings
+## Findings
 
-Test Sets are corpus-generated stress queries with scenario typing and manifest fingerprints (`retobs testsets`). Findings and recommendations are embedded inside Runs, Compare, and Queries; they are planning aids over recorded diagnostics, not a separate product surface.
+Findings are embedded inside Runs, Compare, and Queries; they are planning aids over recorded diagnostics, not a separate product surface. Synthetic test-set generation was removed in 0.7.0; see [retired subsystems](guides/experimental/README.md).
 
 ## Instrumentation health
 

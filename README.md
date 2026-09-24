@@ -27,7 +27,7 @@ pip install "retrieval-observatory[dashboard,mcp]"
 
 ## See it work first
 
-One command, no arguments, no API keys. It builds a regression story end to end and hands you a dashboard to explore it.
+One command, no arguments, no API keys or models. It evaluates a deterministic hybrid pipeline twice (a filter that loses a relevant document, then the repaired filter) and hands you a database to compare and investigate.
 
 ```bash
 retobs demo

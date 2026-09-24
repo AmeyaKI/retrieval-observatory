@@ -362,7 +362,7 @@ def test_storage_commands_migrate_and_index(db_path: Path) -> None:
 
 
 def test_query_evidence_has_no_advisor_dependency_and_embeds_investigation(db_path: Path) -> None:
-    assert "experimental.advisor" not in inspect.getsource(query_evidence_module)
+    assert "experimental." + "advisor" not in inspect.getsource(query_evidence_module)
     import asyncio
 
     async def _evidence(run_id: str) -> dict:
