@@ -129,23 +129,6 @@ async def test_query_lineage_api_returns_graph_accounting_and_readiness(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_passport_api_does_not_return_raw_preview_when_redacted(tmp_path) -> None:
-    registry = await _seed(tmp_path / "redacted.db", redacted=True)
-    db_id = registry.list_db_ids()[0]
-    client = TestClient(create_app(registry=registry, enable_uploads=False))
-
-    payload = client.get(
-        f"/dbs/{db_id}/runs/run-a/queries/q-1/candidates/kept-final"
-    ).json()
-
-    assert payload["candidate_id"] == "kept-final"
-    assert payload["source"]["preview"] is None
-    assert payload["outcome"]["kind"] == "irrelevant_retained"
-    assert payload["relevant"] is False
-    assert payload["pipelines"]
-
-
-@pytest.mark.asyncio
 async def test_partial_lineage_returns_200_with_blocked_readiness(tmp_path) -> None:
     registry = await _seed(tmp_path / "partial.db", partial=True)
     db_id = registry.list_db_ids()[0]
@@ -179,23 +162,28 @@ async def test_lineage_accounting_endpoint_and_missing_query_boundary(tmp_path) 
     assert missing.status_code == 404
 
 
+
 @pytest.mark.asyncio
-async def test_unlabeled_and_unobserved_candidates_do_not_become_false(tmp_path) -> None:
+async def test_candidate_lineage_does_not_return_raw_preview_when_redacted(tmp_path) -> None:
+    registry = await _seed(tmp_path / "redacted.db", redacted=True)
+    db_id = registry.list_db_ids()[0]
+    client = TestClient(create_app(registry=registry, enable_uploads=False))
+
+    nodes = client.get(f"/dbs/{db_id}/runs/run-a/queries/q-1/candidate-lineage").json()["graph"]["nodes"]
+
+    kept = next(node for node in nodes if node["candidate_id"] == "kept")
+    assert kept["source"]["preview"] is None
+    assert all(node["source"]["preview"] is None for node in nodes)
+
+
+@pytest.mark.asyncio
+async def test_unlabeled_candidates_stay_unknown_not_false(tmp_path) -> None:
     registry = await _seed(tmp_path / "unlabeled.db", with_qrels=False)
     db_id = registry.list_db_ids()[0]
     client = TestClient(create_app(registry=registry, enable_uploads=False))
 
-    observed = client.get(
-        f"/dbs/{db_id}/runs/run-a/queries/q-1/candidates/kept-final"
-    )
-    unobserved = client.get(
-        f"/dbs/{db_id}/runs/run-a/queries/q-1/candidates/not-captured"
-    )
+    nodes = client.get(f"/dbs/{db_id}/runs/run-a/queries/q-1/candidate-lineage").json()["graph"]["nodes"]
 
-    assert observed.status_code == 200
-    assert observed.json()["relevance"]["kind"] == "unknown"
-    assert observed.json()["outcome"]["kind"] == "unknown_relevance"
-    assert observed.json()["relevant"] is None
-    assert unobserved.status_code == 200
-    assert unobserved.json()["readiness"]["status"] == "BLOCK"
-    assert unobserved.json()["outcome"]["kind"] == "lineage_incomplete"
+    kept = next(node for node in nodes if node["candidate_id"] == "kept")
+    assert kept["relevance"]["kind"] == "unknown"
+    assert kept["outcome"]["kind"] == "unknown_relevance"

@@ -146,12 +146,6 @@ describe('URL scope round-trips', () => {
     candidate: 'c',
     policy: 'sha256:abc',
     integration: 'int-1',
-    service: 'svc',
-    window: 'custom',
-    since: '2026-01-01',
-    until: '2026-02-01',
-    cohort: 'hard',
-    filters: ['a', 'z'],
   }
 
   test('every field survives serialize → parse, including ids with /, :, #, spaces and unicode', () => {
@@ -160,7 +154,7 @@ describe('URL scope round-trips', () => {
 
   test('serialisation uses one fixed key order and omits defaults', () => {
     expect(serializeDashboardQuery(full)).toBe(
-      'db=main&run=r%2F1&pipeline=hybrid%3Av2&view=documents&query=q%201&trace=t%231&entity=docs%3Ad%2F%C3%A9&stage=rerank&outcome=relevant_excluded&compare=b0&baseline=b&candidate=c&policy=sha256%3Aabc&integration=int-1&service=svc&window=custom&since=2026-01-01&until=2026-02-01&cohort=hard&filter=a&filter=z',
+      'db=main&run=r%2F1&pipeline=hybrid%3Av2&view=documents&query=q%201&trace=t%231&entity=docs%3Ad%2F%C3%A9&stage=rerank&outcome=relevant_excluded&compare=b0&baseline=b&candidate=c&policy=sha256%3Aabc&integration=int-1',
     )
     expect(serializeDashboardQuery({ ...DEFAULT_SELECTION, db: 'main', run: 'r1' })).toBe('db=main&run=r1')
     expect(serializeDashboardQuery(DEFAULT_SELECTION)).toBe('')
@@ -169,7 +163,7 @@ describe('URL scope round-trips', () => {
   test('parse tolerates "+" for spaces, empty values and a leading "?"', () => {
     expect(parseDashboardQuery('?query=q+1&run=').query).toBe('q 1')
     expect(parseDashboardQuery('?query=q+1&run=').run).toBeNull()
-    expect(parseDashboardQuery('view=bogus&window=bogus')).toMatchObject({ view: 'queries', window: '7d' })
+    expect(parseDashboardQuery('view=bogus').view).toBe('queries')
   })
 
   test('the server-style investigation link parses into the expected selection', () => {
@@ -269,8 +263,6 @@ describe('applySelectionPatch', () => {
       compare: null,
       baseline: null,
       candidate: null,
-      service: null,
-      cohort: null,
     })
     expect(applySelectionPatch(prev, { db: 'main' })).toEqual(prev)
   })

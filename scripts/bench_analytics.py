@@ -8,7 +8,6 @@ import sqlite3
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from retrieval_observatory.experimental.classifier.labels import to_training_class
 from retrieval_observatory.metrics.significance import paired_bootstrap_test
 
 DATASETS = [
@@ -271,9 +270,7 @@ def analyze_dataset(ds_name: str, db_path: str, run_id: str) -> Dict[str, Any]:
 
     bucket_recall: Dict[str, List[float]] = defaultdict(list)
     failure_counts: Dict[str, int] = defaultdict(int)
-    actual_by_q: Dict[str, str] = {}
     for qid, bucket, labels_json in diags:
-        actual_by_q[qid] = bucket
         si = final_stage_index(cur, run_id, diag_pid)
         r = cur.execute(
             """
@@ -299,60 +296,6 @@ def analyze_dataset(ds_name: str, db_path: str, run_id: str) -> Dict[str, Any]:
         ),
     }
     ds_out["failure_labels"] = dict(sorted(failure_counts.items(), key=lambda x: -x[1]))
-
-    pred_by_q: Dict[str, Dict] = {}
-    for qid, meta_json in cur.execute(
-        """
-        SELECT query_id, query_metadata_json FROM metric_scores
-        WHERE run_id=? AND query_metadata_json IS NOT NULL
-        """,
-        (run_id,),
-    ):
-        if qid in pred_by_q:
-            continue
-        meta = json.loads(meta_json)
-        if "predicted_difficulty" in meta:
-            pred_by_q[qid] = meta
-
-    if pred_by_q:
-        correct = 0
-        total = 0
-        brier_terms: List[float] = []
-        pred_recall: Dict[str, List[float]] = defaultdict(list)
-        for qid, meta in pred_by_q.items():
-            pred = meta["predicted_difficulty"]
-            proba = meta.get("predicted_difficulty_proba", {})
-            actual = actual_by_q.get(qid)
-            if actual:
-                act_train = to_training_class(actual)
-                if pred == act_train:
-                    correct += 1
-                total += 1
-                classes = ["easy", "medium", "hard"]
-                for c in classes:
-                    y = 1.0 if c == act_train else 0.0
-                    p = proba.get(c, 0.0)
-                    brier_terms.append((p - y) ** 2)
-            si = final_stage_index(cur, run_id, "bm25")
-            rv = cur.execute(
-                """
-                SELECT value FROM metric_scores WHERE run_id=? AND pipeline_id='bm25'
-                AND query_id=? AND stage_index=? AND metric_name='recall' AND k=10
-                """,
-                (run_id, qid, si),
-            ).fetchone()
-            if rv:
-                pred_recall[pred].append(rv[0])
-
-        ds_out["classifier"] = {
-            "n_with_prediction": len(pred_by_q),
-            "accuracy_vs_training_class": correct / total if total else None,
-            "n_compared": total,
-            "mean_brier_per_class_dim": mean(brier_terms),
-            "pred_recall10_mean": {k: mean(v) for k, v in pred_recall.items()},
-        }
-    else:
-        ds_out["classifier"] = None
 
     temp = cur.execute(
         "SELECT COUNT(*) FROM metric_scores WHERE run_id=? AND metric_name LIKE '%temporal%'",

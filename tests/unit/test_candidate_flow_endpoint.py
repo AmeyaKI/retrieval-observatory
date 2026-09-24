@@ -124,54 +124,6 @@ async def hybrid_db(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
-async def test_dropped_candidate_flow(seeded_db: Path) -> None:
-    registry = DbRegistry([str(seeded_db)])
-    client = TestClient(create_app(registry=registry, enable_uploads=False))
-    db_id = registry.list_db_ids()[0]
-
-    resp = client.get(f"/dbs/{db_id}/runs/{RUN_ID}/queries/q0/candidates/d2")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["doc_id"] == "d2"
-    assert body["relevant"] is True
-    assert body["grade"] == 2
-    pipeline = body["pipelines"][0]
-    hist = pipeline["history"]
-    assert hist["introduced_at"] == "source_bm25"
-    assert hist["dropped_at"] == "filter_cap"
-    assert hist["dropped_reason"] == "filtered"
-    assert hist["survived"] is False
-    assert pipeline["drop_replay_assumptions"] is not None
-    assert pipeline["drop_replay_assumptions"]["strategy"] == "filter_passthrough_inputs"
-
-
-@pytest.mark.asyncio
-async def test_survivor_candidate_flow(seeded_db: Path) -> None:
-    registry = DbRegistry([str(seeded_db)])
-    client = TestClient(create_app(registry=registry, enable_uploads=False))
-    db_id = registry.list_db_ids()[0]
-
-    resp = client.get(f"/dbs/{db_id}/runs/{RUN_ID}/queries/q0/candidates/d1")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["relevant"] is True
-    assert body["grade"] == 1
-    hist = body["pipelines"][0]["history"]
-    assert hist["survived"] is True
-    assert hist["final_rank"] == 1
-    assert hist["dropped_at"] is None
-
-
-@pytest.mark.asyncio
-async def test_missing_query_returns_404(seeded_db: Path) -> None:
-    registry = DbRegistry([str(seeded_db)])
-    client = TestClient(create_app(registry=registry, enable_uploads=False))
-    db_id = registry.list_db_ids()[0]
-    resp = client.get(f"/dbs/{db_id}/runs/{RUN_ID}/queries/nope/candidates/d1")
-    assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
 async def test_candidate_journeys_join_qrels(seeded_db: Path) -> None:
     registry = DbRegistry([str(seeded_db)])
     client = TestClient(create_app(registry=registry, enable_uploads=False))

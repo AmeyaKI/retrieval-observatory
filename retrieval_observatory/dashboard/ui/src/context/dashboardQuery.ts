@@ -5,7 +5,6 @@
 // run Investigate diffs the selected (candidate) run against; it is run-scoped.
 
 export type InvestigateView = 'queries' | 'documents'
-export type TimeWindow = '24h' | '7d' | '30d' | 'all' | 'custom'
 
 export interface DashboardSelection {
   db: string | null
@@ -22,13 +21,6 @@ export interface DashboardSelection {
   candidate: string | null
   policy: string | null
   integration: string | null
-  // Retained legacy fields: production/analysis components still read them.
-  service: string | null
-  window: TimeWindow
-  since: string | null
-  until: string | null
-  cohort: string | null
-  filters: string[]
 }
 
 export const DEFAULT_SELECTION: DashboardSelection = {
@@ -46,18 +38,11 @@ export const DEFAULT_SELECTION: DashboardSelection = {
   candidate: null,
   policy: null,
   integration: null,
-  service: null,
-  window: '7d',
-  since: null,
-  until: null,
-  cohort: null,
-  filters: [],
 }
 
 const VIEWS: readonly InvestigateView[] = ['queries', 'documents']
-const WINDOWS: readonly TimeWindow[] = ['24h', '7d', '30d', 'all', 'custom']
 
-/** Fixed serialisation order; the repeatable `filter` key always comes last. */
+/** Fixed serialisation order. */
 export const SELECTION_KEY_ORDER = [
   'db',
   'run',
@@ -73,17 +58,12 @@ export const SELECTION_KEY_ORDER = [
   'candidate',
   'policy',
   'integration',
-  'service',
-  'window',
-  'since',
-  'until',
-  'cohort',
 ] as const
 
 /** Fields that only mean something inside one run. */
 export const RUN_SCOPED_KEYS = ['pipeline', 'query', 'trace', 'entity', 'stage', 'outcome', 'compare'] as const
 /** Fields that only mean something inside one database. */
-export const DB_SCOPED_KEYS = ['run', ...RUN_SCOPED_KEYS, 'baseline', 'candidate', 'service', 'cohort'] as const
+export const DB_SCOPED_KEYS = ['run', ...RUN_SCOPED_KEYS, 'baseline', 'candidate'] as const
 
 function text(q: URLSearchParams, key: string, fallback: string | null): string | null {
   const value = q.get(key)
@@ -96,8 +76,6 @@ function text(q: URLSearchParams, key: string, fallback: string | null): string 
 export function parseDashboardQuery(raw: string, base: DashboardSelection = DEFAULT_SELECTION): DashboardSelection {
   const q = new URLSearchParams(raw.startsWith('?') ? raw.slice(1) : raw)
   const view = q.get('view')
-  const window = q.get('window')
-  const filters = q.getAll('filter')
   return {
     ...base,
     db: text(q, 'db', base.db),
@@ -114,17 +92,10 @@ export function parseDashboardQuery(raw: string, base: DashboardSelection = DEFA
     candidate: text(q, 'candidate', base.candidate),
     policy: text(q, 'policy', base.policy),
     integration: text(q, 'integration', base.integration),
-    service: text(q, 'service', base.service),
-    window: WINDOWS.includes(window as TimeWindow) ? (window as TimeWindow) : base.window,
-    since: text(q, 'since', base.since),
-    until: text(q, 'until', base.until),
-    cohort: text(q, 'cohort', base.cohort),
-    filters: filters.length ? filters : base.filters,
   }
 }
 
-/** Serialise in SELECTION_KEY_ORDER, omitting empty values and defaults (`view=queries`,
- * `window=7d`). Values use encodeURIComponent so `/`, `:`, `#`, spaces and unicode are safe. */
+/** Serialise in SELECTION_KEY_ORDER, omitting empty values and defaults (`view=queries`). Values use encodeURIComponent so `/`, `:`, `#`, spaces and unicode are safe. */
 export function serializeDashboardQuery(s: DashboardSelection): string {
   const pairs: string[] = []
   for (const key of SELECTION_KEY_ORDER) {
@@ -132,7 +103,6 @@ export function serializeDashboardQuery(s: DashboardSelection): string {
     if (!value || value === DEFAULT_SELECTION[key]) continue
     pairs.push(`${key}=${encodeURIComponent(value)}`)
   }
-  for (const value of [...s.filters].sort()) pairs.push(`filter=${encodeURIComponent(value)}`)
   return pairs.join('&')
 }
 

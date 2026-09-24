@@ -20,15 +20,6 @@ def test_missing_analysis_evidence_is_200_unavailable(tmp_path):
     assert response.status_code == 200 and response.json()["state"] == "unavailable"
 
 
-def test_invalid_cohort_is_422(tmp_path):
-    api, db = client(tmp_path)
-    response = api.post(
-        f"/dbs/{db}/analysis/cohorts",
-        json={"cohort_id": "bad", "name": "bad", "clauses": [{"field": "__class__", "operator": "eq", "value": "x"}]},
-    )
-    assert response.status_code == 422
-
-
 def test_unknown_database_is_404(tmp_path):
     api, _ = client(tmp_path)
     assert api.get("/dbs/missing/analysis/gates").status_code == 404

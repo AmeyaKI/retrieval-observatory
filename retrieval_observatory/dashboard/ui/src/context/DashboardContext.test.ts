@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { applySelectionPatch, DEFAULT_SELECTION, parseDashboardQuery, serializeDashboardQuery } from './dashboardQuery'
 
 describe('dashboard URL context', () => {
-  it('round-trips every global selector and repeated cohort filter', () => {
-    const selection = parseDashboardQuery('db=main&service=api&run=r1&window=custom&since=a&until=b&cohort=hard&filter=z&filter=a')
-    expect(parseDashboardQuery(serializeDashboardQuery(selection))).toEqual({ ...selection, filters: ['a', 'z'] })
+  it('drops retired scope keys (service, window, cohort, filter) instead of carrying them', () => {
+    const selection = parseDashboardQuery('db=main&service=api&run=r1&window=custom&since=a&until=b&cohort=hard&filter=z')
+    expect(selection).toEqual({ ...DEFAULT_SELECTION, db: 'main', run: 'r1' })
+    expect(serializeDashboardQuery(selection)).toBe('db=main&run=r1')
   })
 
   it('round-trips the investigation, audit and connect scope keys', () => {

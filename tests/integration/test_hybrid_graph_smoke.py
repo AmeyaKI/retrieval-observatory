@@ -1,4 +1,4 @@
-"""Golden-run smoke: hybrid fixture run → pipeline-graph + pareto-frontier invariants."""
+"""Golden-run smoke: hybrid fixture run → pipeline-graph invariants."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -64,15 +64,6 @@ async def test_hybrid_run_pipeline_graph_and_pareto_smoke(tmp_path: Path) -> Non
                 mv = node["metrics"].get(key)
                 if mv and mv.get("mean") is not None and mv.get("ci_low") is not None:
                     assert mv["ci_low"] <= mv["mean"] <= mv["ci_high"]
-
-        pareto = client.get(f"/dbs/{db_id}/runs/{run_id}/pareto-frontier").json()
-        assert pareto["pipelines"]
-        assert "omitted_pipelines" in pareto
-        for row in pareto["pipelines"]:
-            m = row["metrics"]
-            assert m["latency_p50"] > 0
-            if m.get("ndcg@10_ci_low") is not None:
-                assert m["ndcg@10_ci_low"] <= m["ndcg@10"] <= m["ndcg@10_ci_high"]
 
         manifest = client.get(f"/dbs/{db_id}/runs/{run_id}/overview").json()["manifest"]
         assert manifest.get("schema_version") == 3

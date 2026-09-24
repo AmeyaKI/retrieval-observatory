@@ -164,5 +164,12 @@ def test_removed_mcp_functions_do_not_exist():
         "_wire_project",
         "_plan_integration",
         "_benchmark_pipeline_descriptor",
+        "_list_runs",
+        "_get_run_metrics",
+        "_benchmark_vs_baseline",
+        "_get_pareto_frontier",
+        "_get_recommendations",
+        "_get_operator_attribution",
+        "_get_pipeline_diagram",
     ):
         assert not hasattr(server, name)

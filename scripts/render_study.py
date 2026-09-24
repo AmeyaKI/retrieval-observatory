@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Historical research script; runs at revision 29c67b8 with `pip install retrieval-observatory==0.6.0`.
+# The modules it imports were removed from the current package; it is not on any test or CI path.
 """Render results/study/STUDY.md from the committed per-cell JSON under results/study/cells/.
 
 Every digit in STUDY.md comes from those files; the prose around them is this template. Pooled

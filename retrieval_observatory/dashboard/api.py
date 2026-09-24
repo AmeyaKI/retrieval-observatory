@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import quote
 
-from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
 from retrieval_observatory.metrics.engine import MetricsEngine
 from retrieval_observatory.metrics.comparison import (
     _scores_for,
@@ -26,7 +25,6 @@ from retrieval_observatory.dashboard.registry import DbRegistry, hosted_read_onl
 from retrieval_observatory.store.base import TraceQuery
 from retrieval_observatory.store.postgres import PostgresStore
 from retrieval_observatory.store.sqlite import SQLiteStore
-from retrieval_observatory.tracing.attribution import operator_marginal_contribution
 from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.types import Document, StageSnapshot
 from retrieval_observatory.config.diff import diff_configs
@@ -34,6 +32,40 @@ from retrieval_observatory.config.schema import ExperimentConfig
 from dataclasses import asdict as _dataclass_asdict
 
 _UI_DIST = os.path.join(os.path.dirname(__file__), "ui", "dist")
+
+# Retired HTTP routes answer 410 with a migration message; the removed features never return
+# fabricated results. Each entry: (path, replacement workspace, message).
+_TEST_SETS_RETIRED = "Test set generation was retired. Connect covers benchmark setup for an existing retrieval pipeline; import prepared benchmarks instead."
+_FINDINGS_RETIRED = "Recommendation, regression and reliability findings were retired. Audit compares a baseline and a candidate run against declared tolerances."
+_DIFFICULTY_RETIRED = "Learned difficulty labels were retired. Investigate reports judgments and outcomes per query."
+_TRADEOFFS_RETIRED = "Tradeoff views were retired. Audit compares a baseline and a candidate run, including latency, against declared tolerances."
+_ATTRIBUTION_RETIRED = "Counterfactual replay and operator attribution were retired. Investigate shows each candidate's recorded transitions and loss boundary per query."
+_MONITORING_RETIRED = "Production monitoring views were retired. Investigate reads the captured traces for a selected run."
+_ANALYSIS_RETIRED = "Cohort and corpus-health analysis were retired. Investigate filters the retained evidence for a selected run."
+_RETIRED_ROUTES: tuple[tuple[str, str, str], ...] = (
+    *((f"{prefix}/forge/{{rest:path}}", "connect", _TEST_SETS_RETIRED) for prefix in ("/dbs/{db_id}", "")),
+    *((f"{prefix}/advisor/{{rest:path}}", "audit", _FINDINGS_RETIRED) for prefix in ("/dbs/{db_id}", "")),
+    *(
+        (f"{prefix}/runs/{{run_id}}/{page}", replacement, message)
+        for prefix in ("/dbs/{db_id}", "")
+        for page, replacement, message in (
+            ("query-labels", "investigate", _DIFFICULTY_RETIRED),
+            ("classifier-calibration", "investigate", _DIFFICULTY_RETIRED),
+            ("pareto-frontier", "audit", _TRADEOFFS_RETIRED),
+            ("operator-attribution", "investigate", _ATTRIBUTION_RETIRED),
+            ("traces/{trace_id}/miss-attribution", "investigate", _ATTRIBUTION_RETIRED),
+            ("traces/{trace_id}/operator/{op_id}/diff", "investigate", _ATTRIBUTION_RETIRED),
+            ("queries/{query_id}/candidates/{candidate_id}", "investigate", _ATTRIBUTION_RETIRED),
+        )
+    ),
+    *(
+        (f"{prefix}/production/{view}", "investigate", _MONITORING_RETIRED)
+        for prefix in ("/dbs/{db_id}", "")
+        for view in ("summary", "distribution", "drift", "hotspots", "clusters")
+    ),
+    ("/dbs/{db_id}/analysis/cohorts", "investigate", _ANALYSIS_RETIRED),
+    ("/dbs/{db_id}/analysis/corpus-health", "investigate", _ANALYSIS_RETIRED),
+)
 # Never serve the SPA shell for these — browser would execute HTML as JS/CSS → blank page.
 _STATIC_EXTENSIONS = (".js", ".css", ".map", ".ico", ".png", ".svg", ".woff", ".woff2", ".json", ".txt")
 
@@ -186,9 +218,8 @@ def _pipeline_results_from_traces(traces: List[RetrievalTrace]) -> List[_CompatR
     return results
 
 
-# Top-level keys the Production UI reads from a production trace (ui/src/api.ts TraceRow /
-# TraceDetail, components/tracelens/LiveTraces.tsx, TraceDetail.tsx). The production
-# endpoints map every trace through _monitor_trace so this shape cannot drift silently;
+# Top-level keys of a production trace as the retained trace list/detail routes return it.
+# Those endpoints map every trace through _monitor_trace so this shape cannot drift silently;
 # tests/unit/test_dashboard_production_contract.py asserts it against real responses.
 PRODUCTION_TRACE_ROW_KEYS = frozenset({
     "trace_id", "service", "service_id", "query_id", "query_text", "pipeline_id", "status",
@@ -200,10 +231,9 @@ PRODUCTION_SERVICE_KEYS = frozenset({"service", "service_id", "trace_count", "la
 
 
 def _monitor_trace(trace: RetrievalTrace) -> Dict[str, Any]:
-    """Flatten a trace into the shape the Production UI consumes.
+    """Flatten a trace into the list/detail shape of the retained trace routes.
 
-    Keeps the raw ``spans``/``timing``/``metadata`` from ``to_dict`` so the monitor analytics
-    (distribution, drift, hotspots, clusters) keep reading them, and adds the flattened
+    Keeps the raw ``spans``/``timing``/``metadata`` from ``to_dict`` and adds the flattened
     fields (``service``, ``total_latency_ms``, ``predicted_difficulty``,
     ``suspected_failures``, ``stages``) the list/detail views render.
     """
@@ -819,8 +849,6 @@ def create_app(
             manifest = await store.get_run_manifest(run["run_id"]) or {}
             if manifest.get("golden_set"):
                 run = {**run, "golden_set": manifest["golden_set"]}
-            if manifest.get("forge_dataset_id"):
-                run = {**run, "forge_dataset_id": manifest["forge_dataset_id"]}
             enriched.append(run)
         return enriched
 
@@ -944,163 +972,6 @@ def create_app(
         store = _store_for(db_id)
         rows = await store.get_query_diagnostics(run_id)
         return {"summary": aggregate_diagnostics(rows), "items": rows}
-
-    @db_router.get("/runs/{run_id}/query-labels")
-    async def get_query_labels(db_id: str, run_id: str) -> Dict[str, Any]:
-        store = _store_for(db_id)
-        diagnostics = await store.get_query_diagnostics(run_id)
-        metrics_rows = await store.get_metrics(run_id)
-        run_queries = await store.get_run_queries(run_id) if hasattr(store, "get_run_queries") else []
-
-        text_by_id = {r["query_id"]: r["query_text"] for r in run_queries}
-        actual_by_id: Dict[str, str] = {}
-        for row in diagnostics:
-            qid = row["query_id"]
-            if qid not in actual_by_id:
-                actual_by_id[qid] = row["difficulty_bucket"]
-
-        predicted_by_id: Dict[str, Dict] = {}
-        for row in metrics_rows:
-            meta = row.get("query_metadata") or {}
-            pred = meta.get("predicted_difficulty")
-            if pred and row["query_id"] not in predicted_by_id:
-                predicted_by_id[row["query_id"]] = {
-                    "predicted_difficulty": pred,
-                    "predicted_difficulty_proba": meta.get("predicted_difficulty_proba", {}),
-                }
-
-        from retrieval_observatory.experimental.classifier.labels import to_training_class
-        from retrieval_observatory.metrics.diagnostics import predict_retrieval_risks
-
-        items = []
-        all_qids = sorted(set(actual_by_id) | set(predicted_by_id) | set(text_by_id))
-        for qid in all_qids:
-            actual_bucket = actual_by_id.get(qid, "unknown")
-            actual_class = to_training_class(actual_bucket) or "unknown"
-            pred_info = predicted_by_id.get(qid, {})
-            predicted = pred_info.get("predicted_difficulty")
-            agreement = _difficulty_agreement(actual_class, predicted)
-            qtext = text_by_id.get(qid, "")
-            items.append({
-                "query_id": qid,
-                "query_text": qtext,
-                "actual_bucket": actual_bucket,
-                "actual_class": actual_class,
-                "predicted_difficulty": predicted,
-                "predicted_difficulty_proba": pred_info.get("predicted_difficulty_proba"),
-                "agreement": agreement,
-                "predicted_risks": predict_retrieval_risks(qtext) if qtext else [],
-            })
-        return {"items": items}
-
-    @db_router.get("/runs/{run_id}/classifier-calibration")
-    async def get_classifier_calibration(db_id: str, run_id: str) -> Dict[str, Any]:
-        store = _store_for(db_id)
-        metrics_rows = await store.get_metrics(run_id)
-        diagnostics = await store.get_query_diagnostics(run_id)
-        if not metrics_rows:
-            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
-
-        predicted_by_id: Dict[str, str] = {}
-        for row in metrics_rows:
-            meta = row.get("query_metadata") or {}
-            pred = meta.get("predicted_difficulty")
-            if pred:
-                predicted_by_id.setdefault(row["query_id"], pred)
-
-        if not predicted_by_id:
-            return {"run_id": run_id, "has_predictions": False, "classes": []}
-
-        from retrieval_observatory.experimental.classifier.labels import to_training_class
-
-        actual_by_id: Dict[str, str] = {}
-        for row in diagnostics:
-            qid = row["query_id"]
-            if qid not in actual_by_id:
-                mapped = to_training_class(row["difficulty_bucket"])
-                if mapped:
-                    actual_by_id[qid] = mapped
-
-        # Final stage recall@10 per (query, pipeline), then mean across pipelines
-        recall_rows = [
-            r for r in metrics_rows
-            if r["metric_name"] == "recall" and r["k"] == 10 and r["stage_index"] >= 0
-        ]
-        max_stage_by_pipeline: Dict[str, int] = {}
-        for r in recall_rows:
-            pid = r["pipeline_id"]
-            max_stage_by_pipeline[pid] = max(max_stage_by_pipeline.get(pid, -1), r["stage_index"])
-
-        per_query_recall: Dict[str, List[float]] = defaultdict(list)
-        for r in recall_rows:
-            pid = r["pipeline_id"]
-            if r["stage_index"] != max_stage_by_pipeline.get(pid, r["stage_index"]):
-                continue
-            per_query_recall[r["query_id"]].append(r["value"])
-
-        query_mean_recall = {qid: _mean(vals) for qid, vals in per_query_recall.items() if vals}
-
-        classes = []
-        actual_classes = []
-        for cls in ("easy", "medium", "hard"):
-            qids_pred = [qid for qid, pred in predicted_by_id.items() if pred == cls]
-            scores_pred = [query_mean_recall[qid] for qid in qids_pred if qid in query_mean_recall]
-            if not scores_pred:
-                classes.append({
-                    "class": cls,
-                    "n": 0,
-                    "mean_recall10": None,
-                    "ci_low": None,
-                    "ci_high": None,
-                    "agreement_rate": None,
-                })
-            else:
-                ci_low, ci_high = bootstrap_ci(scores_pred)
-                agreements = [
-                    1.0 for qid in qids_pred
-                    if qid in actual_by_id and actual_by_id[qid] == cls
-                ]
-                agreement_rate = len(agreements) / len(qids_pred) if qids_pred else None
-                classes.append({
-                    "class": cls,
-                    "n": len(scores_pred),
-                    "mean_recall10": _mean(scores_pred),
-                    "ci_low": ci_low,
-                    "ci_high": ci_high,
-                    "agreement_rate": agreement_rate,
-                })
-
-            qids_actual = [qid for qid, actual in actual_by_id.items() if actual == cls]
-            scores_actual = [query_mean_recall[qid] for qid in qids_actual if qid in query_mean_recall]
-            if not scores_actual:
-                actual_classes.append({
-                    "class": cls,
-                    "n": 0,
-                    "mean_recall10": None,
-                    "ci_low": None,
-                    "ci_high": None,
-                    "agreement_rate": None,
-                })
-            else:
-                ci_low, ci_high = bootstrap_ci(scores_actual)
-                actual_classes.append({
-                    "class": cls,
-                    "n": len(scores_actual),
-                    "mean_recall10": _mean(scores_actual),
-                    "ci_low": ci_low,
-                    "ci_high": ci_high,
-                    "agreement_rate": None,
-                })
-
-        all_same_prediction = len(set(predicted_by_id.values())) <= 1 and len(predicted_by_id) > 0
-
-        return {
-            "run_id": run_id,
-            "has_predictions": True,
-            "classes": classes,
-            "actual_classes": actual_classes,
-            "all_same_prediction": all_same_prediction,
-        }
 
     @db_router.get("/runs/{run_id}/overview")
     async def get_run_overview(db_id: str, run_id: str) -> Dict[str, Any]:
@@ -1445,132 +1316,6 @@ def create_app(
             "rows": rows,
         }
 
-    @db_router.get("/runs/{run_id}/queries/{query_id}/candidates/{candidate_id}")
-    async def get_candidate_flow(
-        db_id: str, run_id: str, query_id: str, candidate_id: str
-    ) -> Dict[str, Any]:
-        """Candidate passport with one-release document-flow compatibility aliases."""
-        from retrieval_observatory.tracing.candidate_history import candidate_history
-        from retrieval_observatory.tracing.replay import replay_assumptions
-
-        store = _store_for(db_id)
-        query_traces = await store.list_traces(TraceQuery(run_id=run_id, query_id=query_id))
-        payload = await _query_lineage_payload(db_id, run_id, query_id)
-        qrels = await _resolve_qrels(store, run_id)
-        qrels_for_query = qrels.get(query_id, {})
-        exact_matches = [
-            node for node in payload["graph"]["nodes"] if node["candidate_id"] == candidate_id
-        ]
-        matches = exact_matches or [
-            node
-            for node in payload["graph"]["nodes"]
-            if node.get("logical_chunk_id") == candidate_id
-            or (node.get("source") or {}).get("document_id") == candidate_id
-        ]
-        if len(matches) > 1:
-            payload["evidence_warnings"].append(
-                {
-                    "code": "candidate_present_in_multiple_traces",
-                    "candidate_id": candidate_id,
-                    "trace_ids": [node["trace_id"] for node in matches],
-                }
-            )
-        if matches:
-            primary = matches[0]
-            history_doc_id = (primary.get("source") or {}).get("document_id") or candidate_id
-            relevance = primary["relevance"]
-            grade = relevance.get("grade")
-            relevant = (
-                True
-                if relevance["kind"] == "relevant"
-                else False
-                if relevance["kind"] == "irrelevant"
-                else None
-            )
-        else:
-            history_doc_id = candidate_id
-            grade = qrels_for_query.get(candidate_id)
-            relevant = None if grade is None else int(grade) > 0
-            primary = {
-                "candidate_id": candidate_id,
-                "logical_chunk_id": None,
-                "source": {
-                    "document_id": None,
-                    "document_revision": None,
-                    "content_hash": None,
-                    "char_start": None,
-                    "char_end": None,
-                    "preview": None,
-                },
-                "parent_candidate_ids": [],
-                "routes": [],
-                "relevance": {
-                    "kind": "unknown" if grade is None else "relevant" if relevant else "irrelevant",
-                    "grade": int(grade) if grade is not None else None,
-                    "evidence": "unavailable" if grade is None else "validated",
-                },
-                "outcome": {
-                    "kind": "lineage_incomplete",
-                    "evidence": "unavailable",
-                    "operator_id": None,
-                    "branch_id": None,
-                    "reason": "candidate was not observed in query traces",
-                },
-                "lineage_evidence": "unavailable",
-                "final_context_member": False,
-                "removed_at": None,
-                "removal_branch_id": None,
-                "removal_reason": None,
-                "removal_evidence": "unavailable",
-                "derived_child_ids": [],
-            }
-            payload["readiness"] = {
-                "scope": "lineage_diagnosis",
-                "status": "BLOCK",
-                "findings": [
-                    {
-                        "code": "candidate_not_observed",
-                        "scope": "lineage_diagnosis",
-                        "status": "BLOCK",
-                        "observed": candidate_id,
-                        "required": "candidate present in query-scoped traces",
-                        "detail": "The requested candidate was not observed.",
-                        "next_action": "Inspect an observed candidate ID or increase trace coverage.",
-                    }
-                ],
-            }
-        pipelines: List[Dict[str, Any]] = []
-        for trace in query_traces:
-            history = candidate_history(trace, history_doc_id)
-            assumptions = None
-            # If the doc was dropped, expose how a counterfactual replay of the dropping
-            # operator would be constructed, so the drop explanation is inspectable.
-            if history.dropped_at:
-                try:
-                    assumptions = replay_assumptions(trace, history.dropped_at).__dict__
-                except ValueError:
-                    assumptions = None
-            pipelines.append(
-                {
-                    "pipeline_id": trace.pipeline_id,
-                    "trace_id": trace.trace_id,
-                    "history": history.to_dict(),
-                    "drop_replay_assumptions": assumptions,
-                }
-            )
-        return {
-            **primary,
-            "run_id": run_id,
-            "query_id": query_id,
-            "doc_id": history_doc_id,
-            "relevant": relevant,
-            "grade": int(grade) if grade is not None else None,
-            "readiness": payload["readiness"],
-            "evidence_warnings": payload["evidence_warnings"],
-            "trace_passports": matches,
-            "pipelines": pipelines,
-        }
-
     @db_router.get("/runs/{run_id}/stage-matrix")
     async def get_stage_matrix(db_id: str, run_id: str) -> Dict[str, Any]:
         store = _store_for(db_id)
@@ -1584,69 +1329,6 @@ def create_app(
                 continue
             cells.append({"metric": key, "estimated_cost_per_1k": _pipeline_cost_per_1k(config, value["pipeline_id"], costs), **value})
         return {"run_id": run_id, "cells": cells}
-
-    @db_router.get("/runs/{run_id}/pareto-frontier")
-    async def get_pareto_frontier(db_id: str, run_id: str) -> Dict[str, Any]:
-        store = _store_for(db_id)
-        agg = await _aggregate(db_id, run_id, store)
-        if not agg:
-            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found or has no metrics")
-
-        run_rows = [run for run in await store.list_runs() if run["run_id"] == run_id]
-        config = json.loads(run_rows[0]["config_json"]) if run_rows else {}
-        costs = config.get("costs", {})
-        manifest = await store.get_run_manifest(run_id)
-
-        final_metrics = _extract_final_stage_metrics(agg)
-        all_pipeline_ids = _pareto_pipeline_ids_in_agg(agg)
-        omitted = sorted(all_pipeline_ids - set(final_metrics.keys()))
-        pareto_inputs: List[ParetoPipelineInput] = []
-        for pipeline_id, metrics in final_metrics.items():
-            cost = _pipeline_cost_per_1k(config, pipeline_id, costs)
-            pareto_inputs.append(
-                ParetoPipelineInput(
-                    pipeline_id=pipeline_id,
-                    stage_index=metrics["stage_index"],
-                    ndcg10=metrics["ndcg10"],
-                    recall10=metrics["recall10"],
-                    latency_p50=metrics["latency_p50"],
-                    latency_p95=metrics["latency_p95"],
-                    cost_per_1k=cost if cost > 0 else None,
-                    ndcg10_ci_low=metrics.get("ndcg10_ci_low"),
-                    ndcg10_ci_high=metrics.get("ndcg10_ci_high"),
-                    recall10_ci_low=metrics.get("recall10_ci_low"),
-                    recall10_ci_high=metrics.get("recall10_ci_high"),
-                )
-            )
-
-        result = compute_pareto_frontier(pareto_inputs)
-        latency_budget_ms = manifest.get("latency_budget_ms") if manifest else None
-
-        return {
-            "run_id": run_id,
-            "objectives": result.objectives,
-            "cost_included": result.cost_included,
-            "cost_excluded_reason": result.cost_excluded_reason,
-            "latency_budget_ms": latency_budget_ms,
-            "omitted_pipelines": omitted,
-            "omitted_reason": (
-                "Missing one or more of NDCG@10, Recall@10, or end-to-end latency (P50/P95)."
-                if omitted
-                else None
-            ),
-            "pipelines": [
-                {
-                    "pipeline_id": row.pipeline_id,
-                    "stage_index": row.stage_index,
-                    "label": row.pipeline_id,
-                    "metrics": {**row.metrics, **_pareto_quality_ci(agg, row.pipeline_id, row.stage_index)},
-                    "is_pareto_optimal": row.is_pareto_optimal,
-                    "dominated_by": row.dominated_by,
-                }
-                for row in result.pipelines
-            ],
-            "frontier_order": result.frontier_order,
-        }
 
     @db_router.post("/runs/{run_id}/traces")
     async def ingest_trace(db_id: str, run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
@@ -1705,26 +1387,6 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found for run '{run_id}'")
         return trace.to_dict()
 
-    @db_router.get("/runs/{run_id}/operator-attribution")
-    async def get_operator_attribution(
-        db_id: str,
-        run_id: str,
-        metric: str = "recall",
-        k: int = 10,
-    ) -> List[Dict[str, Any]]:
-        _bound("k", k, 1, 1000)
-        from retrieval_observatory.tracing.attribution import _SUPPORTED_METRICS
-
-        if metric.lower() not in _SUPPORTED_METRICS:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Unsupported metric '{metric}'. Use one of {sorted(_SUPPORTED_METRICS)}",
-            )
-        store = _store_for(db_id)
-        traces = await store.list_traces(TraceQuery(run_id=run_id))
-        qrels = await _resolve_qrels(store, run_id)
-        return _operator_attribution_rows(traces, qrels, metric=metric, k=k)
-
     @db_router.get("/runs/{run_id}/pipeline-graph")
     async def get_pipeline_graph(db_id: str, run_id: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
         """Canonical PipelineGraph projection (nodes + edges, every metric with its CI or null)
@@ -1753,66 +1415,6 @@ def create_app(
         if not pipelines:
             raise HTTPException(status_code=404, detail=f"No traces for run '{run_id}'")
         return _operator_dag_from_pipelines(pipelines)
-
-    @db_router.get("/runs/{run_id}/traces/{trace_id}/operator/{op_id}/diff")
-    async def get_operator_diff(
-        db_id: str, run_id: str, trace_id: str, op_id: str,
-    ) -> Dict[str, Any]:
-        """Per-query operator-level candidate diff for OperatorInspector."""
-        from retrieval_observatory.tracing.replay import simulate_without_operator
-
-        store = _store_for(db_id)
-        trace = await store.get_trace(trace_id)
-        if trace is None or trace.run_id != run_id:
-            raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
-        span = next((s for s in trace.spans if s.op_id == op_id), None)
-        if span is None:
-            raise HTTPException(status_code=404, detail=f"Operator '{op_id}' not found")
-        replay = simulate_without_operator(trace, op_id)
-        from retrieval_observatory.tracing.attribution import _find_final_span
-        cf_final = _find_final_span(replay.trace) if replay.trace else None
-        return {
-            "op_id": op_id,
-            "op_type": span.op_type,
-            "replay_policy": span.replay_policy,
-            "result_status": replay.status,
-            "evidence_class": replay.evidence_class,
-            "reason": replay.reason,
-            "unsupported_descendants": replay.unsupported_descendants,
-            "assumptions": replay.assumptions.__dict__,
-            "inputs": [{"doc_id": c.doc_id, "score": c.score, "rank": c.rank} for c in span.inputs],
-            "outputs": [{"doc_id": c.doc_id, "score": c.score, "rank": c.rank} for c in span.outputs],
-            "without_operator": [
-                {"doc_id": c.doc_id, "score": c.score, "rank": c.rank}
-                for c in (cf_final.outputs if cf_final else [])
-            ],
-        }
-
-    @db_router.get("/runs/{run_id}/traces/{trace_id}/miss-attribution")
-    async def get_miss_attribution(
-        db_id: str, run_id: str, trace_id: str, k: int = 10,
-    ) -> List[Dict[str, Any]]:
-        _bound("k", k, 1, 1000)
-        """Miss attribution for a single query trace."""
-        from retrieval_observatory.tracing.replay import attribute_miss as _attr_miss
-
-        store = _store_for(db_id)
-        trace = await store.get_trace(trace_id)
-        if trace is None or trace.run_id != run_id:
-            raise HTTPException(status_code=404, detail=f"Trace '{trace_id}' not found")
-        qrels = await _resolve_qrels(store, run_id)
-        misses = await _attr_miss(trace, qrels=qrels, k=k)
-        return [
-            {
-                "query_id": m.query_id,
-                "doc_id": m.doc_id,
-                "miss_type": m.miss_type,
-                "op_id": m.op_id,
-                "confidence": m.confidence,
-                "note": m.note,
-            }
-            for m in misses
-        ]
 
     @db_router.post("/edges")
     async def add_edge(db_id: str, edge: EdgeRequest) -> Dict[str, Any]:
@@ -1950,164 +1552,6 @@ def create_app(
     from retrieval_observatory.dashboard.integration_api import build_integration_router
     app.include_router(build_integration_router(registry))
 
-    # ---------------------------------------------------------------------------
-    # Test Sets endpoints — synthetic dataset management
-    # ---------------------------------------------------------------------------
-    forge_router = APIRouter(prefix="/forge")
-
-    @app.get("/dbs/{db_id}/forge/datasets")
-    @forge_router.get("/datasets")
-    async def list_forge_datasets(db_id: str = "") -> List[Dict[str, Any]]:
-        """List all Test Sets-generated synthetic datasets saved in the store."""
-        try:
-            store = _evidence_store(db_id)
-            if store and hasattr(store, "get_forge_datasets"):
-                return await store.get_forge_datasets()
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-        return []
-
-    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}")
-    @forge_router.get("/datasets/{dataset_id}")
-    async def get_forge_dataset(dataset_id: str, db_id: str = "") -> Dict[str, Any]:
-        """Return summary and scenario breakdown for a Test Sets dataset."""
-        try:
-            store = _evidence_store(db_id)
-            if store:
-                datasets = await store.get_forge_datasets()
-                dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
-                if dataset:
-                    scenarios = await store.get_forge_scenarios(dataset_id) if hasattr(store, "get_forge_scenarios") else []
-                    summary = dataset.get("summary") or {}
-                    coverage = float(summary.get("validation_coverage", 0.0))
-                    return {
-                        **dataset,
-                        "scenarios": scenarios,
-                        "validation_coverage": round(coverage, 4),
-                    }
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-        raise HTTPException(status_code=404, detail=f"Test Sets dataset {dataset_id!r} not found")
-
-    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/queries")
-    @forge_router.get("/datasets/{dataset_id}/queries")
-    async def get_forge_dataset_queries(
-        dataset_id: str,
-        scenario_type: str = "",
-        difficulty: str = "",
-        query_type: str = "",
-        validated_only: bool = False,
-        limit: int = 200,
-        offset: int = 0,
-        db_id: str = "",
-    ) -> Dict[str, Any]:
-        """Return a stable, paginated Test Set query and provenance envelope."""
-        _bound("limit", limit, 1, 500)
-        _bound("offset", offset, 0, 1_000_000)
-        try:
-            store = _evidence_store(db_id)
-            if store and hasattr(store, "get_forge_queries"):
-                items = await store.get_forge_queries(
-                    dataset_id,
-                    scenario_type=scenario_type or None,
-                    difficulty=difficulty or None,
-                    query_type=query_type or None,
-                    validated_only=validated_only,
-                    limit=limit,
-                    offset=offset,
-                )
-                all_items = await store.get_forge_queries(
-                    dataset_id,
-                    scenario_type=scenario_type or None,
-                    difficulty=difficulty or None,
-                    query_type=query_type or None,
-                    validated_only=validated_only,
-                    limit=100000,
-                    offset=0,
-                )
-                datasets = await store.get_forge_datasets()
-                dataset = next((item for item in datasets if item["dataset_id"] == dataset_id), {})
-                return {
-                    "test_set_id": dataset_id,
-                    "provenance": _forge_provenance(dataset, hide_paths=registry.read_only or _read_only),
-                    "items": items,
-                    "total": len(all_items),
-                    "limit": limit,
-                    "offset": offset,
-                    "next_offset": offset + len(items) if offset + len(items) < len(all_items) else None,
-                }
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-        return {"test_set_id": dataset_id, "provenance": {}, "items": [], "total": 0, "limit": limit, "offset": offset, "next_offset": None}
-
-    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/runs")
-    @forge_router.get("/datasets/{dataset_id}/runs")
-    async def get_forge_dataset_runs(dataset_id: str, db_id: str = "") -> List[Dict[str, Any]]:
-        """Return benchmark runs executed against this Test Sets dataset.
-
-        Prefer manifest ``forge_dataset_id``; fall back to output_dir text match for older runs.
-        """
-        try:
-            store = _evidence_store(db_id)
-            if not store:
-                return []
-            datasets = await store.get_forge_datasets()
-            dataset = next((d for d in datasets if d["dataset_id"] == dataset_id), None)
-            output_dir = (dataset.get("output_dir") or "").rstrip("/") if dataset else ""
-            runs = await store.list_runs()
-            matched = []
-            seen: set[str] = set()
-            for r in runs:
-                run_id = r.get("run_id")
-                if not run_id or run_id in seen:
-                    continue
-                manifest = await store.get_run_manifest(run_id) if hasattr(store, "get_run_manifest") else None
-                if manifest and manifest.get("forge_dataset_id") == dataset_id:
-                    matched.append({
-                        "run_id": run_id,
-                        "experiment_name": r.get("experiment_name"),
-                        "started_at": r.get("started_at"),
-                        "forge_dataset_id": dataset_id,
-                    })
-                    seen.add(run_id)
-                    continue
-                cfg = r.get("config_json") or ""
-                if output_dir and output_dir in cfg:
-                    matched.append({
-                        "run_id": run_id,
-                        "experiment_name": r.get("experiment_name"),
-                        "started_at": r.get("started_at"),
-                    })
-                    seen.add(run_id)
-            return matched
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-        return []
-
-    @app.get("/dbs/{db_id}/forge/datasets/{dataset_id}/scenarios")
-    @forge_router.get("/datasets/{dataset_id}/scenarios")
-    async def get_forge_dataset_scenarios(dataset_id: str, db_id: str = "") -> List[Dict[str, Any]]:
-        """Return scenarios for a Test Sets dataset."""
-        try:
-            store = _evidence_store(db_id)
-            if store and hasattr(store, "get_forge_scenarios"):
-                return await store.get_forge_scenarios(dataset_id)
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-        return []
-
-    app.include_router(forge_router)
-
     @app.get("/dbs/{db_id}/query/{query_id}/lineage")
     @app.get("/query/{query_id}/lineage")
     async def get_query_lineage(query_id: str, db_id: str = "") -> Dict[str, Any]:
@@ -2115,81 +1559,6 @@ def create_app(
         if not store or not hasattr(store, "get_query_lineage"):
             raise HTTPException(status_code=404, detail="Lineage not available")
         return await store.get_query_lineage(query_id)
-
-    advisor_router = APIRouter(prefix="/advisor")
-
-    @app.get("/dbs/{db_id}/advisor/recommendations")
-    @advisor_router.get("/recommendations")
-    async def advisor_recommendations(run_id: str, db_id: str = "") -> Dict[str, Any]:
-        from retrieval_observatory.experimental.advisor.recommend import recommend
-
-        from dataclasses import asdict
-
-        store = _evidence_store(db_id)
-        recs = await recommend(run_id, store)
-        return {
-            "run_id": run_id,
-            "recommendations": [asdict(r) for r in recs],
-        }
-
-    @app.get("/dbs/{db_id}/advisor/regressions")
-    @advisor_router.get("/regressions")
-    async def advisor_regressions(baseline: str, candidate: str, db_id: str = "") -> Dict[str, Any]:
-        from retrieval_observatory.experimental.advisor.regression import detect_regressions
-
-        store = _evidence_store(db_id)
-        validity = comparison_validity([
-            await store.get_run_manifest(baseline),
-            await store.get_run_manifest(candidate),
-        ])
-        findings = await detect_regressions(baseline, candidate, store, engine=engine)
-        return {
-            "baseline": baseline,
-            "candidate": candidate,
-            "validity": validity.to_dict(),
-            "regressions": [
-                {
-                    "metric": f.metric,
-                    "before": f.before,
-                    "after": f.after,
-                    "delta": f.delta,
-                    "q_value": f.q_value,
-                    "severity": f.severity,
-                    "n_pairs": f.n_pairs,
-                    "p_value": f.p_value,
-                    "effect_threshold": f.effect_threshold,
-                    "decision": f.decision,
-                }
-                for f in findings
-            ],
-        }
-
-    @app.get("/dbs/{db_id}/advisor/reliability")
-    @advisor_router.get("/reliability")
-    async def advisor_reliability(run_id: str, db_id: str = "") -> Dict[str, Any]:
-        from retrieval_observatory.experimental.advisor.recommend import compute_reliability
-
-        store = _evidence_store(db_id)
-        # A GET must not write: the snapshot history is appended by the run/advisor CLI paths.
-        score = await compute_reliability(run_id, store, engine=engine, persist=False)
-        return {"run_id": run_id, **score.as_dict()}
-
-    @app.get("/dbs/{db_id}/advisor/reliability/history")
-    @advisor_router.get("/reliability/history")
-    async def advisor_reliability_history(
-        run_id: str | None = None,
-        limit: int = 50,
-        db_id: str = "",
-    ) -> Dict[str, Any]:
-        from retrieval_observatory.experimental.advisor.trends import get_reliability_trends
-
-        _bound("limit", limit, 1, 500)
-
-        store = _evidence_store(db_id)
-        history = await get_reliability_trends(store, run_id=run_id, limit=limit)
-        return {"history": history}
-
-    app.include_router(advisor_router)
 
     production_router = APIRouter(prefix="/production")
 
@@ -2314,72 +1683,21 @@ def create_app(
                 return _monitor_trace(t)
         raise HTTPException(status_code=404, detail=f"Trace {trace_id!r} not found")
 
-    @app.get("/dbs/{db_id}/production/summary")
-    @production_router.get("/summary")
-    async def trace_summary(service_id: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
-        store = _production_store(db_id)
-        if not (store and hasattr(store, "list_traces")):
-            return {}
-        traces = await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=100000))
-        rows = [_monitor_trace(trace) for trace in traces]
-        from retrieval_observatory.tracing.monitor.distribution import summarize
-        return summarize(rows)
-
-    @app.get("/dbs/{db_id}/production/distribution")
-    @production_router.get("/distribution")
-    async def trace_distribution(service_id: str, since: str = "", until: str = "", db_id: str = "") -> Dict[str, Any]:
-        store = _production_store(db_id)
-        if not (store and hasattr(store, "list_traces")):
-            return {}
-        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=100000))]
-        from retrieval_observatory.tracing.monitor.distribution import compute_distribution
-        return compute_distribution(rows)
-
-    @app.get("/dbs/{db_id}/production/drift")
-    @production_router.get("/drift")
-    async def trace_drift(service_id: str, baseline: str = "", recent: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        """Compare a baseline window vs a recent window. Defaults: prior 7d vs last 24h."""
-        from datetime import datetime, timedelta, timezone
-        store = _production_store(db_id)
-        if not (store and hasattr(store, "list_traces")):
-            return []
-        _iso_or_422("recent", recent)
-        _iso_or_422("baseline", baseline)
-        now = datetime.now(timezone.utc)
-        recent_since = recent or (now - timedelta(hours=24)).isoformat()
-        baseline_until = recent_since
-        baseline_since = baseline or (now - timedelta(days=8)).isoformat()
-        recent_rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(recent_since), limit=10000))]
-        baseline_rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=datetime.fromisoformat(baseline_since), until=datetime.fromisoformat(baseline_until), limit=10000))]
-        from retrieval_observatory.tracing.monitor.drift import compute_drift
-        findings = compute_drift(baseline_rows, recent_rows)
-        for finding in findings:
-            finding["baseline_window"] = {"since": baseline_since, "until": baseline_until}
-            finding["recent_window"] = {"since": recent_since, "until": None}
-            finding["sample_limited"] = len(baseline_rows) == 10000 or len(recent_rows) == 10000
-        return findings
-
-    @app.get("/dbs/{db_id}/production/hotspots")
-    @production_router.get("/hotspots")
-    async def trace_hotspots(service_id: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        store = _production_store(db_id)
-        if not (store and hasattr(store, "list_traces")):
-            return []
-        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=10000))]
-        from retrieval_observatory.tracing.monitor.hotspots import compute_hotspots
-        return compute_hotspots(rows)
-
-    @app.get("/dbs/{db_id}/production/clusters")
-    @production_router.get("/clusters")
-    async def trace_clusters(service_id: str, since: str = "", until: str = "", db_id: str = "") -> List[Dict[str, Any]]:
-        store = _production_store(db_id)
-        if not (store and hasattr(store, "list_traces")):
-            return []
-        rows = [_monitor_trace(trace) for trace in await store.list_traces(TraceQuery(service_id=service_id, since=_iso_or_422("since", since), until=_iso_or_422("until", until), limit=100000))]
-        from retrieval_observatory.tracing.monitor.cluster import compute_clusters
-        return compute_clusters(rows)
-
     app.include_router(production_router)
+
+    def _retired_endpoint(replacement: str, message: str):
+        async def retired() -> None:
+            raise HTTPException(
+                status_code=410, detail={"code": "retired", "detail": message, "replacement": f"#/{replacement}"}
+            )
+
+        return retired
+
+    # Registered before the SPA fallback so a retired GET never falls through to index.html.
+    for _path, _replacement, _message in _RETIRED_ROUTES:
+        app.add_api_route(
+            _path, _retired_endpoint(_replacement, _message), methods=["GET", "POST"], include_in_schema=False
+        )
 
     # Backward-compatible aliases when a single database is loaded.
     if registry.is_single:
@@ -2405,14 +1723,6 @@ def create_app(
         async def legacy_diagnostics(run_id: str) -> Dict[str, Any]:
             return await get_diagnostics(_sole_db, run_id)
 
-        @app.get("/runs/{run_id}/query-labels")
-        async def legacy_query_labels(run_id: str) -> Dict[str, Any]:
-            return await get_query_labels(_sole_db, run_id)
-
-        @app.get("/runs/{run_id}/classifier-calibration")
-        async def legacy_classifier_calibration(run_id: str) -> Dict[str, Any]:
-            return await get_classifier_calibration(_sole_db, run_id)
-
         @app.get("/runs/{run_id}/overview")
         async def legacy_overview(run_id: str) -> Dict[str, Any]:
             return await get_run_overview(_sole_db, run_id)
@@ -2425,10 +1735,6 @@ def create_app(
         async def legacy_stage_matrix(run_id: str) -> Dict[str, Any]:
             return await get_stage_matrix(_sole_db, run_id)
 
-        @app.get("/runs/{run_id}/pareto-frontier")
-        async def legacy_pareto(run_id: str) -> Dict[str, Any]:
-            return await get_pareto_frontier(_sole_db, run_id)
-
         @app.post("/runs/{run_id}/traces")
         async def legacy_ingest_trace(run_id: str, payload: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
             return await ingest_trace(_sole_db, run_id, payload)
@@ -2440,10 +1746,6 @@ def create_app(
         @app.get("/runs/{run_id}/traces/{trace_id}")
         async def legacy_get_trace(run_id: str, trace_id: str) -> Dict[str, Any]:
             return await get_run_trace(_sole_db, run_id, trace_id)
-
-        @app.get("/runs/{run_id}/operator-attribution")
-        async def legacy_operator_attribution(run_id: str, metric: str = "recall", k: int = 10) -> List[Dict[str, Any]]:
-            return await get_operator_attribution(_sole_db, run_id, metric, k)
 
         @app.get("/runs/{run_id}/query-winners")
         async def legacy_query_winners(run_id: str, metric: str = "recall", k: int = 10) -> Dict[str, Any]:
@@ -2665,18 +1967,6 @@ def create_app(
             return _index_response(_index)
 
     return app
-
-
-def _difficulty_agreement(actual_class: str, predicted: str | None) -> str | None:
-    """Return match, adjacent, or mismatch for 3-class labels."""
-    if not predicted or actual_class == "unknown":
-        return None
-    if actual_class == predicted:
-        return "match"
-    order = {"easy": 0, "medium": 1, "hard": 2}
-    if abs(order.get(actual_class, 1) - order.get(predicted, 1)) == 1:
-        return "adjacent"
-    return "mismatch"
 
 
 def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -3097,67 +2387,6 @@ async def _pipeline_parent_map(store: Any, run_id: str, metrics: Dict[str, Any],
     return out
 
 
-def _attribution_error_row(op_id: str, pipeline_id: str, metric: str, k: int, exc: BaseException) -> Dict[str, Any]:
-    return {
-        "op_id": op_id,
-        "pipeline_id": pipeline_id,
-        "segment": "all",
-        "metric": metric,
-        "k": k,
-        "delta": None,
-        "ci_low": None,
-        "ci_high": None,
-        "n_pairs": 0,
-        "replay_policy": "NOT_REPLAYABLE",
-        "result_status": "error",
-        "low_power": False,
-        "fire_rate": 0.0,
-        "significant": None,
-        "p_value": None,
-        "q_value": None,
-        "evidence_class": "unavailable",
-        "reason": f"{type(exc).__name__}: {exc}",
-        "unsupported_descendants": [],
-        "assumptions": None,
-    }
-
-
-def _operator_attribution_rows(
-    traces: List[RetrievalTrace],
-    qrels: Dict[str, Any],
-    *,
-    metric: str,
-    k: int,
-) -> List[Dict[str, Any]]:
-    """Operator marginal contributions computed per pipeline (never pooled across pipelines
-    that happen to share an op_id), with Benjamini-Hochberg applied once across every
-    (op, segment) result of a pipeline. One failing operator yields an error row, not a 500."""
-    by_pipeline: Dict[str, List[RetrievalTrace]] = defaultdict(list)
-    for trace in traces:
-        by_pipeline[trace.pipeline_id].append(trace)
-    out: List[Dict[str, Any]] = []
-    for pipeline_id in sorted(by_pipeline):
-        pipeline_traces = by_pipeline[pipeline_id]
-        rows: List[Dict[str, Any]] = []
-        for op_id in sorted({span.op_id for trace in pipeline_traces for span in trace.spans}):
-            try:
-                results = operator_marginal_contribution(
-                    pipeline_traces, op_id=op_id, qrels=qrels, metric=metric, k=k
-                )
-            except Exception as exc:  # noqa: BLE001 -- surfaced as a row, not a 500
-                rows.append(_attribution_error_row(op_id, pipeline_id, metric, k, exc))
-                continue
-            rows.extend({**result.__dict__, "pipeline_id": pipeline_id} for result in results)
-        tested = [index for index, row in enumerate(rows) if row.get("p_value") is not None]
-        if tested:
-            q_values = benjamini_hochberg([rows[index]["p_value"] for index in tested])
-            for q_value, index in zip(q_values, tested):
-                rows[index]["q_value"] = q_value
-                rows[index]["significant"] = q_value < 0.05
-        out.extend(rows)
-    return out
-
-
 def _operator_dag_from_pipelines(pipelines: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Compatibility operator-DAG view derived from already-built PipelineGraph dicts."""
     nodes = [
@@ -3179,139 +2408,7 @@ def _operator_dag_from_pipelines(pipelines: List[Dict[str, Any]]) -> Dict[str, A
     return {"nodes": nodes, "edges": edges}
 
 
-def _forge_provenance(dataset: Dict[str, Any], *, hide_paths: bool = False) -> Dict[str, Any]:
-    """Provenance envelope for a Test Set, built from the fields ``get_forge_datasets``
-    actually returns (dataset row + TestSetSummary) rather than a never-populated key."""
-    if not dataset:
-        return {}
-    summary = dataset.get("summary") or {}
-
-    def _path(value: Any) -> Any:
-        if not value:
-            return value
-        return os.path.basename(str(value).rstrip("/")) if hide_paths else value
-
-    return {
-        "dataset_id": dataset.get("dataset_id"),
-        "created_at": dataset.get("created_at") or summary.get("created_at"),
-        "corpus_path": _path(dataset.get("corpus_path")),
-        "output_dir": _path(dataset.get("output_dir")),
-        "schema_version": summary.get("schema_version"),
-        "corpus_size": summary.get("corpus_size"),
-        "total_scenarios": summary.get("total_scenarios"),
-        "total_queries": summary.get("total_queries"),
-        "validated": summary.get("validated"),
-        "validation_coverage": summary.get("validation_coverage"),
-        "by_scenario_type": summary.get("by_scenario_type") or {},
-        "by_query_type": summary.get("by_query_type") or {},
-        "by_difficulty": summary.get("by_difficulty") or {},
-    }
-
-
 def _pipeline_cost_per_1k(config: Dict[str, Any], pipeline_id: str, costs: Dict[str, Dict[str, float]]) -> float:
     from retrieval_observatory.config.cost import pipeline_cost_per_1k
 
     return pipeline_cost_per_1k(config, pipeline_id, costs)
-
-
-def _lookup_agg_metric(
-    agg: Dict[str, Any],
-    pipeline_id: str,
-    stage_index: int,
-    metric_name: str,
-    k: int = 0,
-) -> Dict[str, Any] | None:
-    for value in agg.values():
-        if value.get("pipeline_id") != pipeline_id:
-            continue
-        if value.get("stage_index") != stage_index:
-            continue
-        if value.get("metric_name") != metric_name:
-            continue
-        if value.get("k", 0) != k:
-            continue
-        return value
-    return None
-
-
-def _extract_final_stage_metrics(agg: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
-    """Return per-pipeline metrics needed for Pareto analysis: final-stage QUALITY, but
-    end-to-end LATENCY.
-
-    Quality (NDCG/Recall) is read from the pipeline's final stage. Latency is read from the
-    end-to-end distribution stored at stage_index=-1 (the joint per-query latency) for
-    multi-stage pipelines, so a hybrid+rerank pipeline is plotted at its true total latency,
-    not the reranker's stage-local latency. Single-stage pipelines have no stage -1 entry, so
-    their final-stage latency is already end-to-end and is used directly."""
-    by_pipeline: Dict[str, Dict[int, Dict[tuple, Dict[str, Optional[float]]]]] = defaultdict(lambda: defaultdict(dict))
-    e2e_latency: Dict[str, Dict[tuple, float]] = defaultdict(dict)
-    for value in agg.values():
-        if value.get("branch_id"):
-            continue
-        stage_index = value.get("stage_index", -1)
-        metric_key = (value["metric_name"], value.get("k", 0))
-        if stage_index < 0:
-            # End-to-end latency percentiles live at stage -1 for multi-stage pipelines.
-            if value["metric_name"] in ("latency_p50", "latency_p95"):
-                e2e_latency[value["pipeline_id"]][metric_key] = value["mean"]
-            continue
-        by_pipeline[value["pipeline_id"]][stage_index][metric_key] = {
-            "mean": value["mean"],
-            "ci_low": value.get("ci_low"),
-            "ci_high": value.get("ci_high"),
-        }
-
-    quality_required = {("ndcg", 10): "ndcg10", ("recall", 10): "recall10"}
-    latency_required = {("latency_p50", 0): "latency_p50", ("latency_p95", 0): "latency_p95"}
-
-    final_metrics: Dict[str, Dict[str, float | int]] = {}
-    for pipeline_id, stages in by_pipeline.items():
-        final_stage = max(stages.keys())
-        stage_metrics = stages[final_stage]
-        row: Dict[str, float | int] = {"stage_index": final_stage}
-        complete = True
-        for metric_key, field in quality_required.items():
-            if metric_key not in stage_metrics:
-                complete = False
-                break
-            entry = stage_metrics[metric_key]
-            row[field] = entry["mean"]
-            row[f"{field}_ci_low"] = entry.get("ci_low")
-            row[f"{field}_ci_high"] = entry.get("ci_high")
-        if not complete:
-            continue
-        for metric_key, field in latency_required.items():
-            # Prefer end-to-end latency (stage -1); fall back to final-stage latency for
-            # single-stage pipelines that have no joint-distribution entry.
-            if metric_key in e2e_latency.get(pipeline_id, {}):
-                row[field] = e2e_latency[pipeline_id][metric_key]
-            elif metric_key in stage_metrics:
-                row[field] = stage_metrics[metric_key]["mean"]
-            else:
-                complete = False
-                break
-        if complete:
-            final_metrics[pipeline_id] = row
-    return final_metrics
-
-
-def _pareto_quality_ci(
-    agg: Dict[str, Any], pipeline_id: str, stage_index: int
-) -> Dict[str, float | None]:
-    """Bootstrap CI bounds for quality metrics on the pipeline's final stage."""
-    out: Dict[str, float | None] = {}
-    for metric_name, k, prefix in (("ndcg", 10, "ndcg@10"), ("recall", 10, "recall@10")):
-        entry = _lookup_agg_metric(agg, pipeline_id, stage_index, metric_name, k)
-        if entry is None:
-            continue
-        out[f"{prefix}_ci_low"] = entry.get("ci_low")
-        out[f"{prefix}_ci_high"] = entry.get("ci_high")
-    return out
-
-
-def _pareto_pipeline_ids_in_agg(agg: Dict[str, Any]) -> set[str]:
-    return {
-        value["pipeline_id"]
-        for value in agg.values()
-        if value.get("stage_index", -1) >= 0 and not value.get("branch_id")
-    }

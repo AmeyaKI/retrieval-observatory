@@ -1,6 +1,5 @@
 """get_query_lineage: production service_count counts real service ids and matched traces carry
-`service`; the Test Set origin is scoped to the dataset the evaluations ran against; the
-forge queries endpoint reports provenance from the fields the store actually returns."""
+`service`; the Test Set origin is scoped to the dataset the evaluations ran against."""
 from __future__ import annotations
 
 import json
@@ -85,24 +84,3 @@ async def test_lineage_endpoint_traces_carry_service(tmp_path: Path) -> None:
     body = client.get(f"/dbs/{registry.default_db_id}/query/q1/lineage").json()
     assert body["production_matches"]["summary"]["service_count"] == 2
     assert all("service" in trace for trace in body["production_matches"]["traces"])
-
-
-@pytest.mark.asyncio
-async def test_forge_queries_provenance_is_populated(tmp_path: Path) -> None:
-    db_path = tmp_path / "forge.db"
-    await _seed(db_path)
-    registry = DbRegistry([str(db_path)])
-    client = TestClient(create_app(registry=registry, enable_uploads=False))
-    body = client.get(f"/dbs/{registry.default_db_id}/forge/datasets/ds-new/queries?limit=10").json()
-    assert body["total"] == 1 and body["items"][0]["query_id"] == "q1"
-    provenance = body["provenance"]
-    assert provenance["dataset_id"] == "ds-new"
-    assert provenance["corpus_path"] == "/corpora/new.jsonl"
-    assert provenance["output_dir"] == "/out/new"
-    assert provenance["total_queries"] == 1 and provenance["corpus_size"] == 37
-    assert provenance["validation_coverage"] == 1.0
-    assert provenance["created_at"]
-
-    hidden = TestClient(create_app(registry=DbRegistry([str(db_path)], read_only=True), enable_uploads=False))
-    ro = hidden.get(f"/dbs/{registry.default_db_id}/forge/datasets/ds-new/queries?limit=10").json()
-    assert ro["provenance"]["corpus_path"] == "new.jsonl" and ro["provenance"]["output_dir"] == "new"

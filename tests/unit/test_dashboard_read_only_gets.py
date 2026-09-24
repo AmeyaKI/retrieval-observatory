@@ -1,5 +1,5 @@
-"""GET endpoints must never write: reliability snapshots and recomputed metrics stay out of the
-store on a read-only registry, and metric rows are deduplicated on their natural key."""
+"""GET endpoints must never write: recomputed metrics stay out of the store on a read-only
+registry, and metric rows are deduplicated on their natural key."""
 from __future__ import annotations
 
 import json
@@ -59,19 +59,6 @@ async def test_read_only_metrics_get_computes_without_persisting(tmp_path: Path)
     body = response.json()
     assert any(entry["metric_name"] == "recall" and entry["k"] == 10 for entry in body.values())
     assert _count(db_path, "metric_scores") == 0, "a GET on a read-only registry must not write metric rows"
-
-
-@pytest.mark.asyncio
-async def test_reliability_get_does_not_write_a_snapshot(tmp_path: Path) -> None:
-    db_path = tmp_path / "rel.db"
-    await _seed(db_path, with_metrics=True)
-    for read_only in (True, False):
-        registry = DbRegistry([str(db_path)], read_only=read_only)
-        client = TestClient(create_app(registry=registry, enable_uploads=False), raise_server_exceptions=False)
-        response = client.get(f"/dbs/{registry.default_db_id}/advisor/reliability?run_id={RUN}")
-        assert response.status_code == 200, response.text
-        assert "components" in response.json()
-        assert _count(db_path, "reliability_snapshots") == 0, "GET /advisor/reliability must not persist"
 
 
 @pytest.mark.asyncio
