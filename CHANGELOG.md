@@ -167,6 +167,7 @@ Release candidate (not tagged or published; the date is set when the tag is cut)
 
 ### Fixed
 
+- `dashboard/ui/index.html` — the dashboard sets its own tab icon (the sidebar's "RO" mark, inline SVG) instead of falling back to the browser's default.
 - `.gitignore` — the packaged agent runbook (`retrieval_observatory/examples/agent_integration/**/*.md`) and the `hybrid_multi_module` fixture data were ignored by the `*.md` / `*.jsonl` rules and never committed, so a wheel built from a clean checkout shipped without the runbook (`discovery.runbook: null`); both are now tracked.
 - `evidence/journeys.py`, `evidence/service.py` — projection hashes each trace once and the evaluation spec and judgments once per build instead of once per row (tiny synthetic fixture: build 1.665 s → 0.086 s, on-demand per-query projection p50 165 ms → 7.4 ms); outputs are byte-identical.
 - `evidence/service.py`, `store/sqlite.py`, `store/postgres.py` — filtered investigation summaries come from one ordered read (`list_investigation_pair_facts`) instead of re-paging every matching row with a `COUNT(*)` per page; pipeline scope resolves with `list_pipeline_ids` (`SELECT DISTINCT`) instead of loading every trace of the run, which every graph-configured run (empty `normalized_config.pipelines`) did on each request.
