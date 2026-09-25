@@ -282,6 +282,19 @@ def _run_fixture(python: Path, fixture: str, project: Path, env: dict[str, str])
     return _canonical_json(result.stdout)
 
 
+def _assert_installed_import(python: Path, project: Path, env: dict[str, str]) -> dict[str, str]:
+    """The fixture venv imports retrieval_observatory from its own sys.prefix, never the checkout.
+
+    Probed from the project root with the same PYTHONPATH the fixture runs use.
+    """
+    probe = "import json, sys, retrieval_observatory as r; print(json.dumps({'file': r.__file__, 'prefix': sys.prefix}))"
+    origin = json.loads(_run([str(python), "-c", probe], cwd=project, env={**env, "PYTHONPATH": str(project)}).stdout)
+    module_file, prefix = Path(origin["file"]).resolve(), Path(origin["prefix"]).resolve()
+    if prefix not in module_file.parents:
+        raise AssertionError(f"fixture venv imports retrieval_observatory from {module_file}, outside {prefix}")
+    return {"module_file": str(module_file), "sys_prefix": str(prefix)}
+
+
 def _wheel_spec(wheel: Path, fixture: str) -> str:
     extras = ["dashboard", "mcp"]
     if framework_extra := FIXTURE_EXTRAS.get(fixture):
@@ -346,6 +359,7 @@ def _exercise_fixture(wheel: Path, fixture: str, artifacts: Path, keep_workdir: 
         python = venv / "bin" / "python"
         pip = [str(python), "-m", "pip"]
         _run([*pip, "install", "--index-url", "https://pypi.org/simple", _wheel_spec(wheel, fixture)], cwd=workdir, env=env)
+        _write_json(fixture_artifacts / "import-origin.json", _assert_installed_import(python, project, env))
 
         before = _run_fixture(python, fixture, project, env)
         (fixture_artifacts / "before.json").write_text(before, encoding="utf-8")

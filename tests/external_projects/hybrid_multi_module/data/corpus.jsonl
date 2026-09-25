@@ -1,0 +1,4 @@
+{"id":"d-shared","text":"Guidance both the lexical and the dense lane return"}
+{"id":"d-lexical","text":"Lexical-only fallback guidance"}
+{"id":"d-dense","text":"Dense lane guidance for hybrid questions"}
+{"id":"d-stale","text":"Stale guidance the reranker drops"}

@@ -8,6 +8,18 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.7.0] — 2026-09-24
+
+Release candidate (not tagged or published; the date is set when the tag is cut). Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
+
+### Added
+
 - `integrations/model.py` — integration plan schema v2: per-operator `input_mapping` / `output_mapping` / `capture` (`retobs_adapter:<symbol>`) / `invocation`, scenario `command` and `route`, `boundary` (`FinalBoundary`), `identity` (`IdentityChoice`), `judgments`, `expected_capabilities` over the eight `CAPABILITY_NAMES`, `actions` (`install | source_edit | benchmark_setup | scenario_execution`, only source edits performed by apply), and non-blocking `open_questions`; `IntegrationPhase.REVERT`.
 - `integrations/planner.py` — plans state per-operator input/output mappings (a static mirror of the runtime capture rules), the final boundary, candidate/query identity, discovered judgment files, expected capabilities, actions, a `representative-repeat` scenario with `python -c` commands, and an open question for every gap; `build_integration_plan(..., reviewed=)` re-plans from a reviewed plan's operators/scenarios (unknown symbols become `unresolved`; `capture` references land as `capture=retobs_adapter.<symbol>` in the decorator); instrumented modules carry a `# retobs instrumentation` marker line; `discovery.runbook` names the packaged runbook; the benchmark action names the run after the pipeline (`--name`).
 - `integrations/apply.py` — `revert_integration`: restores apply's edits from the manifest and refuses when a patched file changed since apply; apply refuses, before writing, a `capture` reference that root `retobs_adapter.py` does not define. `retobs integrate --phase revert`, MCP `integrate_project(phase="revert")`; `--plan` / `plan_path` accepted by the plan phase for re-planning.
@@ -77,6 +89,10 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 
+- `scripts/check_release.py` — requires a `## [<version>]` CHANGELOG heading; the wheel must contain the dashboard `index.html` and every asset it references, the golden fixture and v3 policy, and the runbook, and must not contain retired modules, `ui/src`, `.pyc`, or local-only files; `--require-sdist` rejects local-only material and home paths; `--require-evidence` checks source commit, wheel and sdist digests, per-interpreter smoke results, fixture capabilities, skipped checks with reasons and known limitations.
+- `scripts/smoke_wheel.py` — 13 checks from outside the repository with a JSON result per check (import origin, installed resources, retired modules absent, core install without extras, public surface, MCP registration, SDK evaluate, production trace, serve, demo → compare → offline HTML audit, inspect-document, v2 → v3 storage migration, v2 policy conversion); a skipped check needs a reason and `--require-extra` turns it into a failure. `smoke_external_project.py` and `tests/browser/seed_e2e.py` (`RETOBS_REQUIRE_INSTALLED=1`) assert imports come from the installed wheel.
+- `scripts/generate_release_evidence.py` — evidence records artifact digests, per-gate environments, wheel smoke results, fixture capabilities, skipped checks and `--known-limitation` entries.
+- `.github/workflows/ci.yml`, `.github/workflows/release-candidate.yml` — the dashboard job seeds `tests/browser/seed_e2e.py` (demo plus a verified integration) from the wheel, serves both databases, and probes the focused Investigate / Audit / Connect routes for console errors and HTTP 5xx instead of the retired `#/runs` and `#/compare`; the wheel smoke requires the `dashboard` and `mcp` extras; the sdist is checked for local-only material.
 - `integrations/verify.py` — a declared operator absent from a trace is no longer `topology_identity` drift (`missing_by_trace` removed); `checks` is one entry per capability; `verify_project` passes the project root for judgment resolution; a scenario's expected path is checked per scenario, never "every operator in every trace".
 - `sdk/wrappers.py` — `_record_return_boundary` delegates to `sdk.observe.record_return_boundary`.
 - `scripts/smoke_external_project.py` — fixtures discovered from `tests/external_projects/conftest.py`; reviewed re-plan step; asserts `status == "ready"` and every capability `ready`; writes `capabilities.json`; repeats one query for cross-run alignment. `tests/external_projects/*/expected.json` list the eight verify capabilities (and `plan_overrides` where the review is needed); `tests/release/test_external_wheel.py` counts the discovered fixtures.
@@ -151,6 +167,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 
+- `.gitignore` — the packaged agent runbook (`retrieval_observatory/examples/agent_integration/**/*.md`) and the `hybrid_multi_module` fixture data were ignored by the `*.md` / `*.jsonl` rules and never committed, so a wheel built from a clean checkout shipped without the runbook (`discovery.runbook: null`); both are now tracked.
 - `evidence/journeys.py`, `evidence/service.py` — projection hashes each trace once and the evaluation spec and judgments once per build instead of once per row (tiny synthetic fixture: build 1.665 s → 0.086 s, on-demand per-query projection p50 165 ms → 7.4 ms); outputs are byte-identical.
 - `evidence/service.py`, `store/sqlite.py`, `store/postgres.py` — filtered investigation summaries come from one ordered read (`list_investigation_pair_facts`) instead of re-paging every matching row with a `COUNT(*)` per page; pipeline scope resolves with `list_pipeline_ids` (`SELECT DISTINCT`) instead of loading every trace of the run, which every graph-configured run (empty `normalized_config.pipelines`) did on each request.
 - `store/sqlite.py`, `store/postgres.py`, `store/migrate.py` — indexes `idx_investigation_pairs_entity_order` and `idx_investigation_pairs_outcome_order` serve entity and outcome filter pages; `retobs storage migrate` adds them to existing v3 files (`indexes_added`); read-only files keep the older indexes until migrated.

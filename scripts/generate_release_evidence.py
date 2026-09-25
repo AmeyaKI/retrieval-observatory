@@ -33,6 +33,14 @@ REQUIRED_GATES = {
     "artifact_digest",
 }
 
+#: External-fixture gates and the fixture whose capabilities.json each one produces.
+EXTERNAL_GATE_FIXTURES = {
+    "external_python": "python_callable",
+    "external_fastapi": "fastapi_hybrid_dag",
+    "external_langchain": "langchain_retriever",
+    "external_llamaindex": "llamaindex_retriever",
+}
+
 WORKFLOW_PROOFS = {
     "retrieval_release_decision": {
         "gate": "python_integration",
@@ -113,17 +121,56 @@ def _validate_gates(gates: dict[str, dict[str, Any]], wheel_digest: str) -> list
         timestamp = gate.get("timestamp")
         if not isinstance(timestamp, str) or not timestamp:
             raise ValueError(f"gate {gate_id} has no timestamp")
-        evidence.append(
+        entry = {
+            "id": gate_id,
+            "status": "passed",
+            "command": gate["command"],
+            "artifacts": gate["artifacts"],
+            "wheel_sha256": wheel_digest,
+            "timestamp": timestamp,
+        }
+        if isinstance(gate.get("environment"), dict):
+            entry["environment"] = gate["environment"]
+        evidence.append(entry)
+    return evidence
+
+
+def _artifact_hashes(dist: Path) -> dict[str, str]:
+    return {path.name: _sha256(path) for path in sorted(dist.iterdir()) if path.name.endswith((".whl", ".tar.gz"))}
+
+
+def _wheel_smokes(results_dir: Path) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Per-interpreter wheel-smoke summaries, and every skipped optional check with its reason."""
+    smokes: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for path in sorted(results_dir.rglob("wheel-smoke-*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        checks = payload.get("checks", {})
+        failed = sorted(name for name, check in checks.items() if check.get("status") not in ("passed", "skipped"))
+        if failed:
+            raise ValueError(f"wheel smoke {path.name} has failed checks: {', '.join(failed)}")
+        for name, check in sorted(checks.items()):
+            if check["status"] == "skipped":
+                if not check.get("reason"):
+                    raise ValueError(f"wheel smoke {path.name} skipped {name} without a reason")
+                skipped.append({"source": path.name, "check": name, "reason": check["reason"]})
+        smokes.append(
             {
-                "id": gate_id,
-                "status": "passed",
-                "command": gate["command"],
-                "artifacts": gate["artifacts"],
-                "wheel_sha256": wheel_digest,
-                "timestamp": timestamp,
+                "file": path.name,
+                "python": payload.get("python", {}).get("version"),
+                "platform": payload.get("platform"),
+                "required_extras": payload.get("required_extras", []),
+                "summary": {status: sum(1 for check in checks.values() if check["status"] == status) for status in ("passed", "failed", "skipped")},
             }
         )
-    return evidence
+    return smokes, skipped
+
+
+def _fixture_capabilities(results_dir: Path) -> dict[str, dict[str, str]]:
+    return {
+        path.parent.name: {name: capability["status"] for name, capability in sorted(json.loads(path.read_text(encoding="utf-8")).items())}
+        for path in sorted(results_dir.rglob("capabilities.json"))
+    }
 
 
 def _markdown(evidence: dict[str, Any]) -> str:
@@ -136,22 +183,45 @@ def _markdown(evidence: dict[str, Any]) -> str:
         f"- Source commit: `{evidence['source_commit']}`",
         f"- Generated: `{evidence['generated_at']}`",
         "",
-        "| Gate | Status | Command | Evidence artifact |",
-        "|---|---|---|---|",
+        "| Gate | Status | Command | Evidence artifact | Environment |",
+        "|---|---|---|---|---|",
     ]
     for gate in evidence["gates"]:
         command = gate["command"].replace("|", "\\|")
         artifacts = "<br>".join(gate["artifacts"])
-        lines.append(f"| {gate['id']} | {gate['status']} | `{command}` | {artifacts} |")
+        environment = gate.get("environment", {})
+        where = f"Python {environment['python']} · {environment['platform']}" if environment else "not recorded"
+        lines.append(f"| {gate['id']} | {gate['status']} | `{command}` | {artifacts} | {where} |")
+    lines.extend(["", "## Artifacts", ""])
+    lines.extend(f"- `{name}`: `{digest}`" for name, digest in evidence["artifacts"].items())
+    lines.extend(["", "## Wheel smoke by interpreter", ""])
+    for smoke in evidence["wheel_smoke"]:
+        summary = smoke["summary"]
+        lines.append(
+            f"- Python {smoke['python']} ({smoke['platform']}): {summary['passed']} passed, "
+            f"{summary['failed']} failed, {summary['skipped']} skipped"
+        )
+    lines.extend(["", "## Fixture capabilities", ""])
+    for fixture, capabilities in evidence["fixture_capabilities"].items():
+        lines.append(f"- `{fixture}`: " + ", ".join(f"{name}={status}" for name, status in capabilities.items()))
+    lines.extend(["", "## Skipped optional checks", ""])
+    lines.extend(f"- `{item['check']}` ({item['source']}): {item['reason']}" for item in evidence["skipped_checks"])
+    if not evidence["skipped_checks"]:
+        lines.append("- None")
+    lines.extend(["", "## Known limitations", ""])
+    lines.extend(f"- {item}" for item in evidence["known_limitations"])
+    if not evidence["known_limitations"]:
+        lines.append("- None recorded")
     lines.extend(["", "## Workflow proofs", ""])
     for proof in evidence["workflow_proofs"]:
         lines.append(f"- `{proof['id']}` — `{proof['gate']}`: {', '.join(proof['tests'])}")
     return "\n".join(lines) + "\n"
 
 
-def generate(results_dir: Path, dist: Path) -> dict[str, Any]:
+def generate(results_dir: Path, dist: Path, known_limitations: list[str] | None = None) -> dict[str, Any]:
     wheel = _wheel(dist)
     wheel_digest = _sha256(wheel)
+    smokes, skipped = _wheel_smokes(results_dir)
     evidence = {
         "version": _wheel_version(wheel),
         "source_commit": _source_commit(),
@@ -161,7 +231,12 @@ def generate(results_dir: Path, dist: Path) -> dict[str, Any]:
             "sha256": wheel_digest,
             "version": _wheel_version(wheel),
         },
+        "artifacts": _artifact_hashes(dist),
         "gates": _validate_gates(_result_files(results_dir), wheel_digest),
+        "wheel_smoke": smokes,
+        "skipped_checks": skipped,
+        "fixture_capabilities": _fixture_capabilities(results_dir),
+        "known_limitations": [item.strip() for item in known_limitations or [] if item.strip()],
         "workflow_proofs": [
             {"id": proof_id, **proof}
             for proof_id, proof in sorted(WORKFLOW_PROOFS.items())
@@ -176,9 +251,12 @@ def main() -> int:
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-markdown", type=Path, required=True)
+    parser.add_argument(
+        "--known-limitation", action="append", default=[], help="A known limitation of this candidate to record. Repeatable."
+    )
     args = parser.parse_args()
     try:
-        evidence = generate(args.results_dir, args.dist)
+        evidence = generate(args.results_dir, args.dist, args.known_limitation)
     except (OSError, ValueError, json.JSONDecodeError, zipfile.BadZipFile) as error:
         print(f"release evidence: {error}", file=sys.stderr)
         return 1

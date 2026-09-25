@@ -34,7 +34,9 @@ def test_release_python_imports_installed_distribution(tmp_path: Path, release_p
     )
     imported = Path(json.loads(result.stdout)["file"]).resolve()
     assert "site-packages" in imported.parts
-    assert "retrieval-observatory" not in str(imported.parent.parent)
+    # Inside the release venv (its sys.prefix), not a checkout; a path-name heuristic breaks when
+    # the temp directory itself is named after the repository.
+    assert release_python.parent.parent.resolve() in imported.parents
 
 
 def test_minimal_install_imports_core_and_runs_the_demo_audit(tmp_path: Path, release_python: Path) -> None:

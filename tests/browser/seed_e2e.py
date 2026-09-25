@@ -10,11 +10,17 @@
    The verified record lands in ``DIR/project/.retobs/results.db``.
 
 Prints the ``retobs serve`` command that serves both databases (the demo database first).
+
+With ``RETOBS_REQUIRE_INSTALLED=1`` (the release workflow sets it when seeding from the built wheel)
+the script fails unless ``retrieval_observatory`` imports from this interpreter's environment
+(``sys.prefix``) rather than a source checkout, so checkout imports cannot mask packaging defects.
+Leave it unset for developer use with an editable install.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import shutil
 import subprocess
@@ -49,6 +55,16 @@ def _command(command: str) -> list[str]:
     raise SystemExit(f"unexpected plan command: {command}")
 
 
+def _require_installed_import(cwd: Path) -> None:
+    """Assert the seeding subprocesses import the installed package, probed with their own form and cwd."""
+    if os.environ.get("RETOBS_REQUIRE_INSTALLED") != "1":
+        return
+    probe = "import retrieval_observatory, sys; print(retrieval_observatory.__file__); print(sys.prefix)"
+    module_file, prefix = (Path(line).resolve() for line in _run([sys.executable, "-c", probe], cwd=cwd).splitlines())
+    if prefix not in module_file.parents:
+        raise SystemExit(f"RETOBS_REQUIRE_INSTALLED=1 but retrieval_observatory imports from {module_file}, outside {prefix}")
+
+
 def seed(directory: Path) -> tuple[Path, Path]:
     directory = directory.resolve()
     demo_dir, project = directory / "demo", directory / "project"
@@ -56,9 +72,11 @@ def seed(directory: Path) -> tuple[Path, Path]:
         if path.exists():
             shutil.rmtree(path)
     directory.mkdir(parents=True, exist_ok=True)
+    # `python -m` puts the cwd on sys.path, so no seeding subprocess runs from the checkout.
+    _require_installed_import(directory)
 
     demo_db = demo_dir / "demo.db"
-    _run(_retobs("demo", "--output-dir", str(demo_dir), "--db", str(demo_db)), cwd=REPO)
+    _run(_retobs("demo", "--output-dir", str(demo_dir), "--db", str(demo_db)), cwd=directory)
 
     shutil.move(str(materialize("proj_a", directory / "_fixture")), project)
     shutil.rmtree(directory / "_fixture")

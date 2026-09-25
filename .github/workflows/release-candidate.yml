@@ -43,11 +43,14 @@ jobs:
           mkdir -p artifacts/evidence/build/contracts artifacts/evidence/build/scripts
           cp contracts/public_surface.json artifacts/evidence/build/contracts/public_surface.json
           cp scripts/check_public_surface.py artifacts/evidence/build/scripts/check_public_surface.py
+          mkdir -p artifacts/evidence/build/examples/ci
+          cp examples/ci/release-policy.yaml artifacts/evidence/build/examples/ci/release-policy.yaml
           python - <<'PY'
           from datetime import UTC, datetime
           import hashlib
           import json
           from pathlib import Path
+          import platform
 
           dist = Path("dist")
           wheel = next(dist.glob("*.whl"))
@@ -76,6 +79,7 @@ jobs:
               (evidence / "results" / f"{gate}.json").write_text(json.dumps({
                   "id": gate, "status": "passed", "command": command, "artifacts": artifacts,
                   "wheel_sha256": digest, "timestamp": timestamp,
+                  "environment": {"python": platform.python_version(), "platform": platform.platform()},
               }, indent=2, sort_keys=True) + "\n")
           PY
       - uses: actions/upload-artifact@v4
@@ -113,17 +117,19 @@ jobs:
           VERSION=$(/tmp/retobs-wheel/bin/python -c "import importlib.metadata; print(importlib.metadata.version('retrieval-observatory'))")
           mkdir -p "artifacts/evidence/python-${{ matrix.python-version }}"
           cd /tmp
-          /tmp/retobs-wheel/bin/python "$GITHUB_WORKSPACE/scripts/smoke_wheel.py" --expected-version "$VERSION" --output "$GITHUB_WORKSPACE/artifacts/evidence/python-${{ matrix.python-version }}/wheel-smoke-${{ matrix.python-version }}.json"
+          /tmp/retobs-wheel/bin/python "$GITHUB_WORKSPACE/scripts/smoke_wheel.py" --expected-version "$VERSION" --require-extra dashboard --require-extra mcp --output "$GITHUB_WORKSPACE/artifacts/evidence/python-${{ matrix.python-version }}/wheel-smoke-${{ matrix.python-version }}.json"
           if [ "${{ matrix.python-version }}" = "3.12" ]; then
             python - "$WHEEL" "$GITHUB_WORKSPACE/artifacts/evidence/python-${{ matrix.python-version }}" <<'PY'
           from datetime import UTC, datetime
-          import hashlib, json, sys
+          import hashlib, json, platform, sys
           from pathlib import Path
           wheel, output = map(Path, sys.argv[1:])
           output.joinpath("results").mkdir()
           output.joinpath("results", "wheel_smoke.json").write_text(json.dumps({
-              "id": "wheel_smoke", "status": "passed", "command": "python scripts/smoke_wheel.py --expected-version <version> --output wheel-smoke.json",
+              "id": "wheel_smoke", "status": "passed",
+              "command": "python scripts/smoke_wheel.py --expected-version <version> --require-extra dashboard --require-extra mcp --output wheel-smoke.json",
               "artifacts": ["wheel-smoke-3.12.json"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "environment": {"python": platform.python_version(), "platform": platform.platform()},
               "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
           }, indent=2, sort_keys=True) + "\n")
           PY
@@ -158,7 +164,7 @@ jobs:
           python scripts/smoke_external_project.py --wheel "$WHEEL" --fixture "${{ matrix.fixture }}" --artifacts "$OUTPUT"
           python - "$WHEEL" "$OUTPUT" "${{ matrix.fixture }}" <<'PY'
           from datetime import UTC, datetime
-          import hashlib, json, sys
+          import hashlib, json, platform, sys
           from pathlib import Path
           wheel, output, fixture = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
           gate = {
@@ -168,7 +174,9 @@ jobs:
           output.joinpath("results").mkdir()
           output.joinpath("results", f"{gate}.json").write_text(json.dumps({
               "id": gate, "status": "passed", "command": f"python scripts/smoke_external_project.py --wheel <wheel> --fixture {fixture} --artifacts <artifacts>",
-              "artifacts": [f"{fixture}/verification.json"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "artifacts": [f"{fixture}/verification.json", f"{fixture}/capabilities.json", f"{fixture}/import-origin.json"],
+              "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
+              "environment": {"python": platform.python_version(), "platform": platform.platform()},
               "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
           }, indent=2, sort_keys=True) + "\n")
           PY
@@ -203,10 +211,10 @@ jobs:
           /tmp/retobs-sqlite/bin/pytest test_store_contract.py -v --tb=short | tee "$GITHUB_WORKSPACE/artifacts/evidence/sqlite/sqlite-store.txt"
           python - "$WHEEL" "$GITHUB_WORKSPACE/artifacts/evidence/sqlite/results/sqlite_store.json" <<'PY'
           from datetime import UTC, datetime
-          import hashlib, json, sys
+          import hashlib, json, platform, sys
           from pathlib import Path
           wheel, output = map(Path, sys.argv[1:])
-          output.write_text(json.dumps({"id": "sqlite_store", "status": "passed", "command": "pytest tests/unit/test_store_contract.py -v --tb=short", "artifacts": ["sqlite-store.txt"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(), "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")}, indent=2, sort_keys=True) + "\n")
+          output.write_text(json.dumps({"id": "sqlite_store", "status": "passed", "command": "pytest tests/unit/test_store_contract.py -v --tb=short", "artifacts": ["sqlite-store.txt"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(), "environment": {"python": platform.python_version(), "platform": platform.platform()}, "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")}, indent=2, sort_keys=True) + "\n")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -255,10 +263,10 @@ jobs:
           /tmp/retobs-postgres/bin/pytest test_store_postgres.py -v --tb=short | tee "$GITHUB_WORKSPACE/artifacts/evidence/postgres/postgres-store.txt"
           python - "$WHEEL" "$GITHUB_WORKSPACE/artifacts/evidence/postgres/results/postgres_store.json" <<'PY'
           from datetime import UTC, datetime
-          import hashlib, json, sys
+          import hashlib, json, platform, sys
           from pathlib import Path
           wheel, output = map(Path, sys.argv[1:])
-          output.write_text(json.dumps({"id": "postgres_store", "status": "passed", "command": "pytest tests/unit/test_store_postgres.py -v --tb=short", "artifacts": ["postgres-store.txt"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(), "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")}, indent=2, sort_keys=True) + "\n")
+          output.write_text(json.dumps({"id": "postgres_store", "status": "passed", "command": "pytest tests/unit/test_store_postgres.py -v --tb=short", "artifacts": ["postgres-store.txt"], "wheel_sha256": hashlib.sha256(wheel.read_bytes()).hexdigest(), "environment": {"python": platform.python_version(), "platform": platform.platform()}, "timestamp": datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")}, indent=2, sort_keys=True) + "\n")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -294,13 +302,18 @@ jobs:
       - name: Install wheel and browser test dependencies
         run: |
           python -m venv /tmp/retobs-dashboard
-          WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
-          /tmp/retobs-dashboard/bin/pip install "${WHEEL}[dashboard,demo]" pytest playwright
+          WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
+          /tmp/retobs-dashboard/bin/pip install "${WHEEL}[dashboard]" pytest playwright
           /tmp/retobs-dashboard/bin/python -m playwright install --with-deps chromium
       - name: Seed and serve dashboard from the wheel
+        env:
+          # seed_e2e.py fails unless every seeding process imports the installed wheel, not the checkout.
+          RETOBS_REQUIRE_INSTALLED: "1"
         run: |
-          /tmp/retobs-dashboard/bin/retobs demo --db .retobs/release/results.db --output-dir .retobs/release --n-traces 80
-          /tmp/retobs-dashboard/bin/retobs serve --host 127.0.0.1 --port 4000 --db .retobs/release/results.db > /tmp/retobs-dashboard.log 2>&1 &
+          set -o pipefail
+          /tmp/retobs-dashboard/bin/python tests/browser/seed_e2e.py /tmp/retobs-e2e | tee artifacts/evidence/dashboard/seed.txt
+          # The demo database first: routes that carry no db fall back to the first registered one.
+          /tmp/retobs-dashboard/bin/retobs serve --host 127.0.0.1 --port 4000 --db /tmp/retobs-e2e/demo/demo.db,/tmp/retobs-e2e/project/.retobs/results.db > /tmp/retobs-dashboard.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:4000/dbs > /dev/null && exit 0; sleep 1; done
           cat /tmp/retobs-dashboard.log
           exit 1
@@ -316,18 +329,35 @@ jobs:
           import json
           import os
           from pathlib import Path
+          from urllib.parse import quote
+          from urllib.request import urlopen
+
           from playwright.sync_api import sync_playwright
 
+          base = os.environ["RETOBS_E2E_URL"]
+          with urlopen(f"{base}/demo/context", timeout=10) as response:
+              demo = json.loads(response.read())
+          db, baseline, candidate = quote(demo["db_id"]), quote(demo["baseline_run_id"]), quote(demo["validation_run_id"])
+          routes = {
+              "investigate_landing": "/#/",
+              "investigate_run": f"/#/investigate?db={db}&run={baseline}",
+              "investigate_document": f"/#/investigate?db={db}&run={baseline}&view=documents&entity={quote(demo['repaired_document'], safe='')}",
+              "audit": f"/#/audit?db={db}&baseline={baseline}&candidate={candidate}&policy={quote(demo['policy_path'], safe='')}",
+              "connect": "/#/connect",
+          }
           errors, server_errors = [], []
           with sync_playwright() as playwright:
               browser = playwright.chromium.launch()
-              page = browser.new_page(viewport={"width": 390, "height": 900})
-              page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-              page.on("response", lambda response: server_errors.append({"url": response.url, "status": response.status}) if response.status >= 500 else None)
-              page.goto(os.environ["RETOBS_E2E_URL"] + "/#/runs", wait_until="networkidle")
-              page.goto(os.environ["RETOBS_E2E_URL"] + "/#/compare", wait_until="networkidle")
+              for name, route in routes.items():
+                  # A fresh page per route: a hash-only goto is a same-document navigation.
+                  page = browser.new_page(viewport={"width": 390, "height": 900})
+                  page.on("console", lambda message, name=name: errors.append({"route": name, "text": message.text}) if message.type == "error" else None)
+                  page.on("response", lambda response, name=name: server_errors.append({"route": name, "url": response.url, "status": response.status}) if response.status >= 500 else None)
+                  page.goto(base + route, wait_until="networkidle")
+                  page.wait_for_selector("main", timeout=15000)
+                  page.close()
               browser.close()
-          payload = {"console_errors": errors, "api_responses_gte_500": server_errors}
+          payload = {"routes": routes, "console_errors": errors, "api_responses_gte_500": server_errors}
           Path("artifacts/evidence/dashboard/browser-probes.json").write_text(json.dumps(payload, indent=2) + "\n")
           assert not errors, payload
           assert not server_errors, payload
@@ -335,7 +365,7 @@ jobs:
           WHEEL=$(realpath "$(find dist -maxdepth 1 -name '*.whl' -print -quit)")
           python - "$WHEEL" artifacts/evidence/dashboard/results <<'PY'
           from datetime import UTC, datetime
-          import hashlib, json, sys
+          import hashlib, json, platform, sys
           from pathlib import Path
           wheel, results = map(Path, sys.argv[1:])
           digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
@@ -343,10 +373,10 @@ jobs:
           gates = {
               "ui_vitest": ("npm run test --prefix retrieval_observatory/dashboard/ui -- --run", ["ui-vitest.txt"]),
               "ui_build": ("npm run build --prefix retrieval_observatory/dashboard/ui", ["ui-build.txt"]),
-              "browser_desktop_mobile": ("pytest tests/browser -v --tb=short", ["browser-workflow.txt", "browser-probes.json"]),
+              "browser_desktop_mobile": ("pytest tests/browser -v --tb=short", ["seed.txt", "browser-workflow.txt", "browser-probes.json"]),
           }
           for gate, (command, artifacts) in gates.items():
-              results.joinpath(f"{gate}.json").write_text(json.dumps({"id": gate, "status": "passed", "command": command, "artifacts": artifacts, "wheel_sha256": digest, "timestamp": timestamp}, indent=2, sort_keys=True) + "\n")
+              results.joinpath(f"{gate}.json").write_text(json.dumps({"id": gate, "status": "passed", "command": command, "artifacts": artifacts, "wheel_sha256": digest, "timestamp": timestamp, "environment": {"python": platform.python_version(), "platform": platform.platform()}}, indent=2, sort_keys=True) + "\n")
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -380,8 +410,13 @@ jobs:
       - name: Generate and verify release evidence
         run: |
           WHEEL=$(ls dist/retrieval_observatory-*.whl | head -1)
-          python scripts/generate_release_evidence.py --results-dir results --dist dist --output-json artifacts/release-evidence.json --output-markdown artifacts/release-evidence.md
-          python scripts/check_release.py --require-assets --require-wheel "$WHEEL" --require-evidence artifacts/release-evidence.json
+          SDIST=$(ls dist/retrieval_observatory-*.tar.gz | head -1)
+          python scripts/generate_release_evidence.py --results-dir results --dist dist \
+            --output-json artifacts/release-evidence.json --output-markdown artifacts/release-evidence.md \
+            --known-limitation "Release gates run on ubuntu-latest only; macOS and Windows installs are not exercised." \
+            --known-limitation "The browser workflow runs in Chromium only." \
+            --known-limitation "External fixtures run on Python 3.12 only; hybrid_multi_module is not in the release fixture matrix."
+          python scripts/check_release.py --require-assets --require-wheel "$WHEEL" --require-sdist "$SDIST" --require-evidence artifacts/release-evidence.json
           python -m pytest tests/contracts/test_release_evidence.py -v --tb=short
           cat artifacts/release-evidence.md >> "$GITHUB_STEP_SUMMARY"
       - name: Assemble release-evidence artifact
