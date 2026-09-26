@@ -121,9 +121,16 @@ def _unreleased_headings(changelog: str) -> set[str]:
     return set(re.findall(r"^### (Added|Changed|Fixed|Removed)$", body, flags=re.MULTILINE))
 
 
+def _release_version(version: str) -> str:
+    """The final version a pre-release belongs to: ``0.7.0rc1`` -> ``0.7.0``."""
+    return re.sub(r"(a|b|rc)\d+$", "", version)
+
+
 def _check_changelog_version(changelog: str, version: str) -> None:
-    if not re.search(rf"^## \[{re.escape(version)}\]", changelog, flags=re.MULTILINE):
-        fail(f"CHANGELOG.md has no '## [{version}]' heading for the pyproject version")
+    # A release candidate is described by its final version's section.
+    release = _release_version(version)
+    if not re.search(rf"^## \[{re.escape(release)}\]", changelog, flags=re.MULTILINE):
+        fail(f"CHANGELOG.md has no '## [{release}]' heading for the pyproject version {version}")
 
 
 def _check_assets(version: str, require_assets: bool) -> None:
@@ -133,7 +140,7 @@ def _check_assets(version: str, require_assets: bool) -> None:
     if not manifest_path.exists():
         return
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("retobs_version") != version:
+    if _release_version(str(manifest.get("retobs_version"))) != _release_version(version):
         fail(f"demo assets are for {manifest.get('retobs_version')}, package is {version}")
     for name, expected_hash in manifest.get("files", {}).items():
         path = manifest_path.parent / name

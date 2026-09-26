@@ -33,6 +33,14 @@ def test_changelog_must_carry_the_pyproject_version_heading() -> None:
         check_release._check_changelog_version("See [9.9.9] notes.\n", VERSION)
 
 
+def test_a_release_candidate_uses_its_final_version_heading() -> None:
+    check_release._check_changelog_version("## [Unreleased]\n\n## [9.9.9] — 2026-09-24\n", "9.9.9rc1")
+    with pytest.raises(SystemExit):
+        check_release._check_changelog_version("## [Unreleased]\n\n## [9.9.8] — 2026-09-24\n", "9.9.9rc1")
+    assert check_release._release_version("9.9.9rc12") == "9.9.9"
+    assert check_release._release_version("9.9.9") == "9.9.9"
+
+
 def _candidate(tmp_path: Path, smoke_checks: dict[str, dict]) -> tuple[Path, Path, Path]:
     dist, results = tmp_path / "dist", tmp_path / "results"
     dist.mkdir()
