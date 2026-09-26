@@ -436,8 +436,8 @@ def compare(
         html_path = artifacts / "release-audit.html"
         json_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         html_path.write_text(render_audit_html(audit), encoding="utf-8")
-        console.print(f"[green]Audit:[/green] {json_path.resolve()}")
-        console.print(f"[green]Audit:[/green] {html_path.resolve()}")
+        console.print(f"[green]Audit:[/green] {json_path.resolve()}", soft_wrap=True)
+        console.print(f"[green]Audit:[/green] {html_path.resolve()}", soft_wrap=True)
     gated = {"never": set(), "fail": {"FAIL"}, "hold-or-block-or-fail": {"HOLD", "BLOCK", "FAIL"}}[fail_on]
     if report.verdict in gated:
         raise typer.Exit(EXIT_CODES[report.verdict])

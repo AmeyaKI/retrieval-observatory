@@ -167,6 +167,7 @@ Published first as the pre-release `0.7.0rc1` (`pip install retrieval-observator
 
 ### Fixed
 
+- `cli.py` — `retobs compare --artifacts` prints the audit paths unwrapped, so a narrow terminal (CI's 80 columns) no longer splits them mid-name.
 - `dashboard/ui/index.html` — the dashboard sets its own tab icon (the sidebar's "RO" mark, inline SVG) instead of falling back to the browser's default.
 - `.gitignore` — the packaged agent runbook (`retrieval_observatory/examples/agent_integration/**/*.md`) and the `hybrid_multi_module` fixture data were ignored by the `*.md` / `*.jsonl` rules and never committed, so a wheel built from a clean checkout shipped without the runbook (`discovery.runbook: null`); both are now tracked.
 - `evidence/journeys.py`, `evidence/service.py` — projection hashes each trace once and the evaluation spec and judgments once per build instead of once per row (tiny synthetic fixture: build 1.665 s → 0.086 s, on-demand per-query projection p50 165 ms → 7.4 ms); outputs are byte-identical.

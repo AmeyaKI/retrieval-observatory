@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from retrieval_observatory.cli import app
@@ -111,6 +112,8 @@ def test_artifacts_are_written_before_a_blocking_exit(monkeypatch, tmp_path):
         return _Report("BLOCK")
 
     monkeypatch.setattr("retrieval_observatory.cli._compare", fake_compare)
+    # A narrow terminal (CI runs at 80 columns) must not split the printed paths.
+    monkeypatch.setattr("retrieval_observatory.cli.console", Console(width=40))
     target = tmp_path / "audit"
 
     result = CliRunner().invoke(
@@ -121,7 +124,8 @@ def test_artifacts_are_written_before_a_blocking_exit(monkeypatch, tmp_path):
     assert result.exit_code == 2
     assert json.loads((target / "release-audit.json").read_text())["decision"]["status"] == "BLOCK"
     assert "BLOCK" in (target / "release-audit.html").read_text()
-    assert "release-audit.html" in result.stdout
+    assert str((target / "release-audit.html").resolve()) in result.stdout
+    assert str((target / "release-audit.json").resolve()) in result.stdout
 
 
 def test_invalid_fail_on_is_a_usage_error_distinct_from_block(monkeypatch):
