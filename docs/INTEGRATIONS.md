@@ -15,13 +15,19 @@ Support levels are release claims. The first-class and supported-example paths b
 
 A first-class path has detection, an exact patch plan, apply, verification, a real framework wheel-only CI fixture, an owner, a tested version boundary, and documented limits. A supported example has a maintained example only; it does not promise project detection or framework-specific patching.
 
+**Plain Python first.** `@observe` on each operator and `@trace_scope` on the entrypoint record every operator's actual arguments and returned candidates, which is what loss boundaries need. The framework paths build on the same trace: FastAPI requests run under `instrument_fastapi`, and LangChain and LlamaIndex callbacks add spans whose inputs are labeled `inferred` (the callback sees the framework's view, not the function's arguments). Decorated functions called inside those framework traces join them. A path observed only at its final output (HTTP, an uninstrumented function) supports evaluation and delivered/missed outcomes but no internal transitions; see [evidence limitations](guides/evidence-limitations.md#final-output-only-integrations).
+
+**Measured boundary.** Plan, review, re-plan, apply, scenario runs, and verification with all eight capabilities `ready` are exercised against an installed wheel on five fixtures: plain Python, FastAPI with a gate, LangChain, LlamaIndex, and a class-based multi-module hybrid pipeline. No agent trial on an unfamiliar repository has been recorded yet.
+
 ```bash
 retobs integrate . --phase plan --output retobs/integration-plan.json
+retobs integrate . --phase plan --plan retobs/integration-plan.json --output retobs/integration-plan.json   # re-plan from the reviewed file
 retobs integrate . --phase apply --plan retobs/integration-plan.json
 retobs integrate . --phase verify --policy retobs/release-policy.yaml
+retobs integrate . --phase revert
 ```
 
-Review the plan before apply. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md). The planner builds no cross-file call graph; when operators are spread across modules or a project has several entrypoints, wire `@observe` and `@trace_scope` by hand as in the [manual instrumentation guide](guides/manual-instrumentation.md).
+Review the plan, then re-plan from the reviewed file so the patches match the reviewed operators, parents, scenarios and `capture` references. Required unresolved mappings and stale precondition hashes block mutation. Apply wraps the entrypoint with `trace_scope`, so one call to it persists a trace; verify then reads `retobs/integration.yaml` and the trace database and reports the eight capabilities; revert restores exactly the files apply patched. Ready is evidence-backed (a qualifying trace per scenario, not merely a span), not a declaration that a patch command finished. See the [agent runbook](integrations/AGENT_QUICKSTART.md). The planner builds no cross-file call graph; for a class-based or multi-module pipeline the review sets `parent_ids` (and a `CaptureSpec` for boundaries the default rules cannot read) before re-planning, as the `hybrid_multi_module` wheel-only fixture does, or wire `@observe` and `@trace_scope` by hand as in the [manual instrumentation guide](guides/manual-instrumentation.md).
 
 ## Release-evidence preflight
 

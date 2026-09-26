@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any, Optional
-
-from retrieval_observatory.sdk.observe import to_candidates
 
 # Auto-instrumentation proof of concept (RETOBS_FINER_PLAN_PHASE2.md, Item E): patches
 # LangChain's BaseRetriever.invoke at the class level so every retriever call is traced
@@ -22,24 +21,32 @@ _patched_class: Optional[type] = None
 
 
 def _record_span(op_id: str, op_name: str, elapsed_ms: float, result: Any, status: str, error: Optional[str]) -> None:
-    from retrieval_observatory.sdk.observe import current_trace
-    from retrieval_observatory.tracing.model import OperatorSpan
+    from retrieval_observatory.sdk.observe import _append, current_trace
+    from retrieval_observatory.tracing.capture import extract_outputs, snapshot
+    from retrieval_observatory.tracing.model import OperatorSpan, next_node_id
 
     trace = current_trace()
     if trace is None:
         return
-    documents = result if status == "FIRED" and isinstance(result, list) else []
-    trace.spans = (*trace.spans, OperatorSpan(
-            op_id=op_id,
+    # A retriever is a SOURCE: its input is the query, not whichever span happened to come before it.
+    items, output_capture, _ = extract_outputs(result) if status == "FIRED" else (None, "unavailable", None)
+    node_id = next_node_id((span.op_id for span in trace.spans), op_id)
+    _append(trace, OperatorSpan(
+            op_id=node_id,
             op_type="SOURCE",
             op_name=op_name,
-            parent_ids=[trace.spans[-1].op_id] if trace.spans else [],
+            parent_ids=(),
             status=status,  # type: ignore[arg-type]
             deterministic=False,
             replay_policy="NOT_REPLAYABLE",
             latency_ms=elapsed_ms,
-            outputs=to_candidates(documents, op_id),
+            outputs=snapshot(items, node_id) if items is not None else (),
             error=error,
+            invocation_id=uuid.uuid4().hex,
+            operator_id=op_id,
+            input_capture="not_applicable",
+            output_capture=output_capture,
+            parent_linkage="recorded",
         ))
 
 

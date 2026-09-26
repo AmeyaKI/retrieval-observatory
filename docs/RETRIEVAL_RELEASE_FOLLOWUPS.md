@@ -1,5 +1,7 @@
 # Retrieval release decision follow-up audit
 
+> Historical ledger for the 0.6.x release work (2026-07-22). The Explorer, passports, and several routes it names were replaced in 0.7.0; see [migrating to focused retobs](guides/migrating-to-focused-retobs.md) for the current surface.
+
 This ledger records issues found while implementing Tasks 1–13 and their status after the end-of-plan review on 2026-07-22. “Resolved” means code and focused regression coverage are present. “Compatibility window” means the behavior is deliberately retained for one release. “Deferred contract” means RetObs blocks or labels the unsupported claim instead of fabricating evidence.
 
 ## Before Task 2

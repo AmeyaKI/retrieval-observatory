@@ -1,10 +1,12 @@
+import json
 from pathlib import Path
 
-from retrieval_observatory.integrations.apply import apply_integration_plan
-from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationResult
+from retrieval_observatory.integrations.apply import NO_MANIFEST, apply_integration_plan, revert_integration
+from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan, IntegrationResult
 from retrieval_observatory.integrations.planner import build_integration_plan
+from retrieval_observatory.integrations.record import build_integration_record, save_integration_record
 
-NO_MANIFEST = "no retobs/integration.yaml: run apply first"
+__all__ = ["NO_MANIFEST", "integrate_project", "resolve_db_path"]
 
 
 def resolve_db_path(db_path: str, project_root: Path) -> str:
@@ -18,13 +20,15 @@ async def integrate_project(project_root: Path, phase: IntegrationPhase, options
     if not root.is_dir():
         raise ValueError(f"project root does not exist: {root}")
     if phase is IntegrationPhase.PLAN:
-        return IntegrationResult(
-            "plan", "planned", plan=build_integration_plan(root, options.framework, db_path=options.db_path)
-        )
+        # With a reviewed plan this re-plans from its operators and scenarios (patches regenerated).
+        plan = build_integration_plan(root, options.framework, db_path=options.db_path, reviewed=options.plan)
+        return IntegrationResult("plan", "planned", plan=plan)
     if phase is IntegrationPhase.APPLY:
         if options.plan is None:
             raise ValueError("apply requires a reviewed plan")
         return apply_integration_plan(options.plan)
+    if phase is IntegrationPhase.REVERT:
+        return revert_integration(root)
     from retrieval_observatory.integrations.manifest import load_manifest
     from retrieval_observatory.integrations.verify import verify_project
     from retrieval_observatory.release.policy import load_release_policy
@@ -42,4 +46,21 @@ async def integrate_project(project_root: Path, phase: IntegrationPhase, options
     store = SQLiteStore(db_path)
     await store.init_db()
     policy = load_release_policy(options.policy_path) if options.policy_path else None
-    return await verify_project(root, store, policy=policy, db_path=db_path)
+    result = await verify_project(root, store, policy=policy, db_path=db_path)
+    manifest = load_manifest(root)
+    plan = options.plan or _saved_plan(root, manifest.plan_id)
+    await save_integration_record(store, build_integration_record(manifest, result, project_root=root, db_path=db_path, plan=plan))
+    return result
+
+
+def _saved_plan(root: Path, plan_id: str) -> IntegrationPlan | None:
+    """The reviewed plan file next to the manifest, when it is the plan that was applied."""
+    path = root / "retobs" / "integration-plan.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        plan = IntegrationPlan.from_dict(payload.get("plan", payload))
+    except (OSError, ValueError, TypeError):
+        return None
+    return plan if plan.plan_id == plan_id else None

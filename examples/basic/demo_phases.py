@@ -1,4 +1,4 @@
-"""Walkthrough of the code-first features (roadmap Phases 1-3).
+"""Walkthrough of the code-first features (roadmap Phases 1-2).
 
 Run:  python examples/basic/demo_phases.py
 Then: retobs serve --db .retobs/demo_phases.db   # explore in the dashboard (Phase 0)
@@ -45,14 +45,5 @@ mono = ro.benchmark(monolith, queries=[QUERIES[0]], corpus=CORPUS, k=5, db_path=
 s0 = next(v["mean"] for k, v in mono.metrics.items() if "stage0|recall@5" in k)
 s1 = next(v["mean"] for k, v in mono.metrics.items() if "stage1|recall@5" in k)
 print(f"candidate-stage recall={s0}  rerank-stage recall={s1}  -> reranker_drop is now visible")
-
-print("\n### PHASE 3 — synthesize a labeled test set from a corpus (no API key)")
-year_corpus = {f"report{y}": {"text": f"annual revenue report {y} quarterly growth earnings"}
-               for y in (2019, 2020, 2021, 2022)}
-testset = ro.generate_testset(year_corpus, n_per_type=2)
-synth_q, synth_qrels = testset.load()
-print(f"generated {len(synth_q)} synthetic queries + {len(synth_qrels)} qrels")
-synth_run = ro.benchmark(lambda q: list(testset.corpus), dataset=testset, k=5, db_path=DB, name="synthetic")
-print("benchmarked synthetic set as run:", synth_run.run_id)
 
 print(f"\nDone. Explore everything:  retobs serve --db {DB}")

@@ -30,7 +30,7 @@ Public examples and docs must use the installed-wheel `integrate plan/apply/veri
 Browser tests require Chromium and a running deterministic demo:
 
 ```bash
-.venv/bin/retobs demo --db .retobs/e2e/results.db --output-dir .retobs/e2e --n-traces 80
+.venv/bin/retobs demo --db .retobs/e2e/results.db --output-dir .retobs/e2e
 .venv/bin/retobs serve --host 127.0.0.1 --port 4000 --db .retobs/e2e/results.db
 RETOBS_E2E_URL=http://127.0.0.1:4000 .venv/bin/pytest tests/browser -v
 ```

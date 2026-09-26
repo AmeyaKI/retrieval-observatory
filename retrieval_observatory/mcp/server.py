@@ -137,31 +137,6 @@ def _validate_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return validate_config_dict(config)
 
 
-async def _list_runs(db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
-    """List benchmark runs stored in a retobs database."""
-    store = _store(db_path)
-    await store.init_db()
-    runs = await store.list_runs()
-    return [
-        {
-            "run_id": r.get("run_id"),
-            "experiment_name": r.get("experiment_name"),
-            "started_at": r.get("started_at"),
-            "finished_at": r.get("finished_at"),
-        }
-        for r in runs
-    ]
-
-
-async def _get_run_metrics(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
-    """Aggregated metrics for a run: mean + bootstrap CI per pipeline/stage/metric."""
-    from retrieval_observatory.metrics.engine import MetricsEngine
-
-    store = _store(db_path)
-    await store.init_db()
-    return await MetricsEngine().aggregate(run_id, store)
-
-
 async def _get_report(
     run_id: str,
     format: str = "json",
@@ -173,11 +148,13 @@ async def _get_report(
     report = await load_run_report(run_id, db_path)
     if format == "json":
         return report.to_dict()
+    if format == "audit":
+        return report.audit or {}
     if format in {"markdown", "md", "terminal"}:
         return report.to_markdown()
     if format == "html":
         return report.to_html()
-    raise ValueError("format must be json, markdown, or html")
+    raise ValueError("format must be json, audit, markdown, or html")
 
 
 async def _compare_runs(
@@ -187,7 +164,7 @@ async def _compare_runs(
     db_path: str = DEFAULT_DB_PATH,
     policy_path: Optional[str] = None,
 ) -> Dict[str, Any] | str:
-    """Release comparison using an optional explicit local policy path."""
+    """Release comparison using an optional explicit local policy path; ``format="audit"`` returns the release audit."""
     from retrieval_observatory.sdk.report import load_comparison_report
 
     report = await load_comparison_report(
@@ -198,11 +175,13 @@ async def _compare_runs(
     )
     if format == "json":
         return report.to_dict()
+    if format == "audit":
+        return report.audit or {}
     if format in {"markdown", "md", "terminal"}:
         return report.to_markdown()
     if format == "html":
         return report.to_html()
-    raise ValueError("format must be json, markdown, or html")
+    raise ValueError("format must be json, audit, markdown, or html")
 
 
 async def _inspect_query(
@@ -225,6 +204,26 @@ async def _inspect_query(
         trace_limit=min(max(trace_limit, 1), 100),
         trace_offset=max(trace_offset, 0),
     )
+
+
+async def _inspect_document(
+    run_id: str,
+    entity: str,
+    db_path: str = DEFAULT_DB_PATH,
+    pipeline_id: Optional[str] = None,
+    k: Optional[int] = None,
+    unit: str = "document",
+) -> Dict[str, Any]:
+    """Return one evaluation entity's journey rows across every query of a run (``entity`` is ``namespace:id`` or a bare id)."""
+    from retrieval_observatory.evidence import InvestigationError, InvestigationRequest, inspect_document
+
+    store = _store(db_path)
+    await store.init_db()
+    request = {"run_id": run_id, "entity": entity, "pipeline_id": pipeline_id, "k": k, "unit": unit}
+    try:
+        return await inspect_document(store, InvestigationRequest.from_mapping(request))
+    except InvestigationError as error:
+        raise ValueError(f"{error.code}: {error.detail}") from error
 
 
 async def _describe_integration(framework: Optional[str] = None) -> Dict[str, Any]:
@@ -250,12 +249,16 @@ async def _integrate_project(
     db_path: str = DEFAULT_DB_PATH,
     framework: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Plan, apply, or verify one project integration (phase = plan | apply | verify).
+    """Plan, apply, verify, or revert one project integration (phase = plan | apply | verify | revert).
 
     plan: discover operators and the entrypoint; save the result as retobs/integration-plan.json.
+    plan with plan/plan_path: re-plan from your reviewed operators/scenarios; patches are regenerated
+    (set an operator's capture to "retobs_adapter:<symbol>" to wire a CaptureSpec from retobs_adapter.py).
     apply: pass the reviewed plan (or plan_path); patches files and writes retobs/integration.yaml.
     verify: reads retobs/integration.yaml and the traces in db_path (relative paths resolve
     against project_root); plan/plan_path are optional here and must match the applied plan.
+    revert: restores every file apply patched (refuses if one changed since) and removes
+    retobs/integration.yaml; retobs/integration-plan.json is kept.
     framework: override detection (python, fastapi, langchain, llamaindex, http)."""
     from pathlib import Path
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
@@ -317,146 +320,6 @@ async def _benchmark_config_file(
         db_path=db_path,
         config_base_dir=str(path.parent),
     )
-
-
-async def _benchmark_vs_baseline(
-    candidate_config: Dict[str, Any],
-    baseline_run_id: Optional[str] = None,
-    baseline_config: Optional[Dict[str, Any]] = None,
-    max_queries: int = DEFAULT_MAX_QUERIES,
-    db_path: str = DEFAULT_DB_PATH,
-    config_base_dir: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Benchmark a candidate config against a baseline (an existing run_id OR another config).
-    Returns candidate/baseline run ids and significance-tested regressions."""
-    from retrieval_observatory.experimental.advisor.regression import detect_regressions
-    from retrieval_observatory.metrics.engine import MetricsEngine
-    from retrieval_observatory.sdk.run_config import _run_from_config_async
-
-    if not baseline_run_id and not baseline_config:
-        raise ValueError("Provide either baseline_run_id or baseline_config.")
-
-    store = _store(db_path)
-    await store.init_db()
-
-    if baseline_config is not None:
-        baseline_report = await _run_from_config_async(
-            config=baseline_config,
-            db_path=db_path,
-            max_queries=max_queries,
-            run_id=None,
-            no_cache=False,
-            config_base_dir=config_base_dir,
-        )
-        baseline_run_id = baseline_report.run_id
-
-    candidate_report = await _run_from_config_async(
-        config=candidate_config,
-        db_path=db_path,
-        max_queries=max_queries,
-        run_id=None,
-        no_cache=False,
-        config_base_dir=config_base_dir,
-    )
-
-    engine = MetricsEngine()
-    findings = await detect_regressions(baseline_run_id, candidate_report.run_id, store, engine=engine)
-    return {
-        "baseline_run_id": baseline_run_id,
-        "candidate_run_id": candidate_report.run_id,
-        "regressions": [
-            {
-                "metric": f.metric,
-                "before": f.before,
-                "after": f.after,
-                "delta": f.delta,
-                "q_value": f.q_value,
-                "severity": f.severity,
-            }
-            for f in findings
-        ],
-        "significant": any(f.q_value < 0.05 for f in findings),
-    }
-
-
-async def _get_pareto_frontier(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
-    """Pareto-optimal pipelines for a run (quality vs latency)."""
-    from retrieval_observatory.dashboard.api import _extract_final_stage_metrics
-    from retrieval_observatory.metrics.engine import MetricsEngine
-    from retrieval_observatory.metrics.pareto import ParetoPipelineInput, compute_pareto_frontier
-
-    store = _store(db_path)
-    await store.init_db()
-    agg = await MetricsEngine().aggregate(run_id, store)
-    final = _extract_final_stage_metrics(agg)
-    inputs = [
-        ParetoPipelineInput(
-            pipeline_id=pid,
-            stage_index=m["stage_index"],
-            ndcg10=m["ndcg10"],
-            recall10=m["recall10"],
-            latency_p50=m["latency_p50"],
-            latency_p95=m["latency_p95"],
-            ndcg10_ci_low=m.get("ndcg10_ci_low"),
-            ndcg10_ci_high=m.get("ndcg10_ci_high"),
-            recall10_ci_low=m.get("recall10_ci_low"),
-            recall10_ci_high=m.get("recall10_ci_high"),
-        )
-        for pid, m in final.items()
-    ]
-    result = compute_pareto_frontier(inputs)
-    return {
-        "run_id": run_id,
-        "objectives": result.objectives,
-        "frontier_order": result.frontier_order,
-        "pipelines": [
-            {
-                "pipeline_id": row.pipeline_id,
-                "metrics": row.metrics,
-                "is_pareto_optimal": row.is_pareto_optimal,
-                "dominated_by": row.dominated_by,
-            }
-            for row in result.pipelines
-        ],
-    }
-
-
-async def _get_recommendations(run_id: str, db_path: str = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
-    """Findings recommendations for improving a run's retrieval pipeline."""
-    from retrieval_observatory.experimental.advisor.recommend import recommend
-
-    store = _store(db_path)
-    await store.init_db()
-    recs = await recommend(run_id, store)
-    return [
-        {"action": r.action, "rationale": r.rationale, "evidence": r.evidence, "priority": r.priority}
-        for r in recs
-    ]
-
-
-async def _get_operator_attribution(
-    run_id: str, metric: str = "recall", k: int = 10, db_path: str = DEFAULT_DB_PATH
-) -> List[Dict[str, Any]]:
-    """Per-operator marginal contribution (with CIs) via trace replay ablation."""
-    from retrieval_observatory.tracing.attribution import operator_marginal_contribution
-
-    store = _store(db_path)
-    await store.init_db()
-    traces = await store.get_traces(run_id)
-    qrels = await store.get_qrels(run_id) if hasattr(store, "get_qrels") else {}
-    op_ids = sorted({span.op_id for trace in traces for span in trace.spans})
-    out: List[Dict[str, Any]] = []
-    for op_id in op_ids:
-        for r in operator_marginal_contribution(traces, op_id=op_id, qrels=qrels, metric=metric, k=k):
-            out.append(r.__dict__)
-    return out
-
-
-async def _get_pipeline_diagram(run_id: str, db_path: str = DEFAULT_DB_PATH) -> Dict[str, Any]:
-    """Deprecated alias of get_pipeline_graph, kept for agents already calling this tool
-    name. Both now return the same trace-native PipelineGraph projection -- the separate
-    heuristic (snapshot-based) diagram renderer this used to call was deleted."""
-    return await _get_pipeline_graph(run_id, db_path)
 
 
 async def _get_pipeline_graph(
@@ -545,6 +408,7 @@ def build_server(config_path: Optional[str] = None):
     server.tool(name="evaluate_file")(_with_config_defaults(config_path, _benchmark_config_file))
     server.tool(name="compare")(_with_config_defaults(config_path, _compare_runs))
     server.tool(name="inspect_query")(_with_config_defaults(config_path, _inspect_query))
+    server.tool(name="inspect_document")(_with_config_defaults(config_path, _inspect_document))
     server.tool(name="get_report")(_with_config_defaults(config_path, _get_report))
     server.tool(name="describe_config")(_describe_config)
     server.tool(name="validate_config")(_validate_config)

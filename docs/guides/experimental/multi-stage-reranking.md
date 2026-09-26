@@ -1,40 +1,26 @@
-# Multi-stage Reranking — precision without losing recall
+# Multi-stage reranking: precision without losing recall
 
-Rerankers improve top-k ordering but can *drop relevant documents* that first-stage retrieval
-found. The central risk is a reranker that raises nDCG on average while quietly hurting recall
-on a subset of queries. retobs is built to catch exactly this.
-
-## The failure mode: `reranker_drop`
-
-The diagnostics label a query `reranker_drop` when a relevant document was present in the
-first-stage candidate pool but absent from the final results after reranking. A high
-`reranker_drop` rate means the reranker is trading away recall.
+Rerankers improve top-k ordering but can push documents that first-stage retrieval found below
+the cutoff, or out of the list entirely. The risk is a reranker that raises nDCG on average while
+quietly losing relevant documents on a subset of queries.
 
 ## Locate it per document
 
-On an affected query, open **candidate flow** for the missed document. You will see it
-introduced by the retriever, then a `dropped` event at the reranker with reason
-`reranked_out`. That is direct, per-document proof — not an aggregate inference.
+In [Investigate](../investigate-your-pipeline.md), filter a Run to `outcome=relevant_excluded`
+and select the reranker node in the diagram. Each remaining row is a relevant document the
+reranker received; its journey shows it `introduced` by a retriever and then `demoted` or
+`removed` at the reranker, with the reason the reranker recorded (for example a `top_k` cut,
+recorded as `truncated`). A document still in the output but ranked below `k` is
+`retained_below_cutoff`, not removed.
 
-## Quantify it with attribution
+## Decide with an audit
 
-The per-stage attribution grid shows the reranker's marginal contribution to *recall* (not
-just nDCG), with a confidence interval and significance. A reranker with positive nDCG but a
-significant negative recall contribution is the classic offender.
+Compare the run with and without the reranker change under a policy that guards recall at the
+final boundary as well as nDCG (`target: final_retrieval`), so a precision gain cannot hide a
+recall loss. See [retrieval release decisions](../retrieval-release-decisions.md).
 
-Because rerankers are non-deterministic, their replay tier is `OBSERVED_ABLATION`: retobs
-restores the reranker's input ordering and reuses observed scores rather than calling the
-model again. The attribution is honest about this via `ReplayAssumptions`
-(see [counterfactual-replay.md](../counterfactual-replay.md)).
+## Common changes to test
 
-## Before you change it: simulate
-
-`simulate_operator_removal` estimates what removing (or bypassing) the reranker would do to
-recall across the run, so you can weigh the precision/recall trade before touching config.
-
-## Fixes retobs will suggest
-
-- Increase the reranker's input `k` so it has more to work with.
+- Give the reranker a larger input `k`.
 - Cap how far the reranker can demote first-stage hits.
-- Route only hard queries to the reranker (see
-  [conditional-pipelines.md](conditional-pipelines.md)).
+- Route only some queries to the reranker (see [conditional-pipelines.md](conditional-pipelines.md)).

@@ -70,3 +70,43 @@ def test_custom_dataset_stringifies_integer_ids(tmp_path):
 
     queries, qrels = CustomDataset(str(queries_path), str(corpus_path), str(qrels_path)).load()
     assert qrels[queries[0].query_id] == {"10": 2}
+
+
+def test_qrels_file_rejects_contradictory_duplicates(tmp_path):
+    """A later row for the same (query, doc) with a different grade is an error, not a silent overwrite."""
+    import pytest
+
+    queries_path = tmp_path / "q.jsonl"
+    qrels_path = tmp_path / "qrels.jsonl"
+    queries_path.write_text(json.dumps({"query_id": "q1", "text": "apple"}) + "\n")
+    qrels_path.write_text(
+        json.dumps({"query_id": "q1", "doc_id": "d1", "grade": 1}) + "\n"
+        + json.dumps({"query_id": "q1", "doc_id": "d2", "grade": 1}) + "\n"
+        + json.dumps({"query_id": "q1", "relevant_doc_ids": {"d1": 2}}) + "\n"
+    )
+    with pytest.raises(ValueError) as excinfo:
+        CustomDataset(str(queries_path), qrels_path=str(qrels_path)).load()
+    message = str(excinfo.value)
+    assert f"{qrels_path}:3" in message
+    assert "at line 1" in message
+    assert "'q1'" in message and "'d1'" in message
+    assert "grade 2 conflicts with grade 1" in message
+
+
+def test_qrels_file_accepts_identical_duplicates_and_zero_grades(tmp_path):
+    queries_path = tmp_path / "q.jsonl"
+    queries_path.write_text(json.dumps({"query_id": "q1", "text": "apple"}) + "\n")
+
+    trec_path = tmp_path / "qrels.txt"
+    trec_path.write_text("q1 0 d1 1\nq1 0 d0 0\nq1 0 d1 1\nq1 d2 2\n")
+    _, qrels = CustomDataset(str(queries_path), qrels_path=str(trec_path)).load()
+    assert qrels == {"q1": {"d1": 1, "d0": 0, "d2": 2}}
+
+    jsonl_path = tmp_path / "qrels.jsonl"
+    jsonl_path.write_text(
+        json.dumps({"query_id": "q1", "doc_id": "d1", "relevance": 1}) + "\n"
+        + json.dumps({"query_id": "q1", "doc_id": "d0", "relevance": 0}) + "\n"
+        + json.dumps({"query_id": "q1", "relevant_doc_ids": {"d1": 1, "d0": 0}}) + "\n"
+    )
+    _, qrels = CustomDataset(str(queries_path), qrels_path=str(jsonl_path)).load()
+    assert qrels == {"q1": {"d1": 1, "d0": 0}}

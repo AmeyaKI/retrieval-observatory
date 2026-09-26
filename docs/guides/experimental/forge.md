@@ -1,3 +1,5 @@
+> Retired in 0.7.0: this subsystem is absent from the package; see [README.md](README.md) to reproduce it on 0.6.0.
+
 # Test Sets — corpus-specific stress tests
 
 `forge` is the internal engine and deprecated CLI alias. The public task is `retobs testsets`.

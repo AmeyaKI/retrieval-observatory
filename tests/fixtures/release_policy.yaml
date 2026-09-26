@@ -1,3 +1,4 @@
+# Schema 2 (positional metric keys). The semantic-selector form is release_policy_v3.yaml.
 id: support-search-v2
 schema_version: 2
 evidence:

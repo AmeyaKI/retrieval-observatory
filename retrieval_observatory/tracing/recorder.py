@@ -4,14 +4,18 @@ import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from retrieval_observatory.tracing.candidates import build_candidate_transition
+from retrieval_observatory.tracing.capture import incomplete_boundary_count, snapshot
 from retrieval_observatory.tracing.model import (
+    CaptureMetadata,
     OperatorSpan,
     RetrievalTrace,
     TraceTiming,
     critical_path_latency_ms,
+    latest_span_of,
+    next_node_id,
 )
 from retrieval_observatory.tracing.sink import BufferedTraceSink
 
@@ -26,6 +30,7 @@ class TraceContext:
     request_id: str | None = None
     sampled: bool = True
     spans: list[OperatorSpan] = field(default_factory=list)
+    capture_failures: list[dict[str, Any]] = field(default_factory=list)
     started: float = field(default_factory=time.perf_counter)
     # The trace that was active in ``sdk.observe`` before this context was bound there.
     _observe_previous: Any = field(default=None, repr=False, compare=False)
@@ -39,25 +44,44 @@ class TraceContext:
         *,
         op_id: str,
         parent_ids: Sequence[str] = (),
+        input_groups: Mapping[str, Sequence[Any]] | None = None,
+        invocation_id: str | None = None,
         **kwargs: Any,
     ) -> OperatorSpan | None:
+        """Record a fired span. Without ``input_groups`` (the operator's actual inputs) the inputs
+        are reconstructed from the parent spans' outputs and labelled ``inferred``. ``op_id`` names
+        the operator; a repeated invocation gets its own node (``op_id#2``). A declared parent
+        resolves to that operator's latest invocation; ``invocation_id`` is the framework's own
+        run id when it has one."""
         if not self.sampled:
             return None
-        inputs = {
-            parent: next((span.outputs for span in self.spans if span.op_id == parent), ()) for parent in parent_ids
-        }
+        node_id = next_node_id((span.op_id for span in self.spans), op_id)
+        parents = {parent: latest_span_of(self.spans, parent) for parent in parent_ids}
+        node_of = {parent: span.op_id if span is not None else parent for parent, span in parents.items()}
+        invocation_ids = tuple(span.invocation_id for span in parents.values() if span is not None)
+        if input_groups is not None:
+            inputs = {node_of.get(parent, parent): snapshot(items, node_of.get(parent, parent)) for parent, items in input_groups.items()}
+            input_capture, parent_linkage = "recorded", "declared"
+        else:
+            inputs = {node_of[parent]: span.outputs if span is not None else () for parent, span in parents.items()}
+            input_capture, parent_linkage = ("inferred", "inferred") if parent_ids else ("not_applicable", "recorded")
         transition = build_candidate_transition(
-            input_groups=inputs, output_items=documents, op_id=op_id, op_type=op_type
+            input_groups=inputs, output_items=documents, op_id=node_id, op_type=op_type
         )
         span = OperatorSpan(
-            op_id,
+            node_id,
             op_type,
             op_name,
-            tuple(parent_ids),
+            tuple(node_of[parent] for parent in parent_ids),
             "FIRED",
             latency_ms,
             transition.input_groups,
             transition.outputs,
+            input_capture=input_capture,
+            invocation_id=invocation_id or uuid.uuid4().hex,
+            operator_id=op_id,
+            parent_invocation_ids=invocation_ids if len(invocation_ids) == len(parents) and all(invocation_ids) else (),
+            parent_linkage=parent_linkage,
             **kwargs,
         )
         self.spans.append(span)
@@ -84,9 +108,11 @@ class TraceContext:
             timing=TraceTiming(
                 wall_clock_ms, critical_path_latency_ms(self.spans), sum(span.latency_ms for span in self.spans)
             ),
+            capture=CaptureMetadata(incomplete_boundary_count=incomplete_boundary_count(self.spans)),
             metadata=self.metadata,
             request_id=self.request_id,
             error_traceback="".join(traceback.format_exception(error)) if error else None,
+            capture_failures=tuple(self.capture_failures),
         )
 
 

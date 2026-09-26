@@ -1,0 +1,34 @@
+# Release policy (schema 3) for `retobs demo`, which copies it beside demo_manifest.json: the
+# golden hybrid baseline vs its repaired recency filter, three deterministic queries at k=3.
+schema_version: 3
+id: retrieval-release-golden-demo-v3
+
+evaluation:
+  unit: document
+  boundary: final_retrieval
+  k: 3
+  relevance_threshold: 1
+  unjudged_metric_policy: zero_gain
+  comparison_scope: fixed_corpus
+
+# The repair is recorded as the candidate's deployment_revision, which is always expected.
+intervention:
+  expected_changes: []
+
+statistics:
+  confidence_level: 0.95
+  familywise_alpha: 0.05
+  resamples: 4000
+  seed: 17
+  min_pair_coverage: 1.0
+
+metrics:
+  - id: final-recall
+    metric: recall
+    target: final_retrieval
+    direction: higher_is_better
+    max_regression: 0.02
+    min_paired_n: 3
+
+execution:
+  max_failure_rate: 0.0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from retrieval_observatory.dashboard.api import _comparability_report
+from retrieval_observatory.release.assessment import assess_evidence
 
 
 def _manifest(content_hash=None, seed=None, git_commit=None, packages=None):
@@ -58,3 +59,24 @@ def test_missing_required_metadata_is_invalid_not_equal():
     assert report["outcome"] == "invalid"
     assert report["decision_allowed"] is False
     assert any(d["status"] == "unknown" for d in report["differences"])
+
+
+def test_query_input_hash_participates_in_release_assessment():
+    """``query_input_hash`` is a release-assessment invariant when both manifests carry it: a
+    query text or metadata change under the same ids differs there while ``query_hash`` may
+    not. The dashboard's ``_comparability_report`` delegates to ``comparison_validity``, whose
+    required axes are unchanged, so the behaviour is asserted at the assessment level."""
+    baseline = {**_manifest(content_hash="abc"), "evaluation": {"unit": "document", "k": 10}}
+    baseline["dataset"]["query_input_hash"] = "inputs-a"
+    candidate = {**_manifest(content_hash="abc"), "evaluation": {"unit": "document", "k": 10}}
+    candidate["dataset"]["query_input_hash"] = "inputs-b"
+
+    assessment = assess_evidence(None, baseline, candidate)
+
+    aggregate = assessment.readiness["aggregate_or_slice_evaluation"]
+    assert aggregate.status == "BLOCK"
+    assert [finding.code for finding in aggregate.findings] == ["query_input_mismatch"]
+    assert aggregate.findings[0].observed == ["inputs-a", "inputs-b"]
+    comparison = next(item for item in assessment.provenance.invariants if item.field == "dataset.query_input_hash")
+    assert (comparison.baseline, comparison.candidate, comparison.equal) == ("inputs-a", "inputs-b", False)
+    assert comparison.classification == "evidence_invalid"

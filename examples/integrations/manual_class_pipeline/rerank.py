@@ -6,8 +6,7 @@ from retrievers import tokens
 
 
 class OverlapReranker:
-    """Phrase bonus plus token overlap. A real model is not deterministic, so the replay tier is
-    OBSERVED_ABLATION: replay reuses the scores recorded here instead of calling the model again."""
+    """Phrase bonus plus token overlap, standing in for a cross-encoder."""
 
     @observe("RERANK", op_id="rerank", parent_ids=("rrf",), replay_policy="OBSERVED_ABLATION")
     def rerank(self, query: str, candidates: list[dict], *, k: int = 5) -> list[dict]:

@@ -176,3 +176,40 @@ async def test_postgres_health_query_uses_requested_time_window():
     assert "observed_at >= $2" in sql
     assert "observed_at <= $3" in sql
     assert params == ("svc", since, until)
+
+
+class _InvestigationConnection(_Connection):
+    def __init__(self):
+        super().__init__()
+        self.fetchval_calls = []
+
+    async def fetchval(self, sql, *params):
+        self.fetchval_calls.append((sql, params))
+        return 0
+
+
+@pytest.mark.asyncio
+async def test_postgres_investigation_ddl_and_keyset_sql_without_live_server():
+    from retrieval_observatory.store.base import InvestigationFilter, InvestigationScope, encode_cursor
+
+    connection = _InvestigationConnection()
+    store = PostgresStore("postgresql://unused")
+    store._pool = _Pool(connection)
+
+    await store.init_db()
+    ddl = [sql for sql, _ in connection.executed]
+    for table in ("investigation_pairs", "investigation_summaries", "investigation_projections"):
+        assert any(f"CREATE TABLE IF NOT EXISTS {table}" in sql for sql in ddl)
+    assert any("idx_investigation_pairs_priority" in sql for sql in ddl)
+
+    scope = InvestigationScope(run_id="run-a", pipeline_id="bm25", evaluation_digest="eval")
+    cursor = encode_cursor([1, "q1", "docs", "d1", "t1", "document"])
+    await store.list_investigation_pairs(scope, InvestigationFilter(outcome="loss"), limit=500, cursor=cursor)
+
+    count_sql, count_params = connection.fetchval_calls[-1]
+    assert count_sql.startswith("SELECT COUNT(*) FROM investigation_pairs WHERE")
+    assert "outcome = $4" in count_sql and count_params == ("run-a", "bm25", "eval", "loss")
+    sql, params = connection.fetch_call
+    assert "(priority, query_id, namespace, entity_id, trace_id, unit) > ($5, $6, $7, $8, $9, $10)" in sql
+    assert "ORDER BY priority, query_id, namespace, entity_id, trace_id, unit LIMIT $11" in sql
+    assert params == ("run-a", "bm25", "eval", "loss", 1, "q1", "docs", "d1", "t1", "document", 201)

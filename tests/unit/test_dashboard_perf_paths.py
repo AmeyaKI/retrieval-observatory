@@ -59,7 +59,7 @@ async def test_aggregate_is_memoised_until_metric_rows_change(registry: DbRegist
     monkeypatch.setattr(MetricsEngine, "aggregate", counting)
     client = TestClient(create_app(registry=registry, enable_uploads=False))
     db = registry.default_db_id
-    for path in ("overview", "stage-matrix", "pareto-frontier", "metrics", "overview"):
+    for path in ("overview", "stage-matrix", "metrics", "overview"):
         assert client.get(f"/dbs/{db}/runs/{RUN}/{path}").status_code == 200
     assert calls["n"] == 1, "one aggregate should serve every run page"
     # Appending metric rows changes the fingerprint and busts the entry.

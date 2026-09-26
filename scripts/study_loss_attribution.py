@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Historical research script; runs at revision 29c67b8 with `pip install retrieval-observatory==0.6.0`.
+# The modules it imports were removed from the current package; it is not on any test or CI path.
 """Grid driver for the pre-registered study in results/study/PREREGISTRATION.md.
 
 One cell = one pipeline on one dataset. Every cell runs through `execute_benchmark`, the
@@ -292,7 +294,7 @@ async def run_cell(
     started = time.perf_counter()
     artifacts = await execute_benchmark(
         cfg=cfg, dataset=dataset, queries=queries, qrels=qrels, corpus=corpus, pipelines=[pipeline],
-        store=store, no_cache=True, annotate_difficulty=False, log=log,
+        store=store, no_cache=True, log=log,
     )
     runtime["actual_seconds"] = time.perf_counter() - started
     log(f"  run {artifacts.run_id} in {runtime['actual_seconds'] / 60:.1f} min; {len(artifacts.error_samples)} errors")

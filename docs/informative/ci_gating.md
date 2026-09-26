@@ -1,11 +1,34 @@
-# CI regression gating
+# CI release gating
 
-retobs ships a pytest plugin so you can fail a build when a retrieval change causes a
-**statistically significant** quality drop — the reason to use retobs over an ad-hoc script.
+retobs gates a retrieval change in CI with the same release audit the CLI, SDK, MCP server, and
+dashboard produce. The decision is `PASS`, `HOLD`, `BLOCK`, or `FAIL` under a policy kept in the
+repository, and the exit code says which.
 
-## pytest plugin (recommended)
+## CLI gate (recommended)
 
-The plugin auto-registers on install and provides a `retobs` fixture:
+Copy [`examples/ci/retrieval-ci.yml`](../../examples/ci/retrieval-ci.yml). It evaluates the
+candidate, compares it with a repository-selected baseline Run, always uploads the audit, and
+tells a non-`PASS` decision apart from a tool error:
+
+```bash
+retobs evaluate project_eval.py:retrieve --db .retobs/results.db --format json --output artifacts/candidate.json
+retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db \
+  --policy examples/ci/release-policy-v3.yaml --artifacts artifacts/release-audit \
+  --fail-on hold-or-block-or-fail
+# 0 PASS · 1 FAIL · 2 BLOCK · 3 HOLD · 64 usage error · 70 tool error (no decision)
+```
+
+`--artifacts` writes `release-audit.json` and the standalone `release-audit.html` before the exit
+status is decided, so a failed gate still leaves its evidence. Start the policy from
+[`examples/ci/release-policy-v3.yaml`](../../examples/ci/release-policy-v3.yaml); see
+[retrieval release decisions](../guides/retrieval-release-decisions.md) for what each status
+means and [evidence limitations](../guides/evidence-limitations.md) for what a `PASS` does not
+certify.
+
+## pytest plugin
+
+The plugin registers on install and provides a `retobs` fixture for tests that evaluate a
+callable twice:
 
 ```python
 # test_retrieval.py
@@ -21,36 +44,23 @@ def test_no_retrieval_regression(retobs):
     retobs.assert_no_regression(candidate, baseline, metric="ndcg")
 ```
 
-`assert_no_regression` uses a paired bootstrap test with Benjamini–Hochberg correction
-(`advisor/regression.py`) and raises `AssertionError` only on significant drops. Restrict the
-gate with `metric=` (substring match, e.g. `"ndcg"`, `"recall@10"`) and tune
-`latency_regression_pct=` (default 0.20).
+`assert_no_regression` reads the release audit's paired results and raises `AssertionError` when a
+final-stage `ndcg`, `recall`, `mrr`, or `map` metric is proven worse, or a latency metric is proven
+worse and rose by at least `latency_regression_pct` (default 0.20). Restrict it with `metric=`
+(substring match, for example `"recall@10"`). It applies no policy; use the CLI gate when the
+decision must follow a reviewed policy.
 
-In real CI the baseline is a stored golden run, not a fresh run. Persist a baseline run id and
-pass it as a string:
+With a stored baseline Run, pass its ID:
 
 ```python
-def test_against_golden(retobs):
-    candidate = retobs.run(my_pipeline, queries=QUERIES, corpus=CORPUS, db_path="golden.db")
-    candidate.assert_no_regression("GOLDEN_RUN_ID", metric="recall@10")
+def test_against_baseline(retobs):
+    candidate = retobs.run(my_pipeline, queries=QUERIES, corpus=CORPUS, db_path="baseline.db")
+    candidate.assert_no_regression("BASELINE_RUN_ID", metric="recall@10")
 ```
 
-## CLI golden gate (YAML pipelines)
+## Final-output-only services
 
-For YAML-defined pipelines, use the canonical comparison gate — see
-[`examples/ci/retrieval-ci.yml`](../../examples/ci/retrieval-ci.yml) for a copy-paste GitHub Action:
-
-```bash
-retobs evaluate --config bench.yaml
-retobs compare "$GOLDEN_RUN" "$CANDIDATE" --db .retobs/results.db --policy retobs/release-policy.yaml --fail-on hold-or-block-or-fail
-# non-zero exit on HOLD, BLOCK, or FAIL
-```
-
-## Where this fits
-
-This is the value-preserving form: multi-stage runs keep per-stage contribution and
-`candidate_miss` / `reranker_drop` diagnostics. If your production pipeline is a single opaque
-HTTP service, start with the black-box harness in
-[`examples/integrations/http_evaluation/`](../../examples/integrations/http_evaluation/) (final top-K only), then graduate to
-emitting per-stage snapshots (see "multi-snapshot" in the SDK docs) to recover stage-level
-diagnostics.
+If the pipeline is a single opaque HTTP service, start with the black-box harness in
+[`examples/integrations/http_evaluation/`](../../examples/integrations/http_evaluation/). It
+evaluates the final top-K only: the audit works, but Investigate cannot show where a document
+was lost until the service's operators are instrumented.

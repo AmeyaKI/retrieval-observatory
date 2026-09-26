@@ -124,5 +124,5 @@ async def test_compare_diff_route_carries_the_baseline_db(two_dbs: tuple[Path, P
         ]},
     ).json()
     template = body["release_decision"]["investigation"]["diff_route_template"]
-    assert template == f"#/runs/bbbbbbbb/queries/{{query_id}}/diff?against=aaaaaaaa&against_db={flagship}"
+    assert template == f"#/investigate?db={demo}&run=bbbbbbbb&view=queries&query={{query_id}}&compare=aaaaaaaa&compare_db={flagship}"
     assert body["query_diffs"]["orientation"]["baseline"]["db_id"] == flagship

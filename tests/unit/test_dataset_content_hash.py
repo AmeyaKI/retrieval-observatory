@@ -32,32 +32,40 @@ def test_fingerprint_includes_content_hash():
     assert len(fp["corpus_hash"]) == 64
 
 
-def test_content_hash_stable_across_regenerated_forge_dataset():
-    """Item 0: dataset_content_hash folds query_id into the fingerprint, so a Test Sets
-    dataset regenerated from the same corpus must produce the same content_hash as the
-    first generation -- this only holds now that Test Sets scenario/query ids are content-
-    derived rather than random uuids (see forge/scenarios/*.py, forge/generation/*.py)."""
-    from retrieval_observatory.experimental.forge.scenarios.temporal import TemporalScenarioDetector
-    from retrieval_observatory.experimental.forge.generation.rule_based import generate_rule_based_queries
+def test_content_hash_stable_across_independently_built_equal_datasets():
+    """Two datasets with the same content but different insertion order hash identically."""
 
-    corpus = {
-        "doc1": {"text": "Apple released the iPhone in 2007.", "title": "iPhone 2007"},
-        "doc2": {"text": "Apple introduced the iPhone 15 in 2023.", "title": "iPhone 2023"},
-    }
+    def _build(reverse: bool):
+        items = [("q1", "hello world", {"d1": 1, "d2": 0}), ("q2", "foo bar", {"d2": 2})]
+        docs = [("d1", "alpha"), ("d2", "beta")]
+        if reverse:
+            items, docs = list(reversed(items)), list(reversed(docs))
+        queries = [{"query_id": qid, "text": text} for qid, text, _ in items]
+        qrels = {qid: dict(reversed(list(rels.items())) if reverse else rels) for qid, _, rels in items}
+        corpus = dict(docs)
+        return queries, qrels, corpus
 
-    def _build_dataset():
-        scenarios = TemporalScenarioDetector().detect(corpus)
-        queries = []
-        qrels = {}
-        for scenario in scenarios:
-            for q in generate_rule_based_queries(scenario, corpus, ["comparison"], n_per_type=1):
-                queries.append({"query_id": q.query_id, "text": q.text})
-                qrels[q.query_id] = {doc_id: 1 for doc_id in q.positive_doc_ids}
-        return queries, qrels
+    a = dataset_content_hash(*_build(reverse=False))
+    b = dataset_content_hash(*_build(reverse=True))
+    assert a == b
+    fp_a = dataset_fingerprint("ds", *_build(reverse=False))
+    fp_b = dataset_fingerprint("ds", *_build(reverse=True))
+    assert fp_a == fp_b
 
-    queries_a, qrels_a = _build_dataset()
-    queries_b, qrels_b = _build_dataset()
-    assert queries_a  # sanity: the fixture actually produced queries
-    hash_a = dataset_content_hash(queries_a, qrels_a, corpus)
-    hash_b = dataset_content_hash(queries_b, qrels_b, corpus)
-    assert hash_a == hash_b
+
+def test_fingerprint_query_input_hash_tracks_metadata_while_query_hash_does_not():
+    plain = [{"query_id": "q1", "text": "hello world"}, {"query_id": "q2", "text": "foo bar"}]
+    tagged = [{"query_id": "q1", "text": "hello world", "metadata": {"segment": "gold"}}, {"query_id": "q2", "text": "foo bar"}]
+    qrels = {"q1": {"d1": 1}, "q2": {"d2": 0}}
+    corpus = {"d1": "alpha", "d2": "beta"}
+    fp_plain = dataset_fingerprint("ds", plain, qrels, corpus)
+    fp_tagged = dataset_fingerprint("ds", tagged, qrels, corpus)
+    assert fp_plain["query_hash"] == fp_tagged["query_hash"]
+    assert fp_plain["content_hash"] == fp_tagged["content_hash"]
+    assert fp_plain["query_input_hash"] != fp_tagged["query_input_hash"]
+    assert len(fp_plain["query_input_hash"]) == 64
+    assert len(fp_plain["judgment_digest"]) == 64
+    assert fp_plain["judgment_digest"] == fp_tagged["judgment_digest"]
+    assert fp_plain["judgment_schema_version"] == 1
+    # The judgment digest tracks grades, including an explicit zero becoming a one.
+    assert dataset_fingerprint("ds", plain, {"q1": {"d1": 1}, "q2": {"d2": 1}}, corpus)["judgment_digest"] != fp_plain["judgment_digest"]

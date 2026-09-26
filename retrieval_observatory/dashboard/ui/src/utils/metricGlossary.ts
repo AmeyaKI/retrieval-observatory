@@ -37,19 +37,7 @@ export const METRIC_GLOSSARY: Record<string, string> = {
   qrel_not_in_corpus: 'Measured corpus membership failure: a positively judged document ID is absent from the loaded corpus.',
   corpus_identity_unknown: 'Unavailable evidence: corpus document IDs were not supplied, so qrel membership could not be checked.',
   unstable: 'Query has high cross-pipeline variance (unstable difficulty bucket).',
-  actual_difficulty: 'Diagnostic buckets (post-hoc): derived from observed benchmark outcomes (recall/variance). Buckets are easy, medium, hard, discriminative, unstable, unknown.',
-  predicted_difficulty: 'Predicted difficulty (pre-retrieval): estimated from query text before running retrieval. Typically easy/medium/hard/extreme in production views.',
-  difficulty_diagnostic: 'Diagnostic difficulty (post-hoc): bucket inferred after benchmarking from actual retrieval behavior. Used for audit and classifier training labels.',
-  difficulty_predicted: 'Predicted difficulty (pre-retrieval): classifier/heuristic estimate from query text before retrieval executes.',
   truncation_notice: 'This table is intentionally truncated for readability. Use filters or narrower scopes to inspect all rows.',
-  tracelens_high_churn_threshold: 'High churn is flagged when stage-to-stage candidate churn is at least 70%.',
-  tracelens_error_rate_threshold: 'Error-rate warning threshold is >5% in the selected window.',
-  tracelens_suspected_rate_threshold: 'Suspected-failure-rate warning threshold is >10% in the selected window.',
-  tracelens_latency_p95_threshold: 'Latency P95 warning threshold is >2000ms.',
-  psi: 'PSI (Population Stability Index) — magnitude of distribution shift between baseline and recent windows. Typical cutoffs: >=0.10 moderate, >=0.25 significant.',
-  ks_test: 'KS test (Kolmogorov-Smirnov) — statistical test for whether two continuous distributions differ (used for latency drift).',
-  tracelens_drift_thresholds: 'Drift severity uses PSI thresholds: moderate >=0.10, significant >=0.25; latency drift is checked with a KS test.',
-  reliability_components: 'Reliability score — an unweighted heuristic composite (not a calibrated metric): recall_at_10 (25%), low_failure_rate (25%), latency_headroom (25%), diagnostic_health (25%). Missing data uses fallback defaults (e.g. 0.5 for latency when no budget is set). Treat as a directional indicator, not an objective measurement.',
 }
 
 /** Look up a glossary entry by a metric name fragment (case-insensitive). Returns undefined if not found. */

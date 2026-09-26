@@ -52,22 +52,3 @@ def aggregate_diagnostics(rows: List[Dict]) -> Dict:
         "by_pipeline": {key: {"n": value["n"], "labels": dict(value["labels"]), "difficulty_buckets": dict(value["difficulty_buckets"])} for key, value in by_pipeline.items()},
         "n": len(rows),
     }
-
-
-def predict_retrieval_risks(query_text: str) -> List[str]:
-    from retrieval_observatory.experimental.classifier.features import extract_features
-    from retrieval_observatory.tracing.enrich import predict_difficulty
-
-    features = extract_features(query_text)
-    risks: List[str] = []
-    if predict_difficulty(query_text) in ("hard", "extreme"):
-        risks.append("high_difficulty_query")
-    if features.get("has_temporal_anchor", 0) >= 1.0:
-        risks.append("temporal_sensitivity")
-    if features.get("has_comparison", 0) >= 1.0:
-        risks.append("comparison_query")
-    if features.get("token_count", 0) > 20:
-        risks.append("long_query_may_need_higher_k")
-    if features.get("has_negation", 0) >= 1.0:
-        risks.append("negation_may_hurt_lexical_match")
-    return risks

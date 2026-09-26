@@ -1,59 +1,88 @@
-import { OperatorAttributionRow, Recommendation } from '../api'
+import { JourneyAlignment, JourneyChangeKind, JourneyDiffRow, JourneySide } from '../api'
 
-/** Attribution rows are computed per pipeline, so an operator is identified by
- * pipeline + op_id; two pipelines sharing an op_id are never pooled. */
-export function attributionOpKey(row: Pick<OperatorAttributionRow, 'op_id' | 'pipeline_id'>): string {
-  return row.pipeline_id ? `${row.pipeline_id}:${row.op_id}` : row.op_id
+// Pure helpers over paired journey rows (run comparison). Labels carry a glyph and text,
+// never colour alone; ordering mirrors the server's priority so a re-sort is a no-op.
+
+export const CHANGE_LABELS: Record<JourneyChangeKind, { glyph: string; label: string }> = {
+  lost: { glyph: '✕', label: 'Lost' },
+  gained: { glyph: '✓', label: 'Gained' },
+  membership_changed: { glyph: '◐', label: 'Membership changed' },
+  rank_changed: { glyph: '↕', label: 'Rank changed' },
+  path_changed: { glyph: '⇢', label: 'Path changed' },
+  unchanged: { glyph: '=', label: 'Unchanged' },
+  unaligned: { glyph: '∅', label: 'Unaligned' },
 }
 
-export function bestRowsByOp(rows: OperatorAttributionRow[]): Map<string, OperatorAttributionRow> {
-  const m = new Map<string, OperatorAttributionRow>()
+export function changeLabel(kind: JourneyChangeKind | string): string {
+  return CHANGE_LABELS[kind as JourneyChangeKind]?.label ?? kind
+}
+
+export function changeGlyph(kind: JourneyChangeKind | string): string {
+  return CHANGE_LABELS[kind as JourneyChangeKind]?.glyph ?? '?'
+}
+
+export const ALIGNMENT_LABELS: Record<JourneyAlignment, string> = {
+  aligned: 'Aligned',
+  query_unaligned: 'Query input differs',
+  entity_revision_changed: 'Entity revision changed',
+  missing_in_baseline: 'Missing in baseline',
+  missing_in_candidate: 'Missing in candidate',
+  corpus_changed: 'Corpus changed',
+}
+
+export function alignmentLabel(alignment: JourneyAlignment | string): string {
+  return ALIGNMENT_LABELS[alignment as JourneyAlignment] ?? alignment
+}
+
+export const CHANGE_PRIORITY: Record<JourneyChangeKind, number> = {
+  lost: 0,
+  gained: 1,
+  membership_changed: 2,
+  rank_changed: 3,
+  path_changed: 4,
+  unaligned: 5,
+  unchanged: 6,
+}
+
+const CHANGE_KINDS = Object.keys(CHANGE_PRIORITY) as JourneyChangeKind[]
+
+function priorityOf(kind: JourneyChangeKind | string): number {
+  return CHANGE_PRIORITY[kind as JourneyChangeKind] ?? CHANGE_KINDS.length
+}
+
+/** A new array in display order: change priority, then query_id, namespace, entity_id. */
+export function sortDiffRows<Row extends JourneyDiffRow>(rows: Row[]): Row[] {
+  return [...rows].sort(
+    (a, b) =>
+      priorityOf(a.change) - priorityOf(b.change) ||
+      a.query_id.localeCompare(b.query_id) ||
+      a.namespace.localeCompare(b.namespace) ||
+      a.entity_id.localeCompare(b.entity_id),
+  )
+}
+
+/** One side of a pair in words: `included #2 · relevant`, `excluded at select · unjudged`,
+ * `membership unknown · relevant`, or `no row` when the run holds no row for the entity. */
+export function sideSummary(side: JourneySide | null): string {
+  if (!side) return 'no row'
+  const membership = side.final_membership === 'included' ? 'included' : side.final_membership === 'excluded' ? 'excluded' : 'membership unknown'
+  const rank = side.final_rank != null ? ` #${side.final_rank}` : ''
+  const boundary = side.final_membership === 'excluded' && side.loss_boundary ? ` at ${side.loss_boundary}` : ''
+  return `${membership}${rank}${boundary} · ${side.judgment}`
+}
+
+export interface DiffTotals {
+  pairs: number
+  byChange: Record<JourneyChangeKind, number>
+  captureLimited: number
+}
+
+export function diffTotals(rows: JourneyDiffRow[]): DiffTotals {
+  const byChange = Object.fromEntries(CHANGE_KINDS.map((kind) => [kind, 0])) as Record<JourneyChangeKind, number>
+  let captureLimited = 0
   for (const row of rows) {
-    const key = attributionOpKey(row)
-    const existing = m.get(key)
-    if (!existing || row.n_pairs > existing.n_pairs) m.set(key, row)
+    if (row.change in byChange) byChange[row.change] += 1
+    if (row.capture_limited) captureLimited += 1
   }
-  return m
-}
-
-export interface AttributionFlip {
-  opId: string
-  a: OperatorAttributionRow
-  b: OperatorAttributionRow
-  reason: 'direction_flipped' | 'significance_changed'
-}
-
-/** Item D.3: operators present in both runs whose marginal-contribution direction flipped
- * sign or whose significance flag changed -- the two changes worth a human's attention. */
-export function diffAttribution(rowsA: OperatorAttributionRow[], rowsB: OperatorAttributionRow[]): AttributionFlip[] {
-  const byOpA = bestRowsByOp(rowsA)
-  const byOpB = bestRowsByOp(rowsB)
-  const commonOps = Array.from(byOpA.keys()).filter((id) => byOpB.has(id))
-  const flips: AttributionFlip[] = []
-  for (const opId of commonOps) {
-    const a = byOpA.get(opId)!
-    const b = byOpB.get(opId)!
-    const signFlip = a.delta != null && b.delta != null && a.delta !== 0 && b.delta !== 0 && Math.sign(a.delta) !== Math.sign(b.delta)
-    const sigChange = Boolean(a.significant) !== Boolean(b.significant)
-    if (signFlip) flips.push({ opId, a, b, reason: 'direction_flipped' })
-    else if (sigChange) flips.push({ opId, a, b, reason: 'significance_changed' })
-  }
-  return flips
-}
-
-export interface RecommendationDiff {
-  newRecs: Recommendation[]
-  resolvedRecs: Recommendation[]
-  persisting: Recommendation[]
-}
-
-/** Item D.4: diff two runs' Findings recommendations by action string. */
-export function diffRecommendations(recsA: Recommendation[], recsB: Recommendation[]): RecommendationDiff {
-  const actionsA = new Set(recsA.map((r) => r.action))
-  const actionsB = new Set(recsB.map((r) => r.action))
-  return {
-    newRecs: recsA.filter((r) => !actionsB.has(r.action)),
-    resolvedRecs: recsB.filter((r) => !actionsA.has(r.action)),
-    persisting: recsA.filter((r) => actionsB.has(r.action)),
-  }
+  return { pairs: rows.length, byChange, captureLimited }
 }

@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from retrieval_observatory.config.schema import ExperimentConfig
+from retrieval_observatory.datasets.judgments import JUDGMENT_SCHEMA_VERSION, JudgmentSet, queries_input_digest
 
 
 @dataclass
@@ -53,6 +54,11 @@ def dataset_fingerprint(name: str, queries: list, qrels: Dict, corpus: Optional[
         "missing_qrel_doc_ids": len(missing),
         "missing_qrel_doc_id_examples": missing[:10],
         "label_sparsity_pct": round((1 - len(qrels) / max(len(queries), 1)) * 100, 2),
+        # Judgment-semantics identity (T02): query input beyond id/text, and the graded
+        # judgment set. The hashes above are unchanged so older manifests stay comparable.
+        "query_input_hash": queries_input_digest(queries),
+        "judgment_digest": JudgmentSet.from_qrels(qrels).digest(),
+        "judgment_schema_version": JUDGMENT_SCHEMA_VERSION,
     }
 
 

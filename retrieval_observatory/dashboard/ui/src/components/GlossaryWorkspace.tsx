@@ -38,26 +38,6 @@ const SECTIONS: { title: string; keys: (keyof typeof METRIC_GLOSSARY)[] }[] = [
       'unstable',
     ],
   },
-  {
-    title: 'Difficulty labels',
-    keys: ['actual_difficulty', 'predicted_difficulty', 'difficulty_diagnostic', 'difficulty_predicted'],
-  },
-  {
-    title: 'Production drift',
-    keys: [
-      'tracelens_high_churn_threshold',
-      'tracelens_error_rate_threshold',
-      'tracelens_suspected_rate_threshold',
-      'tracelens_latency_p95_threshold',
-      'psi',
-      'ks_test',
-      'tracelens_drift_thresholds',
-    ],
-  },
-  {
-    title: 'Findings',
-    keys: ['reliability_components'],
-  },
 ]
 
 function labelForKey(key: string): string {
@@ -74,7 +54,7 @@ export default function GlossaryWorkspace() {
           <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-slate-500">Reference</p>
           <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Glossary</h1>
           <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">
-            How to read metrics, labels, evidence classes, and status badges across Runs, Compare, Queries, Production, and Test Sets.
+            How to read metrics, labels, evidence classes, and status badges across Investigate, Connect, and Audit.
           </p>
         </header>
 
@@ -83,10 +63,6 @@ export default function GlossaryWorkspace() {
           <p>
             Emerald = good / winner · Amber = caution · Rose = regression or failure · Slate/gray = neutral or
             insufficient data.
-          </p>
-          <p className="mt-2">
-            Diagnostic buckets are post-hoc benchmark outcomes; predicted difficulty is pre-retrieval from query text.
-            Suspected production failures are label-free proxy signals — not measured Recall.
           </p>
         </section>
 

@@ -28,9 +28,15 @@ def test_fastapi_hybrid_plan_apply_verify_preserves_output(tmp_path):
     module = importlib.util.module_from_spec(spec)
     assert spec.loader
     spec.loader.exec_module(module)
-    start_trace(ObserveContext(None, "q1", "query", plan.pipeline_id, plan.service_id))
-    assert module.retrieve("query") == before
-    trace = finish_trace()
-    result = verify_observed_traces(load_manifest(tmp_path), [trace])
-    assert result.status == "ready"
+    traces = []
+    for query_id in ("q1", "q1-repeat"):
+        start_trace(ObserveContext(None, query_id, "query", plan.pipeline_id, plan.service_id))
+        assert module.retrieve("query") == before
+        traces.append(finish_trace())
+    result = verify_observed_traces(load_manifest(tmp_path), traces, project_root=tmp_path)
+    # No labels in this project: judgment mapping is the one declared limitation; everything observed is ready.
+    assert result.status == "partial", result.errors
+    statuses = {name: capability["status"] for name, capability in result.capabilities.items()}
+    assert statuses.pop("judgment_mapping") == "unavailable"
+    assert set(statuses.values()) == {"ready"}, statuses
     assert set(result.observed_operator_ids) == {operator.op_id for operator in plan.operators}

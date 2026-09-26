@@ -67,22 +67,28 @@ async def test_query_diffs_delta_is_candidate_minus_baseline(tmp_path: Path) -> 
     assert mean_delta == pytest.approx(entry["statistics"]["effect"])
     # The diff route names the baseline run and its database.
     template = body["release_decision"]["investigation"]["diff_route_template"]
-    assert template.startswith("#/runs/cand/queries/{query_id}/diff?against=base")
-    assert f"against_db={db}" in template
+    assert template.startswith("#/investigate?db=cmp&run=cand") and template.endswith("query={query_id}&compare=base")
+    assert f"db={db}" in template
 
 
-@pytest.mark.skipif(not DEMO_DB.is_file(), reason="hosted demo database not present")
-def test_demo_regression_shows_negative_top_deltas() -> None:
+@pytest.mark.skipif(not (DEMO_DB.parent / "demo_manifest.json").is_file(), reason="`retobs demo` output not present")
+def test_demo_validation_run_recovers_the_lost_document_query() -> None:
+    """On `retobs demo` output the repaired run is the candidate: q-outage's delta is positive."""
+    manifest = json.loads((DEMO_DB.parent / "demo_manifest.json").read_text(encoding="utf-8"))
+    baseline, validation = manifest["baseline_run_id"], manifest["validation_run_id"]
     registry = DbRegistry([str(DEMO_DB)], read_only=True)
     client = TestClient(create_app(registry=registry, enable_uploads=False))
     db = registry.default_db_id
     body = client.post(
         "/compare",
-        json={"selections": [{"db_id": db, "run_id": "efaa6025", "role": "baseline"}, {"db_id": db, "run_id": "916b08d8", "role": "candidate"}]},
+        json={"selections": [{"db_id": db, "run_id": baseline, "role": "baseline"}, {"db_id": db, "run_id": validation, "role": "candidate"}]},
     ).json()
     diffs = body["query_diffs"]
-    assert diffs is not None
-    top = diffs["rows"][:5]
-    assert top and all(row["delta"] < 0 for row in top), top
+    assert diffs["orientation"]["baseline"] == {"db_id": db, "run_id": baseline}
+    assert diffs["orientation"]["candidate"] == {"db_id": db, "run_id": validation}
+    top = diffs["rows"][0]
+    assert top["query_id"] == manifest["sample_query_id"] == "q-outage"
+    assert top["a"] == pytest.approx(0.0) and top["delta"] > 0
     entry = next(item for item in body["comparison"] if item["metric"] == diffs["metric"])
-    assert entry["statistics"]["effect"] < 0
+    assert entry["statistics"]["effect"] > 0
+    assert sum(row["delta"] for row in diffs["rows"]) / len(diffs["rows"]) == pytest.approx(entry["statistics"]["effect"])

@@ -40,7 +40,7 @@ output:
 
 ---
 
-## Template 2: Compare Two Pipelines (with Stage Attribution)
+## Template 2: Compare Two Pipelines (with Prefix Ablations)
 
 Use when: you want to know whether adding a reranker is worth it.
 
@@ -69,7 +69,7 @@ stages:
 combinations:
   include:
     - [bm25, rerank]
-  ablations: true     # automatically also runs [bm25] alone — required for stage attribution
+  ablations: true     # automatically also runs [bm25] alone, so each prefix has its own metrics
 
 metrics:
   recall_at_k: [1, 5, 10]
@@ -274,7 +274,7 @@ combinations:
     - [bm25]
     - [dense]
     - [bm25, cohere_rerank]
-  ablations: true                        # auto-generates prefix pipelines for attribution
+  ablations: true                        # auto-generates prefix pipelines
 
 metrics:
   recall_at_k: [1, 5, 10, 20]
@@ -291,7 +291,7 @@ execution:
 
 costs:
   bm25:
-    per_1k_queries: 0.05               # estimated cost model for tradeoff analysis
+    per_1k_queries: 0.05               # estimated cost, reported with the run
   cohere_rerank:
     per_1k_queries: 2.00
 
@@ -352,7 +352,7 @@ TREC-style qrels.tsv also supported: `query_id \t 0 \t doc_id \t grade`
 | Mistake | Fix |
 |---------|-----|
 | `adapter.hf_biencoder` fails with import error | Run `pip install "retrieval-observatory[dense]"` |
-| Stage attribution table is missing | Add `ablations: true` to combinations |
+| The single-stage prefix pipeline is missing | Add `ablations: true` to combinations |
 | Dashboard shows no data | Check `db_path` matches the path passed to `retobs serve --db` |
 | All queries show `candidate_miss` | Your corpus `id` field doesn't match `relevant_doc_ids` in queries — check IDs match exactly |
 | `retobs evaluate --config` reports missing corpus | Use absolute paths or run retobs from the directory containing your data |

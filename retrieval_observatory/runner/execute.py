@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import logging
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from retrieval_observatory.types import PipelineResult, Query
+
+_logger = logging.getLogger("retrieval_observatory")
 
 # Shared benchmark execution core used by BOTH the CLI (`retobs run`) and the Python SDK
 # (`retrieval_observatory.benchmark`). Keeping a single executor guarantees that both paths
@@ -40,16 +43,28 @@ async def execute_benchmark(
     golden_set: Optional[str] = None,
     validation_report: Optional[dict] = None,
     config_path: Optional[str] = None,
-    annotate_difficulty: bool = True,
     log: Optional[Callable[..., None]] = None,
+    chunk_map: Optional[Sequence[Sequence[str]]] = None,
+    evaluation_k: Optional[int] = None,
+    judgments: Optional[Any] = None,
 ) -> BenchmarkArtifacts:
     """Run all pipelines over all queries, persist results + lineage, compute and store metrics.
 
     `store` must already be initialised (`await store.init_db()`). `pipelines` are pre-built
     pipeline objects. `log` is an optional status-printing callable (the CLI passes
-    `console.print`; the SDK leaves it None for silent operation).
+    `console.print`; the SDK leaves it None for silent operation). `chunk_map` rows are
+    ``(chunk_id, document_id[, namespace])`` and are recorded in the manifest for the
+    investigation projection; with gold labels and no `judgments`, the run is scored as if
+    `judgments` held `qrels` with each document in the namespace `chunk_map` gives it.
+
+    `judgments` is a namespaced ``JudgmentSet`` that replaces `qrels`: the run records it as
+    its judgments and scores metrics and diagnostics on documents, each candidate counting as
+    ``namespace:document_id`` (resolved through `chunk_map`, else the candidate's own
+    ``document_id``). The persisted traces keep their chunk-level candidates.
     """
+    from retrieval_observatory.datasets.judgments import ChunkMap, EvaluationSpec, JudgmentSet
     from retrieval_observatory.datasets.validation import dataset_fingerprint
+    from retrieval_observatory.evidence import service as investigation_service
     from retrieval_observatory.diagnostics.engine import DiagnosticEngine, context_for_trace
     from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.runner.benchmark import BenchmarkRunner
@@ -57,6 +72,17 @@ async def execute_benchmark(
     from retrieval_observatory.runner.manifest import build_run_manifest, detect_forge_dataset_id
 
     _log = log or (lambda *a, **k: None)
+    dataset_qrels = qrels
+    map_to_documents = judgments is None and bool(chunk_map) and cfg.labels.mode == "gold"
+    if map_to_documents:
+        # Chunk results are scored against the caller's document qrels; the dataset fingerprint
+        # keeps those qrels so the run stays comparable with a run scored without a chunk map.
+        document_namespaces = _document_namespaces(chunk_map)
+        judgments = _chunk_map_judgments(qrels, document_namespaces)
+    elif judgments is not None:
+        dataset_qrels = _document_qrels(judgments)
+    if judgments is not None:
+        qrels = _document_qrels(judgments)
     run_started_at = datetime.now(timezone.utc)
 
     # Detect filter-ignorance early so the warning appears before any queries run.
@@ -85,7 +111,7 @@ async def execute_benchmark(
     fingerprint = dataset_fingerprint(
         cfg.dataset.name,
         queries,
-        qrels,
+        dataset_qrels,
         corpus if isinstance(corpus, dict) else None,
     )
     if hasattr(store, "save_run_manifest"):
@@ -107,9 +133,6 @@ async def execute_benchmark(
     if hasattr(store, "save_run_queries"):
         await store.save_run_queries(run_id, queries, cfg.dataset.name)
     _log(f"[bold]Run ID:[/bold] {run_id}")
-
-    if annotate_difficulty:
-        _annotate_query_difficulty(queries, cfg.dataset.name, log=_log)
 
     # Build per-pipeline result caches. (Cross-pipeline StageResultCache, if any, is wired into
     # the pipeline objects by the caller at build time; bind the dataset identity into it here
@@ -169,10 +192,26 @@ async def execute_benchmark(
     traces = [result.trace for result in all_results if result.trace is not None]
     if len(traces) != len(all_results):
         raise RuntimeError("every evaluation result must carry a persisted execution trace")
+    # Attempt accounting is exact only if every (pipeline, query) has exactly one trace.
+    observed = Counter((trace.pipeline_id, trace.query_id) for trace in traces)
+    expected = {(pipeline.pipeline_id, query.query_id) for pipeline in pipelines for query in queries}
+    duplicates = sorted(key for key, count in observed.items() if count > 1)
+    strays = sorted(set(observed) - expected)
+    missing = sorted(expected - set(observed))
+    if duplicates or strays or missing:
+        raise RuntimeError(
+            "trace/query association is inconsistent: "
+            f"duplicate (pipeline, query) traces {duplicates}; traces for queries outside the run {strays}; "
+            f"(pipeline, query) pairs without a trace {missing}"
+        )
+    scored = traces
+    if judgments is not None:
+        chunks = ChunkMap.from_pairs([tuple(row) for row in chunk_map]) if chunk_map else None
+        scored = [_document_view(trace, chunks) for trace in traces]
     await engine.compute_from_traces(
         run_id=run_id,
         store=store,
-        traces=[trace for trace in traces if trace.status == "OK"],
+        traces=[trace for trace in scored if trace.status == "OK"],
         qrels=qrels,
         queries_by_id=queries_by_id,
     )
@@ -201,11 +240,21 @@ async def execute_benchmark(
 
     corpus_documents = getattr(dataset, "corpus_documents", None)
     corpus_doc_ids = set(corpus_documents) if corpus_documents is not None else None
+    if corpus_doc_ids is not None and map_to_documents:  # relevant ids below are ``namespace:document_id``
+        corpus_doc_ids = {
+            f"{namespace}:{doc_id}" for doc_id in corpus_doc_ids for namespace in document_namespaces.get(str(doc_id), {"default"})
+        }
     configured_cutoffs = list(getattr(cfg.metrics, "recall_at_k", []) or [10])
     diagnostic_cutoff = max(configured_cutoffs)
+    if judgments is None:
+        judgments = JudgmentSet.from_qrels(qrels, namespace="default")
+    # The investigation cutoff is the caller's k when given (SDK/CLI evaluate), else the largest
+    # configured recall cutoff; recall_at_k[0] is 1 under the default config and is never meant as k.
+    cutoffs = list(getattr(cfg.metrics, "recall_at_k", []) or [])
+    evaluation_spec = EvaluationSpec(unit="document", k=int(evaluation_k or (max(cutoffs) if cutoffs else 10)))
     diagnostics = []
     diagnostic_engine = DiagnosticEngine.default()
-    for trace in traces:
+    for trace in scored:
         relevant_ids = {doc_id for doc_id, grade in qrels.get(trace.query_id, {}).items() if grade > 0}
         context = context_for_trace(
             trace,
@@ -249,6 +298,11 @@ async def execute_benchmark(
             "labeled": len(labeled_query_ids),
             "metric_eligible": len(completed_query_ids & labeled_query_ids),
         }
+        manifest["judgment_records"] = judgments.to_records()
+        manifest["judgment_digest"] = judgments.digest()
+        manifest["evaluation"] = evaluation_spec.to_dict()
+        if chunk_map:
+            manifest["chunk_map"] = [list(row) for row in chunk_map]
         manifest["duration_semantics"] = {
             "total_latency_ms": "query wall clock",
             "critical_path_ms": "longest observed dependency path",
@@ -272,6 +326,29 @@ async def execute_benchmark(
         manifest["evidence_profile"] = EvidenceProfile.from_run(manifest, traces, health).model_dump(mode="json")
         await store.save_run_manifest(run_id, manifest)
     await store.finish_run(run_id)
+
+    if hasattr(store, "save_run_manifest"):
+        # The explicit projection write behind the Investigate views. A failure is recorded
+        # with its repair command, never raised: the raw run is already persisted.
+        repair = f"retobs storage index {run_id} --db {getattr(store, 'db_path', 'PATH')}"
+        projections: Dict[str, Dict[str, Any]] = {}
+        for pipeline in pipelines:
+            try:
+                meta = await investigation_service.build_projection(
+                    store,
+                    run_id,
+                    pipeline.pipeline_id,
+                    evaluation_spec,
+                    judgments=JudgmentSet.from_records(manifest["judgment_records"]),
+                    chunk_map=ChunkMap.from_pairs([tuple(row) for row in chunk_map]) if chunk_map else None,
+                )
+                projections[pipeline.pipeline_id] = {"status": "complete", "row_count": meta["row_count"]}
+            except Exception as exc:
+                projections[pipeline.pipeline_id] = {"status": "failed", "error": repr(exc), "repair": repair}
+                _logger.warning("investigation projection for run %s pipeline %s failed: %r (repair: %s)", run_id, pipeline.pipeline_id, exc, repair)
+                _log(f"[yellow]Warning:[/yellow] investigation projection for '{pipeline.pipeline_id}' failed: {exc!r}. Repair: {repair}")
+        manifest["investigation_projection"] = projections
+        await store.save_run_manifest(run_id, manifest)
 
     return BenchmarkArtifacts(
         run_id=run_id,
@@ -318,34 +395,65 @@ def _merge_qrels(gold_qrels, judged_qrels):
     return merged
 
 
-def _annotate_query_difficulty(queries, dataset_name: str, log: Optional[Callable[..., None]] = None) -> None:
-    """Attach pre-retrieval difficulty predictions to query metadata when a model exists."""
-    import os
+def _document_qrels(judgments) -> Dict[str, Dict[str, int]]:
+    """Document-unit judgments as qrels keyed ``namespace:document_id``."""
+    qrels: Dict[str, Dict[str, int]] = {}
+    for record in judgments.to_records():
+        if record["unit"] == "document":
+            qrels.setdefault(record["query_id"], {})[f"{record['namespace']}:{record['entity_id']}"] = int(record["grade"])
+    return qrels
 
-    from retrieval_observatory.experimental.classifier.labels import default_model_path, normalize_dataset_name
 
-    log = log or (lambda *a, **k: None)
+def _document_namespaces(chunk_map) -> Dict[str, set]:
+    """document_id -> the namespaces ``chunk_map`` rows place it in (``default`` for 2-tuple rows)."""
+    namespaces: Dict[str, set] = {}
+    for row in chunk_map:
+        namespaces.setdefault(str(row[1]), set()).add(str(row[2]) if len(row) > 2 else "default")
+    return namespaces
 
-    model_path = os.environ.get("RETOBS_CLASSIFIER_MODEL") or default_model_path(dataset_name)
-    if not Path(model_path).exists():
-        return
-    try:
-        from retrieval_observatory.experimental.classifier.model import load_model
-    except ImportError:
-        log("[yellow]Classifier model found but [classifier] extra not installed; skipping predictions.[/yellow]")
-        return
 
-    model = load_model(model_path)
-    trained_on = model.metadata.get("dataset_name", "")
-    if normalize_dataset_name(dataset_name) != normalize_dataset_name(trained_on):
-        log(
-            f"[yellow]Warning: classifier trained on '{trained_on}' but run uses '{dataset_name}'. "
-            "Predictions may not be meaningful.[/yellow]"
+def _chunk_map_judgments(qrels, document_namespaces: Dict[str, set]):
+    """Gold document qrels as judgments, each document in the namespace the chunk map gives it (else ``default``)."""
+    from retrieval_observatory.datasets.judgments import JudgmentSet
+
+    by_namespace: Dict[str, Dict[str, Dict[str, int]]] = {}
+    for query_id, rels in qrels.items():
+        for doc_id, grade in (rels.items() if isinstance(rels, dict) else ((doc_id, 1) for doc_id in rels)):
+            namespaces = document_namespaces.get(str(doc_id), {"default"})
+            if len(namespaces) > 1:
+                raise ValueError(
+                    f"qrels document {doc_id!r} is in chunk_map namespaces {sorted(namespaces)}; "
+                    "a judged document must belong to exactly one namespace"
+                )
+            by_namespace.setdefault(next(iter(namespaces)), {}).setdefault(query_id, {})[doc_id] = grade
+    return JudgmentSet.from_records(
+        record
+        for namespace, namespaced in sorted(by_namespace.items())
+        for record in JudgmentSet.from_qrels(namespaced, namespace=namespace).to_records()
+    )
+
+
+def _document_view(trace, chunk_map):
+    """A copy of ``trace`` whose candidates are scored as ``namespace:document_id``."""
+    from dataclasses import replace
+
+    def document(candidate):
+        # A bare chunk id (no namespace, no document) takes the namespace the chunk map gives it, as
+        # the investigation projection does (``ChunkMap.chunk_ref``); otherwise ``default`` as before.
+        explicit = candidate.metadata.get("namespace") or (None if candidate.document_id is None else "default")
+        mapped = chunk_map.document_for(chunk_map.chunk_ref(candidate.doc_id, explicit)) if chunk_map else None
+        if mapped:
+            return replace(candidate, doc_id=f"{mapped.namespace}:{mapped.entity_id}")
+        namespace = str(candidate.metadata.get("namespace") or "default")
+        return replace(candidate, doc_id=f"{namespace}:{candidate.document_id or candidate.doc_id}")
+
+    spans = tuple(
+        replace(
+            span,
+            input_groups={parent: tuple(map(document, group)) for parent, group in span.input_groups.items()},
+            outputs=tuple(map(document, span.outputs)),
+            inputs=(),
         )
-
-    for query in queries:
-        pred = model.predict(query.text)
-        query.metadata["predicted_difficulty"] = pred["label"]
-        query.metadata["predicted_difficulty_proba"] = pred["proba"]
-        query.metadata["predicted_difficulty_features"] = pred["features"]
-    log(f"[dim]Applied difficulty predictions from {model_path}[/dim]")
+        for span in trace.spans
+    )
+    return replace(trace, spans=spans)

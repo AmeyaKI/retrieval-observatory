@@ -51,3 +51,22 @@ async def test_existing_database_gets_run_query_trace_index(tmp_path) -> None:
     with sqlite3.connect(db_path) as db:
         columns = [row[2] for row in db.execute("PRAGMA index_info(idx_traces_run_query)")]
     assert columns == ["run_id", "query_id"]
+
+
+@pytest.mark.asyncio
+async def test_fresh_init_creates_investigation_tables_and_stamps_schema_v3(tmp_path) -> None:
+    from retrieval_observatory.store.migrate import SCHEMA_VERSION
+
+    db_path = tmp_path / "results.db"
+    await SQLiteStore(str(db_path)).init_db()
+
+    with sqlite3.connect(db_path) as db:
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        indexes = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        version = int(db.execute("PRAGMA user_version").fetchone()[0])
+    assert {"investigation_pairs", "investigation_summaries", "investigation_projections"} <= tables
+    assert {
+        "idx_investigation_pairs_query", "idx_investigation_pairs_entity",
+        "idx_investigation_pairs_outcome", "idx_investigation_pairs_priority",
+    } <= indexes
+    assert version == SCHEMA_VERSION == 3

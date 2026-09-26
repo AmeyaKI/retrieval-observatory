@@ -1,85 +1,115 @@
 import { describe, expect, it } from 'vitest'
-import { diffAttribution, diffRecommendations } from './comparisonDiffs'
-import { OperatorAttributionRow, Recommendation } from '../api'
+import {
+  ALIGNMENT_LABELS,
+  alignmentLabel,
+  CHANGE_LABELS,
+  CHANGE_PRIORITY,
+  changeGlyph,
+  changeLabel,
+  diffTotals,
+  sideSummary,
+  sortDiffRows,
+} from './comparisonDiffs'
+import { JourneyAlignment, JourneyChangeKind, JourneyDiffRow, JourneySide } from '../api'
 
-function attrRow(overrides: Partial<OperatorAttributionRow> & { op_id: string }): OperatorAttributionRow {
+const KINDS = Object.keys(CHANGE_PRIORITY) as JourneyChangeKind[]
+const ALIGNMENTS = Object.keys(ALIGNMENT_LABELS) as JourneyAlignment[]
+
+function side(overrides: Partial<JourneySide> = {}): JourneySide {
   return {
-    pipeline_id: 'p',
-    segment: 'all',
-    metric: 'recall',
-    k: 10,
-    delta: 0,
-    ci_low: null,
-    ci_high: null,
-    n_pairs: 10,
-    replay_policy: 'EXACT',
-    result_status: 'replayed',
-    evidence_class: 'replayed',
-    unsupported_descendants: [],
-    significant: false,
+    trace_id: 't1',
+    outcome: 'relevant_delivered',
+    final_membership: 'included',
+    in_final_output: true,
+    final_rank: 2,
+    loss_boundary: null,
+    capture_state: 'complete',
+    judgment: 'relevant',
+    grade: 1,
+    events_summary: [],
+    investigation_link: '#/investigate?run=cand',
     ...overrides,
   }
 }
 
-describe('diffAttribution', () => {
-  it('flags a sign flip', () => {
-    const a = [attrRow({ op_id: 'rerank', delta: 0.05 })]
-    const b = [attrRow({ op_id: 'rerank', delta: -0.03 })]
-    const flips = diffAttribution(a, b)
-    expect(flips).toHaveLength(1)
-    expect(flips[0].reason).toBe('direction_flipped')
+function row(change: JourneyChangeKind, overrides: Partial<JourneyDiffRow> = {}): JourneyDiffRow {
+  return {
+    query_id: 'q1',
+    namespace: 'kb',
+    entity_id: 'doc-1',
+    unit: 'document',
+    alignment: 'aligned',
+    change,
+    detail: '',
+    baseline: side(),
+    candidate: side(),
+    capture_limited: false,
+    priority: CHANGE_PRIORITY[change],
+    ...overrides,
+  }
+}
+
+describe('change and alignment vocabulary', () => {
+  it('every change kind has a glyph and a text label (never colour alone)', () => {
+    for (const kind of KINDS) {
+      expect(CHANGE_LABELS[kind].glyph.length).toBeGreaterThan(0)
+      expect(CHANGE_LABELS[kind].label.length).toBeGreaterThan(0)
+      expect(changeGlyph(kind)).toBe(CHANGE_LABELS[kind].glyph)
+      expect(changeLabel(kind)).toBe(CHANGE_LABELS[kind].label)
+    }
+    expect(changeLabel('novel_kind')).toBe('novel_kind')
+    expect(changeGlyph('novel_kind')).toBe('?')
   })
 
-  it('flags a significance change with no sign flip', () => {
-    const a = [attrRow({ op_id: 'boost', delta: 0.02, significant: true })]
-    const b = [attrRow({ op_id: 'boost', delta: 0.01, significant: false })]
-    const flips = diffAttribution(a, b)
-    expect(flips).toHaveLength(1)
-    expect(flips[0].reason).toBe('significance_changed')
-  })
-
-  it('ignores operators only present in one run', () => {
-    const a = [attrRow({ op_id: 'only_a', delta: 0.1 })]
-    const b = [attrRow({ op_id: 'only_b', delta: -0.1 })]
-    expect(diffAttribution(a, b)).toHaveLength(0)
-  })
-
-  it('picks the row with the most paired queries when an op has multiple segments', () => {
-    const a = [
-      attrRow({ op_id: 'gate', segment: 'hard', delta: 0.5, n_pairs: 2 }),
-      attrRow({ op_id: 'gate', segment: 'all', delta: 0.05, n_pairs: 50 }),
-    ]
-    const b = [attrRow({ op_id: 'gate', segment: 'all', delta: -0.02, n_pairs: 50 })]
-    const flips = diffAttribution(a, b)
-    expect(flips).toHaveLength(1)
-    expect(flips[0].a.n_pairs).toBe(50)
-  })
-
-  it('no flips when both runs agree', () => {
-    const a = [attrRow({ op_id: 'x', delta: 0.1, significant: true })]
-    const b = [attrRow({ op_id: 'x', delta: 0.2, significant: true })]
-    expect(diffAttribution(a, b)).toHaveLength(0)
+  it('every alignment has a label', () => {
+    for (const alignment of ALIGNMENTS) {
+      expect(ALIGNMENT_LABELS[alignment].length).toBeGreaterThan(0)
+      expect(alignmentLabel(alignment)).toBe(ALIGNMENT_LABELS[alignment])
+    }
+    expect(alignmentLabel('novel')).toBe('novel')
   })
 })
 
-function rec(action: string): Recommendation {
-  return { action, rationale: '', evidence: [], priority: 1 }
-}
-
-describe('diffRecommendations', () => {
-  it('splits into new, resolved, and persisting', () => {
-    const a = [rec('swap reranker'), rec('add filter')]
-    const b = [rec('add filter'), rec('tune fusion')]
-    const diff = diffRecommendations(a, b)
-    expect(diff.newRecs.map((r) => r.action)).toEqual(['swap reranker'])
-    expect(diff.resolvedRecs.map((r) => r.action)).toEqual(['tune fusion'])
-    expect(diff.persisting.map((r) => r.action)).toEqual(['add filter'])
+describe('sortDiffRows', () => {
+  it('puts lost first and unchanged last, breaking ties by query then entity', () => {
+    const rows = [
+      row('unchanged', { query_id: 'q1', entity_id: 'a' }),
+      row('lost', { query_id: 'q2', entity_id: 'b' }),
+      row('lost', { query_id: 'q2', entity_id: 'a' }),
+      row('gained', { query_id: 'q9', entity_id: 'a' }),
+      row('lost', { query_id: 'q1', entity_id: 'z' }),
+    ]
+    const sorted = sortDiffRows(rows)
+    expect(sorted.map((r) => `${r.change}:${r.query_id}:${r.entity_id}`)).toEqual([
+      'lost:q1:z',
+      'lost:q2:a',
+      'lost:q2:b',
+      'gained:q9:a',
+      'unchanged:q1:a',
+    ])
+    expect(sorted).not.toBe(rows)
+    expect(rows[0].change).toBe('unchanged')
   })
+})
 
-  it('handles two empty lists', () => {
-    const diff = diffRecommendations([], [])
-    expect(diff.newRecs).toHaveLength(0)
-    expect(diff.resolvedRecs).toHaveLength(0)
-    expect(diff.persisting).toHaveLength(0)
+describe('diffTotals', () => {
+  it('counts pairs by kind and the evidence-limited rows, with every kind present', () => {
+    const totals = diffTotals([row('lost'), row('lost', { capture_limited: true }), row('gained'), row('path_changed', { capture_limited: true })])
+    expect(totals.pairs).toBe(4)
+    expect(totals.captureLimited).toBe(2)
+    expect(totals.byChange).toEqual({ lost: 2, gained: 1, membership_changed: 0, rank_changed: 0, path_changed: 1, unaligned: 0, unchanged: 0 })
+    expect(diffTotals([]).byChange.lost).toBe(0)
+  })
+})
+
+describe('sideSummary', () => {
+  it('reads membership, rank, loss boundary and judgment in words', () => {
+    expect(sideSummary(side())).toBe('included #2 · relevant')
+    expect(sideSummary(side({ final_membership: 'excluded', final_rank: null, loss_boundary: 'select', judgment: 'unjudged' }))).toBe(
+      'excluded at select · unjudged',
+    )
+    expect(sideSummary(side({ final_membership: 'excluded', final_rank: null, loss_boundary: 'not_observed' }))).toBe('excluded at not_observed · relevant')
+    expect(sideSummary(side({ final_membership: 'unknown', final_rank: null }))).toBe('membership unknown · relevant')
+    expect(sideSummary(null)).toBe('no row')
   })
 })

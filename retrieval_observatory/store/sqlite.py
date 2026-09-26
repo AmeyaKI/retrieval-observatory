@@ -4,12 +4,31 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Mapping, Optional, Sequence
 from urllib.parse import quote
 
 import aiosqlite
 
-from retrieval_observatory.store.base import InstrumentationHealth, ServiceSummary, TopologyVariant, TraceQuery
+from retrieval_observatory.store.base import (
+    json_default,
+    normalize_dataset_name,
+    INVESTIGATION_SORT_KEYS,
+    PAIR_FACT_COLUMNS,
+    InstrumentationHealth,
+    InvestigationFilter,
+    InvestigationPage,
+    InvestigationScope,
+    ServiceSummary,
+    TopologyVariant,
+    TraceQuery,
+    clamp_page_limit,
+    decode_cursor,
+    decode_trace,
+    investigation_where,
+    keyset_page,
+    like_prefix,
+    pair_facts,
+)
 from retrieval_observatory.tracing.model import RetrievalTrace
 
 _CREATE_RUNS = """
@@ -234,6 +253,117 @@ _CREATE_DOC_EDGES_DST_IDX = (
     "CREATE INDEX IF NOT EXISTS idx_doc_edges_dst ON doc_edges (dst_doc_id, edge_type)"
 )
 
+# Schema v3: investigation projections (additive; see store/migrate.py). Projection metadata
+# has its own table rather than an `analysis_records` kind because a rebuild must replace rows
+# and metadata in ONE transaction, and `analysis_records` enforces monotonic versions through
+# a separate connection.
+_CREATE_INVESTIGATION_PAIRS = """
+CREATE TABLE IF NOT EXISTS investigation_pairs (
+    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
+    trace_id TEXT NOT NULL, query_id TEXT NOT NULL,
+    namespace TEXT NOT NULL, unit TEXT NOT NULL, entity_id TEXT NOT NULL, entity_revision TEXT,
+    judgment TEXT NOT NULL, grade INTEGER, final_membership TEXT NOT NULL, in_final_output INTEGER,
+    final_rank INTEGER, outcome TEXT NOT NULL, confusion TEXT NOT NULL, capture_state TEXT NOT NULL,
+    observed INTEGER NOT NULL, loss_boundary TEXT, priority INTEGER NOT NULL,
+    derivation_version TEXT NOT NULL, trace_digest TEXT NOT NULL, judgment_digest TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, pipeline_id, evaluation_digest, trace_id, namespace, unit, entity_id)
+)
+"""
+_CREATE_INVESTIGATION_PAIRS_QUERY_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_query ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, query_id)"
+)
+_CREATE_INVESTIGATION_PAIRS_ENTITY_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_entity ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, namespace, entity_id)"
+)
+_CREATE_INVESTIGATION_PAIRS_OUTCOME_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_outcome ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, outcome, loss_boundary)"
+)
+_CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_priority ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, priority, query_id, namespace, entity_id)"
+)
+# Filter columns followed by the full sort key, so an entity or outcome page is one index range
+# read in order, not a walk of the priority index over the whole scope.
+_CREATE_INVESTIGATION_PAIRS_ENTITY_ORDER_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_entity_order ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, namespace, entity_id, priority, query_id, trace_id, unit)"
+)
+_CREATE_INVESTIGATION_PAIRS_OUTCOME_ORDER_IDX = (
+    "CREATE INDEX IF NOT EXISTS idx_investigation_pairs_outcome_order ON investigation_pairs"
+    "(run_id, pipeline_id, evaluation_digest, outcome, priority, query_id, namespace, entity_id, trace_id, unit)"
+)
+
+_CREATE_INVESTIGATION_SUMMARIES = """
+CREATE TABLE IF NOT EXISTS investigation_summaries (
+    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
+    kind TEXT NOT NULL, key TEXT NOT NULL, derivation_version TEXT NOT NULL, payload_json TEXT NOT NULL,
+    PRIMARY KEY (run_id, pipeline_id, evaluation_digest, kind, key)
+)
+"""
+
+_CREATE_INVESTIGATION_PROJECTIONS = """
+CREATE TABLE IF NOT EXISTS investigation_projections (
+    run_id TEXT NOT NULL, pipeline_id TEXT NOT NULL, evaluation_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    derivation_version TEXT NOT NULL, judgment_digest TEXT NOT NULL,
+    trace_count INTEGER NOT NULL, row_count INTEGER NOT NULL,
+    started_at TEXT NOT NULL, finished_at TEXT, error TEXT,
+    PRIMARY KEY (run_id, pipeline_id, evaluation_digest)
+)
+"""
+
+_INVESTIGATION_TABLES = ("investigation_pairs", "investigation_summaries", "investigation_projections")
+# Indexes added within schema v3; `migrate_database` also applies them to files already at v3.
+_INVESTIGATION_ORDER_INDEX_DDL = (
+    _CREATE_INVESTIGATION_PAIRS_ENTITY_ORDER_IDX,
+    _CREATE_INVESTIGATION_PAIRS_OUTCOME_ORDER_IDX,
+)
+# The whole v2 -> v3 delta, in order; `migrate_database` replays it under one transaction.
+_INVESTIGATION_DDL = (
+    _CREATE_INVESTIGATION_PAIRS,
+    _CREATE_INVESTIGATION_PAIRS_QUERY_IDX,
+    _CREATE_INVESTIGATION_PAIRS_ENTITY_IDX,
+    _CREATE_INVESTIGATION_PAIRS_OUTCOME_IDX,
+    _CREATE_INVESTIGATION_PAIRS_PRIORITY_IDX,
+    *_INVESTIGATION_ORDER_INDEX_DDL,
+    _CREATE_INVESTIGATION_SUMMARIES,
+    _CREATE_INVESTIGATION_PROJECTIONS,
+)
+
+_PAIR_COLUMNS = (
+    "run_id", "pipeline_id", "evaluation_digest", "trace_id", "query_id",
+    "namespace", "unit", "entity_id", "entity_revision",
+    "judgment", "grade", "final_membership", "in_final_output",
+    "final_rank", "outcome", "confusion", "capture_state",
+    "observed", "loss_boundary", "priority",
+    "derivation_version", "trace_digest", "judgment_digest", "payload_json",
+)
+_PROJECTION_COLUMNS = (
+    "run_id", "pipeline_id", "evaluation_digest", "status", "derivation_version", "judgment_digest",
+    "trace_count", "row_count", "started_at", "finished_at", "error",
+)
+
+
+def _flag(value: object) -> int | None:
+    return None if value is None else int(bool(value))
+
+
+def investigation_pair_row(scope: InvestigationScope, row: Mapping) -> tuple:
+    """Column tuple (in `_PAIR_COLUMNS` order) for one projection row; shared by both backends."""
+    return (
+        scope.run_id, scope.pipeline_id, scope.evaluation_digest, row["trace_id"], row["query_id"],
+        row["namespace"], row["unit"], row["entity_id"], row.get("entity_revision"),
+        row["judgment"], row.get("grade"), row["final_membership"], _flag(row.get("in_final_output")),
+        row.get("final_rank"), row["outcome"], row["confusion"], row["capture_state"],
+        int(bool(row["observed"])), row.get("loss_boundary"), int(row["priority"]),
+        row["derivation_version"], row["trace_digest"], row["judgment_digest"],
+        json.dumps(row, sort_keys=True),
+    )
+
 
 def _created_table_names() -> list[str]:
     names = []
@@ -250,6 +380,9 @@ class SQLiteStore:
         self.db_path = db_path
         self.read_only = read_only
         self._schema_ready = False
+        #: True once all three schema-v3 investigation tables are known to exist. A v2 file
+        #: opened read-only stays fully readable; its investigation reads return empty/None.
+        self.investigation_tables_available = False
 
     def _connect(self):
         """Open a connection; in read-only mode SQLite itself refuses every write (`mode=ro`)."""
@@ -276,12 +409,17 @@ class SQLiteStore:
             async with self._connect() as db:
                 async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
                     present = {row[0] for row in await cursor.fetchall()}
-            missing = [name for name in _created_table_names() if name not in present]
+            # The v3 investigation tables are optional here (see `investigation_tables_available`).
+            missing = [
+                name for name in _created_table_names() if name not in present and name not in _INVESTIGATION_TABLES
+            ]
             if missing:
                 raise RuntimeError(
                     f"read-only database {self.db_path} is missing tables {missing}; "
-                    "open it writable once (SQLiteStore(path).init_db()) to migrate the schema."
+                    "open it writable once (SQLiteStore(path).init_db()) or run `retobs storage migrate` "
+                    "to migrate the schema."
                 )
+            self.investigation_tables_available = set(_INVESTIGATION_TABLES) <= present
             self._schema_ready = True
             return
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
@@ -310,6 +448,8 @@ class SQLiteStore:
             await db.execute(_CREATE_DOC_EDGES)
             await db.execute(_CREATE_DOC_EDGES_SRC_IDX)
             await db.execute(_CREATE_DOC_EDGES_DST_IDX)
+            for statement in _INVESTIGATION_DDL:
+                await db.execute(statement)
             # Best-effort migration for existing DBs (errors if column already exists)
             try:
                 await db.execute(_MIGRATE_METRIC_SCORES_METADATA)
@@ -333,7 +473,14 @@ class SQLiteStore:
                 await db.execute(_CREATE_METRIC_SCORES_UNIQUE_IDX)
             except Exception:
                 pass
+            # v0/v2 files become v3 in place once the additive DDL above has succeeded.
+            from retrieval_observatory.store.migrate import SCHEMA_VERSION  # circular at module scope
+            async with db.execute("PRAGMA user_version") as cursor:
+                version = int((await cursor.fetchone())[0])
+            if version in (0, 2):
+                await db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             await db.commit()
+        self.investigation_tables_available = True
         self._schema_ready = True
 
     async def save_analysis_record(self, kind: str, record_id: str, payload: Dict, version: int = 1) -> None:
@@ -420,7 +567,7 @@ class SQLiteStore:
                 trace.status,
                 trace.timestamp.isoformat(),
                 trace.topology_hash(),
-                json.dumps(trace.to_dict(), sort_keys=True),
+                json.dumps(trace.to_dict(), sort_keys=True, default=json_default),
             )
             for trace in traces
         ]
@@ -438,7 +585,7 @@ class SQLiteStore:
         async with self._connect() as db:
             async with db.execute("SELECT trace_json FROM traces WHERE trace_id = ?", (trace_id,)) as cursor:
                 row = await cursor.fetchone()
-        return RetrievalTrace.from_dict(json.loads(row[0])) if row else None
+        return decode_trace(trace_id, row[0]) if row else None
 
     async def list_traces(self, query: TraceQuery | None = None, *, service: str | None = None, limit: int | None = None) -> List[RetrievalTrace]:
         if query is None:
@@ -461,7 +608,7 @@ class SQLiteStore:
             clauses.append("timestamp <= ?")
             params.append(query.until.isoformat())
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = f"SELECT trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
+        sql = f"SELECT trace_id, trace_json FROM traces{where} ORDER BY timestamp DESC, trace_id"
         if query.limit is not None:
             sql += " LIMIT ? OFFSET ?"
             params.extend((query.limit, query.offset))
@@ -470,12 +617,20 @@ class SQLiteStore:
             params.append(query.offset)
         async with self._connect() as db:
             async with db.execute(sql, params) as cursor:
-                rows = await cursor.fetchall()
-        return [RetrievalTrace.from_dict(json.loads(row[0])) for row in rows]
+                # Decoded as fetched, so the raw JSON of the whole run is never held beside the traces.
+                return [decode_trace(row[0], row[1]) async for row in cursor]
 
     async def get_traces(self, run_id: str) -> List[RetrievalTrace]:
         """Every trace for a run. Unbounded by design — callers compute run-wide statistics."""
         return await self.list_traces(TraceQuery(run_id=run_id))
+
+    async def list_pipeline_ids(self, run_id: str) -> List[str]:
+        """The distinct pipeline ids of a run's traces, sorted; reads no trace payload."""
+        await self._ensure_schema()
+        async with self._connect() as db:
+            async with db.execute("SELECT DISTINCT pipeline_id FROM traces WHERE run_id = ?", (run_id,)) as cursor:
+                rows = await cursor.fetchall()
+        return sorted(row[0] for row in rows)
 
     async def list_services(self) -> List[ServiceSummary]:
         await self._ensure_schema()
@@ -860,8 +1015,6 @@ class SQLiteStore:
 
     async def list_runs_for_dataset(self, dataset_name: str) -> List[Dict]:
         """Return finished runs whose config dataset.name matches (normalized)."""
-        from retrieval_observatory.experimental.classifier.labels import normalize_dataset_name
-
         target = normalize_dataset_name(dataset_name)
         runs = await self.list_runs()
         matched = []
@@ -907,28 +1060,6 @@ class SQLiteStore:
                 (dataset_id, datetime.now(timezone.utc).isoformat(), corpus_path, output_dir, summary_json),
             )
             await db.commit()
-
-    async def get_forge_datasets(self) -> List[Dict]:
-        async with self._connect() as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT dataset_id, created_at, corpus_path, output_dir, summary_json FROM forge_datasets ORDER BY created_at DESC"
-            ) as cursor:
-                rows = await cursor.fetchall()
-        result = []
-        for row in rows:
-            d = dict(row)
-            try:
-                from retrieval_observatory.experimental.forge.types import TestSetSummary
-
-                d["summary"] = TestSetSummary.from_dict(
-                    json.loads(d.pop("summary_json", "{}")),
-                    dataset_id=d["dataset_id"],
-                ).to_dict()
-            except Exception:
-                d["summary"] = TestSetSummary.from_dict({}, dataset_id=d["dataset_id"]).to_dict()
-            result.append(d)
-        return result
 
     async def save_forge_scenarios(self, dataset_id: str, scenarios_json: str) -> None:
         scenarios = json.loads(scenarios_json)
@@ -1252,6 +1383,233 @@ class SQLiteStore:
             ) as cursor:
                 rows = await cursor.fetchall()
         return [dict(r) for r in rows]
+
+
+    # -- investigation projections (schema v3) ---------------------------------------------
+
+    async def _investigation_tables_present(self, db) -> bool:
+        """Cheap presence probe (no DDL) so a pre-v3 file degrades to empty reads, not errors."""
+        if not self.investigation_tables_available:
+            async with db.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN (?, ?, ?)", _INVESTIGATION_TABLES
+            ) as cursor:
+                self.investigation_tables_available = int((await cursor.fetchone())[0]) == len(_INVESTIGATION_TABLES)
+        return self.investigation_tables_available
+
+    async def _require_investigation_tables(self, db) -> None:
+        if not await self._investigation_tables_present(db):
+            raise RuntimeError(
+                f"database {self.db_path} predates schema v3 (no investigation tables); "
+                "run retrieval_observatory.store.migrate.migrate_database(path) or open it writable once."
+            )
+
+    async def replace_investigation_projection(
+        self,
+        scope: InvestigationScope,
+        *,
+        rows: Sequence[Mapping],
+        summaries: Sequence[Mapping],
+        derivation_version: str,
+        judgment_digest: str,
+        trace_count: int,
+    ) -> None:
+        """Rebuild one scope atomically: readers see the old projection or the new one, never a mix."""
+        await self._ensure_schema()
+        key = (scope.run_id, scope.pipeline_id, scope.evaluation_digest)
+        pair_rows = [investigation_pair_row(scope, row) for row in rows]
+        summary_rows = [
+            (*key, item["kind"], item["key"], derivation_version, json.dumps(item["payload"], sort_keys=True))
+            for item in summaries
+        ]
+        async with self._connect() as db:
+            await self._require_investigation_tables(db)
+            try:
+                await db.execute("BEGIN IMMEDIATE")
+                await db.execute(
+                    f"INSERT OR REPLACE INTO investigation_projections ({', '.join(_PROJECTION_COLUMNS)}) "
+                    "VALUES (?, ?, ?, 'building', ?, ?, ?, 0, ?, NULL, NULL)",
+                    (*key, derivation_version, judgment_digest, int(trace_count), datetime.now(timezone.utc).isoformat()),
+                )
+                for table in ("investigation_pairs", "investigation_summaries"):
+                    await db.execute(
+                        f"DELETE FROM {table} WHERE run_id = ? AND pipeline_id = ? AND evaluation_digest = ?", key
+                    )
+                await db.executemany(
+                    f"INSERT INTO investigation_pairs ({', '.join(_PAIR_COLUMNS)}) "
+                    f"VALUES ({', '.join('?' * len(_PAIR_COLUMNS))})",
+                    pair_rows,
+                )
+                await db.executemany(
+                    "INSERT INTO investigation_summaries "
+                    "(run_id, pipeline_id, evaluation_digest, kind, key, derivation_version, payload_json) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    summary_rows,
+                )
+                await db.execute(
+                    "UPDATE investigation_projections SET status = 'complete', finished_at = ?, row_count = ? "
+                    "WHERE run_id = ? AND pipeline_id = ? AND evaluation_digest = ?",
+                    (datetime.now(timezone.utc).isoformat(), len(pair_rows), *key),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def delete_investigation_projection(self, scope: InvestigationScope) -> None:
+        await self._ensure_schema()
+        key = (scope.run_id, scope.pipeline_id, scope.evaluation_digest)
+        async with self._connect() as db:
+            await self._require_investigation_tables(db)
+            try:
+                await db.execute("BEGIN IMMEDIATE")
+                for table in _INVESTIGATION_TABLES:
+                    await db.execute(
+                        f"DELETE FROM {table} WHERE run_id = ? AND pipeline_id = ? AND evaluation_digest = ?", key
+                    )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def get_investigation_projection(self, scope: InvestigationScope) -> Optional[Dict]:
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return None
+            async with db.execute(
+                f"SELECT {', '.join(_PROJECTION_COLUMNS)} FROM investigation_projections "
+                "WHERE run_id = ? AND pipeline_id = ? AND evaluation_digest = ?",
+                (scope.run_id, scope.pipeline_id, scope.evaluation_digest),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return dict(zip(_PROJECTION_COLUMNS, row)) if row else None
+
+    async def list_investigation_projections(self, run_id: str) -> List[Dict]:
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return []
+            async with db.execute(
+                f"SELECT {', '.join(_PROJECTION_COLUMNS)} FROM investigation_projections "
+                "WHERE run_id = ? ORDER BY pipeline_id, evaluation_digest",
+                (run_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [dict(zip(_PROJECTION_COLUMNS, row)) for row in rows]
+
+    async def list_investigation_pairs(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> InvestigationPage:
+        keys = INVESTIGATION_SORT_KEYS[order]
+        limit = clamp_page_limit(limit)
+        where, params = investigation_where(scope, filters, lambda _n: "?")
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return InvestigationPage(rows=[], total=0, next_cursor=None)
+            async with db.execute(f"SELECT COUNT(*) FROM investigation_pairs WHERE {where}", params) as count:
+                total = int((await count.fetchone())[0])
+            if cursor is not None:
+                # Keyset: strictly after the previous page's last sort key (row-value comparison).
+                where += f" AND ({', '.join(keys)}) > ({', '.join('?' * len(keys))})"
+                params = [*params, *decode_cursor(cursor, len(keys))]
+            async with db.execute(
+                f"SELECT {', '.join(keys)}, payload_json FROM investigation_pairs WHERE {where} "
+                f"ORDER BY {', '.join(keys)} LIMIT ?",
+                [*params, limit + 1],
+            ) as cursor_rows:
+                rows = await cursor_rows.fetchall()
+        return keyset_page(rows, limit, total)
+
+    async def list_investigation_pair_facts(
+        self,
+        scope: InvestigationScope,
+        filters: InvestigationFilter | None = None,
+        *,
+        order: Literal["priority", "entity"] = "priority",
+    ) -> List[Dict]:
+        """Every matching pair's summary columns and event count, in page order; one query, no payload decode.
+
+        Sorted here rather than by ``ORDER BY`` so SQLite plans the read on the filter's own index
+        (without a LIMIT it would walk the priority index over the scope). The sort keys are NOT NULL
+        integers and BINARY-collated text, whose order Python's tuple comparison reproduces exactly.
+        """
+        keys = INVESTIGATION_SORT_KEYS[order]
+        where, params = investigation_where(scope, filters, lambda _n: "?")
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return []
+            async with db.execute(
+                f"SELECT {', '.join(keys)}, {', '.join(PAIR_FACT_COLUMNS)}, json_array_length(payload_json, '$.events') "
+                f"FROM investigation_pairs WHERE {where}",
+                params,
+            ) as cursor:
+                rows = await cursor.fetchall()
+        rows.sort(key=lambda row: row[: len(keys)])
+        return [pair_facts(row[len(keys):]) for row in rows]
+
+    async def get_investigation_pair(
+        self, scope: InvestigationScope, *, trace_id: str, namespace: str, unit: str, entity_id: str
+    ) -> Optional[Dict]:
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return None
+            async with db.execute(
+                "SELECT payload_json FROM investigation_pairs WHERE run_id = ? AND pipeline_id = ? "
+                "AND evaluation_digest = ? AND trace_id = ? AND namespace = ? AND unit = ? AND entity_id = ?",
+                (scope.run_id, scope.pipeline_id, scope.evaluation_digest, trace_id, namespace, unit, entity_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return json.loads(row[0]) if row else None
+
+    async def list_investigation_summaries(
+        self,
+        scope: InvestigationScope,
+        kind: str,
+        *,
+        limit: int = 50,
+        cursor: str | None = None,
+        key_prefix: str | None = None,
+    ) -> InvestigationPage:
+        limit = clamp_page_limit(limit)
+        where, params = investigation_where(scope, None, lambda _n: "?", kind=kind)
+        if key_prefix is not None:
+            where += " AND key LIKE ? ESCAPE '\\'"
+            params = [*params, like_prefix(key_prefix)]
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return InvestigationPage(rows=[], total=0, next_cursor=None)
+            async with db.execute(f"SELECT COUNT(*) FROM investigation_summaries WHERE {where}", params) as count:
+                total = int((await count.fetchone())[0])
+            if cursor is not None:
+                where += " AND key > ?"
+                params = [*params, *decode_cursor(cursor, 1)]
+            async with db.execute(
+                f"SELECT key, payload_json FROM investigation_summaries WHERE {where} ORDER BY key LIMIT ?",
+                [*params, limit + 1],
+            ) as cursor_rows:
+                rows = await cursor_rows.fetchall()
+        page = keyset_page(rows, limit, total)
+        return InvestigationPage(
+            rows=[{"key": row[0], "payload": payload} for row, payload in zip(rows, page.rows)],
+            total=total,
+            next_cursor=page.next_cursor,
+        )
+
+    async def get_investigation_summary(self, scope: InvestigationScope, kind: str, key: str) -> Optional[Dict]:
+        async with self._connect() as db:
+            if not await self._investigation_tables_present(db):
+                return None
+            async with db.execute(
+                "SELECT payload_json FROM investigation_summaries WHERE run_id = ? AND pipeline_id = ? "
+                "AND evaluation_digest = ? AND kind = ? AND key = ?",
+                (scope.run_id, scope.pipeline_id, scope.evaluation_digest, kind, key),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return {"key": key, "payload": json.loads(row[0])} if row else None
 
     @staticmethod
     def _trace_row_to_dict(d: Dict) -> Dict:

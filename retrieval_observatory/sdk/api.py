@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
 from retrieval_observatory.sdk.report import BenchmarkReport, ReportModel, _run_sync
-from retrieval_observatory.sdk.wrappers import as_retriever
+from retrieval_observatory.sdk.wrappers import FunctionRetriever, as_retriever
 
 if TYPE_CHECKING:
     from retrieval_observatory.release.policy import ReleasePolicy
@@ -116,6 +116,8 @@ def benchmark(
     concurrency: int = 8,
     max_queries: Optional[int] = None,
     cache: bool = False,
+    provenance: Optional[Mapping[str, Any]] = None,
+    chunk_map: Optional[Sequence[Sequence[str]]] = None,
 ) -> BenchmarkReport:
     """Benchmark a retrieval pipeline defined in Python.
 
@@ -126,6 +128,11 @@ def benchmark(
     `labels`: "gold" (use provided qrels), "llm-judge" (grade retrieved docs with an LLM —
     no ground truth needed), or "pooled" (merge gold + judged). `judge` selects the provider
     ("gemini"/"openai"/"anthropic") and `judge_model` the model id.
+    `provenance`: release identity recorded in the run manifest (``service_id``,
+    ``deployment_revision``, ``corpus_revision``, ``index_build_id``, ``chunking_revision``,
+    ``embedding_model_revision``, ``reranker_model_revision``); omitted keys stay unknown.
+    `chunk_map`: ``(chunk_id, document_id[, namespace])`` rows so chunk-level results are
+    judged against document-level qrels.
     """
     if max_queries is not None and max_queries < 1:
         raise ValueError(f"max_queries must be at least 1 (got {max_queries})")
@@ -146,6 +153,8 @@ def benchmark(
             concurrency=concurrency,
             max_queries=max_queries,
             cache=cache,
+            provenance=provenance,
+            chunk_map=chunk_map,
         )
     )
 
@@ -219,6 +228,28 @@ def inspect_query(
     return _run_sync(_load())
 
 
+def inspect_document(
+    run_id: str,
+    entity: str,
+    *,
+    db_path: str = ".retobs/results.db",
+    pipeline_id: Optional[str] = None,
+    k: Optional[int] = None,
+    unit: str = "document",
+) -> Dict[str, Any]:
+    """Return one evaluation entity's journey rows across every query of a Run (``entity`` is ``namespace:id`` or a bare id)."""
+    from retrieval_observatory.evidence import InvestigationRequest, inspect_document as _inspect_document
+    from retrieval_observatory.store.sqlite import SQLiteStore
+
+    async def _load() -> Dict[str, Any]:
+        store = SQLiteStore(db_path=db_path)
+        await store.init_db()
+        request = {"run_id": run_id, "entity": entity, "pipeline_id": pipeline_id, "k": k, "unit": unit}
+        return await _inspect_document(store, InvestigationRequest.from_mapping(request))
+
+    return _run_sync(_load())
+
+
 async def _benchmark_async(
     *,
     pipeline,
@@ -236,6 +267,8 @@ async def _benchmark_async(
     concurrency,
     max_queries,
     cache,
+    provenance,
+    chunk_map,
 ) -> BenchmarkReport:
     from retrieval_observatory.config.schema import (
         DatasetConfig,
@@ -245,6 +278,7 @@ async def _benchmark_async(
         LabelsConfig,
         MetricsConfig,
         PipelineConfig,
+        ReleaseIdentityConfig,
         StageConfig,
     )
     from retrieval_observatory.pipeline.factory import build_pipeline
@@ -259,8 +293,15 @@ async def _benchmark_async(
         loaded_qrels = {qid: rel for qid, rel in loaded_qrels.items() if qid in ids}
     corpus_map = ds_obj.corpus if hasattr(ds_obj, "corpus") else None
 
+    unknown = sorted(set(provenance or ()) - set(ReleaseIdentityConfig.model_fields))
+    if unknown:
+        raise ValueError(f"Unknown provenance key(s) {unknown}. Use one of {sorted(ReleaseIdentityConfig.model_fields)}.")
+
     stages, stage_ids = _build_stages(pipeline, corpus_map)
     pipeline_id = name or "__".join(stage_ids)
+    if len(stages) == 1 and isinstance(stages[0], FunctionRetriever):
+        # A lone callable is the whole pipeline: its own ``@observe`` spans become the run's trace.
+        stages[0].pipeline_id = pipeline_id
     pipeline_obj = build_pipeline(
         pipeline_id=pipeline_id,
         stages=stages,
@@ -280,6 +321,7 @@ async def _benchmark_async(
         labels=LabelsConfig(mode=_labels_mode(labels), judge=judge, model=judge_model),
         metrics=metrics_cfg,
         execution=ExecutionConfig(concurrency=concurrency, cache_results=cache),
+        release_identity=ReleaseIdentityConfig(**dict(provenance or {})),
     )
 
     store = SQLiteStore(db_path=db_path)
@@ -293,151 +335,10 @@ async def _benchmark_async(
         pipelines=[pipeline_obj],
         store=store,
         no_cache=not cache,
+        chunk_map=chunk_map,
+        evaluation_k=k,
     )
     return BenchmarkReport(artifacts, db_path=db_path, experiment_name=cfg.experiment.name)
-
-
-def generate_testset(
-    corpus: Any,
-    *,
-    n_per_type: int = 3,
-    query_types: Sequence[str] = ("comparison", "constraint", "long_tail"),
-    scenario_types: Sequence[str] = ("temporal", "alias"),
-    provider: Optional[str] = None,
-    api_key: Optional[str] = None,
-    model: Optional[str] = None,
-    k: int = 10,
-    validate: bool = True,
-):
-    """Synthesize a benchmark test set (queries + ground truth) from your corpus via Test Sets.
-
-    Returns an in-memory dataset object usable directly as `benchmark(..., dataset=<here>)`.
-    The default `query_types` are rule-based and need no API key; pass `provider=` (and an
-    api key / env var) to enable LLM query types like paraphrase/temporal/adversarial.
-
-    When ``validate=True`` (default), Test Sets expands extractive qrels with an LLM judge when
-    a provider or ``GOOGLE_API_KEY`` / ``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` is available.
-    """
-    return _run_sync(
-        _generate_testset_async(
-            corpus=corpus,
-            n_per_type=n_per_type,
-            query_types=list(query_types),
-            scenario_types=list(scenario_types),
-            provider=provider,
-            api_key=api_key,
-            model=model,
-            k=k,
-            validate=validate,
-        )
-    )
-
-
-def _forge_judge(provider: Optional[str], api_key: Optional[str], model: Optional[str]):
-    """Return an LLMJudge when credentials are available, else None."""
-    from retrieval_observatory.datasets.llm_judge import AnthropicJudge, GeminiJudge, OpenAIJudge
-
-    def _ready(judge) -> bool:
-        return bool(getattr(judge, "_api_key", None))
-
-    chosen = (provider or "").lower()
-
-    def _try_gemini():
-        return GeminiJudge(api_key=api_key, model=model or "gemini-2.0-flash")
-
-    def _try_openai():
-        return OpenAIJudge(api_key=api_key, model=model or "gpt-4o-mini")
-
-    def _try_anthropic():
-        return AnthropicJudge(api_key=api_key, model=model or "claude-haiku-4-5-20251001")
-
-    if chosen in ("gemini", "google"):
-        try:
-            judge = _try_gemini()
-            return judge if _ready(judge) else None
-        except (ValueError, ImportError):
-            return None
-    if chosen == "openai":
-        judge = _try_openai()
-        return judge if _ready(judge) else None
-    if chosen in ("anthropic", "claude"):
-        judge = _try_anthropic()
-        return judge if _ready(judge) else None
-    if chosen:
-        raise ValueError(f"Unknown LLM provider '{provider}'. Use gemini, openai, or anthropic.")
-
-    for factory in (_try_gemini, _try_openai, _try_anthropic):
-        try:
-            judge = factory()
-            if _ready(judge):
-                return judge
-        except (ValueError, ImportError):
-            continue
-    return None
-
-
-async def _generate_testset_async(
-    *,
-    corpus,
-    n_per_type,
-    query_types,
-    scenario_types,
-    provider,
-    api_key,
-    model,
-    k,
-    validate,
-):
-    import warnings
-
-    from retrieval_observatory.datasets.inmemory import InMemoryDataset
-    from retrieval_observatory.experimental.forge.engine import ForgeEngine
-    from retrieval_observatory.experimental.forge.stress.suite import StressTestSuite
-
-    forge_corpus = _to_forge_corpus(corpus)
-    generator = None
-    if provider:
-        from retrieval_observatory.experimental.forge.generation.generator import ForgeGenerator
-
-        generator = ForgeGenerator.from_provider(provider, api_key=api_key, model=model)
-
-    judge = None
-    if validate:
-        judge = _forge_judge(provider, api_key, model)
-        if judge is None:
-            warnings.warn(
-                "generate_testset(validate=True) but no LLM judge is available; "
-                "pass provider= or set GOOGLE_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY. "
-                "Using extractive qrels only.",
-                UserWarning,
-                stacklevel=2,
-            )
-            validate = False
-
-    engine = ForgeEngine(forge_corpus, generator=generator, scenario_types=list(scenario_types))
-    dataset = await engine.run(
-        query_types=list(query_types),
-        n_per_type=n_per_type,
-        validate=validate,
-        judge=judge,
-    )
-    bench_queries, qrels = StressTestSuite(dataset).to_benchmark_inputs()
-    flat_corpus = {doc_id: doc.get("text", "") for doc_id, doc in forge_corpus.items()}
-    return InMemoryDataset(queries=bench_queries, corpus=flat_corpus, qrels=qrels, k=k)
-
-
-def _to_forge_corpus(corpus: Any) -> Dict[str, Dict]:
-    """Normalize a corpus into Test Sets's {doc_id: {"text": ...}} shape."""
-    if isinstance(corpus, dict):
-        out: Dict[str, Dict] = {}
-        for doc_id, value in corpus.items():
-            if isinstance(value, dict):
-                out[str(doc_id)] = value
-            else:
-                out[str(doc_id)] = {"text": str(value)}
-        return out
-    # Sequence of {"id":, "text":, ...}
-    return {str(obj["id"]): {"text": obj.get("text", ""), **{kk: vv for kk, vv in obj.items() if kk not in ("id", "text")}} for obj in corpus}
 
 
 def _labels_mode(labels: str) -> str:

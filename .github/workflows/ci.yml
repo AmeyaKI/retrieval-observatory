@@ -117,11 +117,12 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Build dashboard and enforce bundle budgets
         run: npm run build --prefix retrieval_observatory/dashboard/ui
-      - name: Seed deterministic demo
-        run: retobs demo --db .retobs/e2e/results.db --output-dir .retobs/e2e --n-traces 80
+      - name: Seed the demo and a verified integration (model-free)
+        run: python tests/browser/seed_e2e.py /tmp/retobs-e2e
       - name: Start dashboard
         run: |
-          retobs serve --host 127.0.0.1 --port 4000 --db .retobs/e2e/results.db > /tmp/retobs-dashboard.log 2>&1 &
+          # The demo database first: routes that carry no db fall back to the first registered one.
+          retobs serve --host 127.0.0.1 --port 4000 --db /tmp/retobs-e2e/demo/demo.db,/tmp/retobs-e2e/project/.retobs/results.db > /tmp/retobs-dashboard.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:4000/dbs && exit 0; sleep 1; done
           cat /tmp/retobs-dashboard.log
           exit 1

@@ -22,11 +22,21 @@ jobs:
         env:
           BASELINE_RUN: ${{ vars.RETOBS_BASELINE_RUN }}
         run: |
-          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --policy examples/ci/release-policy.yaml --format markdown --output artifacts/retobs-comparison.md --fail-on hold-or-block-or-fail
-          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --policy examples/ci/release-policy.yaml --format html --output artifacts/retobs-comparison.html
-          cat artifacts/retobs-comparison.md >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          retobs compare "$BASELINE_RUN" "$CANDIDATE_RUN" --db .retobs/results.db --policy examples/ci/release-policy-v3.yaml --artifacts artifacts/release-audit --fail-on hold-or-block-or-fail
+          echo "code=$?" >> "$GITHUB_OUTPUT"
+        id: audit
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: retobs-comparison
+          name: retobs-release-audit
           path: artifacts/
           if-no-files-found: error
+      - name: Release gate
+        run: |
+          # Exit codes: 0 PASS, 1 FAIL, 2 BLOCK, 3 HOLD (a decision was written); anything else is a tool error.
+          case "${{ steps.audit.outputs.code }}" in
+            0) echo "release gate: PASS" ;;
+            1|2|3) echo "release gate: non-PASS decision (see artifacts/release-audit/release-audit.html)"; exit 1 ;;
+            *) echo "release gate: tool error, no decision"; exit 1 ;;
+          esac

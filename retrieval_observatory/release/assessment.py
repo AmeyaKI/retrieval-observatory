@@ -1,20 +1,92 @@
+"""Evidence assessment: readiness per claim scope plus a field-level provenance assessment.
+
+Three separate checks replace blanket release-identity equality:
+
+1. Evaluation compatibility (invariants): query inputs, relevance judgments, corpus identity
+   under the fixed-corpus contract, labeling, evaluation semantics, and metric implementation
+   must match. A missing required value or a mismatch BLOCKs; ``evaluation`` unrecorded on
+   both runs HOLDs because older runs predate the field.
+2. Declared intervention: model, index, chunking, and configuration differences are recorded
+   and never block by themselves. A difference the policy does not declare in
+   ``intervention.expected_changes`` HOLDs (``undeclared_intervention``) until it is declared
+   or investigated. ``deployment_revision`` identifies the candidate deployment itself, so it
+   is always an expected difference.
+3. Within-run consistency: each run's index/query encoder pair is checked from its explicit
+   ``index_encoder`` block. Differing identifiers alone cannot establish incompatibility, and
+   unknown provenance stays unknown: it is listed in ``unknown_fields``, not raised as a finding,
+   unless the policy sets ``evidence.require_index_encoder_compatibility``.
+
+Identity invariants and consistency findings apply to the promotion and aggregate scopes (they
+void every claim); evaluation-semantics findings apply to the aggregate scope (they govern
+metric interpretation); the intervention declaration applies to the promotion scope (it governs
+what is being promoted). ``PROVENANCE_IGNORED_FIELDS`` names the manifest fields that never
+produce a provenance finding.
+"""
+
 from __future__ import annotations
 
 import json
 from typing import Any, Mapping
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from retrieval_observatory.metrics.comparison import REQUIRED_COMPARISON_AXES, comparison_validity
 from retrieval_observatory.release.evidence import EvidenceProfile
 from retrieval_observatory.release.policy import EvidenceRequirements, LineageRequirements, ReleasePolicy
-from retrieval_observatory.release.readiness import ClaimReadiness, ClaimScope, EvidenceFinding
+from retrieval_observatory.release.readiness import (
+    ClaimReadiness,
+    ClaimScope,
+    EvidenceFinding,
+    FieldComparison,
+    ProvenanceAssessment,
+    ProvenanceClassification,
+)
+
+
+PROVENANCE_IGNORED_FIELDS = (
+    "run_window",
+    "python",
+    "platform",
+    "machine",
+    "packages",
+    "git_commit",
+    "git_dirty",
+    "environment",
+    "cache_results",
+    "seed",
+    "output",
+    "config_hash",
+    "normalized_config",
+)
+
+# Evaluation invariants as (mismatch code, manifest paths, compare every recorded path). When
+# ``compare_all`` is false the first path recorded on both runs is compared: a content digest
+# supersedes the coarser identity it extends. Corpus identity checks the declared revision and
+# the content hash whenever both runs record them. No path recorded on both runs BLOCKs.
+_INVARIANTS = (
+    ("query_input_mismatch", ("dataset.query_input_hash", "dataset.query_hash"), False),
+    ("judgment_identity_mismatch", ("dataset.judgment_digest", "dataset.qrel_hash"), False),
+    ("corpus_identity_mismatch", ("release_identity.corpus_revision", "dataset.corpus_hash"), True),
+    ("comparison_identity_mismatch", ("labeling",), False),
+)
+
+# Declared-intervention field names (policy ``intervention.expected_changes``) to manifest paths.
+_INTERVENTION_PATHS = {
+    "reranker_model_revision": "release_identity.reranker_model_revision",
+    "embedding_model_revision": "release_identity.embedding_model_revision",
+    "index_build_id": "release_identity.index_build_id",
+    "chunking_revision": "release_identity.chunking_revision",
+    "deployment_revision": "release_identity.deployment_revision",
+    "retriever_configuration": "models",
+}
+_ALWAYS_EXPECTED = ("deployment_revision",)
+_SIDES = ("baseline", "candidate")
 
 
 class EvidenceAssessment(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     readiness: dict[ClaimScope, ClaimReadiness]
+    provenance: ProvenanceAssessment = Field(default_factory=ProvenanceAssessment)
 
 
 def assess_evidence(
@@ -24,11 +96,31 @@ def assess_evidence(
 ) -> EvidenceAssessment:
     manifests = (baseline_manifest, candidate_manifest)
     profiles = tuple(_profile(manifest) for manifest in manifests)
-    comparison_findings = _comparison_findings(manifests)
     evidence_requirements = policy.evidence if policy is not None else EvidenceRequirements()
+    declared = policy.intervention.expected_changes if policy is not None else []
+
+    comparison_findings: list[EvidenceFinding] = []
+    evaluation_findings: list[EvidenceFinding] = []
+    intervention_findings: list[EvidenceFinding] = []
+    unknown_fields: list[str] = []
+    invariants = _invariant_comparisons(manifests, comparison_findings, evaluation_findings, unknown_fields)
+    interventions = _intervention_comparisons(manifests, declared, intervention_findings, unknown_fields)
+    consistency = _consistency_comparisons(
+        manifests,
+        evidence_requirements.require_index_encoder_compatibility,
+        comparison_findings,
+        unknown_fields,
+    )
+    provenance = ProvenanceAssessment(
+        invariants=invariants,
+        interventions=interventions,
+        consistency=consistency,
+        unknown_fields=unknown_fields,
+    )
 
     promotion_findings = [
         *_for_scope(comparison_findings, "promotion"),
+        *intervention_findings,
         *(_promotion_findings(policy, manifests, profiles) if policy is not None else []),
     ]
     if policy is not None and policy.evidence.promotion.require_lineage_readiness:
@@ -39,7 +131,10 @@ def assess_evidence(
                 scope="promotion",
             )
         )
-    aggregate_findings = _for_scope(comparison_findings, "aggregate_or_slice_evaluation")
+    aggregate_findings = [
+        *_for_scope(comparison_findings, "aggregate_or_slice_evaluation"),
+        *evaluation_findings,
+    ]
     diagnosis_findings = _lineage_findings(
         profiles,
         evidence_requirements.lineage_diagnosis,
@@ -91,7 +186,7 @@ def assess_evidence(
         "lineage_diff": _readiness("lineage_diff", diff_findings),
         "production_trace": _readiness("production_trace", production_findings),
     }
-    return EvidenceAssessment(readiness=readiness)
+    return EvidenceAssessment(readiness=readiness, provenance=provenance)
 
 
 def _profile(manifest: Mapping[str, Any]) -> EvidenceProfile | None:
@@ -104,63 +199,274 @@ def _profile(manifest: Mapping[str, Any]) -> EvidenceProfile | None:
         return None
 
 
-def _comparison_findings(manifests: tuple[Mapping[str, Any], Mapping[str, Any]]) -> list[EvidenceFinding]:
-    validity = comparison_validity(list(manifests))
-    findings = []
-    for difference in validity.differences:
-        if difference.axis not in REQUIRED_COMPARISON_AXES:
-            continue
-        missing = difference.status == "unknown"
+def _invariant_comparisons(
+    manifests: tuple[Mapping[str, Any], Mapping[str, Any]],
+    findings: list[EvidenceFinding],
+    evaluation_findings: list[EvidenceFinding],
+    unknown_fields: list[str],
+) -> list[FieldComparison]:
+    comparisons = []
+    for code, paths, compare_all in _INVARIANTS:
+        recorded = [path for path in paths if all(_value(manifest, path) is not None for manifest in manifests)]
+        for path in recorded if compare_all else recorded[:1]:
+            values = [_value(manifest, path) for manifest in manifests]
+            equal = values[0] == values[1]
+            comparisons.append(_comparison(path, values, "invariant" if equal else "evidence_invalid", None if equal else code))
+            if not equal:
+                findings.append(
+                    _finding(
+                        code,
+                        "aggregate_or_slice_evaluation",
+                        observed=values,
+                        required=f"equal recorded {path} values",
+                        detail=f"Runs differ on evaluation invariant '{path}'.",
+                        next_action=f"Compare runs with the same {path}.",
+                    )
+                )
+        if not recorded:
+            values = [_value(manifest, paths[0]) for manifest in manifests]
+            missing = [
+                side
+                for side, manifest in zip(_SIDES, manifests)
+                if all(_value(manifest, path) is None for path in paths)
+            ] or list(_SIDES)
+            comparisons.append(_comparison(paths[0], values, "unknown", "required_manifest_field_missing"))
+            findings.append(
+                _finding(
+                    "required_manifest_field_missing",
+                    "aggregate_or_slice_evaluation",
+                    observed=values,
+                    required=f"{' or '.join(paths)} recorded for both runs",
+                    detail=f"Evaluation invariant '{paths[0]}' is not recorded for {' and '.join(missing)}.",
+                    next_action=f"Record {paths[0]} for the {' and '.join(missing)} run and rerun the comparison.",
+                )
+            )
+
+    versions = [_value(manifest, "metric_versions") for manifest in manifests]
+    if all(value is not None for value in versions):
+        equal = versions[0] == versions[1]
+        code = None if equal else "metric_implementation_mismatch"
+        comparisons.append(_comparison("metric_versions", versions, "invariant" if equal else "evidence_invalid", code))
+        if not equal:
+            findings.append(
+                _finding(
+                    "metric_implementation_mismatch",
+                    "aggregate_or_slice_evaluation",
+                    observed=versions,
+                    required="equal recorded metric implementations and gain conventions",
+                    detail="Runs differ on the recorded metric implementation or gain convention.",
+                    next_action="Recompute both runs with the same metric implementation.",
+                )
+            )
+    else:
+        unknown_fields.extend(f"{side}.metric_versions" for side, value in zip(_SIDES, versions) if value is None)
+
+    comparisons.append(_evaluation_semantics(manifests, evaluation_findings, unknown_fields))
+    return comparisons
+
+
+def _evaluation_semantics(
+    manifests: tuple[Mapping[str, Any], Mapping[str, Any]],
+    findings: list[EvidenceFinding],
+    unknown_fields: list[str],
+) -> FieldComparison:
+    values = [_value(manifest, "evaluation") for manifest in manifests]
+    values = [value if isinstance(value, dict) else None for value in values]
+    if all(value is not None for value in values):
+        differing = sorted(
+            key for key in set(values[0]) | set(values[1]) if values[0].get(key) != values[1].get(key)
+        )
+        if differing:
+            findings.append(
+                _finding(
+                    "evaluation_semantics_mismatch",
+                    "aggregate_or_slice_evaluation",
+                    observed=values,
+                    required="equal evaluation unit, boundary, k, and relevance threshold",
+                    detail=f"Runs differ on evaluation semantics: {', '.join(differing)}.",
+                    next_action="Evaluate both runs under the same evaluation specification.",
+                )
+            )
+        return _comparison(
+            "evaluation",
+            values,
+            "evidence_invalid" if differing else "invariant",
+            "evaluation_semantics_mismatch" if differing else None,
+        )
+    missing = [side for side, value in zip(_SIDES, values) if value is None]
+    unknown_fields.extend(f"{side}.evaluation" for side in missing)
+    if len(missing) == 1:
         findings.append(
             _finding(
-                "required_manifest_field_missing" if missing else "comparison_identity_mismatch",
+                "evaluation_semantics_missing",
                 "aggregate_or_slice_evaluation",
-                observed=difference.values,
-                required=f"equal recorded {difference.axis} values",
-                detail=difference.detail,
+                observed=values,
+                required="evaluation recorded for both runs",
+                detail=f"Evaluation semantics are not recorded for the {missing[0]} run.",
+                next_action=f"Rerun the {missing[0]} on a build that records the evaluation specification.",
+            )
+        )
+        return _comparison("evaluation", values, "unknown", "evaluation_semantics_missing")
+    findings.append(
+        _finding(
+            "evaluation_semantics_unrecorded",
+            "aggregate_or_slice_evaluation",
+            status="HOLD",
+            observed=values,
+            required="evaluation recorded for both runs",
+            detail="Neither run records its evaluation semantics; both predate the evaluation record.",
+            next_action="Confirm both runs used the same evaluation unit, boundary, k, and threshold, or rerun them on a build that records it.",
+        )
+    )
+    return _comparison("evaluation", values, "unknown", "evaluation_semantics_unrecorded")
+
+
+def _intervention_comparisons(
+    manifests: tuple[Mapping[str, Any], Mapping[str, Any]],
+    declared: list[str],
+    findings: list[EvidenceFinding],
+    unknown_fields: list[str],
+) -> list[FieldComparison]:
+    comparisons = []
+    undeclared: dict[str, list[Any]] = {}
+    for name, path in _INTERVENTION_PATHS.items():
+        values = [_value(manifest, path) for manifest in manifests]
+        values = [None if value in (None, [], {}) else value for value in values]
+        if all(value is None for value in values):
+            continue
+        if any(value is None for value in values):
+            unknown_fields.extend(f"{side}.{path}" for side, value in zip(_SIDES, values) if value is None)
+            comparisons.append(_comparison(path, values, "unknown", None))
+            continue
+        if values[0] == values[1]:
+            classification: ProvenanceClassification = "invariant"
+        elif name in declared or name in _ALWAYS_EXPECTED:
+            classification = "expected"
+        else:
+            classification = "unexpected"
+            undeclared[name] = values
+        comparisons.append(
+            _comparison(path, values, classification, "undeclared_intervention" if classification == "unexpected" else None)
+        )
+    if undeclared:
+        names = ", ".join(undeclared)
+        findings.append(
+            _finding(
+                "undeclared_intervention",
+                "promotion",
+                status="HOLD",
+                observed=undeclared,
+                required="every changed intervention field declared in intervention.expected_changes",
+                detail=f"Runs differ on undeclared intervention fields: {names}.",
                 next_action=(
-                    f"Record {difference.axis} for both runs and rerun the comparison."
-                    if missing
-                    else f"Compare runs with the same {difference.axis}."
+                    f"Declare {names} in the policy's intervention.expected_changes if the change is intended, "
+                    "or investigate the unplanned change."
                 ),
             )
         )
-    findings.extend(_release_identity_findings(manifests))
-    return findings
+    return comparisons
 
 
-RELEASE_IDENTITY_COMPARISON_FIELDS = (
-    "corpus_revision",
-    "index_build_id",
-    "chunking_revision",
-    "embedding_model_revision",
-    "reranker_model_revision",
-)
-
-
-def _release_identity_findings(manifests: tuple[Mapping[str, Any], Mapping[str, Any]]) -> list[EvidenceFinding]:
-    """Block on a mismatched release-identity field between two present, differing values.
-
-    Missing values are handled separately by policy-declared required_manifest_fields;
-    this only fires when both runs recorded the field and it disagrees.
-    """
-    findings = []
-    for field in RELEASE_IDENTITY_COMPARISON_FIELDS:
-        values = [((manifest or {}).get("release_identity") or {}).get(field) for manifest in manifests]
-        if any(value is None for value in values):
+def _consistency_comparisons(
+    manifests: tuple[Mapping[str, Any], Mapping[str, Any]],
+    required: bool,
+    findings: list[EvidenceFinding],
+    unknown_fields: list[str],
+) -> list[FieldComparison]:
+    """Check each run's index/query encoder pair on its own; the runs are not compared."""
+    blocks = [_value(manifest, "index_encoder") for manifest in manifests]
+    blocks = [block if isinstance(block, dict) else None for block in blocks]
+    checked = [block is not None or _records_encoder_pair(manifest) for manifest, block in zip(manifests, blocks)]
+    if not any(checked):
+        return []
+    statuses: list[str] = []
+    codes: list[str] = []
+    for side, block, applies in zip(_SIDES, blocks, checked):
+        if not applies:
             continue
-        if len({value for value in values}) > 1:
-            findings.append(
-                _finding(
-                    "release_identity_mismatch",
-                    "aggregate_or_slice_evaluation",
-                    observed=values,
-                    required=f"equal recorded release_identity.{field} values",
-                    detail=f"Runs differ on release identity field '{field}'.",
-                    next_action=f"Compare runs with the same {field}.",
-                )
+        if block is None:
+            unknown_fields.append(f"{side}.index_encoder")
+            if not required:
+                statuses.append("unknown")
+                continue
+            code, status, detail = (
+                "index_encoder_compatibility_required",
+                "BLOCK",
+                f"The {side} run does not record its index/query encoder pair; the policy requires it.",
             )
-    return findings
+        else:
+            compatible = block.get("compatible") if isinstance(block.get("compatible"), bool) else None
+            revisions = (block.get("index_embedding_model_revision"), block.get("query_embedding_model_revision"))
+            if compatible is True or (compatible is None and None not in revisions and revisions[0] == revisions[1]):
+                continue
+            if compatible is False:
+                code, status, detail = (
+                    "index_encoder_incompatible",
+                    "BLOCK",
+                    f"The {side} run declares its index encoder incompatible with its query encoder.",
+                )
+            elif required:
+                code, status, detail = (
+                    "index_encoder_compatibility_required",
+                    "BLOCK",
+                    f"The {side} run has not verified its index/query encoder compatibility; the policy requires it.",
+                )
+            else:
+                code, status, detail = (
+                    "index_encoder_unverified",
+                    "HOLD",
+                    f"The {side} run encodes queries and its index with different, unverified encoder revisions.",
+                )
+        statuses.append(status)
+        codes.append(code)
+        findings.append(
+            _finding(
+                code,
+                "aggregate_or_slice_evaluation",
+                status=status,
+                observed={"run": side, "index_encoder": block},
+                required="index_encoder.compatible true, or equal index and query encoder revisions",
+                detail=detail,
+                next_action="Record the index/query encoder pair with an explicit compatibility verdict for the run.",
+            )
+        )
+    classification: ProvenanceClassification = (
+        "evidence_invalid" if "BLOCK" in statuses else "unknown" if statuses else "expected"
+    )
+    return [_comparison("index_encoder", blocks, classification, codes[0] if codes else None)]
+
+
+def _records_encoder_pair(manifest: Mapping[str, Any]) -> bool:
+    return all(
+        _value(manifest, path) is not None
+        for path in ("release_identity.index_build_id", "release_identity.embedding_model_revision")
+    )
+
+
+def _comparison(
+    field: str,
+    values: list[Any],
+    classification: ProvenanceClassification,
+    finding_code: str | None,
+) -> FieldComparison:
+    return FieldComparison(
+        field=field,
+        baseline=values[0],
+        candidate=values[1],
+        equal=values[0] == values[1],
+        classification=classification,
+        finding_code=finding_code,
+    )
+
+
+def _value(manifest: Mapping[str, Any], path: str) -> Any:
+    """A JSON-normalised manifest value; labeling is its (method, judge, model, version) tuple."""
+    if path == "labeling":
+        labeling = manifest.get("labeling")
+        if not isinstance(labeling, Mapping) or labeling.get("method") is None:
+            return None
+        return _json_safe([labeling.get(key) for key in ("method", "judge", "model", "version")])
+    return _json_safe(_nested_value(manifest, path))
 
 
 def _promotion_findings(

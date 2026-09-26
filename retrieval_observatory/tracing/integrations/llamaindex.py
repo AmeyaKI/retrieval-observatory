@@ -22,7 +22,7 @@ class RetobsLlamaIndexCallback(BaseCallbackHandler):  # type: ignore[misc]
             super().__init__()
         self.recorder, self.registry, self.pipeline_id = recorder, registry, pipeline_id
         self._context: TraceContext | None = None
-        self._starts: dict[str, tuple[float, str, str]] = {}
+        self._starts: dict[str, tuple[float, str, str, str]] = {}
         self._query = ""
 
     def on_event_start(self, event_type: Any, payload: Mapping[str, Any] | None = None, event_id: str = "", parent_id: str = "", **kwargs):
@@ -30,8 +30,8 @@ class RetobsLlamaIndexCallback(BaseCallbackHandler):  # type: ignore[misc]
         name = str(getattr(event_type, "value", event_type)).lower()
         self._query = str(payload.get("query_str", payload.get("query", self._query)))
         if name in {"retrieve", "retrieving", "reranking", "rerank"}:
-            path = str(kwargs.get("component_path") or payload.get("component_path") or name)
-            self._starts[event_id] = (time.monotonic(), path, parent_id)
+            explicit = kwargs.get("component_path") or payload.get("component_path")
+            self._starts[event_id] = (time.monotonic(), str(explicit or name), parent_id, "stable" if explicit else "unstable")
             if self._context is None:
                 self._context = self.recorder.start_trace(self._query, self.pipeline_id)
         return event_id
@@ -40,13 +40,16 @@ class RetobsLlamaIndexCallback(BaseCallbackHandler):  # type: ignore[misc]
         started = self._starts.pop(event_id, None)
         if started is None or self._context is None:
             return
-        since, path, parent_id = started
+        since, path, parent_id, identity = started
         payload = payload or {}
         nodes = payload.get("nodes", payload.get("documents", ()))
-        resolved = self.registry.resolve(ComponentEvent(path, event_id, (parent_id,) if parent_id else ()))
+        parent_ids = (parent_id,) if parent_id else ()
+        resolved = self.registry.resolve(ComponentEvent(path, event_id, parent_ids))
+        # The framework's parent event is kept for verification, never turned into a dataflow edge.
         self._context.span(
             resolved.op_type, resolved.op_id, nodes, (time.monotonic() - since) * 1000,
-            op_id=resolved.op_id, parent_ids=resolved.parent_ids,
+            op_id=resolved.op_id, parent_ids=resolved.parent_ids, invocation_id=event_id or None,
+            params={"framework_parent_run_ids": list(parent_ids), "component_identity": identity},
         )
 
     def start_trace(self, trace_id: str | None = None) -> None:

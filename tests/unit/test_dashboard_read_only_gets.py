@@ -1,5 +1,5 @@
-"""GET endpoints must never write: reliability snapshots and recomputed metrics stay out of the
-store on a read-only registry, and metric rows are deduplicated on their natural key."""
+"""GET endpoints must never write: recomputed metrics stay out of the store on a read-only
+registry, and metric rows are deduplicated on their natural key."""
 from __future__ import annotations
 
 import json
@@ -62,19 +62,6 @@ async def test_read_only_metrics_get_computes_without_persisting(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_reliability_get_does_not_write_a_snapshot(tmp_path: Path) -> None:
-    db_path = tmp_path / "rel.db"
-    await _seed(db_path, with_metrics=True)
-    for read_only in (True, False):
-        registry = DbRegistry([str(db_path)], read_only=read_only)
-        client = TestClient(create_app(registry=registry, enable_uploads=False), raise_server_exceptions=False)
-        response = client.get(f"/dbs/{registry.default_db_id}/advisor/reliability?run_id={RUN}")
-        assert response.status_code == 200, response.text
-        assert "components" in response.json()
-        assert _count(db_path, "reliability_snapshots") == 0, "GET /advisor/reliability must not persist"
-
-
-@pytest.mark.asyncio
 async def test_save_metrics_batch_ignores_duplicate_natural_keys(tmp_path: Path) -> None:
     store = SQLiteStore(str(tmp_path / "dedup.db"))
     await store.init_db()
@@ -87,3 +74,19 @@ async def test_save_metrics_batch_ignores_duplicate_natural_keys(tmp_path: Path)
     stored = await store.get_metrics(RUN)
     assert len(stored) == 2
     assert {row.get("branch_id") for row in stored} == {None, "arm"}
+
+
+@pytest.mark.asyncio
+async def test_investigation_get_does_not_write(tmp_path: Path) -> None:
+    db_path = tmp_path / "inv.db"
+    await _seed(db_path, with_metrics=False)
+    before = db_path.read_bytes()
+    registry = DbRegistry([str(db_path)], read_only=True)
+    client = TestClient(create_app(registry=registry, enable_uploads=False), raise_server_exceptions=False)
+    for path in (f"/runs/{RUN}/queries", f"/runs/{RUN}/queries/q1", f"/runs/{RUN}/documents", f"/runs/{RUN}/projection"):
+        response = client.get(f"/dbs/{registry.default_db_id}/investigation{path}")
+        assert response.status_code == 200, response.text
+    body = client.get(f"/dbs/{registry.default_db_id}/investigation/runs/{RUN}/queries").json()
+    assert body["rows"] == [] and {f["code"] for f in body["findings"]} >= {"projection_unavailable"}
+    assert _count(db_path, "investigation_pairs") == 0
+    assert db_path.read_bytes() == before, "investigation GETs on a read-only registry must not write"

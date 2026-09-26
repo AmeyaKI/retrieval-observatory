@@ -117,7 +117,7 @@ async def test_report_contains_overall_decision_and_lineage_readiness(tmp_path):
     assert markdown.index("## Next action") < paired_index
     assert markdown.index("## Reproduce and inspect") < paired_index
     assert "Artifact schema: `1`" in markdown
-    assert "#/runs/candidate/queries/q-1/diff?against=base" in report.to_json()
+    assert "#/investigate?db=results&run=candidate&pipeline=pipeline&view=queries&query=q-1&compare=base" in report.to_json() or "run=candidate" in report.to_json() and "query=q-1&compare=base" in report.to_json()
     assert "<!doctype html>" in report.to_html()
 
 

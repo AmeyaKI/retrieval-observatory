@@ -148,8 +148,23 @@ def _load_qrels(path: str) -> Dict[str, Dict[str, int]]:
     JSONL rows may be one judgement each (``doc_id`` with ``relevance``/``grade``/``score``,
     default 1) or one query each (``relevant_doc_ids`` as a list or a ``{doc_id: grade}`` dict),
     the same shape the queries file accepts inline. Anything else names the accepted shapes.
+
+    Repeating a (query_id, doc_id) row with the same grade is fine; repeating it with a
+    different grade is a contradiction and raises rather than letting the later row win.
     """
     qrels: Dict[str, Dict[str, int]] = {}
+    seen: Dict[Tuple[str, str], Tuple[int, int]] = {}
+
+    def record(qid: str, doc_id: str, grade: int, line_number: int) -> None:
+        previous = seen.get((qid, doc_id))
+        if previous is not None and previous[0] != grade:
+            raise ValueError(
+                f"{path}:{line_number}: contradictory judgment for query {qid!r} doc {doc_id!r}: "
+                f"grade {grade} conflicts with grade {previous[0]} at line {previous[1]}"
+            )
+        seen.setdefault((qid, doc_id), (grade, line_number))
+        qrels.setdefault(qid, {})[doc_id] = grade
+
     if path.endswith(".jsonl"):
         with open(path) as f:
             for line_number, line in enumerate(f, start=1):
@@ -163,10 +178,11 @@ def _load_qrels(path: str) -> Dict[str, Dict[str, int]]:
                 if "relevant_doc_ids" in obj:
                     rel = obj["relevant_doc_ids"]
                     grades = {str(doc_id): int(grade) for doc_id, grade in rel.items()} if isinstance(rel, dict) else {str(doc_id): 1 for doc_id in rel}
-                    qrels.setdefault(query_id, {}).update(grades)
+                    for doc_id, grade in grades.items():
+                        record(query_id, doc_id, grade, line_number)
                 elif "doc_id" in obj:
                     grade = int(obj.get("relevance", obj.get("grade", obj.get("score", 1))))
-                    qrels.setdefault(query_id, {})[str(obj["doc_id"])] = grade
+                    record(query_id, str(obj["doc_id"]), grade, line_number)
                 else:
                     raise ValueError(
                         f"{path}:{line_number}: qrels row has keys {sorted(obj)}; expected one of {' | '.join(QREL_ROW_SHAPES)}"
@@ -174,7 +190,7 @@ def _load_qrels(path: str) -> Dict[str, Dict[str, int]]:
         return qrels
 
     with open(path) as f:
-        for line in f:
+        for line_number, line in enumerate(f, start=1):
             line = line.strip()
             if not line:
                 continue
@@ -185,5 +201,5 @@ def _load_qrels(path: str) -> Dict[str, Dict[str, int]]:
                 query_id, doc_id, grade_str = parts[:3]
             else:
                 continue
-            qrels.setdefault(query_id, {})[doc_id] = int(float(grade_str))
+            record(query_id, doc_id, int(float(grade_str)), line_number)
     return qrels

@@ -6,7 +6,7 @@ finds in different files are recorded without parent edges between them, and a p
 several entrypoints still needs manual operator mapping (see `FUTURE_WORK.md`, "Integration").
 Use this guide when your pipeline is a `SearchService`-style class whose entrypoint calls lanes,
 fusion, and reranking that live in separate modules, and you want every operator's candidates to
-land in **one** trace with correct parent edges, op types, and replay tiers. You write four
+land in **one** trace with correct parent edges and op types. You write four
 decorators by hand; no agent, no plan file, no `retobs/integration.yaml`.
 
 Every code block below is copied from the runnable example under
@@ -62,8 +62,8 @@ class SearchService:
         return self.reranker.rerank(query, fused, k=5)
 ```
 
-`service_id` is what the dashboard's Production page groups traces by; `pipeline_id` names the
-topology. The decorator is a no-op when a trace is already active (a request under
+`service_id` and `pipeline_id` scope the trace: the service that emitted it and the topology it
+follows. The decorator is a no-op when a trace is already active (a request under
 `instrument_fastapi`, or a LangChain/LlamaIndex callback), so it composes instead of nesting.
 
 ## 2. Record each operator with `@observe`
@@ -100,17 +100,19 @@ The second lane is decorated the same way with `op_id="dense"`. Keyword argument
 ## 3. Wire parent edges across modules
 
 Parent edges are declared, not discovered. `parent_ids` names the `op_id`s whose outputs feed this
-operator; when the span is built, `@observe` looks those ids up in the active trace and copies
-their outputs in as the span's `input_groups`. The referenced spans may live in any module, as long
-as they ran earlier in the same entrypoint call. From `fusion.py`:
+operator. `@observe` records the operator's actual arguments (snapshotted before the call) as its
+input groups, keyed by those parents; when it cannot tell which argument came from which parent, it
+says so in the span's `input_capture` (`positional` for a list of lanes, as here, or `inferred`
+when it had to fall back to the parents' recorded outputs). A `CaptureSpec`
+(`@observe(..., capture=...)`) records named inputs instead. The referenced spans may live in any
+module, as long as they ran earlier in the same entrypoint call. From `fusion.py`:
 
 ```python
 @observe("FUSE", op_id="rrf", parent_ids=("keyword", "dense"), deterministic=True, replay_policy="EXACT")
 def rrf_merge(lanes: list[list[dict]], *, rrf_k: int = 60) -> list[dict]:
-    """Merge ranked lists with ``1 / (rrf_k + rank)``, the formula counterfactual replay re-runs.
+    """Merge ranked lists with ``1 / (rrf_k + rank)``.
 
-    ``rrf_k`` is keyword-only so the call site records it as a span param; replay reads
-    ``params["rrf_k"]`` when it recomputes this fusion without one of its lanes.
+    ``rrf_k`` is keyword-only so the call site records it as a span param.
     """
 ```
 
@@ -118,8 +120,7 @@ And from `rerank.py`, whose only parent is the fusion span:
 
 ```python
 class OverlapReranker:
-    """Phrase bonus plus token overlap. A real model is not deterministic, so the replay tier is
-    OBSERVED_ABLATION: replay reuses the scores recorded here instead of calling the model again."""
+    """Phrase bonus plus token overlap, standing in for a cross-encoder."""
 
     @observe("RERANK", op_id="rerank", parent_ids=("rrf",), replay_policy="OBSERVED_ABLATION")
     def rerank(self, query: str, candidates: list[dict], *, k: int = 5) -> list[dict]:
@@ -128,26 +129,17 @@ class OverlapReranker:
 A parent id that names a span which has not fired yet is silently dropped from the recorded
 `parent_ids`, so call order in the entrypoint matters: lanes, then fusion, then rerank.
 
-## 4. Declare op types and replay tiers
+## 4. Declare op types
 
 The first argument to `@observe` is the op type: `SOURCE`, `FUSE`, `RERANK`, `BOOST`, `EXPAND`,
-`FILTER`, `GATE`, `TRANSFORM`, or `GENERATE`. It drives the dashboard's stage labels, the inferred
-drop reasons (`reranked_out`, `filtered`, `truncated`), and which counterfactual replay applies.
+`FILTER`, `GATE`, `TRANSFORM`, or `GENERATE`. It drives the stage labels in Investigate and
+which transitions are expected at the operator: a `SOURCE` introduces candidates and has no
+inputs; a `FILTER` or `RERANK` receives its parents' candidates and removes, demotes, or promotes
+them.
 
-`replay_policy` defaults to `NOT_REPLAYABLE` for a hand-recorded span, so declare it. The tiers
-the DAG runner assigns by op type (`retrieval_observatory/pipeline/dag.py::DEFAULT_REPLAY_POLICY`)
-are the ones to copy:
-
-| Tier | Op types | Meaning |
-|---|---|---|
-| `EXACT` | `FUSE`, `FILTER`, `BOOST` | Replay recomputes the operator from its recorded inputs. |
-| `OBSERVED_ABLATION` | `RERANK`, `EXPAND`, `GATE`, `TRANSFORM` | Replay reuses observed scores; the delta is an estimate. |
-| `NOT_REPLAYABLE` | `SOURCE`, `GENERATE` | The counterfactual cannot be constructed; attribution reports `indeterminate`. |
-
-Only claim `EXACT` for a fusion whose formula replay actually re-runs: reciprocal rank fusion as
-`1 / (rrf_k + rank)` with 1-based ranks, reading the constant from `params["rrf_k"]`. That is why
-`rrf_merge` takes `rrf_k` keyword-only and the entrypoint passes it explicitly. See
-[counterfactual-replay.md](counterfactual-replay.md) for what each tier promises.
+The example also passes `replay_policy=` and `deterministic=`. Both are still accepted and
+recorded on the span, but nothing in 0.7.0 reads them: counterfactual replay was retired (see
+[migrating to focused retobs](migrating-to-focused-retobs.md)). New code can omit them.
 
 ## 5. Run it and open the trace
 
@@ -157,19 +149,16 @@ retobs serve --db .retobs/manual_class_pipeline.db
 ```
 
 The script prints the top five hits and `trace written to .retobs/manual_class_pipeline.db`. Set
-`RETOBS_DB` to write elsewhere. Open `http://localhost:4000`, go to **Production**, and pick the
-`manual_class_pipeline` service (`#/production/manual_class_pipeline`):
+`RETOBS_DB` to write elsewhere. This trace belongs to no evaluation Run, so it has no judgments to
+state outcomes against. The server exposes it as recorded:
+`GET /dbs/manual_class_pipeline/production/traces?service_id=manual_class_pipeline` lists it, and
+`GET /dbs/manual_class_pipeline/production/traces/{trace_id}` returns the spans with their
+`parent_ids`, `op_type`, `params`, `input_groups`, capture labels, and `outputs`.
 
-- **Overview** counts one trace for the service.
-- **Live Traces** lists the query `hybrid retrieval with reranking` with status `OK` and pipeline
-  `keyword_dense_rrf_rerank`. Opening it shows four stages, `keyword` and `dense` feeding `rrf`
-  feeding `rerank`, each labelled with its op type and candidate count, and the capture summary
-  reports `lineage_evidence: recorded`.
-
-The same facts are available without the UI: `GET /production/services` lists the service,
-`GET /production/traces?service_id=manual_class_pipeline` lists the trace, and
-`GET /production/traces/{trace_id}` returns the spans with their `parent_ids`, `op_type`,
-`replay_policy`, `params`, `input_groups`, and `outputs`.
+To see where relevant documents are lost, evaluate the same entrypoint on judged queries. Inside
+`retobs evaluate` a trace is already active, so `@trace_scope` steps aside and the operator spans
+become the Run's trace; open the Run in Investigate (see
+[investigate your pipeline](investigate-your-pipeline.md)).
 
 To check a trace in code, read the database the way the test does. From
 `tests/integration/test_manual_class_pipeline.py`:
@@ -211,15 +200,11 @@ output, which is how the dashboard and evaluation know which candidates were ret
 - **A missing directory.** The store does not create `.retobs/`; a failed write is logged as
   `retobs: could not persist trace` and the entrypoint still returns. Create the directory once,
   as `pipeline.py` does.
-- **`op_type` left as the wrong thing.** A reranker recorded as `SOURCE` gets no inputs, no
-  `reranked_out` drop reasons, and the wrong replay tier. Pick the op type that matches what the
-  code does to the candidate set.
+- **`op_type` left as the wrong thing.** A reranker recorded as `SOURCE` gets no inputs and no
+  removals. Pick the op type that matches what the code does to the candidate set.
 - **Candidates without doc ids.** Returning bare scores or rows without `doc_id`/`id` makes
   candidates keyed by position, marks their identity evidence `partial`, and breaks lineage across
   stages. Every operator returns rows carrying the same `doc_id`.
-- **A `k` keyword on the fusion call.** Replay reads the RRF constant from `params["rrf_k"]`, falling
-  back to `params["k"]`; a fusion whose top-n limit is passed as `k=` would be replayed with the
-  wrong constant. Truncate downstream, or name the limit something else.
 
 ## Routing decisions
 

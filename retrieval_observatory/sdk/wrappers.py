@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+import traceback
 from typing import Any, Callable, Dict, List, Optional
 
+from retrieval_observatory.sdk.observe import ObserveContext, current_trace, finish_trace, record_return_boundary, start_trace
+from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.types import Document, PipelineResult, Query, RetrievalResult, StageSnapshot
 
 # Adapt plain Python callables / framework objects to the BaseRetriever / BaseReranker protocols
@@ -62,15 +65,60 @@ async def _call(fn: Callable, *args: Any) -> Any:
     return await asyncio.to_thread(fn, *args)
 
 
+def _record_return_boundary(trace: RetrievalTrace, documents: Optional[List[Document]], error: Optional[str] = None) -> None:
+    """Append the callable's returned documents as the trace's final boundary (see
+    ``sdk.observe.record_return_boundary``); ``Document.id`` is the candidate id."""
+    record_return_boundary(trace, documents, error=error)
+
+
 class FunctionRetriever:
     """Wrap a callable `fn(query_text) -> list[...]` as a retriever."""
 
-    def __init__(self, fn: Callable, retriever_id: str, corpus: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        fn: Callable,
+        retriever_id: str,
+        corpus: Optional[Dict[str, str]] = None,
+        pipeline_id: Optional[str] = None,
+    ):
         self.retriever_id = retriever_id
         self._fn = fn
         self._corpus = corpus
+        # Set by ``evaluate`` when this wrapper is the whole pipeline: the callable then runs
+        # under a trace of its own and its ``@observe`` spans become the run's trace.
+        self.pipeline_id = pipeline_id
 
     async def retrieve(self, query: Query):
+        if self.pipeline_id is None or current_trace() is not None:
+            return await self._retrieve(query)
+        trace = start_trace(ObserveContext(None, query.query_id, query.text, self.pipeline_id, "evaluation"))
+        try:
+            result = await self._retrieve(query)
+        except Exception as exc:
+            error = traceback.format_exc()
+            _record_return_boundary(trace, None, f"{type(exc).__name__}: {exc}")
+            finish_trace("ERROR", error)
+            return PipelineResult(query.query_id, self.pipeline_id, [], trace.total_latency_ms, "ERROR", error, trace=trace)
+        if not trace.spans or not isinstance(result, RetrievalResult):
+            finish_trace()
+            return result
+        _record_return_boundary(trace, result.documents)
+        finish_trace()
+        corpus = self._corpus or {}
+        snapshots = [
+            StageSnapshot(
+                stage_index=index,
+                stage_id=span.op_id,
+                documents=[Document(c.doc_id, corpus.get(c.doc_id, ""), c.score, c.rank) for c in span.outputs],
+                latency_ms=span.latency_ms,
+                candidate_count=len(span.outputs),
+                op_type=span.op_type,
+            )
+            for index, span in enumerate(trace.spans)
+        ]
+        return PipelineResult(query.query_id, self.pipeline_id, snapshots, trace.total_latency_ms, "OK", trace=trace)
+
+    async def _retrieve(self, query: Query):
         start = time.perf_counter()
         raw = await _call(self._fn, query.text)
         # A monolithic pipeline can report its own per-stage breakdown; pass it straight through

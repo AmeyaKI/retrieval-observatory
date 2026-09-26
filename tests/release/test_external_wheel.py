@@ -9,6 +9,8 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tests" / "external_projects"))
+from conftest import FIXTURES  # noqa: E402
 
 
 def test_external_fixtures_run_against_installed_wheel(tmp_path: Path) -> None:
@@ -30,9 +32,11 @@ def test_external_fixtures_run_against_installed_wheel(tmp_path: Path) -> None:
             str(tmp_path / "external-fixtures"),
         ],
         cwd=tmp_path,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
     )
-    assert result.stdout.count(": PASS") == 4
+    # With a wheel named, a failing fixture fails this test; only an unset RETOBS_RELEASE_WHEEL skips.
+    assert result.returncode == 0, f"external fixture smoke failed:\n{result.stdout[-3000:]}\n{result.stderr[-5000:]}"
+    assert result.stdout.count(": PASS") == len(FIXTURES), result.stdout

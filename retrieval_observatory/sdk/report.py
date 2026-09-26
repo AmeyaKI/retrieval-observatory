@@ -6,12 +6,11 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional
-from urllib.parse import quote
 
 from retrieval_observatory.runner.execute import BenchmarkArtifacts
 
 if TYPE_CHECKING:
-    from retrieval_observatory.release.policy import ReleasePolicy
+    from retrieval_observatory.release.policy import ReleasePolicy, ReleasePolicyV3
 
 
 @dataclass
@@ -34,6 +33,8 @@ class ReportModel:
     dashboard_url: str
     schema_version: int = 1
     comparison: Optional[Dict[str, Any]] = None
+    #: The release audit (schema ``audit-1``) of a comparison report; None for a run report.
+    audit: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -244,6 +245,10 @@ class ReportModel:
         return "\n".join(lines)
 
     def to_html(self) -> str:
+        if self.audit:
+            from retrieval_observatory.release.audit import render_audit_html
+
+            return render_audit_html(self.audit)
         markdown = self.to_markdown()
         payload = self.to_json(indent=2)
         return """<!doctype html>
@@ -289,6 +294,8 @@ def _format_number(value: Any) -> str:
 _QUALITY_METRICS = ("ndcg", "recall", "mrr", "map", "precision")
 _QUALITY_ROWS_PER_PIPELINE = 3
 _QUALITY_ROWS_TOTAL = 6
+#: Metric-name prefixes `BenchmarkReport.assert_no_regression` treats as retrieval quality.
+_REGRESSION_QUALITY_METRICS = ("ndcg", "recall", "mrr", "map")
 
 
 def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
@@ -431,7 +438,7 @@ def build_run_report(
         },
         next_action=next_action,
         reproduce=f"retobs report {run_id} --db {db_path}",
-        dashboard_url=f"http://127.0.0.1:4000/#/runs/{run_id}/overview",
+        dashboard_url=f"http://127.0.0.1:4000/#/investigate?run={run_id}",
     )
 
 
@@ -455,173 +462,33 @@ async def load_run_report(run_id: str, db_path: str) -> ReportModel:
     )
 
 
-def _resolve_release_policy(
-    policy: str | Path | ReleasePolicy | None,
-) -> tuple[ReleasePolicy | None, str | None]:
-    from retrieval_observatory.release.policy import ReleasePolicy, load_release_policy
-
-    if policy is None:
-        return None, None
-    if isinstance(policy, ReleasePolicy):
-        return policy, None
-    policy_path = Path(policy)
-    return load_release_policy(policy_path), str(policy_path)
-
-
 async def load_comparison_report(
     baseline_run_id: str,
     candidate_run_id: str,
     db_path: str,
     *,
-    policy: str | Path | ReleasePolicy | None = None,
+    policy: str | Path | ReleasePolicy | ReleasePolicyV3 | None = None,
 ) -> ReportModel:
     """Build one validity-gated report for CLI, SDK, MCP, CI, and HTML artifacts."""
-    from retrieval_observatory.metrics.comparison import (
-        _scores_for,
-        collapse_latency_render_keys,
-        compare_paired_metrics,
-        comparison_validity,
-        parse_metric_key,
-    )
-    from retrieval_observatory.metrics.engine import MetricsEngine
+    from retrieval_observatory.dashboard.registry import _slugify
+    from retrieval_observatory.release.audit import build_release_audit
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
     await store.init_db()
-    runs = {item["run_id"]: item for item in await store.list_runs()}
-    missing = [run_id for run_id in (baseline_run_id, candidate_run_id) if run_id not in runs]
-    if missing:
-        raise ValueError(f"Run not found: {', '.join(missing)}")
-
-    baseline_manifest = await store.get_run_manifest(baseline_run_id)
-    candidate_manifest = await store.get_run_manifest(candidate_run_id)
-    validity = comparison_validity([baseline_manifest, candidate_manifest])
-    baseline_rows = await store.get_metrics(baseline_run_id)
-    candidate_rows = await store.get_metrics(candidate_run_id)
-    resolved_policy, policy_source = _resolve_release_policy(policy)
-    from retrieval_observatory.release.assessment import assess_evidence
-    from retrieval_observatory.release.decision import decide_release
-    from retrieval_observatory.release.slices import evaluate_declared_slices
-    from retrieval_observatory.release.statistics import evaluate_metric_guards
-
-    assessment = assess_evidence(
-        resolved_policy,
-        baseline_manifest or {},
-        candidate_manifest or {},
+    # The id `retobs serve --db <db_path>` gives this database, so audit links open it.
+    db_id = _slugify(Path(db_path).stem)
+    report, _audit = await build_release_audit(
+        store,
+        store,
+        baseline_run_id,
+        candidate_run_id,
+        policy=policy,
+        baseline_db_id=db_id,
+        candidate_db_id=db_id,
+        db_path=db_path,
     )
-    aggregate_guards = (
-        evaluate_metric_guards(resolved_policy, baseline_rows, candidate_rows)
-        if resolved_policy is not None
-        else []
-    )
-    slice_results = (
-        evaluate_declared_slices(resolved_policy, baseline_rows, candidate_rows)
-        if resolved_policy is not None
-        else []
-    )
-    decision = decide_release(resolved_policy, assessment, aggregate_guards, slice_results)
-    engine = MetricsEngine()
-    baseline_aggregate = await engine.aggregate(baseline_run_id, store)
-    candidate_aggregate = await engine.aggregate(candidate_run_id, store)
-    keys = collapse_latency_render_keys(sorted(set(baseline_aggregate) | set(candidate_aggregate)))
-    results = compare_paired_metrics(baseline_rows, candidate_rows, keys, validity)
-
-    regressions = [result for result in results.values() if result.decision == "candidate_worse"]
-    improvements = [result for result in results.values() if result.decision == "candidate_better"]
-
-    selected = (regressions or improvements or list(results.values()))[:1]
-    affected_queries: list[Dict[str, Any]] = []
-    query_diff_metric = None
-    if validity.decision_allowed and selected:
-        query_diff_metric = selected[0].metric
-        pipeline_id, stage_index, metric_name, k, branch_id = parse_metric_key(query_diff_metric)
-        baseline_scores = _scores_for(baseline_rows, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
-        candidate_scores = _scores_for(candidate_rows, pipeline_id, stage_index, metric_name, k, branch_id=branch_id)
-        for query_id in set(baseline_scores) & set(candidate_scores):
-            encoded_query_id = quote(str(query_id), safe="")
-            encoded_baseline = quote(str(baseline_run_id), safe="")
-            encoded_candidate = quote(str(candidate_run_id), safe="")
-            affected_queries.append({
-                "query_id": query_id,
-                "baseline": baseline_scores[query_id],
-                "candidate": candidate_scores[query_id],
-                "delta": candidate_scores[query_id] - baseline_scores[query_id],
-                "investigation_route": f"#/runs/{encoded_candidate}/queries/{encoded_query_id}",
-                "diff_route": (
-                    f"#/runs/{encoded_candidate}/queries/{encoded_query_id}/diff?against={encoded_baseline}"
-                ),
-            })
-        affected_queries.sort(key=lambda row: abs(row["delta"]), reverse=True)
-        affected_queries = affected_queries[:20]
-
-    results_dict = {key: value.to_dict() for key, value in results.items()}
-    validity_dict = validity.to_dict()
-    decision_payload = {
-        "schema_version": 1,
-        **decision.model_dump(mode="json"),
-        "investigation": {
-            "affected_query_ids": [row["query_id"] for row in affected_queries],
-            "query_route_template": f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}",
-            "diff_route_template": (
-                f"#/runs/{quote(str(candidate_run_id), safe='')}/queries/{{query_id}}/diff?against="
-                f"{quote(str(baseline_run_id), safe='')}"
-                + (
-                    f"&policy_path={quote(policy_source, safe='')}"
-                    if policy_source
-                    else ""
-                )
-            ),
-        },
-    }
-    policy_argument = (
-        f" --policy {policy_source}"
-        if policy_source is not None
-        else " --policy <policy-path>"
-        if resolved_policy is not None
-        else ""
-    )
-    return ReportModel(
-        kind="comparison",
-        run_id=f"{baseline_run_id}..{candidate_run_id}",
-        title="Run Comparison",
-        verdict=decision.status,
-        conclusion={
-            "PASS": "The recorded evidence proves non-inferiority for every declared policy guard.",
-            "HOLD": "The recorded evidence is valid but does not prove pass or fail for every declared guard.",
-            "BLOCK": "Required promotion evidence is missing or invalid; metric deltas are not decision-bearing.",
-            "FAIL": "Valid promotion evidence proves at least one policy-critical regression beyond its budget.",
-        }[decision.status],
-        evidence_health=assessment.readiness["promotion"].status.lower(),
-        evidence_reasons=decision.reasons,
-        metrics=results_dict,
-        dominant_issue={"label": regressions[0].metric, "query_count": len(affected_queries)} if regressions else None,
-        affected_queries=affected_queries,
-        provenance={"baseline_manifest": baseline_manifest, "candidate_manifest": candidate_manifest},
-        next_action=decision.next_action,
-        reproduce=f"retobs compare {baseline_run_id} {candidate_run_id} --db {db_path}{policy_argument}",
-        dashboard_url="http://127.0.0.1:4000/#/compare",
-        comparison={
-            "baseline_run_id": baseline_run_id,
-            "candidate_run_id": candidate_run_id,
-            "effect_orientation": "candidate_minus_baseline",
-            "validity": validity_dict,
-            "results": results_dict,
-            "query_diff_metric": query_diff_metric,
-            "release_provenance": {
-                "baseline": {
-                    "run_id": baseline_run_id,
-                    "manifest_schema_version": (baseline_manifest or {}).get("schema_version"),
-                    "release_identity": (baseline_manifest or {}).get("release_identity"),
-                },
-                "candidate": {
-                    "run_id": candidate_run_id,
-                    "manifest_schema_version": (candidate_manifest or {}).get("schema_version"),
-                    "release_identity": (candidate_manifest or {}).get("release_identity"),
-                },
-            },
-            "release_decision": decision_payload,
-        },
-    )
+    return report
 
 
 class BenchmarkReport:
@@ -725,7 +592,7 @@ class BenchmarkReport:
 
         app = create_app(registry=DbRegistry([self.db_path]))
         display_host = "localhost" if host in ("0.0.0.0", "::") else host
-        print(f"Dashboard: http://{display_host}:{port}/#/runs/{self.run_id}/overview")
+        print(f"Dashboard: http://{display_host}:{port}/#/investigate?run={self.run_id}")
         uvicorn.run(app, host=host, port=port)
 
     def assert_no_regression(
@@ -735,37 +602,46 @@ class BenchmarkReport:
         metric: Optional[str] = None,
         latency_regression_pct: float = 0.2,
     ) -> "BenchmarkReport":
+        """Raise when the audit's paired results prove a quality drop or a latency rise.
+
+        Quality: a spine ``ndcg``/``recall``/``mrr``/``map`` metric whose paired decision is
+        ``candidate_worse``. Latency: a ``latency*`` metric that is ``candidate_worse`` and whose
+        mean rose by at least ``latency_regression_pct``.
+        """
+        from retrieval_observatory.metrics.comparison import parse_metric_key
+
         baseline_run = baseline.run_id if isinstance(baseline, BenchmarkReport) else str(baseline)
-        findings = _run_sync(self._regressions(baseline_run, latency_regression_pct))
-        if metric:
-            findings = [finding for finding in findings if metric in finding.metric]
-        if findings:
-            lines = "\n".join(
-                f"  - {finding.metric}: {finding.before:.4f} -> {finding.after:.4f} "
-                f"(delta {finding.delta:+.4f}, q={finding.q_value:.3f}, {finding.severity})"
-                for finding in findings
+        report = _run_sync(load_comparison_report(baseline_run, self.run_id, self.db_path))
+        findings = []
+        for key, result in sorted(((report.audit or {}).get("metrics") or {}).items()):
+            if result.get("decision") != "candidate_worse" or (metric and metric not in key):
+                continue
+            _pipeline, _stage, name, _k, branch = parse_metric_key(key)
+            before, after = result.get("baseline_mean"), result.get("candidate_mean")
+            if name.startswith("latency"):
+                if not before or after is None or (after - before) / before < latency_regression_pct:
+                    continue
+            elif branch or not name.startswith(_REGRESSION_QUALITY_METRICS):
+                continue
+            findings.append(
+                f"  - {key}: {_format_number(before)} -> {_format_number(after)} "
+                f"(effect {_format_number(result.get('effect'))}, q={_format_number(result.get('q_value'))}, "
+                f"n={result.get('paired_n')})"
             )
+        if findings:
+            lines = "\n".join(findings)
             raise AssertionError(
                 f"Retrieval regression vs baseline {baseline_run} (candidate {self.run_id}):\n{lines}"
             )
         return self
 
-    async def _regressions(self, baseline_run: str, latency_regression_pct: float):
-        from retrieval_observatory.experimental.advisor.regression import detect_regressions
-        from retrieval_observatory.store.sqlite import SQLiteStore
-
-        store = SQLiteStore(db_path=self.db_path)
-        return await detect_regressions(
-            baseline_run, self.run_id, store, latency_regression_pct=latency_regression_pct
-        )
-
     def compare(
         self,
         baseline: "BenchmarkReport",
         *,
-        policy: str | Path | ReleasePolicy | None = None,
+        policy: str | Path | ReleasePolicy | ReleasePolicyV3 | None = None,
     ) -> Dict[str, Any]:
-        """Return the canonical comparison artifact while preserving the dictionary shape."""
+        """Return the canonical comparison artifact, with the release audit under ``audit``."""
         report = _run_sync(
             load_comparison_report(
                 baseline.run_id,
@@ -774,7 +650,7 @@ class BenchmarkReport:
                 policy=policy,
             )
         )
-        return report.comparison or {}
+        return {**(report.comparison or {}), "audit": report.audit}
 
 
 def _run_sync(coro):
