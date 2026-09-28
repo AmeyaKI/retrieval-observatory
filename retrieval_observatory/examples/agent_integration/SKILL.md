@@ -175,9 +175,13 @@ Use the `benchmark_setup` action from the plan, which points `retobs evaluate` a
 and the discovered labels and names the run after the pipeline so Connect can link it:
 
 ```bash
-retobs evaluate app/pipeline.py:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl \
+retobs evaluate app.pipeline:retrieve --queries data/queries.jsonl --qrels data/qrels.jsonl \
   --corpus data/corpus.jsonl --name <pipeline_id> --db .retobs/results.db
 ```
+
+An entrypoint inside a package is named `module:callable`; the plan prefixes
+`PYTHONPATH=<import root>` when the package is not at the project root. A loose module keeps
+`file.py:callable`.
 
 Accepted judgment rows: `{"query_id", "doc_id", "relevance"}` or
 `{"query_id", "relevant_doc_ids": [...]}` (graded: `{"doc": grade}`). Chunk results scored

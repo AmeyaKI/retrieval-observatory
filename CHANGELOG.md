@@ -89,6 +89,9 @@ Published first as the pre-releases `0.7.0rc1` and `0.7.0rc2` (`pip install retr
 - `tests/fixtures/integration_projects.py` — three representative target projects (plain Python, FastAPI with a class-method retriever and reranker, LangChain `BaseRetriever`) exercised end to end by `tests/integration/test_integration_projects.py`.
 
 ### Changed
+- `integrations/planner.py` — `benchmark_setup` emits `module:callable` for an entrypoint inside a package, prefixed with `PYTHONPATH=<import root>` when that root is not the project root; loose modules keep `file.py:callable`.
+- `datasets/records.py` — new home of `read_json_records` / `evaluate_inputs` (previously private in `cli.py`), shared by `retobs evaluate` and the planner.
+- `cli.py` — the plan summary's judgment-files line states the judgments status (resolved / candidate / unresolved / none found).
 - `integrations/planner.py` — module reachability and scenario commands resolve each file from its import root (parent of its topmost package dir), so packages below a non-package directory are found; scenario commands add `sys.path.insert(0, '<import root>')` when that root is not the project root.
 - `integrations/planner.py` — operator types match whole name tokens (`aggregate` is no longer GATE); predicates, factories, formatters and scalar- or boolean-returning functions are listed in `low_confidence_operators` with reason `not_operator_shape`.
 - `integrations/detect.py`, `integrations/planner.py` — virtualenvs of any name, `site-packages`/`dist-packages`, and bench/eval/report/script/notebook/fixture/example/experiment directories are never proposed for operators or chosen as the entrypoint (reason `non_runtime_dir`); operators no import from the entrypoint reaches are listed with reason `unreachable_from_entrypoint`.
@@ -179,6 +182,9 @@ Published first as the pre-releases `0.7.0rc1` and `0.7.0rc2` (`pip install retr
 - `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
+- `integrations/planner.py` — namespace-package layouts without `__init__.py` are reachable: an unresolved absolute import of two or more parts matches the unique project file whose module path ends with it; the scenario command takes the entrypoint's import root from its own imports.
+- `datasets/records.py` — a one-line `.jsonl` file is one record whatever its keys, so a one-row corpus or queries file is no longer read as a mapping.
+- `integrations/detect.py` — `detect_project` returns every entrypoint candidate instead of the first 10.
 - `integrations/planner.py` — when no discovered operator is reachable from the entrypoint the plan proposes none and reports it under `unresolved`, instead of proposing every name match.
 - `integrations/planner.py`, `integrations/model.py` — operators sharing a symbol in different modules get module-qualified op_ids (parent ids and input mappings follow); `validate_for_apply` rejects duplicate op_ids.
 - `integrations/apply.py`, `integrations/verify.py` — a scenario without a command is reported by apply and verify instead of silently skipped.
