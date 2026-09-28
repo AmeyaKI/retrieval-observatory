@@ -883,10 +883,15 @@ def _declared_route_coverage(manifest: IntegrationManifest, traces: Sequence[Ret
         what = f"no evidence-bearing trace fired {missing} together" if missing else f"no evidence-bearing trace fired all of {sorted(expected)}"
         if scenario.route is not None:
             what += f" with a GATE selecting route {scenario.route!r}"
+        commandless = not (scenario.command or "").strip()
         failures.append(_failure(
             "scenario_unobserved",
-            f"scenario '{scenario.scenario_id}' (query_text={scenario.query_text!r}, route={scenario.route!r}) was not observed: {what}",
-            "run the scenario's command, then verify again" + (f": {scenario.command}" if scenario.command else ""),
+            f"scenario '{scenario.scenario_id}' (query_text={scenario.query_text!r}, route={scenario.route!r}) was not observed: {what}"
+            + ("; the scenario has no command, so nothing exercised it" if commandless else ""),
+            "set the scenario's command in the plan (it has none) to the call that exercises the entrypoint, re-plan and apply, "
+            "then run the scenario's command and verify again"
+            if commandless
+            else f"run the scenario's command, then verify again: {scenario.command}",
         ))
     if not manifest.scenarios:
         failures.append(_failure(

@@ -219,8 +219,9 @@ def test_replan_with_capture_regenerates_patch_and_hook_runs(tmp_path: Path, mon
     assert replanned.plan_id != plan.plan_id
     assert _operators(replanned)["rerank"].capture == "retobs_adapter:rerank_capture"
     replacement = replanned.patches[0].replacement
-    assert "capture=retobs_adapter.rerank_capture" in replacement
-    assert "\nimport retobs_adapter\n" in replacement
+    # A string reference observe resolves from the root adapter file; no import that needs the root on sys.path.
+    assert 'capture="retobs_adapter:rerank_capture"' in replacement
+    assert "import retobs_adapter" not in replacement
     compile(replacement, "app.py", "exec")
 
     apply_integration_plan(replanned)

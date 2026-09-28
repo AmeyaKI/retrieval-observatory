@@ -118,7 +118,9 @@ retobs integrate . --phase apply --plan retobs/integration-plan.json
 
 Apply edits only the files listed in `patches`: it adds `@observe(...)` to each operator,
 `@trace_scope(service_id, pipeline_id, db_path=...)` to the entrypoint, one import line, and a
-marker comment. It checks each file's content hash first: a file that changed since planning
+marker comment. A `capture` is written as the string `capture="retobs_adapter:<symbol>"`, which
+`@observe` resolves from the nearest `retobs_adapter.py` above the module, so no adapter import is
+added and the application need not run from the project root. It checks each file's content hash first: a file that changed since planning
 refuses with `stale integration plan` (re-plan), a plan already recorded in
 `retobs/integration.yaml` refuses with `already applied`, and a `capture` reference that
 `retobs_adapter.py` does not define refuses before writing anything. `retobs integrate . --phase
@@ -234,6 +236,7 @@ final-output-only endpoint, and do not report a scenario as covered when its com
 | apply: `already applied (manifest present)` | Run verify, or `revert` and re-apply a new plan |
 | apply: `capture retobs_adapter:<symbol>: ... does not define <symbol>` | Define the `CaptureSpec` at module level in root `retobs_adapter.py` |
 | apply: `patch would not compile` | A hand edit broke the patch; re-plan from the reviewed plan instead of editing `patches` |
-| runtime: `ModuleNotFoundError: retobs_adapter` | The project root must be importable: run scenarios as `python -c ...` or `python -m app.main` from the root, or set `PYTHONPATH=.`; `python app/main.py` does not put the root on `sys.path` |
+| trace: `capture_reference_unresolved` | `@observe` found no `retobs_adapter.py` above the module, or it does not define that `CaptureSpec`; default capture was used instead. Define the spec at module level in root `retobs_adapter.py` |
+| runtime: `ModuleNotFoundError: retobs_adapter` | Code applied by an older retobs imports the adapter; revert and re-apply with this version, which references it as a string |
 | `output_capture_unavailable` with `iterator_output_not_captured` | The operator returns a generator; wrap it in a list inside a `CaptureSpec.outputs` mapping or return a list |
 | `final_output_shape_unsupported` | The entrypoint returns an object retobs cannot read; return a sequence or a mapping with a `documents` key, or set `boundary` to the last operator's output |

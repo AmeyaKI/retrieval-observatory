@@ -79,10 +79,13 @@ class OperatorMapping:
     #: ``unavailable`` when nothing above applies (verify then reports missing actual inputs).
     input_mapping: str = "default"
     #: ``return`` (the returned sequence, or its ``.documents``), ``capture``, or ``unavailable``.
+    #: A ``capture`` spec without ``outputs`` leaves this ``return``: the default capture reads outputs.
     output_mapping: str = "return"
     #: ``retobs_adapter:<symbol>``: a ``CaptureSpec`` defined in the project's root ``retobs_adapter.py``.
     capture: str | None = None
     invocation: Literal["sync", "async"] = "sync"
+    #: Reviewer-authored free text; kept verbatim when the plan is re-planned.
+    notes: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -207,6 +210,8 @@ class IntegrationPlan:
     actions: tuple[PlannedAction, ...] = ()
     #: Non-blocking questions for the reviewer (unknown output shapes, missing labels, ...).
     open_questions: tuple[str, ...] = ()
+    #: Reviewer-authored free text (rationale, answers to open questions); kept verbatim on re-plan.
+    notes: str | None = None
 
     @classmethod
     def create(
@@ -228,6 +233,7 @@ class IntegrationPlan:
         expected_capabilities: Mapping[str, str] | None = None,
         actions: Sequence[PlannedAction] = (),
         open_questions: Sequence[str] = (),
+        notes: str | None = None,
     ) -> "IntegrationPlan":
         boundary = boundary or FinalBoundary()
         identity = identity or IdentityChoice()
@@ -248,6 +254,7 @@ class IntegrationPlan:
             "expected_capabilities": dict(expected_capabilities or {}),
             "actions": [asdict(item) for item in actions],
             "open_questions": list(open_questions),
+            "notes": notes,
         }
         plan_id = sha256(json.dumps(identity_payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()[:16]
         return cls(
@@ -269,6 +276,7 @@ class IntegrationPlan:
             dict(expected_capabilities or {}),
             tuple(actions),
             tuple(open_questions),
+            notes,
         )
 
     def validate_for_apply(self) -> None:

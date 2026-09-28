@@ -27,6 +27,10 @@ For each entry in `operators`:
     verify report it, or add a `capture` reference now.
 - `output_mapping`: `return` reads the returned sequence (or its `.documents` attribute, or a
   mapping's `documents` key); `capture` uses the adapter; `unavailable` means no return value.
+  Each side says `capture` only when the referenced `CaptureSpec` maps it: a spec with only
+  `inputs` leaves `output_mapping: return` (outputs come from the default return-value capture).
+- `notes` (on the plan and on each operator): free text for your rationale and answers to open
+  questions; re-planning keeps it verbatim.
 - `capture`: `retobs_adapter:<symbol>` where `<symbol>` is a module-level `CaptureSpec` in the
   project's root `retobs_adapter.py` (see `retobs_adapter_example.py`).
 - `symbol` / `relative_path` must exist; a missing symbol becomes `unresolved` on re-plan.

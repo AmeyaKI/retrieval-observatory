@@ -204,10 +204,13 @@ async def execute_benchmark(
             f"duplicate (pipeline, query) traces {duplicates}; traces for queries outside the run {strays}; "
             f"(pipeline, query) pairs without a trace {missing}"
         )
-    scored = traces
+    # Candidates are scored as the document the investigation projection judges them as
+    # (``judged_document``), namespaced when the run's judgments are, else by bare id as the qrels are.
     if judgments is not None:
         chunks = ChunkMap.from_pairs([tuple(row) for row in chunk_map]) if chunk_map else None
-        scored = [_document_view(trace, chunks) for trace in traces]
+        scored = [_document_view(trace, chunks, judgments, namespaced=True) for trace in traces]
+    else:
+        scored = [_document_view(trace, None, JudgmentSet.from_qrels(qrels), namespaced=False) for trace in traces]
     await engine.compute_from_traces(
         run_id=run_id,
         store=store,
@@ -433,19 +436,16 @@ def _chunk_map_judgments(qrels, document_namespaces: Dict[str, set]):
     )
 
 
-def _document_view(trace, chunk_map):
-    """A copy of ``trace`` whose candidates are scored as ``namespace:document_id``."""
+def _document_view(trace, chunk_map, judgments, *, namespaced: bool):
+    """A copy of ``trace`` whose candidates are scored as the document the investigation projection
+    judges them as: ``namespace:document_id`` when ``namespaced``, else the bare document id."""
     from dataclasses import replace
 
+    from retrieval_observatory.evidence.journeys import judged_document
+
     def document(candidate):
-        # A bare chunk id (no namespace, no document) takes the namespace the chunk map gives it, as
-        # the investigation projection does (``ChunkMap.chunk_ref``); otherwise ``default`` as before.
-        explicit = candidate.metadata.get("namespace") or (None if candidate.document_id is None else "default")
-        mapped = chunk_map.document_for(chunk_map.chunk_ref(candidate.doc_id, explicit)) if chunk_map else None
-        if mapped:
-            return replace(candidate, doc_id=f"{mapped.namespace}:{mapped.entity_id}")
-        namespace = str(candidate.metadata.get("namespace") or "default")
-        return replace(candidate, doc_id=f"{namespace}:{candidate.document_id or candidate.doc_id}")
+        entity, _ = judged_document(candidate, chunk_map, judgments, trace.query_id)
+        return replace(candidate, doc_id=f"{entity.namespace}:{entity.entity_id}" if namespaced else entity.entity_id)
 
     spans = tuple(
         replace(

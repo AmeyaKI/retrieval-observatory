@@ -29,6 +29,7 @@ from retrieval_observatory.tracing.capture import (
     default_input_groups,
     extract_outputs,
     incomplete_boundary_count,
+    resolve_capture_reference,
     snapshot,
     source_ref,
 )
@@ -285,7 +286,7 @@ def observe(
     deterministic: bool = False,
     replay_policy: str = "NOT_REPLAYABLE",
     input_variant: str = "raw",
-    capture: CaptureSpec | None = None,
+    capture: CaptureSpec | str | None = None,
 ):
     """Record one operator span per call from the call's ACTUAL boundary.
 
@@ -293,12 +294,19 @@ def observe(
     object; parent-span outputs are used only as a fallback and labelled ``inferred``. The
     wrapped function is called exactly once, its result is returned unchanged, its exceptions
     propagate untouched, and capture failures are recorded on the trace instead of raised.
+
+    ``capture`` is a ``CaptureSpec`` or ``"retobs_adapter:<symbol>"``, resolved from the nearest
+    ``retobs_adapter.py`` above the decorated function's file without ``sys.path``. A reference
+    that does not resolve falls back to default capture and records ``capture_reference_unresolved``.
     """
     declared_parents = tuple(parent_ids)
     candidate_arguments = {*_CANDIDATE_PARAMETERS, *declared_parents}
 
     def decorate(fn: Callable[..., Any]):
         ref = source_ref(fn)
+        spec, unresolved = resolve_capture_reference(capture, fn) if isinstance(capture, str) else (capture, None)
+        if unresolved is not None:
+            _log.warning("retobs: %s; %s uses default capture", unresolved, op_id)
 
         def fail(inv: _Invocation, phase: str, code: str, detail: str) -> None:
             inv.failures.append(CaptureFailure(inv.node_id, inv.invocation_id, phase, code, detail))
@@ -327,8 +335,8 @@ def observe(
             try:
                 if not candidate_parents:
                     groups, inv.input_capture = None, "not_applicable"
-                elif capture is not None and capture.inputs is not None:
-                    groups = capture.inputs(inv.bound)
+                elif spec is not None and spec.inputs is not None:
+                    groups = spec.inputs(inv.bound)
                     inv.input_capture = "unavailable" if groups is None else "recorded"
                     if groups is not None and set(groups) - set(declared_parents):
                         fail(inv, "inputs", "undeclared_input_group", repr(sorted(set(groups) - set(declared_parents))))
@@ -357,6 +365,9 @@ def observe(
             except Exception as exc:
                 fail(inv, "inputs", "input_mapping_failed", repr(exc))
                 inv.groups, inv.input_capture, inv.parent_linkage = {}, "unavailable", "unavailable"
+            # Recorded after the inputs: the inferred-input fallback above runs only without failures.
+            if unresolved is not None:
+                fail(inv, "capture", "capture_reference_unresolved", unresolved)
             return inv
 
         def complete(inv: _Invocation, result: Any, elapsed: float, status: str, error: str | None) -> None:
@@ -369,8 +380,8 @@ def observe(
             if status == "FIRED":
                 items: Sequence[Any] | None = None
                 try:
-                    if capture is not None and capture.outputs is not None:
-                        items = capture.outputs(result)
+                    if spec is not None and spec.outputs is not None:
+                        items = spec.outputs(result)
                         if items is None:
                             fail(inv, "outputs", "output_mapping_returned_none", type(result).__name__)
                     elif op_type == "GATE" and (decision := _gate_decision(result)) is not None:
@@ -385,9 +396,9 @@ def observe(
                     fail(inv, "outputs", "output_mapping_failed", repr(exc))
                     items = None
                 decisions: Mapping[str, Any] | None = None
-                if capture is not None and capture.decisions is not None:
+                if spec is not None and spec.decisions is not None:
                     try:
-                        decisions = dict(capture.decisions(inv.bound, result))
+                        decisions = dict(spec.decisions(inv.bound, result))
                     except Exception as exc:
                         fail(inv, "decisions", "decision_mapping_failed", repr(exc))
                 if items is not None:

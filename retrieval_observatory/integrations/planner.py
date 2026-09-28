@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from retrieval_observatory.integrations.detect import DetectionResult, detect_project
+from retrieval_observatory.integrations.detect import DetectionResult, detect_project, iter_project_files
 from retrieval_observatory.integrations.model import (
     ADAPTER_MODULE,
     FinalBoundary,
@@ -31,18 +31,18 @@ _QUERY_PARAMETERS = {"query", "q", "question", "text"}
 _LANE_PARAMETERS = {"lanes", "groups", "lists"}
 _HTTP_DECORATOR_METHODS = {"get", "post", "put", "patch", "delete", "route", "api_route", "websocket"}
 _RETRIEVAL_ROUTE = re.compile(r"search|retriev|query|ask|rag|answer|chat", re.I)
-_SKIP_PARTS = {"venv", "node_modules", "retobs", "tests", "test"}
 #: Below this a name-only match is not instrumented; ``IntegrationPlan.validate_for_apply``
 #: enforces the same threshold on hand-edited plans.
 APPLY_CONFIDENCE = 0.8
 _OBSERVE_IMPORT = re.compile(r"^from retrieval_observatory\.sdk(?:\.observe)? import .*\bobserve\b")
 _SCOPE_IMPORT = re.compile(r"^from retrieval_observatory\.sdk(?:\.observe)? import .*\btrace_scope\b")
-_ADAPTER_IMPORT = re.compile(rf"^import {ADAPTER_MODULE}\b")
 #: Marks every module apply edits; ``--phase revert`` restores the pre-apply bytes from the manifest.
 INSTRUMENTATION_MARKER = "# retobs instrumentation: added by 'retobs integrate --phase apply'; remove with '--phase revert'"
 #: Frameworks with a pip extra of their own (FastAPI projects need only the base package).
 _FRAMEWORK_EXTRAS = {"langchain", "llamaindex"}
+#: Needles in priority order: a ``qrels`` file wins over a ``labels`` export that sorts first.
 _JUDGMENT_FILES = (("queries", ("quer",)), ("qrels", ("qrel", "judg", "label")), ("corpus", ("corpus", "docs", "document")))
+_CAPTURE_FIELDS = ("inputs", "outputs", "decisions")
 SCENARIO_QUERY_TEXT = "retobs verification query"
 #: The packaged agent runbook; reported in ``discovery.runbook`` so MCP-only agents can find it.
 RUNBOOK_PATH = Path(__file__).resolve().parents[1] / "examples" / "agent_integration" / "SKILL.md"
@@ -82,9 +82,7 @@ def _is_test_path(relative: Path) -> bool:
 
 def _is_skipped(relative: Path) -> bool:
     # The project's capture adapter defines CaptureSpecs, not operators, so its helpers are never proposed.
-    if relative.name == f"{ADAPTER_MODULE}.py":
-        return True
-    return any(part.startswith(".") or part in _SKIP_PARTS for part in relative.parts) or _is_test_path(relative)
+    return relative.name == f"{ADAPTER_MODULE}.py" or _is_test_path(relative)
 
 
 def _route_decorator(node: FunctionNode) -> ast.Call | None:
@@ -158,13 +156,39 @@ def _input_mapping(node: FunctionNode, parent_ids: tuple[str, ...]) -> str:
     return f"positional_lanes:{lanes}" if lanes else "default"
 
 
-def _describe_boundary(node: FunctionNode, operator: OperatorMapping) -> OperatorMapping:
-    """Fill the mappings the source determines; a reviewed ``capture`` reference governs both sides."""
-    mapped = "capture" if operator.capture else None
+def _capture_coverage(adapter: Path, symbol: str) -> set[str] | None:
+    """The ``CaptureSpec`` fields ``symbol = CaptureSpec(...)`` sets in the root adapter; ``None`` when unreadable statically."""
+    try:
+        tree = ast.parse(adapter.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        call = getattr(node, "value", None)
+        if not any(isinstance(item, ast.Name) and item.id == symbol for item in targets) or not isinstance(call, ast.Call):
+            continue
+        name = call.func.id if isinstance(call.func, ast.Name) else getattr(call.func, "attr", None)
+        if name != "CaptureSpec" or any(isinstance(item, ast.Starred) for item in call.args) or any(k.arg is None for k in call.keywords):
+            return None
+        given = {**dict(zip(_CAPTURE_FIELDS, call.args)), **{keyword.arg: keyword.value for keyword in call.keywords}}
+        return {field for field, value in given.items() if not (isinstance(value, ast.Constant) and value.value is None)}
+    return None
+
+
+def _describe_boundary(node: FunctionNode, operator: OperatorMapping, root: Path) -> OperatorMapping:
+    """Fill the mappings the source determines; a reviewed ``capture`` governs only the sides its spec maps.
+
+    A spec with only ``inputs`` leaves outputs to the default return-value capture (``return``); a
+    spec that cannot be read statically is taken to govern both sides.
+    """
+    covered: set[str] = set()
+    if operator.capture:
+        found = _capture_coverage(root / f"{ADAPTER_MODULE}.py", operator.capture.split(":", 1)[-1])
+        covered = {"inputs", "outputs"} if found is None else found
     return replace(
         operator,
-        input_mapping=mapped or _input_mapping(node, operator.parent_ids),
-        output_mapping=mapped or ("return" if _returns_value(node) else "unavailable"),
+        input_mapping="capture" if "inputs" in covered else _input_mapping(node, operator.parent_ids),
+        output_mapping="capture" if "outputs" in covered else ("return" if _returns_value(node) else "unavailable"),
         invocation="async" if isinstance(node, ast.AsyncFunctionDef) else "sync",
     )
 
@@ -255,13 +279,14 @@ def _instrument_source(
     lines = source.splitlines(keepends=True)
     needs_observe = bool(nodes) and not any(_OBSERVE_IMPORT.match(line) for line in lines)
     needs_scope = entrypoint is not None and not any(_SCOPE_IMPORT.match(line) for line in lines)
-    needs_adapter = any(operator.capture for _node, operator in nodes) and not any(_ADAPTER_IMPORT.match(line) for line in lines)
     insert_at = _import_insertion_line(source, ast.parse(source)) if needs_observe or needs_scope else -1
     # Decorators go in first, bottom-up, so every `node.lineno` still refers to the line it was
     # parsed from. The import is added afterwards at a position above all of them.
     by_line: dict[int, tuple[FunctionNode, list[str]]] = {}
     for node, operator in nodes:
-        capture = f", capture={ADAPTER_MODULE}.{operator.capture.split(':', 1)[1]}" if operator.capture else ""
+        # A string reference: ``observe`` resolves it from the root adapter file, so no import
+        # is added that would fail when the application does not run from the project root.
+        capture = f', capture="{operator.capture}"' if operator.capture else ""
         by_line.setdefault(node.lineno, (node, []))[1].append(
             f'@observe("{operator.op_type}", op_id="{operator.op_id}", parent_ids={operator.parent_ids!r}{capture})\n'
         )
@@ -284,9 +309,6 @@ def _instrument_source(
         lines.insert(insert_at, f"from retrieval_observatory.sdk.observe import {', '.join(names)}\n")
         if not any(line.rstrip("\n") == INSTRUMENTATION_MARKER for line in lines):
             lines.insert(insert_at, INSTRUMENTATION_MARKER + "\n")
-    if needs_adapter:
-        observe_line = next(index for index, line in enumerate(lines) if _OBSERVE_IMPORT.match(line) or _SCOPE_IMPORT.match(line))
-        lines.insert(observe_line + 1, f"import {ADAPTER_MODULE}\n")
     instrumented = "".join(lines)
     try:
         ast.parse(instrumented)
@@ -295,21 +317,86 @@ def _instrument_source(
     return instrumented
 
 
+def _module_name(relative: str) -> str:
+    parts = Path(relative).with_suffix("").parts
+    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+def _imported_modules(relative: str, tree: ast.Module) -> set[str]:
+    """Dotted names ``relative`` may import (every import, including function-level ones), with their packages."""
+    package = Path(relative).parent.parts
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level > len(package) + 1:
+                continue
+            base = package[: len(package) - node.level + 1] if node.level else ()
+            module = ".".join([*base, *(node.module.split(".") if node.module else [])])
+            # ``from pkg import mod`` may name a submodule as well as an attribute.
+            targets = [module, *(f"{module}.{alias.name}" if module else alias.name for alias in node.names)]
+        else:
+            continue
+        for target in filter(None, targets):
+            parts = target.split(".")
+            names.update(".".join(parts[: index + 1]) for index in range(len(parts)))
+    return names
+
+
+def _reachable_files(entry: str, trees: dict[str, ast.Module]) -> set[str]:
+    """Project files reachable from ``entry`` through imports: absolute (also under ``src/``),
+    relative, and script-style imports of a sibling module."""
+    index: dict[str, str] = {}
+    for relative in trees:
+        name = _module_name(relative)
+        index.setdefault(name, relative)
+        if name.startswith("src."):
+            index.setdefault(name[len("src."):], relative)
+    seen, queue = {entry}, [entry]
+    while queue:
+        current = queue.pop()
+        if current not in trees:
+            continue
+        package = ".".join(Path(current).parent.parts)
+        for name in _imported_modules(current, trees[current]):
+            target = index.get(name) or (index.get(f"{package}.{name}") if package else None)
+            if target is not None and target not in seen:
+                seen.add(target)
+                queue.append(target)
+    return seen
+
+
 def _select_entrypoint(
     routes: list[tuple[str, str, FunctionNode, str]],
     functions: dict[tuple[str, str], FunctionNode],
     operators: list[tuple[str, OperatorMapping]],
     detection: DetectionResult,
+    trees: dict[str, ast.Module],
 ) -> Entrypoint | None:
-    """``(relative_path, symbol, node, kind)`` of the function the verification scenarios call."""
+    """``(relative_path, symbol, node, kind)`` of the function the verification scenarios call.
+
+    Among detected ``retrieve``/``search`` functions, the one whose imports reach the most
+    discovered operators wins (ties keep detection order): a ``scripts/`` helper named ``search``
+    must not become the entrypoint of the pipeline next to it.
+    """
     retrieval_routes = [route for route in routes if _RETRIEVAL_ROUTE.search(route[3] or route[1])]
     if retrieval_routes or routes:
         relative, symbol, node, _path = (retrieval_routes or routes)[0]
         return relative, symbol, node, "http_route"
-    for candidate in detection.entrypoints:
-        node = functions.get((candidate.file, candidate.symbol))
-        if node is not None and candidate.kind in ("function", "async_function"):
-            return candidate.file, candidate.symbol, node, "function"
+    candidates = [
+        (candidate.file, candidate.symbol, node)
+        for candidate in detection.entrypoints
+        if candidate.kind in ("function", "async_function")
+        and (node := functions.get((candidate.file, candidate.symbol))) is not None
+    ]
+    if candidates:
+        def coverage(candidate: tuple[str, str, FunctionNode]) -> int:
+            reachable = _reachable_files(candidate[0], trees)
+            return sum(1 for relative, _operator in operators if relative in reachable)
+
+        relative, symbol, node = max(candidates, key=coverage)
+        return relative, symbol, node, "function"
     parents = {parent for _relative, operator in operators for parent in operator.parent_ids}
     for relative, operator in operators:
         if operator.op_id not in parents:
@@ -418,7 +505,7 @@ def _identity(entrypoint: Entrypoint | None, candidate_mapping: dict[str, str]) 
 
 def _judgments(datasets: list[str]) -> dict[str, Any]:
     found = {
-        key: next((path for path in datasets if any(needle in Path(path).name.lower() for needle in needles)), None)
+        key: next((path for needle in needles for path in datasets if needle in Path(path).name.lower()), None)
         for key, needles in _JUDGMENT_FILES
     }
     notes = []
@@ -514,9 +601,12 @@ def build_integration_plan(
     """Discover operators and the entrypoint, or re-plan from a reviewed plan.
 
     With ``reviewed`` its operators are taken as given (each symbol is checked against the source;
-    a missing one is ``unresolved``), its scenarios, identity, judgments, candidate mapping and
-    entrypoint are kept when set, and everything derived from them (patches, boundary, actions,
-    expected capabilities, open questions, plan_id) is regenerated.
+    a missing one is ``unresolved``), its scenarios, identity, judgments, candidate mapping,
+    entrypoint and reviewer ``notes`` are kept when set, and everything derived from them
+    (patches, boundary, actions, expected capabilities, open questions, plan_id) is regenerated.
+
+    Without ``reviewed``, operators in files no import path from the entrypoint reaches are
+    listed under ``discovery.low_confidence_operators`` instead of proposed.
     """
     root = project_root.resolve()
     service_id, pipeline_id = _fixture_identity(root)
@@ -527,7 +617,8 @@ def build_integration_plan(
     functions: dict[tuple[str, str], FunctionNode] = {}
     routes: list[tuple[str, str, FunctionNode, str]] = []
     unresolved: list[str] = []
-    for path in sorted(root.rglob("*.py")):
+    trees: dict[str, ast.Module] = {}
+    for path in iter_project_files(root, (".py",)):
         relative_path = path.relative_to(root)
         if _is_skipped(relative_path):
             continue
@@ -536,6 +627,7 @@ def build_integration_plan(
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except (OSError, SyntaxError):
             continue
+        trees[relative] = tree
         candidates = _candidate_functions(tree)
         for symbol, _call_name, node in candidates:
             functions[(relative, symbol)] = node
@@ -557,14 +649,9 @@ def build_integration_plan(
             else:
                 located[(operator.relative_path, operator.symbol)] = node
     operators = [
-        _describe_boundary(located[key], operator) if (key := (operator.relative_path, operator.symbol)) in located else operator
+        _describe_boundary(located[key], operator, root) if (key := (operator.relative_path, operator.symbol)) in located else operator
         for operator in operators
     ]
-    discovered_by_file: dict[str, list[tuple[FunctionNode, OperatorMapping]]] = {}
-    for operator in operators:
-        node = located.get((operator.relative_path, operator.symbol))
-        if node is not None:
-            discovered_by_file.setdefault(operator.relative_path, []).append((node, operator))
     reviewed_entry = reviewed.discovery.get("entrypoint") if reviewed is not None else None
     if reviewed_entry:
         node = _locate(root, reviewed_entry["file"], reviewed_entry["symbol"], functions)
@@ -573,7 +660,24 @@ def build_integration_plan(
         entrypoint = (reviewed_entry["file"], reviewed_entry["symbol"], node, reviewed_entry["kind"]) if node is not None else None
     else:
         sourced = [(op.relative_path, op) for op in operators if (op.relative_path, op.symbol) in located]
-        entrypoint = _select_entrypoint(routes, functions, sourced, detection)
+        entrypoint = _select_entrypoint(routes, functions, sourced, detection, trees)
+    if reviewed is None and entrypoint is not None and entrypoint[3] != "operator":
+        # A name match no import path from the entrypoint reaches (a script, a notebook, an
+        # unrelated module) is left for the reviewer rather than instrumented.
+        reachable = _reachable_files(entrypoint[0], trees)
+        kept = [op for op in operators if op.relative_path in reachable]
+        if kept:
+            low_confidence.extend(
+                {"symbol": op.symbol, "relative_path": op.relative_path, "op_type": op.op_type,
+                 "confidence": op.confidence, "reason": "unreachable_from_entrypoint"}
+                for op in operators if op.relative_path not in reachable
+            )
+            operators = kept
+    discovered_by_file: dict[str, list[tuple[FunctionNode, OperatorMapping]]] = {}
+    for operator in operators:
+        node = located.get((operator.relative_path, operator.symbol))
+        if node is not None:
+            discovered_by_file.setdefault(operator.relative_path, []).append((node, operator))
     patches: list[PatchOperation] = []
     edits: list[PlannedAction] = []
     for relative in sorted({*discovered_by_file, *([entrypoint[0]] if entrypoint else [])}):
@@ -589,8 +693,6 @@ def build_integration_plan(
             added = [f"@observe to {', '.join(op.op_id for _node, op in file_operators)}"] if file_operators else []
             if scope:
                 added.append(f"@trace_scope to {entrypoint[1]}")
-            if any(op.capture for _node, op in file_operators):
-                added.append(f"import {ADAPTER_MODULE}")
             edits.append(PlannedAction("source_edit", f"edit {relative}: add " + " and ".join(added), performed_by="apply"))
     if not operators:
         unresolved.append("no retrieval operators discovered")
@@ -599,9 +701,7 @@ def build_integration_plan(
     }
     datasets = sorted(
         str(path.relative_to(root))
-        for pattern in ("*.jsonl", "*.json", "*.csv", "*.parquet")
-        for path in root.rglob(pattern)
-        if not any(part.startswith(".") or part in {"venv", "node_modules", "retobs"} for part in path.relative_to(root).parts)
+        for path in iter_project_files(root, (".jsonl", ".json", ".csv", ".parquet"), {"venv", "node_modules", "retobs"})
     )
     discovery = {
         "entrypoints": [candidate.__dict__ for candidate in detection.entrypoints],
@@ -618,10 +718,16 @@ def build_integration_plan(
     judgments = dict(reviewed.judgments) if reviewed is not None and reviewed.judgments else _judgments(datasets)
     identity = reviewed.identity if reviewed is not None else _identity(entrypoint, mapping)
     scenarios = reviewed.scenarios if reviewed is not None and reviewed.scenarios else _scenarios(operators, entrypoint)
+    # A blank command runs nothing: it is a missing command, stated as such (``None``) and asked for.
+    scenarios = tuple(
+        scenario if scenario.command is None or scenario.command.strip() else replace(scenario, command=None)
+        for scenario in scenarios
+    )
     boundary = _boundary(entrypoint, operators)
-    open_questions = [question for operator in operators if not operator.capture for question in _mapping_questions(operator)]
+    open_questions = [question for operator in operators for question in _mapping_questions(operator)]
     if entrypoint is None:
         open_questions.append("no entrypoint found: set discovery.entrypoint {file, symbol, kind} in the plan and each scenario's command")
+        target = "the call that exercises the pipeline's entrypoint"
     else:
         route = next((item[3] for item in routes if item[:2] == entrypoint[:2]), None)
         target = (
@@ -629,11 +735,11 @@ def build_integration_plan(
             if entrypoint[3] == "http_route"
             else f"the call that exercises {entrypoint[1]} in {entrypoint[0]}"
         )
-        open_questions.extend(
-            f"scenario {scenario.scenario_id}: set command to {target}"
-            for scenario in scenarios
-            if scenario.command is None
-        )
+    open_questions.extend(
+        f"scenario {scenario.scenario_id}: set command to {target}; until then nothing runs it and verify reports it unobserved"
+        for scenario in scenarios
+        if scenario.command is None
+    )
     if not any(scenario.route for scenario in scenarios):
         open_questions.extend(f"gate {op.op_id}: declare one scenario per route with `route` set" for op in operators if op.op_type == "GATE")
     package = f'"retrieval-observatory[{detection.framework}]"' if detection.framework in _FRAMEWORK_EXTRAS else "retrieval-observatory"
@@ -667,4 +773,5 @@ def build_integration_plan(
         expected_capabilities=_expected_capabilities(operators, identity, boundary, judgments, scenarios),
         actions=actions,
         open_questions=open_questions,
+        notes=reviewed.notes if reviewed is not None else None,
     )

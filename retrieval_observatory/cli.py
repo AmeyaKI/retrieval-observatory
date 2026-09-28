@@ -605,6 +605,32 @@ def mcp_init(
     console.print('{"mcpServers": {"retobs": {"command": "retobs", "args": ["mcp"]}}}')
 
 
+_SUMMARY_OPERATORS = 20
+
+
+def _plan_summary(plan: dict, project_root: Path, output: Path) -> str:
+    """What ``integrate --phase plan --output`` prints; the plan JSON goes to ``output`` unchanged."""
+    operators = plan["operators"]
+    lines = [f"Plan written to {output}", f"{len(operators)} operators proposed" + (":" if operators else "")]
+    lines += [f"  {op['relative_path']}:{op['symbol']} ({op['op_type']})" for op in operators[:_SUMMARY_OPERATORS]]
+    if len(operators) > _SUMMARY_OPERATORS:
+        lines.append(f"  …and {len(operators) - _SUMMARY_OPERATORS} more")
+    entry = plan["discovery"].get("entrypoint")
+    lines.append(f"Entrypoint: {entry['file']}:{entry['symbol']} ({entry['kind']})" if entry else "Entrypoint: none found")
+    found = [f"{key} {plan['judgments'][key]}" for key in ("queries", "qrels", "corpus") if plan["judgments"].get(key)]
+    lines.append("Judgment files: " + (", ".join(found) if found else "none found"))
+    scenarios = plan["scenarios"]
+    lines.append(f"Scenarios: {len(scenarios)} ({', '.join(item['scenario_id'] for item in scenarios)})")
+    lines += [f"  {item['scenario_id']}: no command; set it in the plan before verify" for item in scenarios if not item.get("command")]
+    lines.append(f"Open questions: {len(plan['open_questions'])}")
+    if plan["unresolved"]:
+        lines.append(f"Unresolved: {len(plan['unresolved'])} (apply refuses until they are fixed)")
+        lines.append(f"Next: fix unresolved in {output}, then re-plan: retobs integrate {project_root} --phase plan --plan {output} --output {output}")
+    else:
+        lines.append(f"Next: review {output}, then run: retobs integrate {project_root} --phase apply --plan {output}")
+    return "\n".join(lines)
+
+
 @app.command("integrate")
 def integrate_cmd(
     project_root: Path = typer.Argument(Path(".")),
@@ -639,6 +665,8 @@ def integrate_cmd(
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(serialized + "\n", encoding="utf-8")
+        if selected is IntegrationPhase.PLAN and payload.get("plan"):
+            typer.echo(_plan_summary(payload["plan"], project_root, output))
     else:
         typer.echo(serialized)
     if payload["status"] == "failed":
