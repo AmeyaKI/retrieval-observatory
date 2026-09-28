@@ -69,7 +69,9 @@ One scenario per declared route, each with:
 - `route`: the gate's `selected_route` value when the pipeline has a gate;
 - `command`: the exact command that calls the entrypoint with that query from the project root.
   A generated command puts the entrypoint's import root on `sys.path` first when its package does
-  not sit at the project root (`import sys; sys.path.insert(0, 'services/search'); ...`).
+  not sit at the project root (`import sys; sys.path.insert(0, 'services/search'); ...`). In a
+  layout with no `__init__.py` (a directory on `PYTHONPATH`), that root comes from the entrypoint's
+  own absolute imports: `apps/py/ticket_rag/pipeline.py` importing `ticket_rag.fusion` has root `apps/py`.
 
 Generated scenarios use the first query of the judgments' queries file; without one that loads,
 `query_text` is a placeholder and `open_questions` asks for a real query.

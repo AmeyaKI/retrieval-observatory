@@ -9,8 +9,9 @@ from pathlib import Path
 import re
 import shlex
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 
+from retrieval_observatory.datasets.records import evaluate_inputs, read_json_records
 from retrieval_observatory.integrations.detect import DetectionResult, detect_project, is_non_runtime_path, iter_project_files
 from retrieval_observatory.integrations.model import (
     ADAPTER_MODULE,
@@ -421,16 +422,20 @@ def _imported_modules(relative: str, tree: ast.Module) -> set[str]:
     return names
 
 
-def _reachable_files(entry: str, trees: dict[str, ast.Module], root: Path) -> set[str]:
-    """Project files reachable from ``entry`` through imports: absolute (by each file's name under
-    its import root, see ``_import_name``), relative, and script-style imports of a sibling module.
+def _import_resolver(trees: dict[str, ast.Module], root: Path) -> Callable[[str, str], str | None]:
+    """``resolve(name, importer)``: the project file an import of dotted ``name`` in ``importer`` loads.
 
-    A name several files share resolves to the one under the importer's own import root, else to
-    none; root-relative dotted names (relative imports resolve to these) are the fallback.
+    Tried in order: the file named ``name`` under its import root (see ``_import_name``; a name
+    several files share resolves to the one under the importer's own import root, else to none),
+    the root-relative dotted name (relative imports resolve to these), a sibling of the importer
+    (script-style), and last the one file whose root-relative name ends with ``.<name>``: a
+    namespace package (no ``__init__.py``) imported from a directory put on ``PYTHONPATH``. Several
+    such files, or a one-part name (``json``, ``models``), resolve to none.
     """
     roots: dict[str, str] = {}
     named: dict[str, list[str]] = {}
     index: dict[str, str] = {}
+    suffixed: dict[str, list[str]] = {}
     for relative in trees:
         roots[relative], name = _import_name(root, relative)
         named.setdefault(name, []).append(relative)
@@ -438,24 +443,66 @@ def _reachable_files(entry: str, trees: dict[str, ast.Module], root: Path) -> se
         index.setdefault(dotted, relative)
         if dotted.startswith("src."):
             index.setdefault(dotted[len("src."):], relative)
+        parts = dotted.split(".")
+        for start in range(1, len(parts) - 1):
+            suffixed.setdefault(".".join(parts[start:]), []).append(relative)
 
     def resolve(name: str, importer: str) -> str | None:
         found = named.get(name, [])
         own = [relative for relative in found if roots[relative] == roots.get(importer)]
-        return (own or found)[0] if len(own or found) == 1 else index.get(name)
+        if len(own or found) == 1:
+            return (own or found)[0]
+        package = ".".join(Path(importer).parent.parts)
+        by_suffix = suffixed.get(name, [])
+        return (
+            index.get(name)
+            or (index.get(f"{package}.{name}") if package else None)
+            or (by_suffix[0] if len(by_suffix) == 1 else None)
+        )
 
+    return resolve
+
+
+def _reachable_files(entry: str, trees: dict[str, ast.Module], resolve: Callable[[str, str], str | None]) -> set[str]:
+    """Project files reachable from ``entry`` through imports, each resolved by ``_import_resolver``."""
     seen, queue = {entry}, [entry]
     while queue:
         current = queue.pop()
         if current not in trees:
             continue
-        package = ".".join(Path(current).parent.parts)
         for name in _imported_modules(current, trees[current]):
-            target = resolve(name, current) or (index.get(f"{package}.{name}") if package else None)
+            target = resolve(name, current)
             if target is not None and target not in seen:
                 seen.add(target)
                 queue.append(target)
     return seen
+
+
+def _entry_import_name(root: Path, relative: str, tree: ast.Module | None, resolve: Callable[[str, str], str | None]) -> tuple[str, str]:
+    """``_import_name`` of the entrypoint; outside any package, the import root its own absolute imports imply.
+
+    ``apps/py/ticket_rag/pipeline.py`` (no ``__init__.py``) importing ``ticket_rag.fusion``, which
+    resolves to ``apps/py/ticket_rag/fusion.py``, is ``("apps/py", "ticket_rag.pipeline")``: the
+    import must land in the top-level package directory that holds the entrypoint.
+    """
+    path = Path(relative)
+    if tree is None or (root / path.parent / "__init__.py").is_file():
+        return _import_name(root, relative)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            names.update([node.module, *(f"{node.module}.{alias.name}" for alias in node.names)])
+    for name in sorted(names):
+        target = resolve(name, relative)
+        parts = tuple(name.split("."))
+        found = tuple(_module_name(target).split(".")) if target else ()
+        if found[-len(parts):] == parts:
+            base = Path(*found[: -len(parts)])
+            if path.is_relative_to(base / parts[0]):
+                return base.as_posix(), _module_name(str(path.relative_to(base)))
+    return _import_name(root, relative)
 
 
 def _select_entrypoint(
@@ -464,7 +511,7 @@ def _select_entrypoint(
     operators: list[tuple[str, OperatorMapping]],
     detection: DetectionResult,
     trees: dict[str, ast.Module],
-    root: Path,
+    resolve: Callable[[str, str], str | None],
 ) -> Entrypoint | None:
     """``(relative_path, symbol, node, kind)`` of the function the verification scenarios call.
 
@@ -487,7 +534,7 @@ def _select_entrypoint(
     ]
     if candidates:
         def coverage(candidate: tuple[str, str, FunctionNode]) -> int:
-            reachable = _reachable_files(candidate[0], trees, root)
+            reachable = _reachable_files(candidate[0], trees, resolve)
             return sum(1 for relative, _operator in operators if relative in reachable)
 
         relative, symbol, node = max(candidates, key=coverage)
@@ -606,12 +653,10 @@ def _identity(entrypoint: Entrypoint | None, candidate_mapping: dict[str, str]) 
 
 def _read_rows(path: Path) -> tuple[Any, bool]:
     """``retobs evaluate``'s records of a JSON/JSONL file, cut to its first ``JUDGMENT_ROW_LIMIT`` lines (``True`` when cut)."""
-    from retrieval_observatory.cli import _read_json_records
-
     with path.open(encoding="utf-8") as handle:
         head = list(itertools.islice(handle, JUDGMENT_ROW_LIMIT + 1))
     if len(head) <= JUDGMENT_ROW_LIMIT:
-        return _read_json_records(path), False
+        return read_json_records(path), False
     return [json.loads(line) for line in head[:JUDGMENT_ROW_LIMIT] if line.strip()], True
 
 
@@ -636,7 +681,6 @@ def _check_judgments(root: Path, found: dict[str, str | None]) -> tuple[list[str
     qrels doc id missing from the corpus. A membership check against a file cut at
     ``JUDGMENT_ROW_LIMIT`` rows is skipped and said so in the remarks.
     """
-    from retrieval_observatory.cli import _evaluate_inputs
     from retrieval_observatory.datasets.inmemory import InMemoryDataset
 
     rows: dict[str, Any] = {}
@@ -653,7 +697,7 @@ def _check_judgments(root: Path, found: dict[str, str | None]) -> tuple[list[str
             return [f"corpus {found['corpus']} is empty"], remarks
         # evaluate refuses to run without a corpus; with none chosen a stand-in keeps that out of these checks.
         module = SimpleNamespace(QUERIES=rows["queries"], QRELS=rows["qrels"], CORPUS=rows.get("corpus") or {"": ""})
-        query_rows, corpus, qrels = _evaluate_inputs(module, None, None, None)
+        query_rows, corpus, qrels = evaluate_inputs(module, None, None, None)
         queries = InMemoryDataset(query_rows, corpus, qrels).load()[0]
         judged = {str(query_id): {str(doc_id) for doc_id in relevant} for query_id, relevant in dict(qrels or {}).items()}
     except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, AttributeError) as error:
@@ -739,13 +783,13 @@ def _expected_capabilities(
     }
 
 
-def _scenario_command(entrypoint: Entrypoint, root: Path, query_text: str) -> str | None:
+def _scenario_command(entrypoint: Entrypoint, import_name: tuple[str, str], query_text: str) -> str | None:
     """A ``python -c`` call of a module-level entrypoint, run from the project root with its import
-    root put on ``sys.path``; a route or method needs a reviewer-supplied command."""
-    relative, symbol, node, kind = entrypoint
+    root (``_entry_import_name``) put on ``sys.path``; a route or method needs a reviewer-supplied command."""
+    _relative, symbol, node, kind = entrypoint
     if kind == "http_route" or "." in symbol:
         return None
-    import_root, module = _import_name(root, relative)
+    import_root, module = import_name
     call = f"{symbol}({query_text!r})"
     code = f"from {module} import {symbol}; {call}"
     if isinstance(node, ast.AsyncFunctionDef):
@@ -757,12 +801,12 @@ def _scenario_command(entrypoint: Entrypoint, root: Path, query_text: str) -> st
 
 
 def _scenarios(
-    operators: list[OperatorMapping], entrypoint: Entrypoint | None, root: Path, query_text: str
+    operators: list[OperatorMapping], entrypoint: Entrypoint | None, import_name: tuple[str, str] | None, query_text: str
 ) -> tuple[VerificationScenario, ...]:
     """The same query twice: the repeat is what cross-run entity alignment is checked against."""
     ids = tuple(op.op_id for op in operators)
     edges = tuple((parent, op.op_id) for op in operators for parent in op.parent_ids)
-    command = _scenario_command(entrypoint, root, query_text) if entrypoint else None
+    command = _scenario_command(entrypoint, import_name, query_text) if entrypoint and import_name else None
     return tuple(
         VerificationScenario(scenario_id, query_text, ids, edges, command=command)
         for scenario_id in ("representative", "representative-repeat")
@@ -801,13 +845,21 @@ def _qualify_duplicate_ids(root: Path, operators: list[OperatorMapping]) -> list
     ]
 
 
-def _benchmark_setup(entrypoint: Entrypoint | None, judgments: dict[str, Any], db_path: str, pipeline_id: str) -> PlannedAction:
+def _benchmark_setup(
+    entrypoint: Entrypoint | None, import_name: tuple[str, str] | None, judgments: dict[str, Any], db_path: str, pipeline_id: str
+) -> PlannedAction:
+    """``retobs evaluate`` run from the project root: a loose module by file path, a package module
+    as ``module:callable`` with its import root on ``PYTHONPATH`` (the file loader cannot resolve
+    relative imports or a nested import root)."""
     resolved = judgments.get("status") == "resolved"
-    if resolved and entrypoint is not None and entrypoint[3] == "function":
+    if resolved and entrypoint is not None and entrypoint[3] == "function" and import_name is not None:
         relative, symbol, _node, _kind = entrypoint
+        import_root, module = import_name
+        target = f"{module}:{symbol}" if "." in module else f"{relative}:{symbol}"
+        pythonpath = f"PYTHONPATH={shlex.quote(import_root)} " if "." in module and import_root != "." else ""
         corpus = f" --corpus {judgments['corpus']}" if judgments.get("corpus") else ""
         command = (
-            f"retobs evaluate {relative}:{symbol} --queries {judgments['queries']} --qrels {judgments['qrels']}{corpus}"
+            f"{pythonpath}retobs evaluate {target} --queries {judgments['queries']} --qrels {judgments['qrels']}{corpus}"
             f" --name {pipeline_id} --db {db_path}"
         )
         return PlannedAction("benchmark_setup", f"evaluate {symbol} against the discovered queries and qrels", command)
@@ -884,6 +936,7 @@ def build_integration_plan(
                 unresolved.append(f"operator {operator.op_id}: symbol {operator.symbol} not found in {operator.relative_path}")
             else:
                 located[(operator.relative_path, operator.symbol)] = node
+    resolve = _import_resolver(trees, root)
     reviewed_entry = reviewed.discovery.get("entrypoint") if reviewed is not None else None
     if reviewed_entry:
         node = _locate(root, reviewed_entry["file"], reviewed_entry["symbol"], functions)
@@ -892,12 +945,12 @@ def build_integration_plan(
         entrypoint = (reviewed_entry["file"], reviewed_entry["symbol"], node, reviewed_entry["kind"]) if node is not None else None
     else:
         sourced = [(op.relative_path, op) for op in operators if (op.relative_path, op.symbol) in located]
-        entrypoint = _select_entrypoint(routes, functions, sourced, detection, trees, root)
+        entrypoint = _select_entrypoint(routes, functions, sourced, detection, trees, resolve)
     unreachable = False
     if reviewed is None and entrypoint is not None and entrypoint[3] != "operator":
         # A name match no import path from the entrypoint reaches (a script, a notebook, an
         # unrelated module) is left for the reviewer rather than instrumented.
-        reachable = _reachable_files(entrypoint[0], trees, root)
+        reachable = _reachable_files(entrypoint[0], trees, resolve)
         low_confidence.extend(_left_out(op, "unreachable_from_entrypoint") for op in operators if op.relative_path not in reachable)
         unreachable = bool(operators) and not any(op.relative_path in reachable for op in operators)
         if unreachable:
@@ -959,7 +1012,8 @@ def build_integration_plan(
     identity = reviewed.identity if reviewed is not None else _identity(entrypoint, mapping)
     generated = not (reviewed is not None and reviewed.scenarios)
     query_text = _first_query_text(root, judgments.get("queries")) or SCENARIO_QUERY_TEXT
-    scenarios = _scenarios(operators, entrypoint, root, query_text) if generated else reviewed.scenarios
+    import_name = _entry_import_name(root, entrypoint[0], trees.get(entrypoint[0]), resolve) if entrypoint else None
+    scenarios = _scenarios(operators, entrypoint, import_name, query_text) if generated else reviewed.scenarios
     # A blank command runs nothing: it is a missing command, stated as such (``None``) and asked for.
     scenarios = tuple(
         scenario if scenario.command is None or scenario.command.strip() else replace(scenario, command=None)
@@ -998,7 +1052,7 @@ def build_integration_plan(
     actions = (
         PlannedAction("install", "install retobs into the project's environment", f"pip install {package}"),
         *edits,
-        _benchmark_setup(entrypoint, judgments, db_path, pipeline_id),
+        _benchmark_setup(entrypoint, import_name, judgments, db_path, pipeline_id),
         *(
             PlannedAction(
                 "scenario_execution",

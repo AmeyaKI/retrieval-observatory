@@ -178,11 +178,11 @@ def detect_project(project_root: str | Path, framework: Optional[str] = None) ->
         if chosen == "http" and aggregate_scores.get("fastapi", 0) >= aggregate_scores.get("http", 0):
             chosen = "fastapi"
 
-    # Non-runtime candidates sort last so a bench or eval ``search`` never pushes the real one past the cut.
+    # Non-runtime candidates sort last; every candidate is kept, since the planner picks by reachability.
     entrypoints.sort(key=lambda e: (is_non_runtime_path(e.file), -e.score))
     return DetectionResult(
         framework=chosen,
         framework_scores=aggregate_scores,
-        entrypoints=entrypoints[:10],
+        entrypoints=entrypoints,
         http_routes=http_routes[:5],
     )

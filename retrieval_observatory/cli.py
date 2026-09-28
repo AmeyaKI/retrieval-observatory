@@ -10,6 +10,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from retrieval_observatory.datasets.records import evaluate_inputs as _evaluate_inputs
+from retrieval_observatory.datasets.records import read_json_records as _read_json_records
+
 app = typer.Typer(
     name="retobs",
     help="Local-first retrieval reliability: evaluate, compare, debug, and investigate RAG retrieval.",
@@ -58,52 +61,6 @@ def _load_evaluate_target(spec: str):
     if not hasattr(module, symbol):
         raise ValueError(f"Symbol '{symbol}' not found in {module_ref}.")
     return getattr(module, symbol), module
-
-
-def _read_json_records(path: Path):
-    text = path.read_text(encoding="utf-8").strip()
-    if not text:
-        return []
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
-    # A one-line JSONL file parses as a single object; a row (query or judgment) is still one record.
-    if isinstance(parsed, dict) and ("query_id" in parsed or "doc_id" in parsed):
-        return [parsed]
-    return parsed
-
-
-def _evaluate_inputs(module, queries_path: Optional[Path], corpus_path: Optional[Path], qrels_path: Optional[Path]):
-    queries = _read_json_records(queries_path) if queries_path else getattr(module, "QUERIES", getattr(module, "queries", None))
-    corpus_raw = _read_json_records(corpus_path) if corpus_path else getattr(module, "CORPUS", getattr(module, "corpus", None))
-    qrels_raw = _read_json_records(qrels_path) if qrels_path else getattr(module, "QRELS", getattr(module, "qrels", None))
-    if isinstance(corpus_raw, list):
-        corpus = {
-            str(row.get("id", row.get("doc_id"))): str(row.get("text", row.get("content", "")))
-            for row in corpus_raw
-        }
-    else:
-        corpus = corpus_raw
-    if isinstance(qrels_raw, list):
-        qrels = {}
-        for row in qrels_raw:
-            if not (isinstance(row, dict) and row.get("query_id")):
-                continue
-            if "doc_id" in row:  # one judged pair per row: {query_id, doc_id, relevance}
-                graded = qrels.setdefault(str(row["query_id"]), {})
-                if isinstance(graded, dict):
-                    graded[str(row["doc_id"])] = int(row.get("relevance", 1))
-            else:
-                qrels[str(row["query_id"])] = row.get("relevant_doc_ids", row.get("qrels", {}))
-    else:
-        qrels = qrels_raw
-    if not queries or not corpus:
-        raise ValueError(
-            "Evaluation needs queries and corpus. Pass --queries/--corpus JSON(L), "
-            "or define QUERIES and CORPUS in the target module."
-        )
-    return queries, corpus, qrels
 
 
 def _read_chunk_map(path: Path):
@@ -617,8 +574,12 @@ def _plan_summary(plan: dict, project_root: Path, output: Path) -> str:
         lines.append(f"  …and {len(operators) - _SUMMARY_OPERATORS} more")
     entry = plan["discovery"].get("entrypoint")
     lines.append(f"Entrypoint: {entry['file']}:{entry['symbol']} ({entry['kind']})" if entry else "Entrypoint: none found")
-    found = [f"{key} {plan['judgments'][key]}" for key in ("queries", "qrels", "corpus") if plan["judgments"].get(key)]
-    lines.append("Judgment files: " + (", ".join(found) if found else "none found"))
+    judgments = plan["judgments"]
+    found = [f"{key} {judgments[key]}" for key in ("queries", "qrels", "corpus") if judgments.get(key)]
+    status = judgments.get("status")
+    label = {"candidate": "candidate: checks failed, see judgments.notes", "unresolved": "unresolved: see judgments.notes"}.get(status, status)
+    # A reviewed plan's judgments may carry no status; then only the files are listed.
+    lines.append(f"Judgment files ({label}): {', '.join(found)}" if found and label else "Judgment files: " + (", ".join(found) or "none found"))
     scenarios = plan["scenarios"]
     lines.append(f"Scenarios: {len(scenarios)} ({', '.join(item['scenario_id'] for item in scenarios)})")
     lines += [f"  {item['scenario_id']}: no command; set it in the plan before verify" for item in scenarios if not item.get("command")]

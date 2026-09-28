@@ -142,3 +142,65 @@ def test_trap_fixture_files_are_not_gitignored() -> None:
     ]
     ignored = subprocess.run(["git", "check-ignore", *map(str, files)], cwd=FIXTURE, capture_output=True, text=True)
     assert ignored.stdout == ""
+
+
+NAMESPACE_FIXTURE = Path(__file__).parent / "namespace_monorepo"
+TICKET_RAG = "apps/py/ticket_rag"
+
+
+def _benchmark_command(plan) -> str:
+    return next(action for action in plan.actions if action.kind == "benchmark_setup").command
+
+
+def _run_benchmark(command: str, root: Path) -> subprocess.CompletedProcess[str]:
+    """Run a plan's benchmark command from the project root the way a shell would, with only its own PYTHONPATH."""
+    argv = shlex.split(command)
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    while "=" in argv[0]:
+        key, value = argv.pop(0).split("=", 1)
+        env[key] = value
+    assert argv[:2] == ["retobs", "evaluate"], command
+    return subprocess.run(
+        [sys.executable, "-m", "retrieval_observatory.cli", *argv[1:], "--format", "json"],
+        cwd=root, env=env, capture_output=True, text=True, timeout=120,
+    )
+
+
+def test_namespace_package_pipeline_is_proposed_and_runnable(tmp_path: Path) -> None:
+    """``apps/py`` is the import root and no directory has ``__init__.py``: imports resolve by path suffix."""
+    root = Path(shutil.copytree(NAMESPACE_FIXTURE, tmp_path / "namespace_monorepo", ignore=shutil.ignore_patterns("__pycache__")))
+    plan = build_integration_plan(root)
+
+    assert plan.discovery["entrypoint"] == {"file": f"{TICKET_RAG}/pipeline.py", "symbol": "retrieve", "kind": "function"}
+    assert {(op.relative_path, op.symbol) for op in plan.operators} == {
+        (f"{TICKET_RAG}/pipeline.py", "retrieve"),
+        (f"{TICKET_RAG}/fusion.py", "fuse_results"),
+        (f"{TICKET_RAG}/lanes/keyword.py", "keyword_search"),
+        (f"{TICKET_RAG}/lanes/vector.py", "vector_search"),
+    }
+    assert {
+        (item["relative_path"], item["symbol"])
+        for item in plan.discovery["low_confidence_operators"]
+        if item.get("reason") == "unreachable_from_entrypoint"
+    } == {(f"{TICKET_RAG}/legacy_rerank.py", "rerank_results")}
+    assert not plan.unresolved
+    command = plan.scenarios[0].command
+    assert "sys.path.insert(0, 'apps/py')" in command and "from ticket_rag.pipeline import retrieve" in command
+    argv = shlex.split(command)
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    completed = subprocess.run([sys.executable, *argv[1:]], cwd=root, env=env, capture_output=True, text=True, timeout=60)
+    assert completed.returncode == 0, completed.stderr
+    benchmark = _benchmark_command(plan)
+    assert benchmark.startswith("PYTHONPATH=apps/py retobs evaluate ticket_rag.pipeline:retrieve ")
+    evaluated = _run_benchmark(benchmark, root)
+    assert evaluated.returncode == 0, evaluated.stderr[-2000:]
+
+
+def test_benchmark_command_runs_from_the_project_root_under_a_nested_import_root(tmp_path: Path) -> None:
+    """``retrieval_app`` imports itself absolutely and relatively; the file-path loader cannot load it."""
+    root = _copy(tmp_path)
+    command = _benchmark_command(build_integration_plan(root))
+
+    assert command.startswith("PYTHONPATH=services/search retobs evaluate retrieval_app.pipeline:retrieve ")
+    completed = _run_benchmark(command, root)
+    assert completed.returncode == 0, completed.stderr[-2000:]

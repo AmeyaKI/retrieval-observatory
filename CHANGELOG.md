@@ -7,36 +7,19 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
-- `scripts/smoke_wheel.py` — `adapter_capture_outside_root` check: an installed wheel resolves a root `retobs_adapter.py` from a subpackage run outside the project root.
 
 ### Changed
-- `integrations/planner.py` — module reachability and scenario commands resolve each file from its import root (parent of its topmost package dir), so packages below a non-package directory are found; scenario commands add `sys.path.insert(0, '<import root>')` when that root is not the project root.
-- `integrations/planner.py` — operator types match whole name tokens (`aggregate` is no longer GATE); predicates, factories, formatters and scalar- or boolean-returning functions are listed in `low_confidence_operators` with reason `not_operator_shape`.
-- `integrations/detect.py`, `integrations/planner.py` — virtualenvs of any name, `site-packages`/`dist-packages`, and bench/eval/report/script/notebook/fixture/example/experiment directories are never proposed for operators or chosen as the entrypoint (reason `non_runtime_dir`); operators no import from the entrypoint reaches are listed with reason `unreachable_from_entrypoint`.
-- `integrations/planner.py` — judgment files are chosen per directory and validated with the loaders `retobs evaluate` uses (bounded to 100k rows per file); a failed check yields status `candidate` with notes and an open question.
-- `integrations/planner.py` — scenarios use the first query of the judgments' queries file, shell-quoted; the placeholder query remains only when no queries file loads, with an open question.
-- `integrations/planner.py`, `integrations/apply.py` — `capture` is written as the string `"retobs_adapter:<symbol>"`; apply adds no adapter import.
-- `integrations/model.py` — plan and operators carry reviewer `notes`, kept verbatim on re-plan; a capture spec without `outputs` leaves `output_mapping: return`.
-- `cli.py` — `integrate --phase plan --output` prints a plan summary; the plan JSON is unchanged.
-- `runner/execute.py`, `evidence/journeys.py` — candidates are scored as the document the inspection views judge them as, so chunks of one document count once; with judgments that name no namespace, a candidate matches by id whatever its namespace, in scoring and inspection.
-- `evidence/investigation.py` — `DERIVATION_VERSION` is `journeys-3`; projections stored earlier report `projection_stale` until reindexed.
-- `sdk/observe.py` — `capture="retobs_adapter:<symbol>"` is resolved from the nearest `retobs_adapter.py` on the first traced call (no `sys.path`, no import added by apply); an unresolved reference records `capture_reference_unresolved` and uses default capture.
-- `cli.py` — `inspect-document` prints the resolved `namespace:id` and unit; `inspect-query` prints a candidates table keyed `namespace:entity_id` with unit and k.
 
 ### Fixed
-- `integrations/planner.py` — when no discovered operator is reachable from the entrypoint the plan proposes none and reports it under `unresolved`, instead of proposing every name match.
-- `integrations/planner.py`, `integrations/model.py` — operators sharing a symbol in different modules get module-qualified op_ids (parent ids and input mappings follow); `validate_for_apply` rejects duplicate op_ids.
-- `integrations/apply.py`, `integrations/verify.py` — a scenario without a command is reported by apply and verify instead of silently skipped.
-- `evidence/service.py` — `inspect_document` resolves a bare id to the one namespace with rows for it (finding `entity_resolved`), returns 422 `entity_ambiguous` when several match, and works without `retobs storage index`.
-- `evidence/service.py` — chunk-unit views over document-level judgments report `judgments_not_inherited` instead of silently reading unjudged.
 
 ### Removed
 
 ## [0.7.0] — 2026-09-24
 
-Published first as the pre-release `0.7.0rc1` (`pip install retrieval-observatory==0.7.0rc1`); the final date is set when `v0.7.0` is tagged. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
+Published first as the pre-releases `0.7.0rc1` and `0.7.0rc2` (`pip install retrieval-observatory==0.7.0rc2`); rc2 hardens setup on messy repositories and makes every inspection surface give one answer; the final date is set when `v0.7.0` is tagged. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
 
 ### Added
+- `scripts/smoke_wheel.py` — `adapter_capture_outside_root` check: an installed wheel resolves a root `retobs_adapter.py` from a subpackage run outside the project root.
 
 - `integrations/model.py` — integration plan schema v2: per-operator `input_mapping` / `output_mapping` / `capture` (`retobs_adapter:<symbol>`) / `invocation`, scenario `command` and `route`, `boundary` (`FinalBoundary`), `identity` (`IdentityChoice`), `judgments`, `expected_capabilities` over the eight `CAPABILITY_NAMES`, `actions` (`install | source_edit | benchmark_setup | scenario_execution`, only source edits performed by apply), and non-blocking `open_questions`; `IntegrationPhase.REVERT`.
 - `integrations/planner.py` — plans state per-operator input/output mappings (a static mirror of the runtime capture rules), the final boundary, candidate/query identity, discovered judgment files, expected capabilities, actions, a `representative-repeat` scenario with `python -c` commands, and an open question for every gap; `build_integration_plan(..., reviewed=)` re-plans from a reviewed plan's operators/scenarios (unknown symbols become `unresolved`; `capture` references land as `capture=retobs_adapter.<symbol>` in the decorator); instrumented modules carry a `# retobs instrumentation` marker line; `discovery.runbook` names the packaged runbook; the benchmark action names the run after the pipeline (`--name`).
@@ -106,6 +89,18 @@ Published first as the pre-release `0.7.0rc1` (`pip install retrieval-observator
 - `tests/fixtures/integration_projects.py` — three representative target projects (plain Python, FastAPI with a class-method retriever and reranker, LangChain `BaseRetriever`) exercised end to end by `tests/integration/test_integration_projects.py`.
 
 ### Changed
+- `integrations/planner.py` — module reachability and scenario commands resolve each file from its import root (parent of its topmost package dir), so packages below a non-package directory are found; scenario commands add `sys.path.insert(0, '<import root>')` when that root is not the project root.
+- `integrations/planner.py` — operator types match whole name tokens (`aggregate` is no longer GATE); predicates, factories, formatters and scalar- or boolean-returning functions are listed in `low_confidence_operators` with reason `not_operator_shape`.
+- `integrations/detect.py`, `integrations/planner.py` — virtualenvs of any name, `site-packages`/`dist-packages`, and bench/eval/report/script/notebook/fixture/example/experiment directories are never proposed for operators or chosen as the entrypoint (reason `non_runtime_dir`); operators no import from the entrypoint reaches are listed with reason `unreachable_from_entrypoint`.
+- `integrations/planner.py` — judgment files are chosen per directory and validated with the loaders `retobs evaluate` uses (bounded to 100k rows per file); a failed check yields status `candidate` with notes and an open question.
+- `integrations/planner.py` — scenarios use the first query of the judgments' queries file, shell-quoted; the placeholder query remains only when no queries file loads, with an open question.
+- `integrations/planner.py`, `integrations/apply.py` — `capture` is written as the string `"retobs_adapter:<symbol>"`; apply adds no adapter import.
+- `integrations/model.py` — plan and operators carry reviewer `notes`, kept verbatim on re-plan; a capture spec without `outputs` leaves `output_mapping: return`.
+- `cli.py` — `integrate --phase plan --output` prints a plan summary; the plan JSON is unchanged.
+- `runner/execute.py`, `evidence/journeys.py` — candidates are scored as the document the inspection views judge them as, so chunks of one document count once; with judgments that name no namespace, a candidate matches by id whatever its namespace, in scoring and inspection.
+- `evidence/investigation.py` — `DERIVATION_VERSION` is `journeys-3`; projections stored earlier report `projection_stale` until reindexed.
+- `sdk/observe.py` — `capture="retobs_adapter:<symbol>"` is resolved from the nearest `retobs_adapter.py` on the first traced call (no `sys.path`, no import added by apply); an unresolved reference records `capture_reference_unresolved` and uses default capture.
+- `cli.py` — `inspect-document` prints the resolved `namespace:id` and unit; `inspect-query` prints a candidates table keyed `namespace:entity_id` with unit and k.
 
 - `scripts/check_release.py` — requires a `## [<version>]` CHANGELOG heading (a pre-release such as `0.7.0rc1` is checked against its final version's heading and demo assets); the wheel must contain the dashboard `index.html` and every asset it references, the golden fixture and v3 policy, and the runbook, and must not contain retired modules, `ui/src`, `.pyc`, or local-only files; `--require-sdist` rejects local-only material and home paths; `--require-evidence` checks source commit, wheel and sdist digests, per-interpreter smoke results, fixture capabilities, skipped checks with reasons and known limitations.
 - `scripts/smoke_wheel.py` — 13 checks from outside the repository with a JSON result per check (import origin, installed resources, retired modules absent, core install without extras, public surface, MCP registration, SDK evaluate, production trace, serve, demo → compare → offline HTML audit, inspect-document, v2 → v3 storage migration, v2 policy conversion); a skipped check needs a reason and `--require-extra` turns it into a failure. `smoke_external_project.py` and `tests/browser/seed_e2e.py` (`RETOBS_REQUIRE_INSTALLED=1`) assert imports come from the installed wheel.
@@ -184,6 +179,11 @@ Published first as the pre-release `0.7.0rc1` (`pip install retrieval-observator
 - `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
+- `integrations/planner.py` — when no discovered operator is reachable from the entrypoint the plan proposes none and reports it under `unresolved`, instead of proposing every name match.
+- `integrations/planner.py`, `integrations/model.py` — operators sharing a symbol in different modules get module-qualified op_ids (parent ids and input mappings follow); `validate_for_apply` rejects duplicate op_ids.
+- `integrations/apply.py`, `integrations/verify.py` — a scenario without a command is reported by apply and verify instead of silently skipped.
+- `evidence/service.py` — `inspect_document` resolves a bare id to the one namespace with rows for it (finding `entity_resolved`), returns 422 `entity_ambiguous` when several match, and works without `retobs storage index`.
+- `evidence/service.py` — chunk-unit views over document-level judgments report `judgments_not_inherited` instead of silently reading unjudged.
 
 - `cli.py` — `retobs compare --artifacts` prints the audit paths unwrapped, so a narrow terminal (CI's 80 columns) no longer splits them mid-name.
 - `dashboard/ui/index.html` — the dashboard sets its own tab icon (the sidebar's "RO" mark, inline SVG) instead of falling back to the browser's default.

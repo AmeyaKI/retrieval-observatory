@@ -314,3 +314,54 @@ def test_scenario_query_with_quotes_survives_the_shell(tmp_path: Path) -> None:
     completed = _run(plan.scenarios[0].command, root)
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout[:-1] == text
+
+
+# -- entrypoint candidates ------------------------------------------------------------------------
+
+
+def test_the_real_entrypoint_is_chosen_behind_many_decoys(tmp_path: Path) -> None:
+    # Twelve runtime ``search`` functions sort ahead of the pipeline's ``retrieve`` (same score, earlier path).
+    decoys = {f"a{index:02d}/search.py": "def search(query):\n    return [query]\n" for index in range(12)}
+    root = _project(tmp_path, {
+        **decoys,
+        "zz/pipeline.py": (
+            "def bm25(query):\n    return []\n\n"
+            "def rerank(query, candidates):\n    return candidates\n\n"
+            "def retrieve(query):\n    return rerank(query, bm25(query))\n"
+        ),
+    })
+    plan = build_integration_plan(root)
+
+    assert plan.discovery["entrypoint"] == {"file": "zz/pipeline.py", "symbol": "retrieve", "kind": "function"}
+    assert {op.symbol for op in plan.operators} == {"bm25", "rerank", "retrieve"}
+
+
+# -- plan summary ---------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("files", "line"),
+    [
+        (
+            {"data/queries.jsonl": QUERIES, "data/qrels.jsonl": QRELS, "data/corpus.jsonl": CORPUS},
+            "Judgment files (resolved): queries data/queries.jsonl, qrels data/qrels.jsonl, corpus data/corpus.jsonl",
+        ),
+        (
+            {"data/queries.jsonl": QUERIES, "data/qrels.jsonl": '{"query_id": "other", "relevant_doc_ids": ["d1"]}\n', "data/corpus.jsonl": CORPUS},
+            "Judgment files (candidate: checks failed, see judgments.notes): queries data/queries.jsonl, qrels data/qrels.jsonl, corpus data/corpus.jsonl",
+        ),
+        ({"data/queries.jsonl": QUERIES}, "Judgment files (unresolved: see judgments.notes): queries data/queries.jsonl"),
+        ({}, "Judgment files: none found"),
+    ],
+)
+def test_plan_summary_states_the_judgments_status(tmp_path: Path, files: dict[str, str], line: str) -> None:
+    from typer.testing import CliRunner
+
+    from retrieval_observatory.cli import app
+
+    root = _project(tmp_path / "project", {"app.py": APP, **files})
+    plan_path = tmp_path / "plan.json"
+    result = CliRunner().invoke(app, ["integrate", str(root), "--phase", "plan", "--output", str(plan_path)])
+
+    assert result.exit_code == 0, result.output
+    assert line in result.stdout.splitlines(), result.stdout
