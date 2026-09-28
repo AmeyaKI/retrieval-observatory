@@ -13,7 +13,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass, fields, replace
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Literal, Mapping, Sequence, get_args
+from typing import Any, Awaitable, Callable, Iterable, Literal, Mapping, Sequence, get_args
 
 from retrieval_observatory.datasets.judgments import ChunkMap, EvaluationSpec, EvaluationUnit, JudgmentSet, query_input_identity
 from retrieval_observatory.evidence.investigation import (
@@ -496,34 +496,51 @@ def _project(traces: Sequence[RetrievalTrace], resolved: ResolvedScope) -> list[
     ]
 
 
+async def _scope_payload(
+    store: Any, resolved: ResolvedScope, meta: Mapping[str, Any] | None, traces: Sequence[RetrievalTrace]
+) -> tuple[list[JourneyRow] | None, dict | None]:
+    """(rows projected in memory, run payload): the stored run summary when a projection exists (no
+    rows), otherwise ``traces`` projected with the same judgments, chunk map and spec."""
+    if meta is not None:
+        return None, await _run_payload_stored(store, resolved.store_scope())
+    projected = _project(traces, resolved)
+    return projected, _run_payload(projected, traces)
+
+
 async def _pairs(
     store: Any,
     resolved: ResolvedScope,
     request: InvestigationRequest,
-    meta: Mapping[str, Any] | None,
-    traces: Sequence[RetrievalTrace],
+    projected: Sequence[JourneyRow] | None,
     *,
     order: str,
-) -> tuple[list[dict], int, str | None, dict | None, dict]:
-    """(rows, total, next_cursor, run payload, summary) for the pairs matching ``request``.
+) -> tuple[list[dict], int, str | None, dict]:
+    """(rows, total, next_cursor, summary) for the pairs matching ``request``.
 
-    The stored projection when one exists; otherwise ``traces`` projected in memory with the same
-    judgments, chunk map and spec, in the store's order. Every single-scope surface reads pairs here.
+    The stored projection when ``projected`` is ``None``; otherwise ``projected`` (from
+    ``_scope_payload``) in the store's order. Every single-scope surface reads pairs here.
     """
     filters = request.filters()
-    if meta is not None:
+    if projected is None:
         scope = resolved.store_scope()
         page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order=order)
-        return page.rows, page.total, page.next_cursor, await _run_payload_stored(store, scope), await _summarize_matching(store, scope, filters, order)
-    projected = _project(traces, resolved)
+        return page.rows, page.total, page.next_cursor, await _summarize_matching(store, scope, filters, order)
     rows = sorted((row.to_dict() for row in projected), key=lambda row: tuple(row[key] for key in INVESTIGATION_SORT_KEYS[order]))
     rows = [row for row in rows if _matches(row, filters)]
-    return rows, len(rows), None, _run_payload(projected, traces), _summarize(rows)
+    return rows, len(rows), None, _summarize(rows)
 
 
-def _resolve_entity(entity: str, resolved: ResolvedScope) -> tuple[str, dict | None]:
-    """``namespace:entity_id`` for an entity handle. At document unit a chunk id the run's chunk map
-    knows (bare, or ``namespace:chunk_id``) names its document, exactly as the projection groups it."""
+def _resolve_entity(entity: str, resolved: ResolvedScope, keys: Iterable[str]) -> tuple[str, dict | None]:
+    """``namespace:entity_id`` for an entity handle. A bare id is the one scope entity ``keys`` entry
+    with that id (several is ``entity_ambiguous``). Otherwise, at document unit, a chunk id the run's
+    chunk map knows (bare, or ``namespace:chunk_id``) names its document, exactly as the projection groups it."""
+    if ":" not in entity:
+        matches = sorted(key for key in keys if key.partition(":")[2] == entity)
+        if len(matches) > 1:
+            raise InvestigationError(422, "entity_ambiguous", f"entity {entity!r} is in several namespaces {matches}; pass namespace:{entity}")
+        if matches:
+            detail = f"bare id {entity} is {matches[0]}, the only namespace with rows for it in this scope"
+            return matches[0], _finding("entity_resolved", detail, "pass namespace:entity_id to name the namespace")
     namespace, entity_id = split_entity(entity)
     chunk_map = resolved.chunk_map
     if resolved.spec.unit == "document" and chunk_map is not None:
@@ -557,7 +574,8 @@ async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
         selected = None
         findings.append(_finding("multiple_traces", f"query has {len(traces)} traces; rows carry trace_id", "pass trace_id to select one"))
 
-    rows, total, next_cursor, run_payload, summary = await _pairs(store, resolved, request, meta, traces, order="priority")
+    projected, run_payload = await _scope_payload(store, resolved, meta, traces)
+    rows, total, next_cursor, summary = await _pairs(store, resolved, request, projected, order="priority")
     stages = _stages(selected) if selected is not None else None
     return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=stages, findings=findings, rows_kind="pairs")
 
@@ -568,13 +586,15 @@ async def inspect_document(store: Any, request: InvestigationRequest) -> dict:
         raise InvestigationError(400, "entity_required", "entity is required as 'namespace:entity_id' or a bare id")
     resolved = await resolve_scope(store, request)
     meta, state, findings = await _projection_state(store, resolved)
-    entity, resolution = _resolve_entity(request.entity, resolved)
-    findings = [*resolved.findings, *findings, *((resolution,) if resolution else ())]
-    request = replace(request, entity=entity)
     traces = () if meta is not None else await _list_traces(store, TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id))
-    rows, total, next_cursor, run_payload, summary = await _pairs(store, resolved, request, meta, traces, order="entity")
-    if entity not in ((run_payload or {}).get("by_entity") or {}):
+    projected, run_payload = await _scope_payload(store, resolved, meta, traces)
+    keys = (run_payload or {}).get("by_entity") or {}
+    entity, resolution = _resolve_entity(request.entity, resolved, keys)
+    findings = [*resolved.findings, *findings, *((resolution,) if resolution else ())]
+    if entity not in keys:
         raise InvestigationError(404, "entity_not_found", f"entity {entity} has no rows in this scope")
+    request = replace(request, entity=entity)
+    rows, total, next_cursor, summary = await _pairs(store, resolved, request, projected, order="entity")
     return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=None, findings=findings, rows_kind="pairs")
 
 

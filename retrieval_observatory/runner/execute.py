@@ -444,7 +444,9 @@ def _document_view(trace, chunk_map, judgments, *, namespaced: bool):
     from retrieval_observatory.evidence.journeys import judged_document
 
     def document(candidate):
-        entity, _ = judged_document(candidate, chunk_map, judgments, trace.query_id)
+        # The judged document when there is one (the row entity may keep a namespace plain qrels lack).
+        entity, judged_as = judged_document(candidate, chunk_map, judgments, trace.query_id)
+        entity = judged_as if judged_as.unit == "document" else entity
         return replace(candidate, doc_id=f"{entity.namespace}:{entity.entity_id}" if namespaced else entity.entity_id)
 
     spans = tuple(

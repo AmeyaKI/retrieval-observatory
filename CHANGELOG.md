@@ -7,10 +7,17 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+- `scripts/smoke_wheel.py` — `adapter_capture_outside_root` check: an installed wheel resolves a root `retobs_adapter.py` from a subpackage run outside the project root.
 
 ### Changed
+- `runner/execute.py`, `evidence/journeys.py` — candidates are scored as the document the inspection views judge them as, so chunks of one document count once; with judgments that name no namespace, a candidate matches by id whatever its namespace, in scoring and inspection.
+- `evidence/investigation.py` — `DERIVATION_VERSION` is `journeys-3`; projections stored earlier report `projection_stale` until reindexed.
+- `sdk/observe.py` — `capture="retobs_adapter:<symbol>"` is resolved from the nearest `retobs_adapter.py` on the first traced call (no `sys.path`, no import added by apply); an unresolved reference records `capture_reference_unresolved` and uses default capture.
+- `cli.py` — `inspect-document` prints the resolved `namespace:id` and unit; `inspect-query` prints a candidates table keyed `namespace:entity_id` with unit and k.
 
 ### Fixed
+- `evidence/service.py` — `inspect_document` resolves a bare id to the one namespace with rows for it (finding `entity_resolved`), returns 422 `entity_ambiguous` when several match, and works without `retobs storage index`.
+- `evidence/service.py` — chunk-unit views over document-level judgments report `judgments_not_inherited` instead of silently reading unjudged.
 
 ### Removed
 

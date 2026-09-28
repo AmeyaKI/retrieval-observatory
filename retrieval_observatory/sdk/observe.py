@@ -295,18 +295,26 @@ def observe(
     wrapped function is called exactly once, its result is returned unchanged, its exceptions
     propagate untouched, and capture failures are recorded on the trace instead of raised.
 
-    ``capture`` is a ``CaptureSpec`` or ``"retobs_adapter:<symbol>"``, resolved from the nearest
-    ``retobs_adapter.py`` above the decorated function's file without ``sys.path``. A reference
-    that does not resolve falls back to default capture and records ``capture_reference_unresolved``.
+    ``capture`` is a ``CaptureSpec`` or ``"retobs_adapter:<symbol>"``, resolved on the first traced
+    call from the nearest ``retobs_adapter.py`` above the decorated function's file without
+    ``sys.path``. A reference that does not resolve falls back to default capture and records
+    ``capture_reference_unresolved``.
     """
     declared_parents = tuple(parent_ids)
     candidate_arguments = {*_CANDIDATE_PARAMETERS, *declared_parents}
 
     def decorate(fn: Callable[..., Any]):
         ref = source_ref(fn)
-        spec, unresolved = resolve_capture_reference(capture, fn) if isinstance(capture, str) else (capture, None)
-        if unresolved is not None:
-            _log.warning("retobs: %s; %s uses default capture", unresolved, op_id)
+        resolution: list[tuple[CaptureSpec | None, str | None]] = []
+
+        def resolve() -> tuple[CaptureSpec | None, str | None]:
+            # On the first traced call, not at decoration: an adapter that imports from ``fn``'s own
+            # module would meet that module half-initialized while its decorators run.
+            if not resolution:
+                resolution.append(resolve_capture_reference(capture, fn) if isinstance(capture, str) else (capture, None))
+                if resolution[0][1] is not None:
+                    _log.warning("retobs: %s; %s uses default capture", resolution[0][1], op_id)
+            return resolution[0]
 
         def fail(inv: _Invocation, phase: str, code: str, detail: str) -> None:
             inv.failures.append(CaptureFailure(inv.node_id, inv.invocation_id, phase, code, detail))
@@ -315,6 +323,7 @@ def observe(
             inv = _Invocation(uuid.uuid4().hex, current_trace(), kwargs, op_id)
             if inv.trace is None:
                 return inv
+            spec, unresolved = resolve()
             inv.bound = bind_arguments(fn, args, kwargs)
             spans = tuple(inv.trace.spans)
             inv.node_id = next_node_id((span.op_id for span in spans), op_id)
@@ -373,6 +382,7 @@ def observe(
         def complete(inv: _Invocation, result: Any, elapsed: float, status: str, error: str | None) -> None:
             if inv.trace is None:
                 return
+            spec, _ = resolve()
             groups: Mapping[str, tuple[Candidate, ...]] = inv.groups
             outputs: tuple[Candidate, ...] = ()
             output_capture: OutputCapture = "unavailable"

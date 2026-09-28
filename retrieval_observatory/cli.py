@@ -1011,6 +1011,20 @@ async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, form
             f"{float(trace.get('total_latency_ms', 0)):.1f} ms",
         )
     console.print(table)
+    investigation = evidence["investigation"]
+    if "error" in investigation:
+        console.print(f"[yellow]{investigation['error']}:[/yellow] {investigation['detail']}")
+    else:
+        scope = investigation["scope"]
+        candidates = Table(title=f"Candidates (unit={scope['unit']} · k={scope['k']})")
+        for column in ("Entity", "Judgment", "Outcome", "Final rank", "Loss boundary"):
+            candidates.add_column(column)
+        for row in investigation["rows"]:
+            candidates.add_row(
+                f"{row['namespace']}:{row['entity_id']}", row["judgment"], row["outcome"],
+                str(row.get("final_rank") or "-"), str(row.get("loss_boundary") or "-"),
+            )
+        console.print(candidates)
     console.print(
         f"[bold]Next:[/bold] retobs serve --db {db_path}  "
         f"[dim]→ #/investigate?db={Path(db_path).stem}&run={run_id}&view=queries&query={query_id}[/dim]"
@@ -1054,7 +1068,10 @@ def inspect_document_cmd(
         typer.echo(json.dumps(envelope, indent=2, sort_keys=True, default=str))
         return
     scope = envelope["scope"]
-    console.print(f"[bold]Entity:[/bold] {entity}  [dim](run {scope['run_id']} · pipeline {scope['pipeline_id']} · k={scope['k']})[/dim]")
+    console.print(
+        f"[bold]Entity:[/bold] {scope['entity']}  [dim](run {scope['run_id']} · pipeline {scope['pipeline_id']} · unit={scope['unit']} · k={scope['k']})[/dim]",
+        soft_wrap=True,
+    )
     table = Table(title="Queries")
     for column in ("Query", "Judgment", "Outcome", "Final rank", "Loss boundary"):
         table.add_column(column)

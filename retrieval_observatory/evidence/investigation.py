@@ -13,7 +13,7 @@ from typing import Any, Literal, Mapping
 from retrieval_observatory.datasets.judgments import EvaluationUnit
 
 JOURNEY_SCHEMA_VERSION = 1
-DERIVATION_VERSION = "journeys-2"
+DERIVATION_VERSION = "journeys-3"
 
 EventKind = Literal["introduced", "retained", "promoted", "demoted", "removed", "recovered", "transformed", "unknown"]
 ReasonEvidence = Literal["recorded", "inferred", "unavailable"]

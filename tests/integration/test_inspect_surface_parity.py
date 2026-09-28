@@ -32,6 +32,7 @@ from retrieval_observatory.mcp import server as mcp_server
 from retrieval_observatory.sdk.observe import observe
 from retrieval_observatory.store.base import TraceQuery
 from retrieval_observatory.store.sqlite import SQLiteStore
+from retrieval_observatory.tracing.model import Candidate, OperatorSpan, RetrievalTrace
 
 QUERIES = [
     {"query_id": "q-price", "text": "What changed in widget pricing?"},
@@ -206,11 +207,13 @@ def _assert_surfaces_agree(db: str, run_id: str, projection: str, *, chunk_handl
 
     for entity, chunks in sorted(chunks_of.items()):
         want = {key: value for key, value in expected.items() if f"{key[1]}:{key[2]}" == entity}
-        # By ``namespace:document_id`` and, when the run has a chunk map, by every chunk id that occurred as this document.
-        for handle in sorted({entity, *(chunks if chunk_handles else ())}):
+        # By ``namespace:document_id``, by the bare document id (resolved to its one namespace) and,
+        # when the run has a chunk map, by every chunk id that occurred as this document.
+        for handle in sorted({entity, entity.partition(":")[2], *(chunks if chunk_handles else ())}):
             for name, envelope in _document_surfaces(db, run_id, handle, client, base).items():
                 assert _facts(envelope["rows"]) == want, f"inspect_document({handle!r}) via {name} disagrees with inspect_query"
                 assert envelope["capabilities"]["projection"] == projection, (handle, name)
+                assert (envelope["scope"]["entity"], envelope["scope"]["unit"]) == (entity, "document"), (handle, name)
 
     truth, recall = _scored(db, run_id)
     for query in QUERIES:
@@ -371,3 +374,61 @@ async def test_chunk_unit_over_document_judgments_says_they_are_not_inherited(tm
     assert [(r["query_id"], r["judgment"]) for r in envelope["rows"]] == [("q-price", "unjudged")]
     finding = next(f for f in envelope["findings"] if f["code"] == "judgments_not_inherited")
     assert "unit=document" in finding["action"]
+
+
+def test_a_bare_id_in_two_namespaces_is_ambiguous_on_every_surface(tmp_path: Path) -> None:
+    """``doc-shared`` occurs in namespaces ``kb`` and ``web``: a bare handle names neither, so every
+    surface refuses it with ``entity_ambiguous`` and lists both keys; ``namespace:id`` still works."""
+    db = str(tmp_path / "ambiguous.db")
+    store = SQLiteStore(db)
+    hits = tuple(Candidate("doc-shared", 1.0 / rank, rank, candidate_id=f"{ns}-hit", metadata={"namespace": ns}) for rank, ns in enumerate(("kb", "web"), start=1))
+
+    async def push() -> None:
+        await store.init_db()
+        await store.save_run("shared-run", "scenarios", json.dumps({}))
+        await store.save_traces([
+            RetrievalTrace(
+                trace_id="t-shared", service_id="svc", run_id="shared-run", query_id="q-shared", query_text="shared", pipeline_id="pipe",
+                spans=(OperatorSpan.source("search", "Search", hits),), final_op_ids=("search",),
+            )
+        ])
+
+    asyncio.run(push())
+    with pytest.raises(InvestigationError) as service:
+        asyncio.run(inspect_document(store, InvestigationRequest(run_id="shared-run", entity="doc-shared")))
+    assert (service.value.status, service.value.code) == (422, "entity_ambiguous")
+    assert "kb:doc-shared" in service.value.detail and "web:doc-shared" in service.value.detail
+
+    registry = DbRegistry([db], read_only=False)
+    client = TestClient(create_app(registry=registry, enable_uploads=False), raise_server_exceptions=False)
+    response = client.get(f"/dbs/{registry.default_db_id}/investigation/runs/shared-run/documents/doc-shared")
+    assert response.status_code == 422 and response.json()["detail"]["code"] == "entity_ambiguous"
+    with pytest.raises(InvestigationError) as sdk:
+        ro.inspect_document("shared-run", "doc-shared", db_path=db)
+    assert sdk.value.code == "entity_ambiguous"
+    with pytest.raises(ValueError, match="entity_ambiguous"):
+        asyncio.run(mcp_server._inspect_document("shared-run", "doc-shared", db_path=db))
+    result = CliRunner().invoke(cli_app, ["inspect-document", "shared-run", "doc-shared", "--db", db])
+    assert result.exit_code == 1 and "entity_ambiguous" in result.output
+
+    explicit = asyncio.run(inspect_document(store, InvestigationRequest(run_id="shared-run", entity="web:doc-shared")))
+    assert [(r["namespace"], r["entity_id"], r["final_rank"]) for r in explicit["rows"]] == [("web", "doc-shared", 2)]
+
+    indexed = CliRunner().invoke(cli_app, ["storage", "index", "shared-run", "--db", db])  # the stored-projection path
+    assert indexed.exit_code == 0, indexed.output
+    with pytest.raises(InvestigationError) as stored:
+        asyncio.run(inspect_document(store, InvestigationRequest(run_id="shared-run", entity="doc-shared")))
+    assert (stored.value.status, stored.value.code) == (422, "entity_ambiguous")
+
+
+def test_terminal_output_names_the_unit_and_the_namespaced_entity(tmp_path: Path) -> None:
+    db, run_id = _evaluate_sdk(tmp_path, "kb")
+    document = CliRunner().invoke(cli_app, ["inspect-document", run_id, "doc-faq", "--db", db])
+    assert document.exit_code == 0, document.output
+    assert "kb:doc-faq" in document.output and "unit=document" in document.output
+    assert "entity_resolved" in document.output
+
+    query = CliRunner().invoke(cli_app, ["inspect-query", run_id, "q-price", "--db", db])
+    assert query.exit_code == 0, query.output
+    assert "unit=document" in query.output
+    assert "kb:doc-faq" in query.output and "default:doc-notes" in query.output
