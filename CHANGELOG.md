@@ -10,12 +10,23 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `scripts/smoke_wheel.py` — `adapter_capture_outside_root` check: an installed wheel resolves a root `retobs_adapter.py` from a subpackage run outside the project root.
 
 ### Changed
+- `integrations/planner.py` — module reachability and scenario commands resolve each file from its import root (parent of its topmost package dir), so packages below a non-package directory are found; scenario commands add `sys.path.insert(0, '<import root>')` when that root is not the project root.
+- `integrations/planner.py` — operator types match whole name tokens (`aggregate` is no longer GATE); predicates, factories, formatters and scalar- or boolean-returning functions are listed in `low_confidence_operators` with reason `not_operator_shape`.
+- `integrations/detect.py`, `integrations/planner.py` — virtualenvs of any name, `site-packages`/`dist-packages`, and bench/eval/report/script/notebook/fixture/example/experiment directories are never proposed for operators or chosen as the entrypoint (reason `non_runtime_dir`); operators no import from the entrypoint reaches are listed with reason `unreachable_from_entrypoint`.
+- `integrations/planner.py` — judgment files are chosen per directory and validated with the loaders `retobs evaluate` uses (bounded to 100k rows per file); a failed check yields status `candidate` with notes and an open question.
+- `integrations/planner.py` — scenarios use the first query of the judgments' queries file, shell-quoted; the placeholder query remains only when no queries file loads, with an open question.
+- `integrations/planner.py`, `integrations/apply.py` — `capture` is written as the string `"retobs_adapter:<symbol>"`; apply adds no adapter import.
+- `integrations/model.py` — plan and operators carry reviewer `notes`, kept verbatim on re-plan; a capture spec without `outputs` leaves `output_mapping: return`.
+- `cli.py` — `integrate --phase plan --output` prints a plan summary; the plan JSON is unchanged.
 - `runner/execute.py`, `evidence/journeys.py` — candidates are scored as the document the inspection views judge them as, so chunks of one document count once; with judgments that name no namespace, a candidate matches by id whatever its namespace, in scoring and inspection.
 - `evidence/investigation.py` — `DERIVATION_VERSION` is `journeys-3`; projections stored earlier report `projection_stale` until reindexed.
 - `sdk/observe.py` — `capture="retobs_adapter:<symbol>"` is resolved from the nearest `retobs_adapter.py` on the first traced call (no `sys.path`, no import added by apply); an unresolved reference records `capture_reference_unresolved` and uses default capture.
 - `cli.py` — `inspect-document` prints the resolved `namespace:id` and unit; `inspect-query` prints a candidates table keyed `namespace:entity_id` with unit and k.
 
 ### Fixed
+- `integrations/planner.py` — when no discovered operator is reachable from the entrypoint the plan proposes none and reports it under `unresolved`, instead of proposing every name match.
+- `integrations/planner.py`, `integrations/model.py` — operators sharing a symbol in different modules get module-qualified op_ids (parent ids and input mappings follow); `validate_for_apply` rejects duplicate op_ids.
+- `integrations/apply.py`, `integrations/verify.py` — a scenario without a command is reported by apply and verify instead of silently skipped.
 - `evidence/service.py` — `inspect_document` resolves a bare id to the one namespace with rows for it (finding `entity_resolved`), returns 422 `entity_ambiguous` when several match, and works without `retobs storage index`.
 - `evidence/service.py` — chunk-unit views over document-level judgments report `judgments_not_inherited` instead of silently reading unjudged.
 

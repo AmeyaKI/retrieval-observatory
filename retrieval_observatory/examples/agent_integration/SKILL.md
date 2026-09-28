@@ -89,8 +89,9 @@ or multi-module pipeline usually comes back with missing `parent_ids` and an hon
 | `boundary` | Where the evaluated output leaves the application |
 | `identity` | Candidate id field, unit, namespace, query id source |
 | `scenarios[]` | One per route, each with a runnable `command` and `route` for gated paths; keep the `representative-repeat` scenario (alignment needs the same query twice) |
-| `judgments` | Paths to queries and qrels, or `unresolved` with a note |
+| `judgments` | Paths to queries and qrels `retobs evaluate` accepts (`resolved`); `candidate` means found but a check failed (see `notes`); `unresolved` means missing |
 | `unresolved` | Must be empty before apply; `open_questions` may remain and become limitations |
+| `discovery.low_confidence_operators` | Name matches left out, each with a `reason` (`unreachable_from_entrypoint`, `non_runtime_dir`, `not_operator_shape`); move real operators into `operators` |
 
 Re-plan from your reviewed file so the patches match the reviewed operators:
 

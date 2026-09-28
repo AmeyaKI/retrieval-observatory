@@ -23,6 +23,11 @@ _SKIP_DIRS = {
 }
 #: Installed-package directories; a vendored or checked-in environment is never project code.
 _PACKAGE_DIRS = {"site-packages", "dist-packages"}
+#: Directories of code that drives, measures or demonstrates the pipeline rather than serving it;
+#: also any directory named ``bench*``/``eval*``. Scanned for datasets, never for operators or the entrypoint.
+_NON_RUNTIME_DIRS = {
+    "harness", "reports", "scripts", "notebooks", "fixtures", "examples", "experiments",
+}
 
 _FRAMEWORK_SIGNALS: Dict[str, List[re.Pattern[str]]] = {
     "langchain": [
@@ -72,6 +77,14 @@ def is_excluded_dir(path: Path, named: frozenset[str] | set[str] = _SKIP_DIRS) -
     """A dot-directory, a named skip dir, an installed-package dir, or a virtualenv of any name."""
     name = path.name
     return name.startswith(".") or name in named or name in _PACKAGE_DIRS or (path / "pyvenv.cfg").is_file()
+
+
+def is_non_runtime_path(relative: str | Path) -> bool:
+    """Whether a project-relative file sits under a benchmark, eval, report, script, notebook, fixture or example dir."""
+    return any(
+        part.lower() in _NON_RUNTIME_DIRS or part.lower().startswith(("bench", "eval"))
+        for part in Path(relative).parent.parts
+    )
 
 
 def iter_project_files(root: Path, suffixes: tuple[str, ...], named: frozenset[str] | set[str] = _SKIP_DIRS) -> List[Path]:
@@ -165,7 +178,8 @@ def detect_project(project_root: str | Path, framework: Optional[str] = None) ->
         if chosen == "http" and aggregate_scores.get("fastapi", 0) >= aggregate_scores.get("http", 0):
             chosen = "fastapi"
 
-    entrypoints.sort(key=lambda e: e.score, reverse=True)
+    # Non-runtime candidates sort last so a bench or eval ``search`` never pushes the real one past the cut.
+    entrypoints.sort(key=lambda e: (is_non_runtime_path(e.file), -e.score))
     return DetectionResult(
         framework=chosen,
         framework_scores=aggregate_scores,

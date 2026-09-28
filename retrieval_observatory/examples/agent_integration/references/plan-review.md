@@ -39,6 +39,17 @@ Remove entries that are not operators (helpers that build a retriever, request p
 operators the planner missed, especially custom filters and post-processing between the last
 retrieval stage and the returned result.
 
+Name matches the planner left out are in `discovery.low_confidence_operators`, each with a
+`reason`: `unreachable_from_entrypoint` (no import path from the entrypoint reaches the file),
+`non_runtime_dir` (under a bench, eval, report, script, notebook, fixture, example or experiment
+directory), `not_operator_shape` (a predicate, factory or formatter: `is_`/`get_`/`format_`...
+prefixes, scalar or boolean returns, or a gate without a query or candidates); no reason means only
+the name matched. Move a real operator from there into `operators`. When no discovered operator
+is reachable from the entrypoint, the plan proposes none and lists that under `unresolved`: set
+`discovery.entrypoint` to the function that runs the pipeline, or list the operators yourself.
+Operators sharing a symbol name in different modules get module-qualified `op_id`s
+(`<module>__<symbol>`); apply refuses a plan with duplicate `op_id`s.
+
 ## Boundary and identity
 
 - `boundary.kind`: `entrypoint_return` (the entrypoint's returned value is what is evaluated),
@@ -57,15 +68,25 @@ One scenario per declared route, each with:
 - `expected_operator_ids`: the operators that fire on that route (a skipped lane is absent);
 - `route`: the gate's `selected_route` value when the pipeline has a gate;
 - `command`: the exact command that calls the entrypoint with that query from the project root.
+  A generated command puts the entrypoint's import root on `sys.path` first when its package does
+  not sit at the project root (`import sys; sys.path.insert(0, 'services/search'); ...`).
+
+Generated scenarios use the first query of the judgments' queries file; without one that loads,
+`query_text` is a placeholder and `open_questions` asks for a real query.
 
 Keep `representative` and `representative-repeat` (same query twice): the repeat is what
 `cross_run_entity_alignment` is verified against.
 
 ## Judgments
 
-`judgments.queries`, `judgments.qrels`, `judgments.corpus` are project-relative paths. Set
-`status: resolved` when queries and qrels are present. Without labels, verify reports
-`judgment_mapping: unavailable` and candidate movement inspection still works.
+`judgments.queries`, `judgments.qrels`, `judgments.corpus` are project-relative paths. The planner
+prefers a directory holding both queries and qrels and loads them the way `retobs evaluate` does:
+`resolved` means they load, some qrels query ids are queries, and every judged doc id is in a
+non-empty corpus; `candidate` means files were found but a check failed (`notes` says which);
+`unresolved` means queries or qrels are missing. Anything but `resolved` adds an open question;
+after fixing the paths, set `status: resolved` yourself (re-planning keeps `judgments` as written).
+Without labels, verify reports `judgment_mapping: unavailable` and candidate movement inspection
+still works.
 
 ## Example: a reviewed operator with parents and an adapter capture
 

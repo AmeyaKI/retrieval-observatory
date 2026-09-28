@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from hashlib import sha256
@@ -203,7 +204,8 @@ class IntegrationPlan:
     discovery: Mapping[str, Any] = field(default_factory=dict)
     boundary: FinalBoundary = field(default_factory=FinalBoundary)
     identity: IdentityChoice = field(default_factory=IdentityChoice)
-    #: ``{"queries": path|None, "qrels": path|None, "corpus": path|None, "status": "resolved"|"unresolved", "notes": [...]}``
+    #: ``{"queries": path|None, "qrels": path|None, "corpus": path|None, "status": "resolved"|"candidate"|"unresolved", "notes": [...]}``;
+    #: ``candidate``: files found, but ``retobs evaluate`` would not accept them as they are (see ``notes``).
     judgments: Mapping[str, Any] = field(default_factory=dict)
     #: Capability name -> the status this plan expects verify to report.
     expected_capabilities: Mapping[str, str] = field(default_factory=dict)
@@ -284,6 +286,10 @@ class IntegrationPlan:
             raise ValueError(f"unresolved mappings: {', '.join(self.unresolved)}")
         if not self.candidate_mapping.get("doc_id"):
             raise ValueError("candidate_mapping.doc_id is required")
+        counts = Counter(item.op_id for item in self.operators)
+        duplicates = sorted(op_id for op_id, count in counts.items() if count > 1)
+        if duplicates:
+            raise ValueError(f"duplicate operator op_id: {', '.join(duplicates)}; every operator needs its own op_id")
         low = [item.op_id for item in self.operators if item.confidence < 0.8]
         if low:
             raise ValueError(f"operator confidence below 0.8: {', '.join(low)}")
