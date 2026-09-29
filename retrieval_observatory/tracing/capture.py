@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
-import inspect
 from dataclasses import asdict, dataclass
+from hashlib import sha256
+import importlib.util
+import inspect
 from pathlib import Path
+import sys
 from typing import Any, Callable, Iterator, Mapping, Sequence
 
 from retrieval_observatory.tracing.candidates import to_candidates
@@ -118,6 +121,56 @@ def extract_outputs(result: Any) -> tuple[Sequence[Any] | None, OutputCapture, s
     if _is_iterator(items):
         return None, "unavailable", "iterator_output_not_captured"
     return None, "unavailable", "unsupported_output_shape"
+
+
+_ADAPTER_FILE = "retobs_adapter.py"
+_adapters: dict[Path, Any] = {}
+
+
+def _load_adapter(path: Path) -> Any:
+    """Load ``path`` as a module under a name unique to it, once per path; never via ``sys.path``."""
+    if path not in _adapters:
+        name = f"_retobs_adapter_{sha256(str(path).encode()).hexdigest()[:16]}"
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {path}")
+        module = importlib.util.module_from_spec(spec)
+        # Registered before execution: dataclasses and pickling look the module up by name.
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            sys.modules.pop(name, None)
+            raise
+        _adapters[path] = module
+    return _adapters[path]
+
+
+def resolve_capture_reference(reference: str, fn: Callable[..., Any]) -> tuple[CaptureSpec | None, str | None]:
+    """``(spec, None)`` for ``"retobs_adapter:<symbol>"``, else ``(None, reason)``; never raises.
+
+    The adapter is the nearest ``retobs_adapter.py`` found walking up from the directory of
+    ``fn``'s source file, loaded by path: an application that does not run from the project root
+    (a subpackage run as ``python -m``, a worker, a test runner elsewhere) resolves it the same way.
+    """
+    module_name, _, symbol = reference.partition(":")
+    if module_name != _ADAPTER_FILE[: -len(".py")] or not symbol.isidentifier():
+        return None, f"{reference!r} is not 'retobs_adapter:<symbol>'"
+    try:
+        start = Path(inspect.unwrap(fn).__code__.co_filename).resolve().parent
+    except (AttributeError, OSError) as error:
+        return None, f"{reference}: the source file of {getattr(fn, '__qualname__', fn)!r} is unknown ({error!r})"
+    adapter = next((directory / _ADAPTER_FILE for directory in (start, *start.parents) if (directory / _ADAPTER_FILE).is_file()), None)
+    if adapter is None:
+        return None, f"{reference}: no {_ADAPTER_FILE} in {start} or any parent directory"
+    try:
+        module = _load_adapter(adapter)
+    except Exception as error:
+        return None, f"{reference}: loading {adapter} failed: {error!r}"
+    spec = getattr(module, symbol, None)
+    if not isinstance(spec, CaptureSpec):
+        return None, f"{reference}: {adapter} defines no CaptureSpec named {symbol}"
+    return spec, None
 
 
 def snapshot(items: Sequence[Any], op_id: str) -> list[Candidate]:

@@ -13,7 +13,7 @@ import json
 from collections import Counter
 from dataclasses import dataclass, fields, replace
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Literal, Mapping, Sequence, get_args
+from typing import Any, Awaitable, Callable, Iterable, Literal, Mapping, Sequence, get_args
 
 from retrieval_observatory.datasets.judgments import ChunkMap, EvaluationSpec, EvaluationUnit, JudgmentSet, query_input_identity
 from retrieval_observatory.evidence.investigation import (
@@ -27,6 +27,7 @@ from retrieval_observatory.evidence.investigation import (
 from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_journeys, summarize_pair_counts, summarize_stages
 from retrieval_observatory.store.base import (
     INVESTIGATION_PAGE_LIMIT,
+    INVESTIGATION_SORT_KEYS,
     InvestigationFilter,
     InvestigationPage,
     InvestigationScope,
@@ -202,6 +203,14 @@ async def resolve_scope(store: Any, request: InvestigationRequest) -> ResolvedSc
         judgments = JudgmentSet.from_qrels(await store.get_qrels(run_id), namespace="default")
     if not len(judgments):
         findings.append(_finding("judgments_unavailable", "no relevance judgments for this run", "movement is inspectable; outcomes stay unjudged"))
+    elif spec.unit == "chunk" and all(record.get("unit", "document") == "document" for record in records or ()):
+        findings.append(
+            _finding(
+                "judgments_not_inherited",
+                "the run's judgments are document-level; at unit=chunk a document's judgment is not inherited by its chunks, so every chunk reads unjudged",
+                "use unit=document to judge each chunk through its document",
+            )
+        )
     triples = manifest.get("chunk_map")
     chunk_map = ChunkMap.from_pairs([tuple(triple) for triple in triples]) if triples else None
     return ResolvedScope(run_id, pipeline_id, spec, judgments, chunk_map, spec.digest(), judgments.digest(), manifest, findings)
@@ -286,7 +295,11 @@ async def build_projection(
 async def _projection_state(store: Any, resolved: ResolvedScope) -> tuple[dict | None, str, list[dict]]:
     meta = await store.get_investigation_projection(resolved.store_scope())
     if meta is None or meta.get("status") != "complete":
-        return None, "unavailable", [_finding("projection_unavailable", "no complete projection for this scope", _PROJECTION_ACTION)]
+        findings = [_finding("projection_unavailable", "no complete projection for this scope", _PROJECTION_ACTION)]
+        recorded = (resolved.manifest.get("investigation_projection") or {}).get(resolved.pipeline_id) or {}
+        if recorded.get("status") == "failed":  # the run's own projection write failed; say why
+            findings.append(_finding("projection_failed", f"the run's projection write failed: {recorded.get('error')}", recorded.get("repair") or _PROJECTION_ACTION))
+        return None, "unavailable", findings
     if meta.get("derivation_version") != DERIVATION_VERSION or meta.get("judgment_digest") != resolved.judgment_digest:
         return meta, "partial", [_finding("projection_stale", "projection predates the current derivation or judgments", _PROJECTION_ACTION)]
     return meta, "ready", []
@@ -471,6 +484,75 @@ def _matches(row: Mapping[str, Any], filters: InvestigationFilter) -> bool:
     return all(getattr(filters, f.name) is None or row.get(f.name) == getattr(filters, f.name) for f in fields(filters))
 
 
+def _project(traces: Sequence[RetrievalTrace], resolved: ResolvedScope) -> list[JourneyRow]:
+    """The rows ``build_projection`` would store for ``traces``, computed in memory (never written)."""
+    return [
+        row
+        for trace in traces
+        for row in project_trace_journeys(
+            trace, resolved.judgments, resolved.spec, chunk_map=resolved.chunk_map,
+            evaluation_digest=resolved.evaluation_digest, judgment_digest=resolved.judgment_digest,
+        )
+    ]
+
+
+async def _scope_payload(
+    store: Any, resolved: ResolvedScope, meta: Mapping[str, Any] | None, traces: Sequence[RetrievalTrace]
+) -> tuple[list[JourneyRow] | None, dict | None]:
+    """(rows projected in memory, run payload): the stored run summary when a projection exists (no
+    rows), otherwise ``traces`` projected with the same judgments, chunk map and spec."""
+    if meta is not None:
+        return None, await _run_payload_stored(store, resolved.store_scope())
+    projected = _project(traces, resolved)
+    return projected, _run_payload(projected, traces)
+
+
+async def _pairs(
+    store: Any,
+    resolved: ResolvedScope,
+    request: InvestigationRequest,
+    projected: Sequence[JourneyRow] | None,
+    *,
+    order: str,
+) -> tuple[list[dict], int, str | None, dict]:
+    """(rows, total, next_cursor, summary) for the pairs matching ``request``.
+
+    The stored projection when ``projected`` is ``None``; otherwise ``projected`` (from
+    ``_scope_payload``) in the store's order. Every single-scope surface reads pairs here.
+    """
+    filters = request.filters()
+    if projected is None:
+        scope = resolved.store_scope()
+        page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order=order)
+        return page.rows, page.total, page.next_cursor, await _summarize_matching(store, scope, filters, order)
+    rows = sorted((row.to_dict() for row in projected), key=lambda row: tuple(row[key] for key in INVESTIGATION_SORT_KEYS[order]))
+    rows = [row for row in rows if _matches(row, filters)]
+    return rows, len(rows), None, _summarize(rows)
+
+
+def _resolve_entity(entity: str, resolved: ResolvedScope, keys: Iterable[str]) -> tuple[str, dict | None]:
+    """``namespace:entity_id`` for an entity handle. A bare id is the one scope entity ``keys`` entry
+    with that id (several is ``entity_ambiguous``). Otherwise, at document unit, a chunk id the run's
+    chunk map knows (bare, or ``namespace:chunk_id``) names its document, exactly as the projection groups it."""
+    if ":" not in entity:
+        matches = sorted(key for key in keys if key.partition(":")[2] == entity)
+        if len(matches) > 1:
+            raise InvestigationError(422, "entity_ambiguous", f"entity {entity!r} is in several namespaces {matches}; pass namespace:{entity}")
+        if matches:
+            detail = f"bare id {entity} is {matches[0]}, the only namespace with rows for it in this scope"
+            return matches[0], _finding("entity_resolved", detail, "pass namespace:entity_id to name the namespace")
+    namespace, entity_id = split_entity(entity)
+    chunk_map = resolved.chunk_map
+    if resolved.spec.unit == "document" and chunk_map is not None:
+        for chunk in (chunk_map.chunk_ref(entity), *((chunk_map.chunk_ref(entity_id, namespace),) if ":" in entity else ())):
+            document = chunk_map.document_for(chunk)
+            if document is not None:
+                resolved_entity = f"{document.namespace}:{document.entity_id}"
+                detail = f"chunk {chunk.namespace}:{chunk.entity_id} counts as document {resolved_entity} through the run's chunk map"
+                return resolved_entity, _finding("entity_resolved", detail, "rows are the document's; pass unit=chunk for the chunk itself")
+    return f"{namespace}:{entity_id}", None
+
+
 async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
     """One query's rows, its summary, and the selected trace's stages (from spans, not rows)."""
     if not request.query_id:
@@ -492,23 +574,8 @@ async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
         selected = None
         findings.append(_finding("multiple_traces", f"query has {len(traces)} traces; rows carry trace_id", "pass trace_id to select one"))
 
-    filters = request.filters()
-    scope = resolved.store_scope()
-    if meta is None:
-        projected = [
-            row.to_dict()
-            for trace in traces
-            for row in project_trace_journeys(trace, resolved.judgments, resolved.spec, chunk_map=resolved.chunk_map)
-        ]
-        rows = [row for row in projected if _matches(row, filters)]
-        total, next_cursor = len(rows), None
-        run_payload = {**summarize_journeys([JourneyRow.from_dict(row) for row in projected]), "queries_with_traces": 1}
-        summary = _summarize(rows)
-    else:
-        page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order="priority")
-        rows, total, next_cursor = page.rows, page.total, page.next_cursor
-        run_payload = await _run_payload_stored(store, scope)
-        summary = await _summarize_matching(store, scope, filters, "priority")
+    projected, run_payload = await _scope_payload(store, resolved, meta, traces)
+    rows, total, next_cursor, summary = await _pairs(store, resolved, request, projected, order="priority")
     stages = _stages(selected) if selected is not None else None
     return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=stages, findings=findings, rows_kind="pairs")
 
@@ -519,18 +586,16 @@ async def inspect_document(store: Any, request: InvestigationRequest) -> dict:
         raise InvestigationError(400, "entity_required", "entity is required as 'namespace:entity_id' or a bare id")
     resolved = await resolve_scope(store, request)
     meta, state, findings = await _projection_state(store, resolved)
-    findings = [*resolved.findings, *findings]
-    if meta is None:
-        return _envelope(resolved, request, projection=state, rows=[], total=None, next_cursor=None, run_payload=None, summary=None, stages=None, findings=findings)
-    scope = resolved.store_scope()
-    namespace, entity_id = split_entity(request.entity)
-    if await store.get_investigation_summary(scope, "document", f"{namespace}:{entity_id}") is None:
-        raise InvestigationError(404, "entity_not_found", f"entity {namespace}:{entity_id} has no rows in this scope")
-    filters = request.filters()
-    page = await _page(store.list_investigation_pairs, scope, filters, limit=request.limit, cursor=request.cursor, order="entity")
-    summary = await _summarize_matching(store, scope, filters, "entity")
-    run_payload = await _run_payload_stored(store, scope)
-    return _envelope(resolved, request, projection=state, rows=page.rows, total=page.total, next_cursor=page.next_cursor, run_payload=run_payload, summary=summary, stages=None, findings=findings, rows_kind="pairs")
+    traces = () if meta is not None else await _list_traces(store, TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id))
+    projected, run_payload = await _scope_payload(store, resolved, meta, traces)
+    keys = (run_payload or {}).get("by_entity") or {}
+    entity, resolution = _resolve_entity(request.entity, resolved, keys)
+    findings = [*resolved.findings, *findings, *((resolution,) if resolution else ())]
+    if entity not in keys:
+        raise InvestigationError(404, "entity_not_found", f"entity {entity} has no rows in this scope")
+    request = replace(request, entity=entity)
+    rows, total, next_cursor, summary = await _pairs(store, resolved, request, projected, order="entity")
+    return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=None, findings=findings, rows_kind="pairs")
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +619,7 @@ async def _comparison_rows(store: Any, resolved: ResolvedScope, request: Investi
     if request.query_id is None:
         return [], state, findings
     traces = await _list_traces(store, TraceQuery(run_id=resolved.run_id, pipeline_id=resolved.pipeline_id, query_id=request.query_id))
-    projected = [row.to_dict() for trace in traces for row in project_trace_journeys(trace, resolved.judgments, resolved.spec, chunk_map=resolved.chunk_map)]
+    projected = [row.to_dict() for row in _project(traces, resolved)]
     return [row for row in projected if _matches(row, filters)], state, findings
 
 

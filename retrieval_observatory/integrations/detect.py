@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,6 +20,13 @@ _SKIP_DIRS = {
     "build",
     "tests",
     "test",
+}
+#: Installed-package directories; a vendored or checked-in environment is never project code.
+_PACKAGE_DIRS = {"site-packages", "dist-packages"}
+#: Directories of code that drives, measures or demonstrates the pipeline rather than serving it;
+#: also any directory named ``bench*``/``eval*``. Scanned for datasets, never for operators or the entrypoint.
+_NON_RUNTIME_DIRS = {
+    "harness", "reports", "scripts", "notebooks", "fixtures", "examples", "experiments",
 }
 
 _FRAMEWORK_SIGNALS: Dict[str, List[re.Pattern[str]]] = {
@@ -65,15 +73,36 @@ class DetectionResult:
     http_routes: List[Dict[str, str]] = field(default_factory=list)
 
 
-def _iter_python_files(root: Path) -> List[Path]:
+def is_excluded_dir(path: Path, named: frozenset[str] | set[str] = _SKIP_DIRS) -> bool:
+    """A dot-directory, a named skip dir, an installed-package dir, or a virtualenv of any name."""
+    name = path.name
+    return name.startswith(".") or name in named or name in _PACKAGE_DIRS or (path / "pyvenv.cfg").is_file()
+
+
+def is_non_runtime_path(relative: str | Path) -> bool:
+    """Whether a project-relative file sits under a benchmark, eval, report, script, notebook, fixture or example dir."""
+    return any(
+        part.lower() in _NON_RUNTIME_DIRS or part.lower().startswith(("bench", "eval"))
+        for part in Path(relative).parent.parts
+    )
+
+
+def iter_project_files(root: Path, suffixes: tuple[str, ...], named: frozenset[str] | set[str] = _SKIP_DIRS) -> List[Path]:
+    """Files under ``root`` with one of ``suffixes``, sorted, never descending into an excluded dir.
+
+    Only directories inside the project count: a project checked out under ``~/tests/`` or
+    ``~/build/`` must not scan as empty.
+    """
     files: List[Path] = []
-    for path in root.rglob("*.py"):
-        # Only directories inside the project count: a project checked out under
-        # ``~/tests/`` or ``~/build/`` must not scan as empty.
-        if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
-            continue
-        files.append(path)
-    return files
+    for directory, dirnames, filenames in os.walk(root):
+        base = Path(directory)
+        dirnames[:] = [name for name in dirnames if not is_excluded_dir(base / name, named)]
+        files.extend(base / name for name in filenames if name.endswith(suffixes))
+    return sorted(files)
+
+
+def _iter_python_files(root: Path) -> List[Path]:
+    return iter_project_files(root, (".py",))
 
 
 def _score_frameworks(text: str) -> Dict[str, int]:
@@ -149,10 +178,11 @@ def detect_project(project_root: str | Path, framework: Optional[str] = None) ->
         if chosen == "http" and aggregate_scores.get("fastapi", 0) >= aggregate_scores.get("http", 0):
             chosen = "fastapi"
 
-    entrypoints.sort(key=lambda e: e.score, reverse=True)
+    # Non-runtime candidates sort last; every candidate is kept, since the planner picks by reachability.
+    entrypoints.sort(key=lambda e: (is_non_runtime_path(e.file), -e.score))
     return DetectionResult(
         framework=chosen,
         framework_scores=aggregate_scores,
-        entrypoints=entrypoints[:10],
+        entrypoints=entrypoints,
         http_routes=http_routes[:5],
     )

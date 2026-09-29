@@ -14,6 +14,7 @@ import hashlib
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from typing import Any, Sequence
+from weakref import WeakKeyDictionary
 from urllib.parse import quote
 
 from retrieval_observatory.datasets.judgments import (
@@ -168,14 +169,66 @@ def _on_final_path(trace: RetrievalTrace, final_ops: Sequence[str]) -> set[str]:
     return on_path
 
 
-def _entities(candidate: Candidate, spec: EvaluationSpec, chunk_map: ChunkMap | None) -> tuple[EntityRef, EntityRef]:
-    """(row entity, entity to resolve the judgment with) for one occurrence."""
-    entity = entity_of_candidate(candidate, spec.unit)
-    if spec.unit == "document" and candidate.document_id is None and chunk_map is not None:
+def document_of_candidate(candidate: Candidate, chunk_map: ChunkMap | None) -> tuple[EntityRef, EntityRef | None]:
+    """A candidate's primary document, and the chunk a chunk map resolved it from (else ``None``).
+
+    A candidate naming its ``document_id`` is that document in its own namespace (``default``
+    when it names none); otherwise a chunk-map entry for its chunk gives the document; otherwise
+    the candidate's own id is the document.
+    """
+    entity = entity_of_candidate(candidate, "document")
+    if candidate.document_id is None and chunk_map is not None:
         chunk = replace(chunk_map.chunk_ref(str(candidate.logical_chunk_id), candidate.metadata.get("namespace")), revision=candidate.document_revision)
         mapped = chunk_map.document_for(chunk)
-        return (replace(mapped, revision=candidate.document_revision) if mapped is not None else entity), chunk
-    return entity, entity
+        if mapped is not None:
+            return replace(mapped, revision=candidate.document_revision), chunk
+    return entity, None
+
+
+_default_only: WeakKeyDictionary[JudgmentSet, bool] = WeakKeyDictionary()
+
+
+def _judged_without_namespaces(judgments: JudgmentSet) -> bool:
+    """Whether every judgment is in ``default`` (plain qrels name no namespace); computed once per set."""
+    if judgments not in _default_only:
+        _default_only[judgments] = judgments.namespaces() == ("default",)
+    return _default_only[judgments]
+
+
+def judged_document(candidate: Candidate, chunk_map: ChunkMap | None, judgments: JudgmentSet, query_id: str) -> tuple[EntityRef, EntityRef]:
+    """(document entity, entity to resolve the judgment with) for one candidate of one query.
+
+    The one candidate-to-judged-document rule, shared by run scoring (metrics, diagnostics, ground
+    truth) and the investigation projection, so no surface can grade a pair the other does not.
+    The entity is the first of the primary document (``document_of_candidate``) and the
+    candidate's own id that the query's judgments name; with neither judged it is the primary
+    document, and a chunk the chunk map has no entry for is judged as that unmapped chunk. When the
+    judgments name no namespace, a candidate in another namespace is judged by the same ids in
+    ``default`` and keeps its own namespace as the row entity.
+    """
+    primary, chunk = document_of_candidate(candidate, chunk_map)
+    if judgments.get(query_id, primary) is not None:
+        return primary, chunk or primary
+    namespace = candidate.metadata.get("namespace") or "default"
+    own = EntityRef(namespace, str(candidate.doc_id), "document", candidate.document_revision)
+    if own.key() != primary.key() and judgments.get(query_id, own) is not None:
+        return own, own
+    if namespace != "default" and _judged_without_namespaces(judgments):
+        for entity in (primary, own):
+            judged = replace(entity, namespace="default")
+            if judgments.get(query_id, judged) is not None:
+                return entity, judged
+    if chunk is None and candidate.document_id is None and chunk_map is not None:
+        return primary, replace(chunk_map.chunk_ref(str(candidate.logical_chunk_id), candidate.metadata.get("namespace")), revision=candidate.document_revision)
+    return primary, chunk or primary
+
+
+def _entities(candidate: Candidate, spec: EvaluationSpec, chunk_map: ChunkMap | None, judgments: JudgmentSet, query_id: str) -> tuple[EntityRef, EntityRef]:
+    """(row entity, entity to resolve the judgment with) for one occurrence."""
+    if spec.unit == "chunk":
+        entity = entity_of_candidate(candidate, "chunk")
+        return entity, entity
+    return judged_document(candidate, chunk_map, judgments, query_id)
 
 
 @dataclass
@@ -219,13 +272,15 @@ def project_trace_journeys(
 
     groups: dict[tuple[str, str, str], _Group] = {}
     for span, candidate, event in _trace_events(trace):
-        entity, judged_as = _entities(candidate, spec, chunk_map)
+        entity, judged_as = _entities(candidate, spec, chunk_map, judgments, trace.query_id)
         group = groups.setdefault(entity.key(), _Group(entity, judged_as))
         group.events.append(event)
         if span.op_id in final_ops and event.output_present and event.kind != "transformed" and event.output_rank is not None:
             group.final_ranks.append((span.op_id, event.output_rank))
+    judged_as = {group.judged_as.key() for group in groups.values()}
     for entity in judgments.relevant_entities(trace.query_id, spec):
-        groups.setdefault(entity.key(), _Group(entity, entity))
+        if entity.key() not in judged_as:  # else an observed row is already judged as it
+            groups.setdefault(entity.key(), _Group(entity, entity))
 
     rows: list[JourneyRow] = []
     for group in groups.values():
@@ -233,7 +288,7 @@ def project_trace_journeys(
         observed = bool(events)
         relevance, grade, basis = resolve_relevance(judgments, trace.query_id, group.judged_as, spec, chunk_map)
         judgment = "unmapped" if basis == "unmapped" else relevance
-        record = judgments.get(trace.query_id, group.entity) if grade is not None else None
+        record = (judgments.get(trace.query_id, group.entity) or judgments.get(trace.query_id, group.judged_as)) if grade is not None else None
         source = None if record is None else record.source.kind + (f"@{record.source.version}" if record.source.version else "")
 
         final_rank = min((rank for _, rank in group.final_ranks), default=None)

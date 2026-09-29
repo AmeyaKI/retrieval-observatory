@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from hashlib import sha256
@@ -79,10 +80,13 @@ class OperatorMapping:
     #: ``unavailable`` when nothing above applies (verify then reports missing actual inputs).
     input_mapping: str = "default"
     #: ``return`` (the returned sequence, or its ``.documents``), ``capture``, or ``unavailable``.
+    #: A ``capture`` spec without ``outputs`` leaves this ``return``: the default capture reads outputs.
     output_mapping: str = "return"
     #: ``retobs_adapter:<symbol>``: a ``CaptureSpec`` defined in the project's root ``retobs_adapter.py``.
     capture: str | None = None
     invocation: Literal["sync", "async"] = "sync"
+    #: Reviewer-authored free text; kept verbatim when the plan is re-planned.
+    notes: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -200,13 +204,16 @@ class IntegrationPlan:
     discovery: Mapping[str, Any] = field(default_factory=dict)
     boundary: FinalBoundary = field(default_factory=FinalBoundary)
     identity: IdentityChoice = field(default_factory=IdentityChoice)
-    #: ``{"queries": path|None, "qrels": path|None, "corpus": path|None, "status": "resolved"|"unresolved", "notes": [...]}``
+    #: ``{"queries": path|None, "qrels": path|None, "corpus": path|None, "status": "resolved"|"candidate"|"unresolved", "notes": [...]}``;
+    #: ``candidate``: files found, but ``retobs evaluate`` would not accept them as they are (see ``notes``).
     judgments: Mapping[str, Any] = field(default_factory=dict)
     #: Capability name -> the status this plan expects verify to report.
     expected_capabilities: Mapping[str, str] = field(default_factory=dict)
     actions: tuple[PlannedAction, ...] = ()
     #: Non-blocking questions for the reviewer (unknown output shapes, missing labels, ...).
     open_questions: tuple[str, ...] = ()
+    #: Reviewer-authored free text (rationale, answers to open questions); kept verbatim on re-plan.
+    notes: str | None = None
 
     @classmethod
     def create(
@@ -228,6 +235,7 @@ class IntegrationPlan:
         expected_capabilities: Mapping[str, str] | None = None,
         actions: Sequence[PlannedAction] = (),
         open_questions: Sequence[str] = (),
+        notes: str | None = None,
     ) -> "IntegrationPlan":
         boundary = boundary or FinalBoundary()
         identity = identity or IdentityChoice()
@@ -248,6 +256,7 @@ class IntegrationPlan:
             "expected_capabilities": dict(expected_capabilities or {}),
             "actions": [asdict(item) for item in actions],
             "open_questions": list(open_questions),
+            "notes": notes,
         }
         plan_id = sha256(json.dumps(identity_payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()[:16]
         return cls(
@@ -269,6 +278,7 @@ class IntegrationPlan:
             dict(expected_capabilities or {}),
             tuple(actions),
             tuple(open_questions),
+            notes,
         )
 
     def validate_for_apply(self) -> None:
@@ -276,6 +286,10 @@ class IntegrationPlan:
             raise ValueError(f"unresolved mappings: {', '.join(self.unresolved)}")
         if not self.candidate_mapping.get("doc_id"):
             raise ValueError("candidate_mapping.doc_id is required")
+        counts = Counter(item.op_id for item in self.operators)
+        duplicates = sorted(op_id for op_id, count in counts.items() if count > 1)
+        if duplicates:
+            raise ValueError(f"duplicate operator op_id: {', '.join(duplicates)}; every operator needs its own op_id")
         low = [item.op_id for item in self.operators if item.confidence < 0.8]
         if low:
             raise ValueError(f"operator confidence below 0.8: {', '.join(low)}")

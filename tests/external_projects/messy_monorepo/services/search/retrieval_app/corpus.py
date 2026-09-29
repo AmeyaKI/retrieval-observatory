@@ -1,0 +1,7 @@
+from __future__ import annotations
+
+DOCUMENTS = [
+    {"id": "d-pricing", "text": "Widget pricing notes"},
+    {"id": "d-setup", "text": "Widget setup guide"},
+    {"id": "d-archive", "text": "Archived widget pricing table"},
+]

@@ -7,6 +7,7 @@ from tempfile import NamedTemporaryFile
 from retrieval_observatory.integrations.manifest import load_manifest, write_manifest
 from retrieval_observatory.integrations.model import (
     ADAPTER_MODULE,
+    IntegrationCheck,
     IntegrationManifest,
     IntegrationPlan,
     IntegrationResult,
@@ -108,7 +109,21 @@ def apply_integration_plan(plan: IntegrationPlan) -> IntegrationResult:
     )
     manifest_path = write_manifest(root, IntegrationManifest.from_plan(plan, reversals))
     changed = tuple(p.relative_path for p in plan.patches) + (str(manifest_path.relative_to(root)),)
-    return IntegrationResult("apply", "applied", plan=plan, changed_files=changed)
+    return IntegrationResult("apply", "applied", plan=plan, changed_files=changed, checks=_scenario_command_checks(plan))
+
+
+def _scenario_command_checks(plan: IntegrationPlan) -> tuple[IntegrationCheck, ...]:
+    """Apply runs nothing; a scenario without a command is named here so it is not silently skipped."""
+    missing = [scenario.scenario_id for scenario in plan.scenarios if not (scenario.command or "").strip()]
+    if not missing:
+        return ()
+    return (
+        IntegrationCheck(
+            "scenario_commands", "warn", "static", "1.0", len(plan.scenarios),
+            limitations=tuple(f"scenario {scenario_id} has no command: nothing will exercise it" for scenario_id in missing),
+            fix="set each scenario's command in the plan to the call that exercises the entrypoint, re-plan, and run it before verify",
+        ),
+    )
 
 
 def revert_integration(project_root: Path) -> IntegrationResult:

@@ -93,6 +93,18 @@ loaded = sorted(name for name in sys.modules if name.split(".")[0] in BLOCKED)
 assert not loaded, loaded
 """
 
+#: Runs from a directory that is neither the project root nor the package's; only `PYTHONPATH` finds `pkg`.
+ADAPTER_CAPTURE_SCRIPT = r"""
+import json
+from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, start_trace
+import pkg.stage
+start_trace(ObserveContext(None, "q1", "widget pricing", "pipe", "svc"))
+pkg.stage.stage("widget pricing", [{"id": "a", "score": 1.0}, {"id": "b", "score": 0.5}])
+trace = finish_trace()
+span = next(span for span in trace.spans if span.op_id == "stage")
+print(json.dumps({"outputs": [c.doc_id for c in span.outputs], "failures": [f["code"] for f in trace.capture_failures]}))
+"""
+
 
 class Skipped(Exception):
     """An optional check that cannot run in this environment; the message is the reason."""
@@ -296,6 +308,35 @@ class Smoke:
         assert "relevant_excluded" in outcomes, outcomes
         return {"entity": demo["repaired_document"], "outcomes": outcomes}
 
+    def adapter_capture_outside_root(self) -> dict[str, Any]:
+        root = self.workdir / "adapter-project"
+        package = root / "services" / "app" / "pkg"
+        package.mkdir(parents=True)
+        (root / "retobs_adapter.py").write_text(
+            "from retrieval_observatory.tracing.capture import CaptureSpec\n"
+            "spec = CaptureSpec(outputs=lambda result: result[:1])\n",
+            encoding="utf-8",
+        )
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "stage.py").write_text(
+            "from retrieval_observatory.sdk.observe import observe\n"
+            "@observe('RERANK', op_id='stage', capture='retobs_adapter:spec')\n"
+            "def stage(query, candidates): return list(reversed(candidates))\n",
+            encoding="utf-8",
+        )
+        elsewhere = self.workdir / "adapter-elsewhere"
+        elsewhere.mkdir()
+        completed = subprocess.run(
+            [sys.executable, "-c", ADAPTER_CAPTURE_SCRIPT], cwd=elsewhere,
+            env={**_isolated_env(), "PYTHONPATH": str(root / "services" / "app")}, capture_output=True, text=True, timeout=120,
+        )
+        assert completed.returncode == 0, completed.stderr[-2000:]
+        observed = json.loads(completed.stdout.strip().splitlines()[-1])
+        # The adapter keeps only the first reversed candidate; default capture would record both.
+        assert observed == {"outputs": ["b"], "failures": []}, observed
+        assert "uses default capture" not in completed.stderr, completed.stderr[-2000:]
+        return observed
+
     def storage_migrate_v2(self) -> dict[str, Any]:
         from retrieval_observatory.store.base import InvestigationFilter, InvestigationScope
         from retrieval_observatory.store.sqlite import SQLiteStore
@@ -424,6 +465,7 @@ CHECKS: tuple[str, ...] = (
     "serve_loopback",
     "demo_compare_audit",
     "inspect_document",
+    "adapter_capture_outside_root",
     "storage_migrate_v2",
     "v2_policy_conversion",
 )
