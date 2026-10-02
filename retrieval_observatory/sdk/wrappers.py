@@ -47,7 +47,7 @@ def _normalize_documents(
         elif isinstance(item, (tuple, list)) and len(item) == 2 and _is_plain_id(item[0]):
             doc_id, score = str(item[0]), float(item[1])
             docs.append(Document(id=doc_id, text=text_for(doc_id), score=score, rank=rank))
-        elif not isinstance(item, (tuple, list)) and (found := observed_id(item)) is not None:
+        elif not isinstance(item, (tuple, list)) and (found := _result_id(item)) is not None:
             doc_id = str(found)
             get = item.get if isinstance(item, dict) else lambda key: getattr(item, key, None)
             text, score = get("text"), get("score")
@@ -71,6 +71,14 @@ def _normalize_documents(
 
 def _is_plain_id(item: Any) -> bool:
     return isinstance(item, (str, int)) and not isinstance(item, bool)
+
+
+def _result_id(item: Any) -> Any:
+    """A returned item's id. A dict's ``id`` is read before its ``doc_id``, as evaluate always has:
+    under ``--chunk-map`` that is the chunk id, not the document it belongs to."""
+    if isinstance(item, dict) and item.get("id") not in (None, ""):
+        return item["id"]
+    return observed_id(item)
 
 
 async def _call(fn: Callable, *args: Any) -> Any:

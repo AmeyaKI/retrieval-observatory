@@ -128,6 +128,13 @@ def test_evaluate_normalization_uses_the_candidate_id_rule() -> None:
         _normalize_documents([{"doc_id": None, "text": "no id"}])
 
 
+def test_evaluate_reads_a_dicts_id_before_its_doc_id() -> None:
+    # A chunked result names its chunk as `id` and its document as `doc_id`; under --chunk-map the
+    # chunk id is what maps to the judged document, so evaluate keeps reading `id` first.
+    documents = _normalize_documents([{"id": "doc-a1#2", "doc_id": "doc-a1"}, {"doc_id": "doc-b2"}])
+    assert [doc.id for doc in documents] == ["doc-a1#2", "doc-b2"]
+
+
 def test_evaluate_fails_loudly_when_the_callable_returns_objects_without_ids(tmp_path: Path) -> None:
     target = tmp_path / "noid.py"
     target.write_text(
