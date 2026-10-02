@@ -21,7 +21,9 @@ metrics:
 ```
 
 Selectors are resolved against both Runs before anything is evaluated; one that is absent or
-ambiguous blocks the decision (`metric_selector_unresolved`). Slices use exact values on top-level
+ambiguous blocks the decision (`metric_selector_unresolved`). `final_retrieval` reads each query's
+own final answer, the list the traced entrypoint returned, which the run scores at `stage-1`
+(`pipeline|stage-1|recall@10`) whichever step produced it; the run summary reports the same rows. Slices use exact values on top-level
 query metadata fields. Policies accept no expressions, regular expressions, SQL, or Python. A v2
 policy (positional `pipeline|stageN|metric@k` keys) still loads and is converted per comparison;
 see [migrating to focused retobs](migrating-to-focused-retobs.md#release-policies-v2-to-v3).

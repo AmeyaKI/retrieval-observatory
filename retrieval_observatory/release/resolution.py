@@ -320,6 +320,11 @@ def _resolve_in_run(
         return key, "resolved", "", pipeline
 
     if target == FINAL_RETRIEVAL:
+        # Each question's final answer, scored at stage -1 by the metrics engine wherever that
+        # question's answer left the graph; runs scored before those rows existed use the
+        # terminal spine stage.
+        if _has_rows(run, pipeline, -1, metric, k, None):
+            return _key(pipeline, -1, metric, k, None), "resolved", f"final answer of each query in run {run.run_id}", pipeline
         stages = [
             int(row["stage_index"])
             for row in run.metric_rows
@@ -506,7 +511,9 @@ def _convert_guard(guard: MetricGuard, runs: tuple[RunEvidence, RunEvidence]) ->
             return {"metric": "latency_ms", "target": "query", "estimator": _latency_estimator(metric_name), "pipeline": pipeline_id}, ""
         if metric_name in ("failure", "failure_rate"):
             return {"metric": "failure_rate", "target": "query", "pipeline": pipeline_id}, ""
-        return None, f"no v3 target for run-level metric {metric_name!r}"
+        if metric_name not in (*CUTOFF_METRICS, "mrr", "map"):
+            return None, f"no v3 target for run-level metric {metric_name!r}"
+        # Stage -1 quality is each query's final answer: the final_retrieval boundary.
 
     base: dict[str, Any] = {"pipeline": pipeline_id}
     if metric_name.startswith("latency"):
@@ -523,9 +530,9 @@ def _convert_guard(guard: MetricGuard, runs: tuple[RunEvidence, RunEvidence]) ->
     else:
         return None, f"metric {metric_name!r} has no v3 equivalent"
 
-    if branch_id is None and base["metric"] != "latency_ms" and all(
+    if stage_index < 0 or (branch_id is None and base["metric"] != "latency_ms" and all(
         _final_stage(run, pipeline_id, stored_name, stored_k) == stage_index for run in runs
-    ):
+    )):
         return {**base, "target": FINAL_RETRIEVAL}, ""
 
     operators = []

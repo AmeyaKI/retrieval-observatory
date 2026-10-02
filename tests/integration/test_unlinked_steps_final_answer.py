@@ -1,7 +1,8 @@
 """Three decorated steps called in sequence with no declared parent links, evaluated through
 ``retobs evaluate``: the step whose return value is not a candidate list is recorded as
 unreadable (never as invented ids "1".."4"), the trace has one final step (the one whose output
-the callable returned), and the run summary, the per-question evidence and verify agree."""
+the callable returned), and the run summary, the dashboard, compare, the per-question evidence
+and verify agree on each question's final answer."""
 
 from __future__ import annotations
 
@@ -9,10 +10,13 @@ import asyncio
 import json
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
 import retrieval_observatory as ro
 from retrieval_observatory.cli import app
+from retrieval_observatory.dashboard.api import create_app
+from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.integrations.model import IntegrationManifest, OperatorMapping
 from retrieval_observatory.integrations.verify import verify_observed_traces
 from retrieval_observatory.store.base import TraceQuery
@@ -61,6 +65,11 @@ def retrieve_merged(query):
     kept, _dropped, _errors, _empty = screen_candidates("strict", {"blocked": {"doc-x9"}}, merged)
     diversify(kept)  # computed, then discarded: the caller ships the merged list
     return merged
+
+
+def retrieve_mixed(query):
+    kept, _dropped, _errors, _empty = screen_candidates("strict", {"blocked": {"doc-x9"}}, merge_lanes(*LANES[query]))
+    return [item for item in diversify(kept) if item.id != "doc-b2"]  # removes something for one question only
 
 
 def retrieve_trimmed(query):
@@ -137,8 +146,12 @@ def test_unlinked_steps_record_no_invented_ids_and_summarise_the_returned_list(t
     # The run summary is recall at the final answer, computed by hand from the returned lists.
     expected = sum(_recall(RETURNED[q], {d for d, g in QRELS[q].items() if g > 0}, 10) for q in QRELS) / len(QRELS)
     key, recall = _headline_recall(report)
-    assert key == "retrieve|stage0|recall@10|branch=diversify"
+    assert key == "retrieve|stage-1|recall@10"
     assert abs(recall["mean"] - expected) < 1e-9 and recall["n"] == 2
+    # The unreadable step limits the evidence and the reason says how to fix it.
+    assert report["evidence_health"] == "limited"
+    [reason] = [item for item in report["evidence_reasons"] if "screen_candidates" in item]
+    assert "add a CaptureSpec in retobs_adapter.py" in reason
 
     # `retobs report` shows the same summary.
     stored = CliRunner().invoke(app, ["report", run_id, "--db", str(db_path), "--format", "json"])
@@ -181,7 +194,7 @@ def test_summary_is_the_returned_step_even_when_a_later_step_fired(tmp_path: Pat
 
     expected = sum(_recall(merged[q], set(QRELS[q]), 10) for q in QRELS) / len(QRELS)
     key, recall = _headline_recall(report)
-    assert key == "retrieve_merged|stage0|recall@10|branch=merge_lanes"
+    assert key == "retrieve_merged|stage-1|recall@10"
     assert abs(recall["mean"] - expected) < 1e-9
 
 
@@ -200,8 +213,46 @@ def test_summary_is_the_returned_list_when_no_step_emitted_it(tmp_path: Path) ->
 
     expected = sum(_recall(returned[q], set(QRELS[q]), 10) for q in QRELS) / len(QRELS)
     key, recall = _headline_recall(report)
-    assert key == "retrieve_trimmed|stage1|recall@10"
+    assert key == "retrieve_trimmed|stage-1|recall@10"
     assert abs(recall["mean"] - expected) < 1e-9 and recall["n"] == 2
+
+
+def test_mixed_final_steps_summarise_every_questions_own_final_answer(tmp_path: Path) -> None:
+    db_path = tmp_path / "results.db"
+    args = _write_inputs(tmp_path)
+    run_ids = []
+    for _ in range(2):  # a baseline and a candidate for compare
+        result = CliRunner().invoke(app, ["evaluate", f"{tmp_path / 'pipeline.py'}:retrieve_mixed", "--format", "json", *args])
+        assert result.exit_code == 0, result.output
+        run_ids.append(json.loads(result.stdout)["run_id"])
+    report = json.loads(result.stdout)
+    traces = asyncio.run(_traces(db_path, run_ids[-1]))
+    # q1's post-filter removed doc-b2, so its answer left at `return`; q2's left at diversify.
+    assert traces["q1"].final_op_ids == ("return",) and traces["q2"].final_op_ids == ("diversify",)
+    returned = {"q1": ["doc-c3", "doc-a1"], "q2": ["doc-e5", "doc-a1", "doc-d4"]}
+    assert [c.doc_id for c in traces["q1"].span("return").outputs] == returned["q1"]
+
+    expected = sum(_recall(returned[q], set(QRELS[q]), 10) for q in QRELS) / len(QRELS)
+    key, recall = _headline_recall(report)
+    assert key == "retrieve_mixed|stage-1|recall@10"
+    assert abs(recall["mean"] - expected) < 1e-9 and recall["n"] == 2
+
+    # The dashboard overview shows the same summary.
+    registry = DbRegistry([str(db_path)])
+    client = TestClient(create_app(registry=registry, enable_uploads=False))
+    run_base = f"/dbs/{registry.list_db_ids()[0]}/runs/{run_ids[-1]}"
+    overview = client.get(f"{run_base}/overview")
+    assert overview.status_code == 200, overview.text
+    dashboard_key, dashboard_recall = _headline_recall(overview.json()["report"])
+    assert (dashboard_key, dashboard_recall["mean"], dashboard_recall["n"]) == (key, recall["mean"], recall["n"])
+    assert overview.json()["headline_winner"]["metric"] == "retrieve_mixed|stage-1|ndcg@10"
+    winners = client.get(f"{run_base}/query-winners", params={"metric": "recall", "k": 10}).json()["items"]
+    assert {row["query_id"]: row["score"] for row in winners} == {q: _recall(returned[q], set(QRELS[q]), 10) for q in QRELS}
+
+    # Compare pairs the same per-question final answers.
+    compared = ro.compare(run_ids[0], run_ids[1], db_path=str(db_path))
+    paired = compared.comparison["results"][key]
+    assert paired["baseline_mean"] == paired["candidate_mean"] == recall["mean"] and paired["paired_n"] == 2
 
 
 def test_verify_reports_the_unreadable_step_with_its_op_id_and_fix(tmp_path: Path) -> None:

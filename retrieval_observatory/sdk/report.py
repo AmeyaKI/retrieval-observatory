@@ -298,19 +298,15 @@ _QUALITY_ROWS_TOTAL = 6
 _REGRESSION_QUALITY_METRICS = ("ndcg", "recall", "mrr", "map")
 
 
-def _headline_metrics(
-    metrics: Dict[str, Any], final_slots: Optional[Dict[str, tuple[int, Optional[str]]]] = None
-) -> Dict[str, Any]:
+def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
     """Pick the few numbers that answer "did retrieval work, and what did it cost?".
 
     Quality is reported at each pipeline's final answer — the result the caller actually
-    ships: the ``(stage, branch)`` slot in ``final_slots`` (``metrics.engine.final_answer_slots``),
-    else the terminal spine stage. Unlinked steps all share stage 0 as branches, so without the
-    slot the headline would be an arbitrary step. Selecting on ``stage-1`` instead (as this once
-    did) could never surface recall or ndcg on a multi-stage pipeline: stage -1 carries only
-    run-level operational rows, and quality is recorded per stage because recall is a property
-    of a point in the funnel. Single-stage pipelines emit no stage -1 rows at all, which is why
-    the gap stayed hidden.
+    ships. The metrics engine scores it once per question at stage -1, wherever in the graph
+    that question's answer left the pipeline, so a run whose questions end at different steps
+    (or at unlinked steps that all share stage 0 as branches) still has one final number over
+    every scored question. Runs scored before those rows existed fall back to the terminal
+    spine stage.
 
     One row per metric name (the largest ``k``): three ``recall@k`` rows for one pipeline used
     to fill the whole headline and push ndcg out.
@@ -330,10 +326,9 @@ def _headline_metrics(
         candidates = [
             key for key, (pid, _s, name, _k, _b) in parsed.items() if pid == pipeline and name in _QUALITY_METRICS
         ]
-        slot = (final_slots or {}).get(pipeline)
-        if slot is not None:
-            spine = [key for key in candidates if (parsed[key][1], parsed[key][4]) == slot]
-            final_stage = slot[0]
+        final_answer = [key for key in candidates if parsed[key][1] == -1]
+        if final_answer:
+            spine, final_stage = final_answer, -1
         else:
             # Prefer the spine (a stage with one operator) over per-branch rows, which cover only
             # the queries routed down that branch (a gate-skipped span emits no rows), so their
@@ -368,7 +363,6 @@ def build_run_report(
     metrics: Dict[str, Any],
     diagnostics: list[Dict[str, Any]],
     manifest: Optional[Dict[str, Any]],
-    final_slots: Optional[Dict[str, tuple[int, Optional[str]]]] = None,
 ) -> ReportModel:
     manifest = manifest or {}
     counts = manifest.get("counts", {})
@@ -391,6 +385,13 @@ def build_run_report(
             evidence_reasons.append(f"Dataset {key} is unavailable.")
     if not manifest.get("labeling", {}).get("method"):
         evidence_reasons.append("Label provenance is unavailable.")
+    unreadable = manifest.get("unreadable_operators") or []
+    if unreadable:
+        evidence_reasons.append(
+            f"The output of {', '.join(unreadable)} could not be read as candidates, so "
+            f"{'that step is' if len(unreadable) == 1 else 'those steps are'} not scored: add a CaptureSpec in "
+            "retobs_adapter.py whose `outputs` reads the candidate list from the returned object."
+        )
     if attempted is None or completed is None:
         evidence_reasons.append("Attempted/completed query counts are unavailable.")
     elif completed == 0:
@@ -436,7 +437,7 @@ def build_run_report(
         conclusion=conclusion,
         evidence_health=evidence_health,
         evidence_reasons=evidence_reasons,
-        metrics=_headline_metrics(metrics, final_slots),
+        metrics=_headline_metrics(metrics),
         dominant_issue=dominant,
         affected_queries=affected,
         provenance={
@@ -454,8 +455,7 @@ def build_run_report(
 
 
 async def load_run_report(run_id: str, db_path: str) -> ReportModel:
-    from retrieval_observatory.metrics.engine import MetricsEngine, final_answer_slots
-    from retrieval_observatory.store.base import TraceQuery
+    from retrieval_observatory.metrics.engine import MetricsEngine
     from retrieval_observatory.store.sqlite import SQLiteStore
 
     store = SQLiteStore(db_path=db_path)
@@ -471,8 +471,6 @@ async def load_run_report(run_id: str, db_path: str) -> ReportModel:
         metrics=await MetricsEngine().aggregate(run_id, store),
         diagnostics=await store.get_query_diagnostics(run_id),
         manifest=await store.get_run_manifest(run_id),
-        # The metric rows were scored on the run's OK traces; the headline reads their final answer.
-        final_slots=final_answer_slots([trace for trace in await store.list_traces(TraceQuery(run_id=run_id)) if trace.status == "OK"]),
     )
 
 

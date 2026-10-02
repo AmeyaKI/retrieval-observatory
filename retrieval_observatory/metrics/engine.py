@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 from retrieval_observatory.metrics.ranking import (
     dedupe_preserve_rank,
@@ -13,9 +13,6 @@ from retrieval_observatory.metrics.ranking import (
 from retrieval_observatory.metrics.recall import recall_at_k, temporal_recall_at_k, temporal_recall_at_k_with_corpus
 from retrieval_observatory.metrics.significance import bootstrap_ci
 from retrieval_observatory.store.base import BaseStore
-
-if TYPE_CHECKING:
-    from retrieval_observatory.tracing.model import OperatorSpan
 
 
 def _mean(values: List[float]) -> float:
@@ -81,22 +78,6 @@ def union_layout(traces: List[Any]) -> Dict[str, Dict[str, tuple[int, Optional[s
             for op_id, depth in depths.items()
         }
     return layout
-
-
-def final_answer_slots(traces: List[Any]) -> Dict[str, tuple[int, Optional[str]]]:
-    """``{pipeline_id: (stage_index, branch_id)}`` of the final answer: the slot of the one final
-    operator every scored trace of the pipeline names. Pass the traces the metric rows came from
-    (``status == "OK"``); a pipeline whose traces disagree, or name several finals, has no entry."""
-    layout = union_layout(traces)
-    slots: Dict[str, Set[Optional[tuple[int, Optional[str]]]]] = defaultdict(set)
-    for trace in traces:
-        finals = tuple(trace.final_op_ids)
-        slots[trace.pipeline_id].add(layout[trace.pipeline_id][finals[0]] if len(finals) == 1 else None)
-    return {
-        pipeline_id: next(iter(found))
-        for pipeline_id, found in slots.items()
-        if len(found) == 1 and None not in found
-    }
 
 
 class MetricsEngine:
@@ -336,22 +317,6 @@ class MetricsEngine:
                         )
                 await self._save_metrics(store, metric_rows)
 
-    def _find_final_span(self, trace) -> "OperatorSpan | None":
-        """Return an explicit final operator span, or a terminal fired span.
-        whose op_id is never referenced as a parent by another span."""
-        fired = [s for s in trace.spans if s.status == "FIRED"]
-        if not fired:
-            return None
-        if trace.final_op_ids:
-            for s in fired:
-                if s.op_id in trace.final_op_ids:
-                    return s
-        all_parent_ids: Set[str] = set()
-        for s in fired:
-            all_parent_ids.update(s.parent_ids)
-        terminal = [s for s in fired if s.op_id not in all_parent_ids]
-        return terminal[-1] if terminal else fired[-1]
-
     async def compute_from_traces(
         self,
         run_id: str,
@@ -363,7 +328,8 @@ class MetricsEngine:
         """Compute per-query metrics from unified retrieval-trace operator DAGs.
 
         Produces identical metric values to compute_and_store for linear
-        pipelines — a linear recall funnel is just a special case of a DAG path.
+        pipelines — a linear recall funnel is just a special case of a DAG path —
+        plus each query's final answer scored once more at stage -1.
         """
         _sample = next(iter(qrels.values()), None)
         _graded = isinstance(_sample, dict)
@@ -445,61 +411,16 @@ class MetricsEngine:
             # branch_id=None and stage_index==position, identical to compute_and_store.
             for span in fired_spans:
                 stage_index, branch_id = layout[trace.pipeline_id][span.op_id]
-                metric_rows: List[Dict[str, Any]] = []
-                doc_ids = dedupe_preserve_rank([c.doc_id for c in span.outputs])
                 # An output that could not be read has no ranking to score: an empty list would
                 # record recall 0 for a step that may have kept every relevant document.
-                scored = span.output_capture != "unavailable"
-
-                for k in self.recall_k if scored else ():
-                    score = recall_at_k(doc_ids, relevant_set, k)
-                    metric_rows.append(
-                        self._metric_row(
-                            run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "recall", k, score, query_meta, branch_id=branch_id,
-                        )
+                metric_rows = (
+                    self._quality_rows(
+                        run_id, trace, query_meta, stage_index, branch_id,
+                        [c.doc_id for c in span.outputs], relevant_set, graded_qrel, _graded,
                     )
-
-                for k in self.precision_k if scored else ():
-                    score = precision_at_k(doc_ids, relevant_set, k)
-                    metric_rows.append(
-                        self._metric_row(
-                            run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "precision", k, score, query_meta, branch_id=branch_id,
-                        )
-                    )
-
-                for k in self.ndcg_k if scored else ():
-                    if _graded:
-                        score = ndcg_at_k_graded(doc_ids, graded_qrel, k)
-                    else:
-                        score = ndcg_at_k(doc_ids, relevant_set, k)
-                    metric_rows.append(
-                        self._metric_row(
-                            run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "ndcg", k, score, query_meta, branch_id=branch_id,
-                        )
-                    )
-
-                if self.compute_mrr and scored:
-                    score = mrr([doc_ids], [relevant_set])
-                    metric_rows.append(
-                        self._metric_row(
-                            run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "mrr", 0, score, query_meta, branch_id=branch_id,
-                        )
-                    )
-
-                if self.compute_map and scored:
-                    from retrieval_observatory.metrics.ranking import average_precision
-                    score = average_precision(doc_ids, relevant_set)
-                    metric_rows.append(
-                        self._metric_row(
-                            run_id, trace.pipeline_id, trace.query_id,
-                            stage_index, "map", 0, score, query_meta, branch_id=branch_id,
-                        )
-                    )
-
+                    if span.output_capture != "unavailable"
+                    else []
+                )
                 metric_rows.append(
                     self._metric_row(
                         run_id, trace.pipeline_id, trace.query_id,
@@ -507,6 +428,50 @@ class MetricsEngine:
                     )
                 )
                 await self._save_metrics(store, metric_rows)
+
+            # The final answer, scored once per question at stage -1 (the end-to-end slot): what
+            # the traced entrypoint returned, wherever in the graph that is for this question.
+            # Several final operators are parallel terminal branches whose outputs together
+            # are the answer, in final_op_ids order. An unreadable final output is not scored.
+            finals = [span for op_id in trace.final_op_ids for span in fired_spans if span.op_id == op_id]
+            if finals and all(span.output_capture != "unavailable" for span in finals):
+                await self._save_metrics(store, self._quality_rows(
+                    run_id, trace, query_meta, -1, None,
+                    [c.doc_id for span in finals for c in span.outputs], relevant_set, graded_qrel, _graded,
+                ))
+
+    def _quality_rows(
+        self,
+        run_id: str,
+        trace: Any,
+        query_meta: Dict[str, Any],
+        stage_index: int,
+        branch_id: Optional[str],
+        ranked_ids: List[str],
+        relevant_set: Set[str],
+        graded_qrel: Dict[str, int],
+        graded: bool,
+    ) -> List[Dict[str, Any]]:
+        """Recall, precision, nDCG, MRR and MAP rows of one ranked list, in that order."""
+        from retrieval_observatory.metrics.ranking import average_precision
+
+        doc_ids = dedupe_preserve_rank(ranked_ids)
+        scores: List[tuple[str, int, float]] = [("recall", k, recall_at_k(doc_ids, relevant_set, k)) for k in self.recall_k]
+        scores += [("precision", k, precision_at_k(doc_ids, relevant_set, k)) for k in self.precision_k]
+        scores += [
+            ("ndcg", k, ndcg_at_k_graded(doc_ids, graded_qrel, k) if graded else ndcg_at_k(doc_ids, relevant_set, k))
+            for k in self.ndcg_k
+        ]
+        if self.compute_mrr:
+            scores.append(("mrr", 0, mrr([doc_ids], [relevant_set])))
+        if self.compute_map:
+            scores.append(("map", 0, average_precision(doc_ids, relevant_set)))
+        return [
+            self._metric_row(
+                run_id, trace.pipeline_id, trace.query_id, stage_index, name, k, score, query_meta, branch_id=branch_id,
+            )
+            for name, k, score in scores
+        ]
 
     @staticmethod
     def _span_depths(fired_spans: list) -> Dict[str, int]:

@@ -14,7 +14,10 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Fixed
 - `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.
-- `sdk/report.py`, `metrics/engine.py` — the run summary (`retobs evaluate`, `retobs report`) reads the final answer's metric slot (`final_answer_slots`) instead of an arbitrary step when steps are unlinked.
+- `metrics/engine.py`, `sdk/report.py` — each question's final answer is also scored at stage -1 (`<pipeline>|stage-1|recall@10`, …). The run summary (`retobs evaluate`, `retobs report`, the dashboard overview and winners, MCP) reads those rows, so the headline is the mean over every scored question of its own final answer. That holds when steps are unlinked and when only some questions pass through a post-filter; before, the headline could come from an arbitrary step. `compare` ranks these rows first, release `final_retrieval` resolves to them, and v2 guards on them convert to `final_retrieval`.
+- `sdk/report.py`, `runner/execute.py` — a run with an unreadable step reports evidence health `limited`, naming the step and the CaptureSpec to add (manifest `unreadable_operators`).
+- `dashboard/api.py` — cross-pipeline stage contributions no longer fail with `max() iterable argument is empty` when a pipeline's steps are unlinked; they compare the pipelines' final answers.
+- `dashboard/ui` `fmtLatencyMs` and the deprecated `retobs inspect` — sub-millisecond latencies print as `<0.1` or one decimal instead of `0 ms`.
 - `integrations/verify.py` — `output_capture_unavailable` shows the failure code and detail and names the `retobs_adapter.py` CaptureSpec to write.
 - `cli.py` — `inspect-query` shows each trace's recorded wall-clock time (it read a key the trace payload never carries and always printed `0.0 ms`); values under 0.1 ms print as `<0.1 ms`.
 

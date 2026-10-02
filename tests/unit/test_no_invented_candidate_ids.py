@@ -12,8 +12,11 @@ import pytest
 from typer.testing import CliRunner
 
 from retrieval_observatory.cli import app
+from retrieval_observatory.metrics.comparison import rank_metric_keys
+from retrieval_observatory.release.policy import ReleasePolicy, ReleasePolicyV3
+from retrieval_observatory.release.resolution import RunEvidence, convert_v2_policy, resolve_policy
 from retrieval_observatory.sdk.observe import ObserveContext, finish_trace, observe, start_trace, trace_scope
-from retrieval_observatory.sdk.report import _headline_metrics
+from retrieval_observatory.sdk.report import _headline_metrics, build_run_report
 from retrieval_observatory.sdk.wrappers import _normalize_documents
 from retrieval_observatory.store.base import TraceQuery
 from retrieval_observatory.store.sqlite import SQLiteStore
@@ -156,8 +159,64 @@ def _metric(stage: int, name: str, branch: str | None, mean: float) -> tuple[str
     return key, {"pipeline_id": "pipe", "stage_index": stage, "metric_name": name, "k": 10, "branch_id": branch, "mean": mean}
 
 
-def test_headline_reads_the_final_answer_slot() -> None:
-    metrics = dict([_metric(0, "recall", "a_merge", 0.2), _metric(0, "recall", "z_final", 0.9)])
-    assert list(_headline_metrics(metrics, {"pipe": (0, "z_final")})) == ["pipe|stage0|recall@10|branch=z_final"]
-    # Without a known final answer the terminal-stage rule is unchanged.
-    assert list(_headline_metrics(metrics)) == ["pipe|stage0|recall@10|branch=a_merge"]
+# Unlinked steps share stage 0 as branches; stage -1 holds each question's own final answer.
+UNLINKED = dict([_metric(0, "recall", "a_merge", 0.2), _metric(0, "recall", "z_final", 0.9)])
+FINAL = "pipe|stage-1|recall@10"
+
+
+def test_headline_reads_each_questions_final_answer() -> None:
+    assert list(_headline_metrics({**UNLINKED, FINAL: _metric(-1, "recall", None, 0.9)[1]})) == [FINAL]
+    # A run scored before final-answer rows existed keeps the terminal-stage rule.
+    assert list(_headline_metrics(UNLINKED)) == ["pipe|stage0|recall@10|branch=a_merge"]
+
+
+def test_comparison_ranks_the_final_answer_first() -> None:
+    assert rank_metric_keys([*UNLINKED, FINAL])[0] == FINAL
+
+
+def _rows(run_id: str) -> list[dict]:
+    rows = []
+    for query_id in ("q1", "q2"):
+        for stage, branch in ((0, "a_merge"), (0, "z_final"), (-1, None)):
+            rows.append({
+                "run_id": run_id, "pipeline_id": "pipe", "query_id": query_id, "stage_index": stage,
+                "metric_name": "recall", "k": 10, "value": 1.0, "branch_id": branch, "query_metadata": {},
+            })
+    return rows
+
+
+def test_release_final_retrieval_reads_each_questions_final_answer() -> None:
+    runs = [RunEvidence(run, {"normalized_config": {"pipelines": [{"id": "pipe"}]}}, _rows(run)) for run in ("base", "cand")]
+    policy = ReleasePolicyV3.model_validate({
+        "schema_version": 3, "id": "final", "evaluation": {"unit": "document", "k": 10},
+        "statistics": {"confidence_level": 0.95, "familywise_alpha": 0.05, "resamples": 4000, "seed": 1},
+        "metrics": [{"id": "final-recall", "metric": "recall", "target": "final_retrieval", "direction": "higher_is_better",
+                     "max_regression": 0.01, "min_paired_n": 2}],
+    })
+    [check] = resolve_policy(policy, *runs).checks
+    assert check.status == "resolved" and check.metric_key_by_run == {"base": FINAL, "cand": FINAL}
+
+    legacy = ReleasePolicy.model_validate({
+        "id": "final", "schema_version": 2,
+        "statistics": {"confidence_level": 0.95, "familywise_alpha": 0.05, "resamples": 4000, "seed": 1},
+        "metrics": [{"metric": FINAL, "direction": "higher_is_better", "max_regression": 0.01, "min_paired_n": 2}],
+    })
+    [converted] = convert_v2_policy(legacy, *runs).policy.metrics
+    assert (converted.metric, converted.target, converted.k) == ("recall", "final_retrieval", 10)
+
+
+def test_unreadable_step_limits_the_evidence_and_names_the_fix() -> None:
+    manifest = {
+        "dataset": {"query_hash": "q", "corpus_hash": "c", "qrel_hash": "r"}, "labeling": {"method": "gold"},
+        "counts": {"attempted": 2, "completed": 2}, "unreadable_operators": ["screen_candidates"],
+    }
+    report = build_run_report(run_id="r", experiment_name="e", db_path="db", metrics={}, diagnostics=[], manifest=manifest)
+    assert report.evidence_health == "limited"
+    assert report.evidence_reasons == [
+        "The output of screen_candidates could not be read as candidates, so that step is not scored: add a "
+        "CaptureSpec in retobs_adapter.py whose `outputs` reads the candidate list from the returned object."
+    ]
+    clean = build_run_report(
+        run_id="r", experiment_name="e", db_path="db", metrics={}, diagnostics=[], manifest={**manifest, "unreadable_operators": []},
+    )
+    assert clean.evidence_health == "ready"

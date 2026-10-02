@@ -244,4 +244,5 @@ final-output-only endpoint, and do not report a scenario as covered when its com
 | trace: `capture_reference_unresolved` | `@observe` found no `retobs_adapter.py` above the module, or it does not define that `CaptureSpec`; default capture was used instead. Define the spec at module level in root `retobs_adapter.py` |
 | runtime: `ModuleNotFoundError: retobs_adapter` | Code applied by an older retobs imports the adapter; revert and re-apply with this version, which references it as a string |
 | `output_capture_unavailable` with `iterator_output_not_captured` | The operator returns a generator; wrap it in a list inside a `CaptureSpec.outputs` mapping or return a list |
+| `output_capture_unavailable` with `candidate_ids_missing` | The operator returns items with no id (for example a `(kept, dropped, ...)` tuple); add a `CaptureSpec` in `retobs_adapter.py` whose `outputs` reads the candidate list from the return value (`lambda result: result[0]`) |
 | `final_output_shape_unsupported` | The entrypoint returns an object retobs cannot read; return a sequence or a mapping with a `documents` key, or set `boundary` to the last operator's output |

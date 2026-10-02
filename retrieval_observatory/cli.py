@@ -1177,7 +1177,7 @@ async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_pa
             hits_at_stage = diag.get("stage_hits", {}).get(str(stage_idx), set())
 
             table = Table(
-                title=f"Stage {stage_idx}: {stage_row['stage_id']} ({stage_row['status']}, {stage_row['latency_ms']:.0f}ms)",
+                title=f"Stage {stage_idx}: {stage_row['stage_id']} ({stage_row['status']}, {_fmt_inspect_ms(stage_row['latency_ms'])})",
                 show_header=True,
             )
             table.add_column("Rank", justify="right", width=5)

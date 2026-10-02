@@ -189,8 +189,9 @@ output, which is how the dashboard and evaluation know which candidates were ret
 
 - **Spans without parents.** Forgetting `parent_ids` on fusion or rerank records a valid span with
   empty `input_groups`, so every candidate looks newly introduced there, drop reasons are never
-  inferred, and the operator it should have named, now referenced by nobody, joins `final_op_ids`
-  as a second "output". Declare parents on every non-source operator.
+  inferred, and the unlinked operators score as parallel branches instead of one funnel. The
+  trace still has one final step: the operator whose output the entrypoint returned, or, when
+  that cannot be read, the last span that fired. Declare parents on every non-source operator.
 - **Forgetting the entrypoint scope.** `@observe` with no active trace records nothing and returns
   the function's result unchanged. If the database stays empty, the entrypoint is not wrapped in
   `@trace_scope`, or the operators are called outside it.
@@ -202,14 +203,16 @@ output, which is how the dashboard and evaluation know which candidates were ret
   as `pipeline.py` does.
 - **`op_type` left as the wrong thing.** A reranker recorded as `SOURCE` gets no inputs and no
   removals. Pick the op type that matches what the code does to the candidate set.
-- **Candidates without doc ids.** Returning bare scores or rows without `doc_id`/`id` makes
-  candidates keyed by position, marks their identity evidence `partial`, and breaks lineage across
-  stages. Every operator returns rows carrying the same `doc_id`.
+- **Candidates without doc ids.** A position is never an id. An operator that returns bare scores,
+  rows without `doc_id`/`id`, or a tuple such as `(kept, dropped)` records no candidates: its output
+  capture is `unavailable`, a `candidate_ids_missing` capture failure names the returned shape, and
+  the step gets no quality metrics. Every operator returns rows carrying the same `doc_id`, or a
+  `CaptureSpec` in `retobs_adapter.py` reads the candidate list from the returned value.
 
 ## Routing decisions
 
 The SDK has `observe_gate(gate_name, fired, gate_values, op_id=...)`, a context manager that records
 a `GATE` span with status `FIRED` or `SKIPPED_BY_GATE`. This example leaves routing out: a gate span
-declares no parents and nothing names it as a parent, so it would appear in `final_op_ids` next to
-the reranker unless the lane it controls also lists the gate in its `parent_ids`. That wiring is not
-covered here.
+declares no parents, and a gate's decision is never taken as the final step, but unless the lane it
+controls also lists the gate in its `parent_ids` the graph does not show which lane it routed. That
+wiring is not covered here.
