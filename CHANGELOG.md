@@ -9,8 +9,14 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ### Added
 
 ### Changed
+- `tracing/candidates.py` — a position is never a document id: an output item that is not a string and carries no `doc_id`/`id`/`node_id`/`id_`/`metadata["id"]` makes the whole output unreadable (`output_capture="unavailable"` plus a `candidate_ids_missing` capture failure naming the returned shape, e.g. `returned tuple of 4 items; item 1 is a list, not a candidate`) instead of being recorded under invented ids `1..n`. Applies to `@observe`, `trace_scope`, auto-instrumentation and the framework callbacks; `None` and `""` are missing, `0` is an id. Steps with an unreadable output emit no quality metric rows.
+- `sdk/wrappers.py` — `retobs evaluate` reads a callable's results with the same id rule (ids, `(id, score)` pairs, dicts with `doc_id`/`id`, objects with an id attribute; `doc_id` wins over `id`) and fails the query with a message naming the item type instead of scoring `repr` strings.
 
 ### Fixed
+- `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.
+- `sdk/report.py`, `metrics/engine.py` — the run summary (`retobs evaluate`, `retobs report`) reads the final answer's metric slot (`final_answer_slots`) instead of an arbitrary step when steps are unlinked.
+- `integrations/verify.py` — `output_capture_unavailable` shows the failure code and detail and names the `retobs_adapter.py` CaptureSpec to write.
+- `cli.py` — `inspect-query` shows each trace's recorded wall-clock time (it read a key the trace payload never carries and always printed `0.0 ms`); values under 0.1 ms print as `<0.1 ms`.
 
 ### Removed
 

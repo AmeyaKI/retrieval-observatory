@@ -6,6 +6,7 @@ import traceback
 from typing import Any, Callable, Dict, List, Optional
 
 from retrieval_observatory.sdk.observe import ObserveContext, current_trace, finish_trace, record_return_boundary, start_trace
+from retrieval_observatory.tracing.candidates import observed_id
 from retrieval_observatory.tracing.model import RetrievalTrace
 from retrieval_observatory.types import Document, PipelineResult, Query, RetrievalResult, StageSnapshot
 
@@ -20,7 +21,9 @@ def _normalize_documents(
 ) -> List[Document]:
     """Normalize a retriever return value into ranked Documents.
 
-    Accepts: list[doc_id], list[(doc_id, score)], list[Document], or list[dict].
+    Accepts: list[doc_id], list[(doc_id, score)], list[Document], list[dict] with an id, or
+    objects with an id attribute (the candidate id rule of ``tracing.candidates``). An item with
+    no id raises ``TypeError``: neither its position nor its ``repr`` is ever scored as an id.
     `source_docs` (rerank case) lets us recover text for plain-id returns.
     """
     corpus = corpus or {}
@@ -38,25 +41,36 @@ def _normalize_documents(
         if isinstance(item, Document):
             item.rank = rank
             docs.append(item)
-        elif isinstance(item, dict):
-            doc_id = str(item.get("id") or item.get("doc_id"))
+        elif _is_plain_id(item):
+            doc_id = str(item)
+            docs.append(Document(id=doc_id, text=text_for(doc_id), score=float(n - rank + 1), rank=rank))
+        elif isinstance(item, (tuple, list)) and len(item) == 2 and _is_plain_id(item[0]):
+            doc_id, score = str(item[0]), float(item[1])
+            docs.append(Document(id=doc_id, text=text_for(doc_id), score=score, rank=rank))
+        elif not isinstance(item, (tuple, list)) and (found := observed_id(item)) is not None:
+            doc_id = str(found)
+            get = item.get if isinstance(item, dict) else lambda key: getattr(item, key, None)
+            text, score = get("text"), get("score")
             docs.append(
                 Document(
                     id=doc_id,
-                    text=item.get("text", text_for(doc_id)),
-                    score=float(item.get("score", n - rank + 1)),
+                    text=text if isinstance(text, str) else text_for(doc_id),
+                    score=float(n - rank + 1 if score is None else score),
                     rank=rank,
-                    title=item.get("title", ""),
-                    metadata=item.get("metadata", {}) or {},
+                    title=get("title") or "",
+                    metadata=get("metadata") or {},
                 )
             )
-        elif isinstance(item, (tuple, list)):
-            doc_id, score = str(item[0]), float(item[1])
-            docs.append(Document(id=doc_id, text=text_for(doc_id), score=score, rank=rank))
-        else:  # plain id (str/int)
-            doc_id = str(item)
-            docs.append(Document(id=doc_id, text=text_for(doc_id), score=float(n - rank + 1), rank=rank))
+        else:
+            raise TypeError(
+                f"the callable returned {type(raw).__name__} of {n} items; item {rank} is a {type(item).__name__} with no id. "
+                "Return ids, (id, score) pairs, dicts with id or doc_id, or objects with an id attribute."
+            )
     return docs
+
+
+def _is_plain_id(item: Any) -> bool:
+    return isinstance(item, (str, int)) and not isinstance(item, bool)
 
 
 async def _call(fn: Callable, *args: Any) -> Any:
@@ -65,10 +79,11 @@ async def _call(fn: Callable, *args: Any) -> Any:
     return await asyncio.to_thread(fn, *args)
 
 
-def _record_return_boundary(trace: RetrievalTrace, documents: Optional[List[Document]], error: Optional[str] = None) -> None:
+def _record_return_boundary(trace: RetrievalTrace, documents: Optional[List[Document]], error: Optional[str] = None) -> Optional[str]:
     """Append the callable's returned documents as the trace's final boundary (see
-    ``sdk.observe.record_return_boundary``); ``Document.id`` is the candidate id."""
-    record_return_boundary(trace, documents, error=error)
+    ``sdk.observe.record_return_boundary``); ``Document.id`` is the candidate id. Returns the
+    operator that emitted exactly the returned ids, which is then the trace's final step."""
+    return record_return_boundary(trace, documents, error=error)
 
 
 class FunctionRetriever:
@@ -102,8 +117,8 @@ class FunctionRetriever:
         if not trace.spans or not isinstance(result, RetrievalResult):
             finish_trace()
             return result
-        _record_return_boundary(trace, result.documents)
-        finish_trace()
+        final = _record_return_boundary(trace, result.documents)
+        finish_trace(final_op_ids=(final,) if final else ())
         corpus = self._corpus or {}
         snapshots = [
             StageSnapshot(

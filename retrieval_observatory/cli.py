@@ -926,6 +926,16 @@ def inspect_query_cmd(
     asyncio.run(_inspect_query_contract(run_id, query_id, db_path, format))
 
 
+def _trace_wall_latency_ms(trace: dict) -> float:
+    """Wall clock of a `RetrievalTrace.to_dict()` payload; older payloads carry `total_latency_ms`."""
+    wall = (trace.get("timing") or {}).get("wall_clock_ms")
+    return float(trace.get("total_latency_ms", 0.0) if wall is None else wall)
+
+
+def _fmt_inspect_ms(value: float) -> str:
+    return "<0.1 ms" if value < 0.1 else f"{value:.1f} ms"
+
+
 async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, format: str) -> None:
     from retrieval_observatory.evidence import build_query_evidence
     from retrieval_observatory.store.sqlite import SQLiteStore
@@ -969,7 +979,7 @@ async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, form
             str(trace.get("pipeline_id")),
             str(trace.get("status")),
             str(len(trace.get("spans", []))),
-            f"{float(trace.get('total_latency_ms', 0)):.1f} ms",
+            _fmt_inspect_ms(_trace_wall_latency_ms(trace)),
         )
     console.print(table)
     investigation = evidence["investigation"]

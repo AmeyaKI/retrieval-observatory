@@ -18,7 +18,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 import httpx
 
-from retrieval_observatory.tracing.candidates import build_candidate_transition
+from retrieval_observatory.tracing.candidates import UnreadableCandidates, build_candidate_transition
 from retrieval_observatory.tracing.capture import (
     _CANDIDATE_PARAMETERS,
     CaptureError,
@@ -42,6 +42,7 @@ from retrieval_observatory.tracing.model import (
     RetrievalTrace,
     TraceTiming,
     critical_path_latency_ms,
+    final_op_ids_of,
     latest_span_of,
     next_node_id,
 )
@@ -125,7 +126,11 @@ def _append(trace: Any, span: OperatorSpan) -> None:
         trace.spans = (*spans, span)
 
 
-def finish_trace(status: str = "OK", error_traceback: str | None = None) -> RetrievalTrace:
+def finish_trace(
+    status: str = "OK", error_traceback: str | None = None, *, final_op_ids: Sequence[str] = ()
+) -> RetrievalTrace:
+    """Finish the active trace. ``final_op_ids`` names the operator whose output the entrypoint
+    returned (``record_return_boundary``); otherwise ``final_op_ids_of`` chooses."""
     trace = _current_trace.get()
     if trace is None:
         raise RuntimeError("finish_trace() called without an active trace")
@@ -135,15 +140,7 @@ def finish_trace(status: str = "OK", error_traceback: str | None = None) -> Retr
     wall = (time.perf_counter() - started) * 1000 if started else sum(span.latency_ms for span in trace.spans)
     trace.status = status  # type: ignore[assignment]
     trace.error_traceback = error_traceback
-    trace.final_op_ids = (
-        tuple(
-            span.op_id
-            for span in trace.spans
-            if span.op_id not in {parent for item in trace.spans for parent in item.parent_ids}
-        )
-        if status == "OK"
-        else ()
-    )
+    trace.final_op_ids = (tuple(final_op_ids) or final_op_ids_of(trace.spans)) if status == "OK" else ()
     trace.timing = TraceTiming(
         wall, critical_path_latency_ms(trace.spans), sum(span.latency_ms for span in trace.spans)
     )
@@ -159,16 +156,18 @@ def to_candidates(value: Any, op_id: str):
     return convert(getattr(value, "documents", value), op_id)
 
 
-def record_return_boundary(trace: Any, returned: Sequence[Any] | None, *, error: str | None = None) -> None:
+def record_return_boundary(trace: Any, returned: Sequence[Any] | None, *, error: str | None = None) -> str | None:
     """Append what an entrypoint returned as the trace's final boundary: a ``return`` TRANSFORM
     span fed by the sink operator(s), with ``params={"boundary": "callable_return"}``.
 
-    Skipped when the returned ids are exactly what the sinks emitted, or exactly what one sink
-    emitted (a plan that has not declared an edge yet still has the last operator's output as
-    the final boundary): the sinks already are the final boundary. Otherwise the span records
-    what left the callable after its last observed operator (an untraced post-filter, a
-    failure). ``returned`` is the returned sequence of candidate-like items, or ``None`` when
-    nothing usable was returned.
+    Skipped when an observed operator emitted exactly the returned ids (a plan that has not
+    declared an edge yet still has that operator's output as the final boundary): the latest such
+    operator is returned, and the caller passes it to ``finish_trace`` as the final step. Also
+    skipped when the returned ids are exactly what parallel terminal branches emitted together.
+    Otherwise the span records what left the callable after its last observed operator (an
+    untraced post-filter, a failure). ``returned`` is the returned sequence of candidate-like
+    items, or ``None`` when nothing usable was returned. Raises ``UnreadableCandidates`` when an
+    item carries no id.
     """
     spans = tuple(trace.spans)
     parents = {parent for span in spans for parent in span.parent_ids}
@@ -176,11 +175,18 @@ def record_return_boundary(trace: Any, returned: Sequence[Any] | None, *, error:
     node_id = next_node_id((span.op_id for span in spans), "return")
     outputs = () if returned is None else tuple(to_candidates(list(returned), node_id))
     returned_ids = [c.doc_id for c in outputs]
-    if error is None and returned is not None and (
-        [c.doc_id for span in sinks for c in span.outputs] == returned_ids
-        or any([c.doc_id for c in span.outputs] == returned_ids for span in sinks)
-    ):
-        return
+    if error is None and returned is not None:
+        matching = [
+            span for span in spans
+            if span.status == "FIRED" and span.op_type != "GATE" and span.output_capture == "recorded"
+            and [c.doc_id for c in span.outputs] == returned_ids
+        ]
+        if matching:
+            return matching[-1].op_id
+        if len(sinks) > 1 and final_op_ids_of(spans) == tuple(span.op_id for span in sinks) and (
+            [c.doc_id for span in sinks for c in span.outputs] == returned_ids
+        ):
+            return None
     _append(
         trace,
         OperatorSpan(
@@ -200,6 +206,7 @@ def record_return_boundary(trace: Any, returned: Sequence[Any] | None, *, error:
             parent_linkage="declared",
         ),
     )
+    return None
 
 
 def _json_safe(value: Any, depth: int = 0) -> Any:
@@ -421,6 +428,10 @@ def observe(
                             decision_reasons=decisions,
                         )
                         groups, outputs, output_capture = transition.input_groups, transition.outputs, "recorded"
+                    except UnreadableCandidates as exc:
+                        # Positions are never ids: no candidate is invented for an id-less item.
+                        fail(inv, "outputs", "candidate_ids_missing", exc.describe(items))
+                        groups, outputs, output_capture = inv.groups, (), "unavailable"
                     except Exception as exc:
                         fail(inv, "outputs", "output_mapping_failed", repr(exc))
                         groups, outputs, output_capture = inv.groups, (), "unavailable"
@@ -595,19 +606,31 @@ def trace_scope(service_id: str, pipeline_id: str, db_path: str = ".retobs/resul
                 module_file = getattr(module, "__file__", None)
             return _resolve_scope_db_path(db_path, module_file)
 
-        def record_result(result: Any) -> None:
+        def record_result(result: Any) -> tuple[str, ...]:
             """The entrypoint's return value is the final boundary; an unreadable shape is a
-            recorded capture failure, never an invented output and never an exception."""
+            recorded capture failure, never an invented output and never an exception.
+
+            Returns the final step: the operator that emitted the returned ids, else ``()`` for
+            ``finish_trace`` to choose. When the value cannot be read, the last span that fired,
+            in execution order, recorded as chosen by order."""
             trace = current_trace()
             items, _, code = extract_outputs(result)
             if items is None:
                 detail = f"{type(result).__name__}: {code}"
-                _append_failures(trace, [CaptureFailure("return", None, "outputs", "final_output_shape_unsupported", detail)])
-                return
-            try:
-                record_return_boundary(trace, items)
-            except Exception as exc:  # e.g. duplicate candidate IDs in the returned list
-                _append_failures(trace, [CaptureFailure("return", None, "outputs", "span_build_failed", repr(exc))])
+            else:
+                try:
+                    final = record_return_boundary(trace, items)
+                    return (final,) if final else ()
+                except UnreadableCandidates as exc:
+                    detail = exc.describe(items)
+                except Exception as exc:  # e.g. duplicate candidate IDs in the returned list
+                    _append_failures(trace, [CaptureFailure("return", None, "outputs", "span_build_failed", repr(exc))])
+                    return ()
+            fired = [span.op_id for span in trace.spans if span.status == "FIRED" and span.op_type != "GATE"]
+            if fired:
+                detail += f"; final step {fired[-1]} chosen by execution order"
+            _append_failures(trace, [CaptureFailure("return", None, "outputs", "final_output_shape_unsupported", detail)])
+            return tuple(fired[-1:])
 
         @functools.wraps(fn)
         async def async_wrapper(*args: Any, **kwargs: Any):
@@ -618,8 +641,8 @@ def trace_scope(service_id: str, pipeline_id: str, db_path: str = ".retobs/resul
             except Exception:
                 await _persist_trace(finish_trace("ERROR", traceback.format_exc()), resolved_db_path())
                 raise
-            record_result(result)
-            await _persist_trace(finish_trace(), resolved_db_path())
+            final = record_result(result)
+            await _persist_trace(finish_trace(final_op_ids=final), resolved_db_path())
             return result
 
         @functools.wraps(fn)
@@ -631,8 +654,8 @@ def trace_scope(service_id: str, pipeline_id: str, db_path: str = ".retobs/resul
             except Exception:
                 _persist_trace_sync(finish_trace("ERROR", traceback.format_exc()), resolved_db_path())
                 raise
-            record_result(result)
-            _persist_trace_sync(finish_trace(), resolved_db_path())
+            final = record_result(result)
+            _persist_trace_sync(finish_trace(final_op_ids=final), resolved_db_path())
             return result
 
         return async_wrapper if iscoroutinefunction(fn) else sync_wrapper

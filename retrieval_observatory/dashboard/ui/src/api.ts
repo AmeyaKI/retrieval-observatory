@@ -493,7 +493,6 @@ export interface RetrievalTrace {
   query_text: string
   pipeline_id: string
   spans: TraceOperatorSpan[]
-  total_latency_ms?: number
   timing?: { wall_clock_ms: number; critical_path_ms: number; operator_sum_ms: number }
   status: 'OK' | 'TIMEOUT' | 'ERROR'
   timestamp: string

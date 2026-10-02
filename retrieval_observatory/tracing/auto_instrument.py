@@ -21,8 +21,9 @@ _patched_class: Optional[type] = None
 
 
 def _record_span(op_id: str, op_name: str, elapsed_ms: float, result: Any, status: str, error: Optional[str]) -> None:
-    from retrieval_observatory.sdk.observe import _append, current_trace
-    from retrieval_observatory.tracing.capture import extract_outputs, snapshot
+    from retrieval_observatory.sdk.observe import _append, _append_failures, current_trace
+    from retrieval_observatory.tracing.candidates import UnreadableCandidates
+    from retrieval_observatory.tracing.capture import CaptureFailure, extract_outputs, snapshot
     from retrieval_observatory.tracing.model import OperatorSpan, next_node_id
 
     trace = current_trace()
@@ -31,6 +32,13 @@ def _record_span(op_id: str, op_name: str, elapsed_ms: float, result: Any, statu
     # A retriever is a SOURCE: its input is the query, not whichever span happened to come before it.
     items, output_capture, _ = extract_outputs(result) if status == "FIRED" else (None, "unavailable", None)
     node_id = next_node_id((span.op_id for span in trace.spans), op_id)
+    outputs = []
+    if items is not None:
+        try:
+            outputs = snapshot(items, node_id)
+        except UnreadableCandidates as exc:  # positions are never ids
+            output_capture = "unavailable"
+            _append_failures(trace, [CaptureFailure(node_id, None, "outputs", "candidate_ids_missing", exc.describe(items))])
     _append(trace, OperatorSpan(
             op_id=node_id,
             op_type="SOURCE",
@@ -40,7 +48,7 @@ def _record_span(op_id: str, op_name: str, elapsed_ms: float, result: Any, statu
             deterministic=False,
             replay_policy="NOT_REPLAYABLE",
             latency_ms=elapsed_ms,
-            outputs=snapshot(items, node_id) if items is not None else (),
+            outputs=outputs,
             error=error,
             invocation_id=uuid.uuid4().hex,
             operator_id=op_id,

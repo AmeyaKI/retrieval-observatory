@@ -6,14 +6,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-from retrieval_observatory.tracing.candidates import build_candidate_transition
-from retrieval_observatory.tracing.capture import incomplete_boundary_count, snapshot
+from retrieval_observatory.tracing.candidates import UnreadableCandidates, build_candidate_transition
+from retrieval_observatory.tracing.capture import CaptureFailure, incomplete_boundary_count, snapshot
 from retrieval_observatory.tracing.model import (
     CaptureMetadata,
     OperatorSpan,
     RetrievalTrace,
     TraceTiming,
     critical_path_latency_ms,
+    final_op_ids_of,
     latest_span_of,
     next_node_id,
 )
@@ -60,14 +61,24 @@ class TraceContext:
         node_of = {parent: span.op_id if span is not None else parent for parent, span in parents.items()}
         invocation_ids = tuple(span.invocation_id for span in parents.values() if span is not None)
         if input_groups is not None:
-            inputs = {node_of.get(parent, parent): snapshot(items, node_of.get(parent, parent)) for parent, items in input_groups.items()}
-            input_capture, parent_linkage = "recorded", "declared"
+            try:
+                inputs = {node_of.get(parent, parent): snapshot(items, node_of.get(parent, parent)) for parent, items in input_groups.items()}
+                input_capture, parent_linkage = "recorded", "declared"
+            except UnreadableCandidates as exc:
+                self._unreadable(node_id, "inputs", str(exc))
+                inputs, input_capture, parent_linkage = {}, "unavailable", "unavailable"
         else:
             inputs = {node_of[parent]: span.outputs if span is not None else () for parent, span in parents.items()}
             input_capture, parent_linkage = ("inferred", "inferred") if parent_ids else ("not_applicable", "recorded")
-        transition = build_candidate_transition(
-            input_groups=inputs, output_items=documents, op_id=node_id, op_type=op_type
-        )
+        try:
+            transition = build_candidate_transition(
+                input_groups=inputs, output_items=documents, op_id=node_id, op_type=op_type
+            )
+        except UnreadableCandidates as exc:
+            # Positions are never ids: the output is recorded as unreadable, not partly invented.
+            self._unreadable(node_id, "outputs", exc.describe(documents))
+            transition = build_candidate_transition(input_groups=inputs, output_items=(), op_id=node_id, op_type=op_type)
+            kwargs["output_capture"] = "unavailable"
         span = OperatorSpan(
             node_id,
             op_type,
@@ -87,13 +98,12 @@ class TraceContext:
         self.spans.append(span)
         return span
 
+    def _unreadable(self, op_id: str, phase: str, detail: str) -> None:
+        self.capture_failures.append(CaptureFailure(op_id, None, phase, "candidate_ids_missing", detail).to_dict())
+
     def build_trace(self, *, status: str = "OK", error: BaseException | None = None) -> RetrievalTrace:
         wall_clock_ms = (time.perf_counter() - self.started) * 1000
-        finals = tuple(
-            span.op_id
-            for span in self.spans
-            if span.op_id not in {parent for item in self.spans for parent in item.parent_ids}
-        )
+        finals = final_op_ids_of(self.spans)
         return RetrievalTrace(
             trace_id=uuid.uuid4().hex,
             service_id=self.recorder.service,

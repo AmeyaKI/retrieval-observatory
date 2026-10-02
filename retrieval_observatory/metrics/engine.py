@@ -43,6 +43,62 @@ def _percentile(values: List[float], percentile: float) -> float:
     return float(ordered[lower] * (1 - weight) + ordered[upper] * weight)
 
 
+def union_layout(traces: List[Any]) -> Dict[str, Dict[str, tuple[int, Optional[str]]]]:
+    """``{pipeline_id: {op_id: (stage_index, branch_id)}}``: the slot of every operator's metric rows.
+
+    Stable metric identity comes from the union topology for the whole run, not from one
+    query's conditional/partial path. Otherwise the same operator can alternate between
+    branch_id=None and branch_id=op_id across queries.
+    """
+    parents_by_pipeline: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
+    for trace in traces:
+        for span in trace.spans:
+            parents_by_pipeline[trace.pipeline_id].setdefault(span.op_id, set())
+            parents_by_pipeline[trace.pipeline_id][span.op_id].update(span.parent_ids)
+
+    layout: Dict[str, Dict[str, tuple[int, Optional[str]]]] = {}
+    for pipeline_id, parent_map in parents_by_pipeline.items():
+        cache: Dict[str, int] = {}
+
+        def union_depth(op_id: str, visiting: frozenset[str]) -> int:
+            if op_id in cache:
+                return cache[op_id]
+            if op_id in visiting:
+                return 0
+            parents = [parent for parent in parent_map.get(op_id, set()) if parent in parent_map]
+            value = 0 if not parents else 1 + max(
+                union_depth(parent, visiting | {op_id}) for parent in parents
+            )
+            cache[op_id] = value
+            return value
+
+        depths = {op_id: union_depth(op_id, frozenset()) for op_id in parent_map}
+        counts: Dict[int, int] = defaultdict(int)
+        for depth in depths.values():
+            counts[depth] += 1
+        layout[pipeline_id] = {
+            op_id: (depth, None if counts[depth] == 1 else op_id)
+            for op_id, depth in depths.items()
+        }
+    return layout
+
+
+def final_answer_slots(traces: List[Any]) -> Dict[str, tuple[int, Optional[str]]]:
+    """``{pipeline_id: (stage_index, branch_id)}`` of the final answer: the slot of the one final
+    operator every scored trace of the pipeline names. Pass the traces the metric rows came from
+    (``status == "OK"``); a pipeline whose traces disagree, or name several finals, has no entry."""
+    layout = union_layout(traces)
+    slots: Dict[str, Set[Optional[tuple[int, Optional[str]]]]] = defaultdict(set)
+    for trace in traces:
+        finals = tuple(trace.final_op_ids)
+        slots[trace.pipeline_id].add(layout[trace.pipeline_id][finals[0]] if len(finals) == 1 else None)
+    return {
+        pipeline_id: next(iter(found))
+        for pipeline_id, found in slots.items()
+        if len(found) == 1 and None not in found
+    }
+
+
 class MetricsEngine:
     """Computes and stores per-query metrics; aggregation is always a GROUP BY query."""
 
@@ -311,40 +367,7 @@ class MetricsEngine:
         """
         _sample = next(iter(qrels.values()), None)
         _graded = isinstance(_sample, dict)
-
-        # Stable metric identity comes from the union topology for the whole run, not
-        # from one query's conditional/partial path. Otherwise the same operator can
-        # alternate between branch_id=None and branch_id=op_id across queries.
-        parents_by_pipeline: Dict[str, Dict[str, Set[str]]] = defaultdict(lambda: defaultdict(set))
-        for trace in traces:
-            for span in trace.spans:
-                parents_by_pipeline[trace.pipeline_id].setdefault(span.op_id, set())
-                parents_by_pipeline[trace.pipeline_id][span.op_id].update(span.parent_ids)
-
-        union_layout: Dict[str, Dict[str, tuple[int, Optional[str]]]] = {}
-        for pipeline_id, parent_map in parents_by_pipeline.items():
-            cache: Dict[str, int] = {}
-
-            def union_depth(op_id: str, visiting: frozenset[str]) -> int:
-                if op_id in cache:
-                    return cache[op_id]
-                if op_id in visiting:
-                    return 0
-                parents = [parent for parent in parent_map.get(op_id, set()) if parent in parent_map]
-                value = 0 if not parents else 1 + max(
-                    union_depth(parent, visiting | {op_id}) for parent in parents
-                )
-                cache[op_id] = value
-                return value
-
-            depths = {op_id: union_depth(op_id, frozenset()) for op_id in parent_map}
-            counts: Dict[int, int] = defaultdict(int)
-            for depth in depths.values():
-                counts[depth] += 1
-            union_layout[pipeline_id] = {
-                op_id: (depth, None if counts[depth] == 1 else op_id)
-                for op_id, depth in depths.items()
-            }
+        layout = union_layout(traces)
 
         for trace in traces:
             raw_qrel = qrels.get(trace.query_id)
@@ -421,11 +444,14 @@ class MetricsEngine:
             # their per-node metrics stay distinct. A linear chain has one node per depth →
             # branch_id=None and stage_index==position, identical to compute_and_store.
             for span in fired_spans:
-                stage_index, branch_id = union_layout[trace.pipeline_id][span.op_id]
+                stage_index, branch_id = layout[trace.pipeline_id][span.op_id]
                 metric_rows: List[Dict[str, Any]] = []
                 doc_ids = dedupe_preserve_rank([c.doc_id for c in span.outputs])
+                # An output that could not be read has no ranking to score: an empty list would
+                # record recall 0 for a step that may have kept every relevant document.
+                scored = span.output_capture != "unavailable"
 
-                for k in self.recall_k:
+                for k in self.recall_k if scored else ():
                     score = recall_at_k(doc_ids, relevant_set, k)
                     metric_rows.append(
                         self._metric_row(
@@ -434,7 +460,7 @@ class MetricsEngine:
                         )
                     )
 
-                for k in self.precision_k:
+                for k in self.precision_k if scored else ():
                     score = precision_at_k(doc_ids, relevant_set, k)
                     metric_rows.append(
                         self._metric_row(
@@ -443,7 +469,7 @@ class MetricsEngine:
                         )
                     )
 
-                for k in self.ndcg_k:
+                for k in self.ndcg_k if scored else ():
                     if _graded:
                         score = ndcg_at_k_graded(doc_ids, graded_qrel, k)
                     else:
@@ -455,7 +481,7 @@ class MetricsEngine:
                         )
                     )
 
-                if self.compute_mrr:
+                if self.compute_mrr and scored:
                     score = mrr([doc_ids], [relevant_set])
                     metric_rows.append(
                         self._metric_row(
@@ -464,7 +490,7 @@ class MetricsEngine:
                         )
                     )
 
-                if self.compute_map:
+                if self.compute_map and scored:
                     from retrieval_observatory.metrics.ranking import average_precision
                     score = average_precision(doc_ids, relevant_set)
                     metric_rows.append(

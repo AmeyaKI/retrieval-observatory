@@ -631,24 +631,26 @@ def _topology_observed(manifest: IntegrationManifest, traces: Sequence[Retrieval
 
 def _actual_input_output_capture(traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
     spans = [span for trace in traces for span in trace.spans if span.status == "FIRED" and not _is_return_boundary(span)]
-    output_codes: Dict[str, set[str]] = {}
+    # First recorded detail per failure code: the returned shape is what tells the reader the fix.
+    output_codes: Dict[str, Dict[str, str]] = {}
     for trace in traces:
         for failure in trace.capture_failures:
             if failure.get("phase") == "outputs":
-                output_codes.setdefault(str(failure.get("op_id")), set()).add(str(failure.get("code")))
+                output_codes.setdefault(str(failure.get("op_id")), {}).setdefault(str(failure.get("code")), str(failure.get("detail")))
 
     def complete(span: OperatorSpan) -> bool:
         return span.input_capture in _COMPLETE_INPUT_CAPTURE and span.output_capture == "recorded"
 
     by_operator: Dict[str, Dict[str, int]] = {}
-    codes_by_operator: Dict[str, set[str]] = {}
+    codes_by_operator: Dict[str, Dict[str, str]] = {}
     for span in spans:
         operator = _operator_id(span)
         row = by_operator.setdefault(operator, {"recorded": 0, "positional": 0, "inferred": 0, "unavailable": 0, "output_unavailable": 0})
         row["recorded" if span.input_capture in _COMPLETE_INPUT_CAPTURE else span.input_capture] += 1
         if span.output_capture != "recorded":
             row["output_unavailable"] += 1
-            codes_by_operator.setdefault(operator, set()).update(output_codes.get(span.op_id, ()))
+            for code, detail in output_codes.get(span.op_id, {}).items():
+                codes_by_operator.setdefault(operator, {}).setdefault(code, detail)
     failures: List[Dict[str, Any]] = []
     for operator, row in sorted(by_operator.items()):
         invocations = sum(row[key] for key in ("recorded", "positional", "inferred", "unavailable"))
@@ -665,13 +667,13 @@ def _actual_input_output_capture(traces: Sequence[RetrievalTrace]) -> Dict[str, 
                 _CAPTURE_SPEC_FIX.format(op=operator), operator,
             ))
         if row["output_unavailable"]:
-            codes = sorted(codes_by_operator.get(operator, ()))
+            codes = sorted(codes_by_operator.get(operator, {}).items())
             failures.append(_failure(
                 "output_capture_unavailable",
                 f"{row['output_unavailable']} of {invocations} invocations of {operator} have no recorded outputs"
-                + (f" ({', '.join(codes)})" if codes else ""),
+                + (f" ({'; '.join(f'{code}: {detail}' for code, detail in codes)})" if codes else ""),
                 f"return a sequence of candidates or a mapping with a `documents` key from {operator}, or define a CaptureSpec "
-                f"`{operator}_capture` in retobs_adapter.py whose `outputs` maps the returned object to candidates",
+                f"`{operator}_capture` in retobs_adapter.py whose `outputs` reads the candidate list from the returned object",
                 operator,
             ))
     completed = sum(1 for span in spans if complete(span))
