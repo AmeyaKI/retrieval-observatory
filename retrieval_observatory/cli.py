@@ -568,7 +568,12 @@ _SUMMARY_OPERATORS = 20
 def _plan_summary(plan: dict, project_root: Path, output: Path) -> str:
     """What ``integrate --phase plan --output`` prints; the plan JSON goes to ``output`` unchanged."""
     operators = plan["operators"]
-    lines = [f"Plan written to {output}", f"{len(operators)} operators proposed" + (":" if operators else "")]
+    watch = plan["discovery"].get("watch") or {}
+    how = {
+        "watched": f" (found by watching {watch.get('searches_seen', 0)} real search{'' if watch.get('searches_seen') == 1 else 'es'})",
+        "guessed": " (guessed from function names; plan with --watch \"<command>\" to find them from a real search)",
+    }.get(plan["discovery"].get("method"), "")
+    lines = [f"Plan written to {output}", f"{len(operators)} operators proposed{how}" + (":" if operators else "")]
     lines += [f"  {op['relative_path']}:{op['symbol']} ({op['op_type']})" for op in operators[:_SUMMARY_OPERATORS]]
     if len(operators) > _SUMMARY_OPERATORS:
         lines.append(f"  …and {len(operators) - _SUMMARY_OPERATORS} more")
@@ -583,7 +588,7 @@ def _plan_summary(plan: dict, project_root: Path, output: Path) -> str:
     scenarios = plan["scenarios"]
     lines.append(f"Scenarios: {len(scenarios)} ({', '.join(item['scenario_id'] for item in scenarios)})")
     lines += [f"  {item['scenario_id']}: no command; set it in the plan before verify" for item in scenarios if not item.get("command")]
-    lines.append(f"Open questions: {len(plan['open_questions'])}")
+    lines.append(f"Open questions: {len(plan['open_questions'])}" + (" (answer them before re-planning; see open_questions)" if plan["open_questions"] else ""))
     if plan["unresolved"]:
         lines.append(f"Unresolved: {len(plan['unresolved'])} (apply refuses until they are fixed)")
         lines.append(f"Next: fix unresolved in {output}, then re-plan: retobs integrate {project_root} --phase plan --plan {output} --output {output}")
