@@ -20,6 +20,18 @@ async def integrate_project(project_root: Path, phase: IntegrationPhase, options
     if not root.is_dir():
         raise ValueError(f"project root does not exist: {root}")
     if phase is IntegrationPhase.PLAN:
+        if options.watch_commands:
+            if options.plan is not None:
+                raise ValueError("--watch builds a new plan from what ran; to re-plan a reviewed plan, omit --watch")
+            from retrieval_observatory.integrations.watch import watch_commands
+            from retrieval_observatory.integrations.watch_map import build_watch_map
+            from retrieval_observatory.integrations.watch_plan import build_watched_plan
+
+            watched = watch_commands(root, options.watch_commands)
+            failures = [f"{item.command}: {item.failure}" for item in watched.commands if item.failure]
+            plan = build_watched_plan(root, build_watch_map(watched.to_payload()), options.framework,
+                                      db_path=options.db_path, failures=failures)
+            return IntegrationResult("plan", "partial" if failures else "planned", plan=plan)
         # With a reviewed plan this re-plans from its operators and scenarios (patches regenerated).
         plan = build_integration_plan(root, options.framework, db_path=options.db_path, reviewed=options.plan)
         return IntegrationResult("plan", "planned", plan=plan)

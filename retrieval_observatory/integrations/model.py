@@ -442,6 +442,8 @@ class IntegrationOptions:
     db_path: str = ".retobs/results.db"
     policy_path: str | None = None
     framework: str | None = None
+    #: Commands that each run one real search; with any, the plan is built from what they ran (``--watch``).
+    watch_commands: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -453,4 +455,5 @@ class IntegrationOptions:
             str(value.get("db_path", ".retobs/results.db")),
             str(value["policy_path"]) if value.get("policy_path") else None,
             str(value["framework"]) if value.get("framework") else None,
+            tuple(str(item) for item in value.get("watch_commands") or ()),
         )

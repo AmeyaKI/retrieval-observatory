@@ -601,6 +601,7 @@ def integrate_cmd(
     db: str = typer.Option(".retobs/results.db", "--db", help="Trace database; a relative path resolves against the project root."),
     policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML for verify preflight."),
     framework: Optional[str] = typer.Option(None, "--framework", help="Override detection: python, fastapi, langchain, llamaindex, http."),
+    watch: List[str] = typer.Option([], "--watch", help="A command that runs one real search (repeat once per search path); retobs runs it and builds the plan from the functions that actually handled documents."),
 ) -> None:
     """Plan, apply, verify, or revert one canonical project integration."""
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
@@ -616,7 +617,7 @@ def integrate_cmd(
             integrate_project(
                 project_root,
                 selected,
-                IntegrationOptions(reviewed, db, str(policy) if policy else None, framework),
+                IntegrationOptions(reviewed, db, str(policy) if policy else None, framework, tuple(watch)),
             )
         ).to_dict()
     except (ValueError, OSError) as error:
