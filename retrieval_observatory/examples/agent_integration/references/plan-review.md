@@ -19,14 +19,21 @@ from what you reviewed.
   carry a decorator) and `notes` (for example a change the entrypoint made itself, such as a
   `results[:k]` cut). Each operator's `notes` repeat its watched counts and which parameter each
   parent fed.
-- `guessed` (or no `method`): the operators are name matches, as described below.
+- `guessed`: the operators are name matches, as described below.
   `discovery.watch_fallback_reason` says why a watch fell back to guessing.
 
-Review a watched plan before re-planning: re-planning rebuilds `discovery`, so `method`, `watch`,
-the `not_seen_in_watch` entries and the watch's open questions are only in the first plan. Answer
-each open question. A step whose documents are one element of what it returns (a `(kept, dropped,
-...)` tuple) comes with a ready line for `retobs_adapter.py`, such as
+Re-planning keeps `method`, `watch`, `watch_fallback_reason` and the `not_seen_in_watch` and
+`folded_into_step` entries, but not the watch's open questions: answer those from the first plan.
+A step whose documents are one element of what it returns (a `(kept, dropped, ...)` tuple) comes
+with a ready line for `retobs_adapter.py`, such as
 `screen_capture = CaptureSpec(outputs=lambda result: result[0])`, and the `capture` value to set.
+So does a step whose parents' documents arrive in parameters not named after them, or inside one
+tuple or dict argument, with an `inputs` mapping keyed by parent, such as
+`inputs=lambda bound: {"keyword_search": bound.arguments["keyword_hits"], ...}`. A step that needs
+both gets one `CaptureSpec(inputs=..., outputs=...)`. Until those lines are in place,
+`expected_capabilities.actual_input_output_capture` is `partial`. When the watched entrypoint took
+no query-named argument, the scenarios carry the placeholder query text and an open question asks
+for the real one.
 
 ## Operators
 
@@ -64,8 +71,9 @@ operators the planner missed, especially custom filters and post-processing betw
 retrieval stage and the returned result.
 
 Name matches the planner left out are in `discovery.low_confidence_operators`, each with a
-`reason`: `not_seen_in_watch` (a watched plan: the watched searches never ran it as a step of
-its own; a function folded into a step's `inside` is listed here too),
+`reason`: `not_seen_in_watch` (a watched plan: the watched searches never ran it),
+`folded_into_step` (a watched plan: it ran inside the watched step named in `step`, on documents
+that step made itself, and is listed in that step's `inside`),
 `unreachable_from_entrypoint` (no import path from the entrypoint reaches the file),
 `non_runtime_dir` (under a bench, eval, report, script, notebook, fixture, example or experiment
 directory), `not_operator_shape` (a predicate, factory or formatter: `is_`/`get_`/`format_`...

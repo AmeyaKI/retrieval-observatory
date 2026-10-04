@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -591,7 +592,67 @@ def _return_transition_failures(trace: RetrievalTrace) -> List[Dict[str, Any]]:
     return failures
 
 
-def _topology_observed(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], no_traces: str) -> Dict[str, Any]:
+def _watch_failures(manifest: IntegrationManifest, project_root) -> List[Dict[str, Any]]:
+    """Compare the applied operators with the search ``--watch`` saw (``retobs/watch.json``).
+
+    Nothing is reported unless that file is about this pipeline: it holds at least one step, and at
+    least one declared operator ran as a watched step or folded inside one. An empty, unreadable or
+    unrelated file is not evidence about this plan.
+    """
+    from retrieval_observatory.integrations.watch import WATCH_FILE
+    from retrieval_observatory.integrations.watch_map import build_watch_map
+
+    if project_root is None:
+        return []
+    try:
+        watch = build_watch_map(json.loads((Path(project_root) / WATCH_FILE).read_text(encoding="utf-8")))
+    except Exception:
+        return []
+    declared = {(op.relative_path, op.symbol): op for op in manifest.operators}
+    watched = {(step.relative_path, step.symbol): step for step in watch.steps}
+    ran = {*watched, *(key for step in watch.steps for key in step.inside_keys)}
+    if not ran & set(declared):
+        return []
+    declared_id = {key: op.op_id for key, op in declared.items()}
+    watched_key = {step.op_id: key for key, step in watched.items()}
+    failures: List[Dict[str, Any]] = []
+    for key, step in watched.items():
+        # A GATE hands on a route, not documents; the proposed chooser is the agent's to confirm or drop.
+        if key not in declared and step.op_type != "GATE":
+            failures.append(_failure(
+                "watched_step_unmarked",
+                f"{step.symbol} ({step.relative_path}) handled the documents in the watched search "
+                f"(took {step.took}, returned {step.returned}) but is not in the plan",
+                f"add {step.symbol} in {step.relative_path} to the plan's operators and plan again", step.op_id,
+            ))
+    for key, op in declared.items():
+        if key not in ran:
+            failures.append(_failure(
+                "declared_step_not_watched",
+                f"{op.op_id} ({op.symbol} in {op.relative_path}) never ran in the watched searches",
+                "remove it from the plan, or add a --watch command for the search path that runs it", op.op_id,
+            ))
+    for key, op in declared.items():
+        step = watched.get(key)
+        if step is None:
+            continue
+        expected = sorted(
+            declared_id.get(watched_key[parent], f"{watched[watched_key[parent]].symbol} (not in the plan)")
+            for parent in step.parent_ids if parent in watched_key
+        )
+        if sorted(op.parent_ids) != expected:
+            failures.append(_failure(
+                "declared_link_differs_from_watch",
+                f"{op.op_id} declares parents {sorted(op.parent_ids)} but in the watched search it received documents from {expected}",
+                f"make {op.op_id}'s parents match the watched search ({expected}), adding any step marked 'not in the plan' first, then plan again",
+                op.op_id,
+            ))
+    return failures
+
+
+def _topology_observed(
+    manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], no_traces: str, project_root=None
+) -> Dict[str, Any]:
     declared = sorted({op.op_id for op in manifest.operators})
     observed = sorted({_operator_id(span) for trace in traces for span in trace.spans if not _is_return_boundary(span)})
     undeclared = sorted(set(observed) - set(declared))
@@ -609,12 +670,14 @@ def _topology_observed(manifest: IntegrationManifest, traces: Sequence[Retrieval
             "undeclared_operator_observed", f"operator {op_id!r} fired but the manifest does not declare it",
             f"add {op_id!r} to the plan's operators, or remove its @observe decorator if it is not part of this pipeline", op_id,
         ))
+    watch_failures = _watch_failures(manifest, project_root)
+    failures.extend(watch_failures)
     if not traces:
         failures.append(_failure("no_traces", no_traces, "run one declared scenario, then verify again"))
         status = "unavailable"
     elif valid == 0:
         status = "unavailable"
-    elif valid < len(traces) or undeclared or transitions:
+    elif valid < len(traces) or undeclared or transitions or watch_failures:
         status = "partial"
     else:
         status = "ready"
@@ -979,7 +1042,7 @@ def verify_observed_traces(
         "(its trace_scope decorator records the trace), and that verify uses the same --db."
     )
     builders = {
-        "topology_observed": lambda: _topology_observed(manifest, traces, no_traces),
+        "topology_observed": lambda: _topology_observed(manifest, traces, no_traces, project_root),
         "actual_input_output_capture": lambda: _actual_input_output_capture(traces),
         "candidate_identity": lambda: _candidate_identity(traces),
         "query_identity": lambda: _query_identity(traces),

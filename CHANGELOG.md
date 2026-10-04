@@ -7,8 +7,24 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+- `retobs integrate . --phase plan --watch "<command>"` (repeatable; MCP `integrate_project(watch=[...])`) builds the integration plan from what a real search ran instead of from function names. retobs runs each command from the project root and watches the project's own functions in every Python process it starts, through `integrations/watch.py` and the stdlib-only `integrations/_watch_hook.py` (`sys.monitoring` on 3.12+, `setprofile` on 3.10/3.11). It then proposes exactly the functions that handled documents (`integrations/watch_map.py`, `integrations/watch_plan.py`):
+  - **typed by behaviour:** SOURCE, FUSE, FILTER, RERANK or TRANSFORM, with a chooser proposed as GATE;
+  - **linked by data flow:** each step's parents are the steps whose documents it received;
+  - **scenarios:** the watched commands are the scenario commands;
+  - **ready-to-paste CaptureSpec snippets** for bundle outputs and for multi-input steps whose parameters are not named after their parents.
+
+  Name-matched functions that never ran are listed as `not_seen_in_watch`, and functions inside a lane as `folded_into_step`. `retobs/watch.json` records hashed document ids, function names, counts and at most the search's question text; it is local and not meant to be committed. With no watched step, the plan falls back to name guessing (`discovery.method: "guessed"`) and says why.
+- `integrations/verify.py`: when `retobs/watch.json` describes the applied pipeline, `topology_observed` reports three failure codes, each naming the exact function and file:
+  - `watched_step_unmarked`: a function that handled documents is not in the plan;
+  - `declared_step_not_watched`: a planned operator never ran;
+  - `declared_link_differs_from_watch`: a declared parent differs from where the documents came from.
 
 ### Changed
+- `integrations/planner.py`:
+  - a plain `--phase plan` labels its discovery `method: "guessed"`;
+  - re-planning from a reviewed plan keeps the watch evidence (`method`, `watch`, `not_seen_in_watch`, `folded_into_step`);
+  - an async entrypoint gets a `benchmark_setup` command.
+- The agent runbook (`examples/agent_integration/SKILL.md`, `references/plan-review.md`) and `docs/integrations/AGENT_QUICKSTART.md` lead with `--watch`; reading the code is the fallback when no search can be run.
 - `tracing/candidates.py` — a position is never a document id: an output item that is not a string and carries no `doc_id`/`id`/`node_id`/`id_`/`metadata["id"]` makes the whole output unreadable (`output_capture="unavailable"` plus a `candidate_ids_missing` capture failure naming the returned shape, e.g. `returned tuple of 4 items; item 1 is a list, not a candidate`) instead of being recorded under invented ids `1..n`. Applies to `@observe`, `trace_scope`, auto-instrumentation and the framework callbacks; `None` and `""` are missing, `0` is an id. Steps with an unreadable output emit no quality metric rows.
 - `sdk/wrappers.py` — `retobs evaluate` reads a callable's results with the same id rule (ids, `(id, score)` pairs, dicts with `id` or `doc_id` — `id` first, as before —, objects with an id attribute) and fails the query with a message naming the item type instead of scoring `repr` strings.
 

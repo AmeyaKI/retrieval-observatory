@@ -852,7 +852,8 @@ def _benchmark_setup(
     as ``module:callable`` with its import root on ``PYTHONPATH`` (the file loader cannot resolve
     relative imports or a nested import root)."""
     resolved = judgments.get("status") == "resolved"
-    if resolved and entrypoint is not None and entrypoint[3] == "function" and import_name is not None:
+    callable_entry = entrypoint is not None and entrypoint[3] in ("function", "async_function")
+    if resolved and callable_entry and import_name is not None:
         relative, symbol, _node, _kind = entrypoint
         import_root, module = import_name
         target = f"{module}:{symbol}" if "." in module else f"{relative}:{symbol}"
@@ -864,7 +865,7 @@ def _benchmark_setup(
         )
         return PlannedAction("benchmark_setup", f"evaluate {symbol} against the discovered queries and qrels", command)
     needs = []
-    if not (entrypoint is not None and entrypoint[3] == "function"):
+    if not callable_entry:
         needs.append("a module-level callable retrieve(query) -> list")
     if not resolved:
         needs.append("queries and qrels files")
@@ -996,6 +997,12 @@ def build_integration_plan(
         str(path.relative_to(root))
         for path in iter_project_files(root, (".jsonl", ".json", ".csv", ".parquet"), {"venv", "node_modules", "retobs"})
     )
+    if reviewed is not None:
+        # What a watched search saw is evidence the review does not redo: keep it through a re-plan.
+        low_confidence.extend(
+            item for item in reviewed.discovery.get("low_confidence_operators", ())
+            if item.get("reason") in ("not_seen_in_watch", "folded_into_step")
+        )
     discovery = {
         "entrypoints": [candidate.__dict__ for candidate in detection.entrypoints],
         "entrypoint": (
@@ -1007,6 +1014,10 @@ def build_integration_plan(
         "low_confidence_operators": low_confidence,
         "db_path": db_path,
         "runbook": str(RUNBOOK_PATH) if RUNBOOK_PATH.is_file() else None,
+        **(
+            {key: reviewed.discovery[key] for key in ("method", "watch", "watch_fallback_reason") if key in reviewed.discovery}
+            if reviewed is not None else {"method": "guessed"}
+        ),
     }
     judgments = dict(reviewed.judgments) if reviewed is not None and reviewed.judgments else _judgments(root, datasets)
     identity = reviewed.identity if reviewed is not None else _identity(entrypoint, mapping)

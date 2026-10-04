@@ -89,6 +89,20 @@ def test_a_lane_that_creates_documents_itself_folds_its_inner_steps() -> None:
     assert set(steps) == {"keyword_lane"}
     assert steps["keyword_lane"].op_type == "SOURCE"
     assert steps["keyword_lane"].inside == ("trim took 3 returned 2",)
+    assert steps["keyword_lane"].inside_keys == (("app/pipeline.py", "trim"),)
+
+
+def test_every_function_folded_under_a_step_carries_its_path() -> None:
+    calls = [
+        call(4, "drop_empty", 4, 5, parent=3, path="app/clean.py", inputs=(param("rows", "x", "y", "z"),), output=docs("x", "y")),
+        call(3, "trim", 3, 6, parent=2, path="app/trim.py", inputs=(param("candidates", "x", "y", "z"),), output=docs("x")),
+        call(2, "keyword_lane", 2, 7, parent=1, text=("query", "q"), output=docs("x")),
+        call(1, "retrieve", 1, 8, text=("query", "q"), output=docs("x")),
+    ]
+    steps = steps_by_symbol(build_watch_map(payload(calls)))
+    assert set(steps) == {"keyword_lane"}
+    assert steps["keyword_lane"].inside == ("trim took 3 returned 1",)
+    assert steps["keyword_lane"].inside_keys == (("app/clean.py", "drop_empty"), ("app/trim.py", "trim"))
 
 
 def test_bundle_output_names_the_element_the_next_step_used() -> None:

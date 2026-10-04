@@ -1,6 +1,7 @@
 """Build the integration plan from what a watched search actually ran (``--watch``)."""
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Sequence
@@ -41,6 +42,42 @@ def _scenarios(watch: WatchMap) -> tuple[VerificationScenario, ...]:
     if scenarios:
         scenarios.append(replace(scenarios[0], scenario_id="representative-repeat"))
     return tuple(scenarios)
+
+
+def _reader(base: str, slot: str) -> str:
+    """``base`` read at one bundle slot: ``index:0`` → ``[0]``, ``key:x`` → ``["x"]``, ``attr:documents`` → ``.documents``."""
+    kind, _, name = slot.partition(":")
+    return base + {"index": f"[{name}]", "key": f"[{json.dumps(name)}]", "attr": f".{name}"}[kind]
+
+
+def _argument(param: str) -> str:
+    """How a ``CaptureSpec.inputs`` callable reads one watched input: ``hits`` or ``lanes[index:0]``."""
+    name, _, slot = param.partition("[")
+    base = f"bound.arguments[{json.dumps(name)}]"
+    return _reader(base, slot[:-1]) if slot else base
+
+
+def _capture_question(step: WatchedStep) -> str | None:
+    """A ready ``CaptureSpec`` for a step whose documents the default capture cannot read exactly: a
+    bundle return, inputs inside a bundle argument, or several parents in parameters not named after them."""
+    parts: list[str] = []
+    said: list[str] = []
+    if any("[" in param for param, _parent in step.inputs_from) or (
+        len(step.parent_ids) > 1 and any(param != parent for param, parent in step.inputs_from)
+    ):
+        groups = ", ".join(f"{json.dumps(parent)}: {_argument(param)}" for param, parent in step.inputs_from)
+        parts.append(f"inputs=lambda bound: {{{groups}}}")
+        said.append("its parents' documents arrive as " + ", ".join(f"{param} from {parent}" for param, parent in step.inputs_from))
+    if step.output_bundle:
+        parts.append(f"outputs=lambda result: {_reader('result', step.output_bundle)}")
+        said.append(f"it returns a bundle; its documents are {step.output_bundle}")
+    if not parts:
+        return None
+    name = f"{step.op_id}_capture"
+    return (
+        f"operator {step.op_id}: {' and '.join(said)}: add to retobs_adapter.py `{name} = CaptureSpec({', '.join(parts)})`, "
+        f"set the operator's capture to \"retobs_adapter:{name}\", and plan again from the reviewed plan"
+    )
 
 
 def _recreate(plan: IntegrationPlan, **changes: Any) -> IntegrationPlan:
@@ -88,24 +125,28 @@ def build_watched_plan(
     )
     plan = build_integration_plan(root, framework, db_path=db_path, reviewed=reviewed)
     watched = {(step.relative_path, step.symbol) for step in watch.steps}
+    # A name match that ran inside a watched step (it worked on documents that step made) did run.
+    folded_into = {key: step.op_id for step in watch.steps for key in step.inside_keys}
     not_seen = [
-        {"symbol": op.symbol, "relative_path": op.relative_path, "op_type": op.op_type, "confidence": op.confidence, "reason": "not_seen_in_watch"}
-        for op in guessed.operators if (op.relative_path, op.symbol) not in watched
+        {"symbol": op.symbol, "relative_path": op.relative_path, "op_type": op.op_type, "confidence": op.confidence,
+         **({"reason": "folded_into_step", "step": folded_into[key]} if key in folded_into else {"reason": "not_seen_in_watch"})}
+        for op in guessed.operators if (key := (op.relative_path, op.symbol)) not in watched
     ]
-    readers = {"index": "result[{}]", "key": "result[{!r}]", "attr": "result.{}"}
-    for step in watch.steps:
-        if step.output_bundle:
-            name = f"{step.op_id}_capture"
-            kind, _, slot = step.output_bundle.partition(":")
-            expression = readers[kind].format(int(slot) if kind == "index" else slot)
-            questions.append(
-                f"operator {step.op_id} returns a bundle; its documents are {step.output_bundle}: add to retobs_adapter.py "
-                f"`{name} = CaptureSpec(outputs=lambda result: {expression})`, set the operator's capture to "
-                f"\"retobs_adapter:{name}\", and plan again from the reviewed plan"
-            )
+    capture_questions = [question for step in watch.steps if (question := _capture_question(step))]
+    questions.extend(capture_questions)
     questions.extend(f"watched step {item['symbol']} ({item['relative_path']}): {item['reason']}" for item in watch.unmarkable)
+    placeholder = [scenario.scenario_id for scenario in plan.scenarios if scenario.query_text == SCENARIO_QUERY_TEXT]
+    if placeholder:
+        questions.append(
+            f"scenario query_text is the placeholder {SCENARIO_QUERY_TEXT!r} for {', '.join(placeholder)}: the watched entrypoint "
+            "received no query-named argument (query, q, question, text); set each to the question its command searches for"
+        )
+    expected = dict(plan.expected_capabilities)
+    # Until the agent adds those CaptureSpecs, the default capture reads those steps inexactly.
+    if capture_questions and expected.get("actual_input_output_capture") == "ready":
+        expected["actual_input_output_capture"] = "partial"
     discovery = {
         **plan.discovery, "method": "watched", "watch": watch.to_dict(),
         "low_confidence_operators": [*guessed.discovery.get("low_confidence_operators", ()), *not_seen],
     }
-    return _recreate(plan, discovery=discovery, open_questions=(*plan.open_questions, *questions))
+    return _recreate(plan, discovery=discovery, expected_capabilities=expected, open_questions=(*plan.open_questions, *questions))

@@ -42,6 +42,8 @@ class WatchedStep:
     #: Inner steps folded into this one because they worked on documents this function created itself.
     inside: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+    #: ``(relative_path, symbol)`` of every function folded into this step, at any depth.
+    inside_keys: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,7 @@ class _Call:
     folded: bool = False
     wrapper: bool = False
     inside: tuple[str, ...] = ()
+    inside_keys: tuple[tuple[str, str], ...] = ()
     links: list[tuple[str, "_Call", str | None]] = field(default_factory=list)
     unlinked: list[str] = field(default_factory=list)
     used_slots: Counter = field(default_factory=Counter)
@@ -297,6 +300,7 @@ def _analyse_search(entry: _Call, steps: Sequence[_Call], notes: list[str]) -> l
                 if _within(item, call):
                     item.folded = True
             call.inside = tuple(f"{step.symbol} took {step.took} returned {step.returned}" for step in inner)
+            call.inside_keys = tuple(dict.fromkeys(item.key for item in members if _within(item, call)))
         else:
             call.wrapper = True
             last = max(inner, key=lambda item: item.end)
@@ -452,6 +456,7 @@ def build_watch_map(payload: Mapping[str, Any]) -> WatchMap:
             took=last.took, returned=last.returned,
             inside=tuple(dict.fromkeys(item for call in calls for item in call.inside)),
             notes=tuple(step_notes),
+            inside_keys=tuple(dict.fromkeys(key for call in calls for key in call.inside_keys)),
         ))
     if gate_key is not None:
         built.append(WatchedStep(

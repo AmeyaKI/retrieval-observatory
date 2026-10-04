@@ -87,15 +87,16 @@ from reading the code.
 
 ### 2. Review the plan, then re-plan
 
-Review the watched plan before you re-plan: re-planning rebuilds `discovery`, so
-`discovery.method`, `discovery.watch` and the watch's open questions are only in this first plan.
+Review the watched plan before you re-plan: re-planning keeps `discovery.method`,
+`discovery.watch` and the watch's `low_confidence_operators` entries, but not the watch's open
+questions, which are only in this first plan.
 Follow `references/plan-review.md` for the field-by-field checklist. The fields that matter most:
 
 | Field | What to make true |
 |---|---|
 | `operators[].op_type`, `parent_ids` | Exactly the steps that ran, with their data-flow parents. Each operator's `notes` carry the watched counts (`took`, `returned`) and which parameter each parent fed; without a watch, the operators you found reading the code |
 | `discovery.watch` | `steps` with counts and `inside` (inner functions folded into a step because they worked on documents it made itself); `conditional` (steps only some paths ran); `chooser` (the proposed `GATE`: confirm it); `unmarkable` (lambdas and nested functions that cannot carry a decorator); `notes` (for example a `results[:k]` cut made inside the entrypoint) |
-| `open_questions` | Answer each one. A step whose documents are one element of what it returns (a `(kept, dropped, ...)` tuple) comes with a ready `CaptureSpec(outputs=...)` line for `retobs_adapter.py` (see step 2b) |
+| `open_questions` | Answer each one. A step whose documents are one element of what it returns (a `(kept, dropped, ...)` tuple), or whose parents' documents arrive in parameters not named after them, comes with a ready `CaptureSpec(...)` line for `retobs_adapter.py` (see step 2b); a placeholder `query_text` comes with a request for the real question |
 | `operators[].input_mapping`, `output_mapping` | How the actual boundary is read (`query:<param>`, `parameter:<name>`, `positional_lanes:<name>`, `capture`, `unavailable`) |
 | `operators[].capture` | `retobs_adapter:<symbol>` when the default rules cannot read an operator's inputs or outputs (see step 2b) |
 | `boundary` | Where the evaluated output leaves the application |
@@ -103,7 +104,7 @@ Follow `references/plan-review.md` for the field-by-field checklist. The fields 
 | `scenarios[]` | One per route, each with a runnable `command` and `route` for gated paths; keep the `representative-repeat` scenario (alignment needs the same query twice). A watched plan has one per watched command |
 | `judgments` | Paths to queries and qrels `retobs evaluate` accepts (`resolved`); `candidate` means found but a check failed (see `notes`); `unresolved` means missing |
 | `unresolved` | Must be empty before apply; `open_questions` may remain and become limitations |
-| `discovery.low_confidence_operators` | Name matches left out, each with a `reason` (`not_seen_in_watch`, `unreachable_from_entrypoint`, `non_runtime_dir`, `not_operator_shape`); move real operators into `operators` |
+| `discovery.low_confidence_operators` | Name matches left out, each with a `reason` (`not_seen_in_watch`, `folded_into_step` with the watched `step` it ran inside, `unreachable_from_entrypoint`, `non_runtime_dir`, `not_operator_shape`); move real operators into `operators` |
 
 Re-plan from your reviewed file so the patches match the reviewed operators:
 
@@ -249,6 +250,9 @@ final-output-only endpoint, and do not report a scenario as covered when its com
 | Symptom | Cause and action |
 |---|---|
 | verify: `No traces found for service_id=... in <db>` | The entrypoint was not called, or was called with a different `--db`; run a scenario command from the project root |
+| verify: `watched_step_unmarked` | A function the watched search ran changed the documents but is not in the plan: add it (the detail names file and function) and plan again |
+| verify: `declared_step_not_watched` | A planned operator never ran in any watched search: remove it, or add a `--watch` command for the path that runs it |
+| verify: `declared_link_differs_from_watch` | A declared parent is not where the operator's documents came from: set `parent_ids` as the detail says |
 | apply: `stale integration plan: <file>` | The file changed after planning; re-plan |
 | apply: `already applied (manifest present)` | Run verify, or `revert` and re-apply a new plan |
 | apply: `capture retobs_adapter:<symbol>: ... does not define <symbol>` | Define the `CaptureSpec` at module level in root `retobs_adapter.py` |
