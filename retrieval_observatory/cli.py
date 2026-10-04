@@ -568,7 +568,12 @@ _SUMMARY_OPERATORS = 20
 def _plan_summary(plan: dict, project_root: Path, output: Path) -> str:
     """What ``integrate --phase plan --output`` prints; the plan JSON goes to ``output`` unchanged."""
     operators = plan["operators"]
-    lines = [f"Plan written to {output}", f"{len(operators)} operators proposed" + (":" if operators else "")]
+    watch = plan["discovery"].get("watch") or {}
+    how = {
+        "watched": f" (found by watching {watch.get('searches_seen', 0)} real search{'' if watch.get('searches_seen') == 1 else 'es'})",
+        "guessed": " (guessed from function names; plan with --watch \"<command>\" to find them from a real search)",
+    }.get(plan["discovery"].get("method"), "")
+    lines = [f"Plan written to {output}", f"{len(operators)} operators proposed{how}" + (":" if operators else "")]
     lines += [f"  {op['relative_path']}:{op['symbol']} ({op['op_type']})" for op in operators[:_SUMMARY_OPERATORS]]
     if len(operators) > _SUMMARY_OPERATORS:
         lines.append(f"  …and {len(operators) - _SUMMARY_OPERATORS} more")
@@ -583,7 +588,7 @@ def _plan_summary(plan: dict, project_root: Path, output: Path) -> str:
     scenarios = plan["scenarios"]
     lines.append(f"Scenarios: {len(scenarios)} ({', '.join(item['scenario_id'] for item in scenarios)})")
     lines += [f"  {item['scenario_id']}: no command; set it in the plan before verify" for item in scenarios if not item.get("command")]
-    lines.append(f"Open questions: {len(plan['open_questions'])}")
+    lines.append(f"Open questions: {len(plan['open_questions'])}" + (" (answer them before re-planning; see open_questions)" if plan["open_questions"] else ""))
     if plan["unresolved"]:
         lines.append(f"Unresolved: {len(plan['unresolved'])} (apply refuses until they are fixed)")
         lines.append(f"Next: fix unresolved in {output}, then re-plan: retobs integrate {project_root} --phase plan --plan {output} --output {output}")
@@ -601,6 +606,7 @@ def integrate_cmd(
     db: str = typer.Option(".retobs/results.db", "--db", help="Trace database; a relative path resolves against the project root."),
     policy: Optional[Path] = typer.Option(None, "--policy", help="Local release-policy YAML for verify preflight."),
     framework: Optional[str] = typer.Option(None, "--framework", help="Override detection: python, fastapi, langchain, llamaindex, http."),
+    watch: List[str] = typer.Option([], "--watch", help="A command that runs one real search (repeat once per search path); retobs runs it and builds the plan from the functions that actually handled documents."),
 ) -> None:
     """Plan, apply, verify, or revert one canonical project integration."""
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan
@@ -616,7 +622,7 @@ def integrate_cmd(
             integrate_project(
                 project_root,
                 selected,
-                IntegrationOptions(reviewed, db, str(policy) if policy else None, framework),
+                IntegrationOptions(reviewed, db, str(policy) if policy else None, framework, tuple(watch)),
             )
         ).to_dict()
     except (ValueError, OSError) as error:
@@ -926,6 +932,16 @@ def inspect_query_cmd(
     asyncio.run(_inspect_query_contract(run_id, query_id, db_path, format))
 
 
+def _trace_wall_latency_ms(trace: dict) -> float:
+    """Wall clock of a `RetrievalTrace.to_dict()` payload; older payloads carry `total_latency_ms`."""
+    wall = (trace.get("timing") or {}).get("wall_clock_ms")
+    return float(trace.get("total_latency_ms", 0.0) if wall is None else wall)
+
+
+def _fmt_inspect_ms(value: float) -> str:
+    return "<0.1 ms" if value < 0.1 else f"{value:.1f} ms"
+
+
 async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, format: str) -> None:
     from retrieval_observatory.evidence import build_query_evidence
     from retrieval_observatory.store.sqlite import SQLiteStore
@@ -969,7 +985,7 @@ async def _inspect_query_contract(run_id: str, query_id: str, db_path: str, form
             str(trace.get("pipeline_id")),
             str(trace.get("status")),
             str(len(trace.get("spans", []))),
-            f"{float(trace.get('total_latency_ms', 0)):.1f} ms",
+            _fmt_inspect_ms(_trace_wall_latency_ms(trace)),
         )
     console.print(table)
     investigation = evidence["investigation"]
@@ -1167,7 +1183,7 @@ async def _inspect(run_id: str, query_id: str, pipeline_id: Optional[str], db_pa
             hits_at_stage = diag.get("stage_hits", {}).get(str(stage_idx), set())
 
             table = Table(
-                title=f"Stage {stage_idx}: {stage_row['stage_id']} ({stage_row['status']}, {stage_row['latency_ms']:.0f}ms)",
+                title=f"Stage {stage_idx}: {stage_row['stage_id']} ({stage_row['status']}, {_fmt_inspect_ms(stage_row['latency_ms'])})",
                 show_header=True,
             )
             table.add_column("Rank", justify="right", width=5)

@@ -301,11 +301,12 @@ _REGRESSION_QUALITY_METRICS = ("ndcg", "recall", "mrr", "map")
 def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
     """Pick the few numbers that answer "did retrieval work, and what did it cost?".
 
-    Quality is reported at each pipeline's terminal stage — the result the caller actually
-    ships. Selecting on ``stage-1`` instead (as this once did) could never surface recall or
-    ndcg on a multi-stage pipeline: stage -1 carries only run-level operational rows, and
-    quality is recorded per stage because recall is a property of a point in the funnel.
-    Single-stage pipelines emit no stage -1 rows at all, which is why the gap stayed hidden.
+    Quality is reported at each pipeline's final answer — the result the caller actually
+    ships. The metrics engine scores it once per question at stage -1, wherever in the graph
+    that question's answer left the pipeline, so a run whose questions end at different steps
+    (or at unlinked steps that all share stage 0 as branches) still has one final number over
+    every scored question. Runs scored before those rows existed fall back to the terminal
+    spine stage.
 
     One row per metric name (the largest ``k``): three ``recall@k`` rows for one pipeline used
     to fill the whole headline and push ndcg out.
@@ -325,11 +326,15 @@ def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
         candidates = [
             key for key, (pid, _s, name, _k, _b) in parsed.items() if pid == pipeline and name in _QUALITY_METRICS
         ]
-        # Prefer the spine (a stage with one operator) over per-branch rows, which cover only
-        # the queries routed down that branch (a gate-skipped span emits no rows), so their
-        # `n` is the served count and their mean is not comparable to the spine's.
-        spine = [key for key in candidates if parsed[key][4] is None] or candidates
-        final_stage = max(parsed[key][1] for key in spine)
+        final_answer = [key for key in candidates if parsed[key][1] == -1]
+        if final_answer:
+            spine, final_stage = final_answer, -1
+        else:
+            # Prefer the spine (a stage with one operator) over per-branch rows, which cover only
+            # the queries routed down that branch (a gate-skipped span emits no rows), so their
+            # `n` is the served count and their mean is not comparable to the spine's.
+            spine = [key for key in candidates if parsed[key][4] is None] or candidates
+            final_stage = max(parsed[key][1] for key in spine)
         best_by_name: Dict[str, str] = {}
         for key in spine:
             _pid, stage_index, name, k, _branch = parsed[key]
@@ -380,6 +385,13 @@ def build_run_report(
             evidence_reasons.append(f"Dataset {key} is unavailable.")
     if not manifest.get("labeling", {}).get("method"):
         evidence_reasons.append("Label provenance is unavailable.")
+    unreadable = manifest.get("unreadable_operators") or []
+    if unreadable:
+        evidence_reasons.append(
+            f"The output of {', '.join(unreadable)} could not be read as candidates, so "
+            f"{'that step is' if len(unreadable) == 1 else 'those steps are'} not scored: add a CaptureSpec in "
+            "retobs_adapter.py whose `outputs` reads the candidate list from the returned object."
+        )
     if attempted is None or completed is None:
         evidence_reasons.append("Attempted/completed query counts are unavailable.")
     elif completed == 0:

@@ -301,6 +301,13 @@ async def execute_benchmark(
             "labeled": len(labeled_query_ids),
             "metric_eligible": len(completed_query_ids & labeled_query_ids),
         }
+        # Operators whose returned value could not be read as candidates: their steps are not
+        # scored, so the run's evidence is limited until a CaptureSpec reads them.
+        manifest["unreadable_operators"] = sorted({
+            span.operator_id or span.op_id
+            for trace in traces if trace.status == "OK"
+            for span in trace.spans if span.status == "FIRED" and span.output_capture == "unavailable"
+        })
         manifest["judgment_records"] = judgments.to_records()
         manifest["judgment_digest"] = judgments.digest()
         manifest["evaluation"] = evaluation_spec.to_dict()

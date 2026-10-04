@@ -244,6 +244,21 @@ def critical_path_latency_ms(spans: Sequence[OperatorSpan]) -> float:
     return max((duration(op_id) for op_id in by_id), default=0.0)
 
 
+def final_op_ids_of(spans: Sequence[OperatorSpan]) -> tuple[str, ...]:
+    """The final operators of a trace whose returned value names none: the spans no other span
+    names as a parent. Several are all final only when each has declared parents (parallel
+    terminal branches). An unlinked span among them means links are missing, not a branch, so
+    the last span that fired, in execution order, is the one final step. A GATE emits a
+    decision, never the answer."""
+    named = {parent for span in spans for parent in span.parent_ids}
+    terminals = [span for span in spans if span.op_id not in named]
+    answers = [span for span in terminals if span.op_type != "GATE"] or terminals
+    if len(answers) <= 1 or all(span.parent_ids for span in answers):
+        return tuple(span.op_id for span in answers)
+    fired = [span for span in spans if span.status == "FIRED" and span.op_type != "GATE"]
+    return ((fired or answers)[-1].op_id,)
+
+
 @dataclass(frozen=True)
 class TraceTiming:
     wall_clock_ms: float

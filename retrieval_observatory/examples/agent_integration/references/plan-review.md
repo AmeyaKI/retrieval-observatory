@@ -5,6 +5,36 @@ reviewed file (`retobs integrate . --phase plan --plan retobs/integration-plan.j
 retobs/integration-plan.json`) so patches, actions, and `expected_capabilities` are regenerated
 from what you reviewed.
 
+## Watched or guessed
+
+`discovery.method` says where the operators came from:
+
+- `watched`: `retobs integrate . --phase plan --watch "<command>"` ran each command once and
+  proposed the functions that actually handed back documents. Each step's kind comes from what it
+  did to the documents, its `parent_ids` from whose documents it received, the entrypoint from
+  where the search started, and the scenarios from the commands. `discovery.watch` holds what was
+  watched: `commands`, `searches_seen`, `steps` (each with `took`, `returned`, `inside` for inner
+  functions folded into it, and `notes`), `conditional` (steps only some commands ran), `chooser`
+  (the function proposed as the `GATE`), `unmarkable` (lambdas and nested functions that cannot
+  carry a decorator) and `notes` (for example a change the entrypoint made itself, such as a
+  `results[:k]` cut). Each operator's `notes` repeat its watched counts and which parameter each
+  parent fed.
+- `guessed`: the operators are name matches, as described below.
+  `discovery.watch_fallback_reason` says why a watch fell back to guessing.
+
+Re-planning keeps `method`, `watch`, `watch_fallback_reason` and the `not_seen_in_watch` and
+`folded_into_step` entries, but not the watch's open questions: answer those from the first plan.
+A step whose documents are one element of what it returns (a `(kept, dropped, ...)` tuple) comes
+with a ready line for `retobs_adapter.py`, such as
+`screen_capture = CaptureSpec(outputs=lambda result: result[0])`, and the `capture` value to set.
+So does a step whose parents' documents arrive in parameters not named after them, or inside one
+tuple or dict argument, with an `inputs` mapping keyed by parent, such as
+`inputs=lambda bound: {"keyword_search": bound.arguments["keyword_hits"], ...}`. A step that needs
+both gets one `CaptureSpec(inputs=..., outputs=...)`. Until those lines are in place,
+`expected_capabilities.actual_input_output_capture` is `partial`. When the watched entrypoint took
+no query-named argument, the scenarios carry the placeholder query text and an open question asks
+for the real one.
+
 ## Operators
 
 For each entry in `operators`:
@@ -13,8 +43,9 @@ For each entry in `operators`:
   (`bm25`, `dense`, `rrf_fusion`, `recency_filter`, `rerank`). Renaming is fine before apply.
 - `op_type` must reflect the role, not the name: a function called `filter_results` that reorders
   is a `RERANK`; a function that maps chunks to documents is a `TRANSFORM`.
-- `parent_ids` are the operators whose outputs this one receives. Method calls and cross-module
-  calls are not inferred, so fill them in from your reading of the code. A `SOURCE` has no parents.
+- `parent_ids` are the operators whose outputs this one receives. A watched plan takes them from
+  the documents that flowed; a guessed plan infers no method calls or cross-module calls, so fill
+  them in from your reading of the code. A `SOURCE` has no parents.
 - `input_mapping` is what the runtime capture rules will do with the actual arguments:
   - `query:<param>` for a source receiving the query text;
   - `parameters:<a,b>` when the operator's parameters are named exactly like its parents;
@@ -40,7 +71,10 @@ operators the planner missed, especially custom filters and post-processing betw
 retrieval stage and the returned result.
 
 Name matches the planner left out are in `discovery.low_confidence_operators`, each with a
-`reason`: `unreachable_from_entrypoint` (no import path from the entrypoint reaches the file),
+`reason`: `not_seen_in_watch` (a watched plan: the watched searches never ran it),
+`folded_into_step` (a watched plan: it ran inside the watched step named in `step`, on documents
+that step made itself, and is listed in that step's `inside`),
+`unreachable_from_entrypoint` (no import path from the entrypoint reaches the file),
 `non_runtime_dir` (under a bench, eval, report, script, notebook, fixture, example or experiment
 directory), `not_operator_shape` (a predicate, factory or formatter: `is_`/`get_`/`format_`...
 prefixes, scalar or boolean returns, or a gate without a query or candidates); no reason means only

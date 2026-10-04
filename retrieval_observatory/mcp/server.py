@@ -248,10 +248,13 @@ async def _integrate_project(
     plan_path: Optional[str] = None,
     db_path: str = DEFAULT_DB_PATH,
     framework: Optional[str] = None,
+    watch: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Plan, apply, verify, or revert one project integration (phase = plan | apply | verify | revert).
 
     plan: discover operators and the entrypoint; save the result as retobs/integration-plan.json.
+    plan with watch: run each command (one real search per search path) under retobs's watcher and build
+    the plan from the functions that actually handled documents; retobs/watch.json keeps what ran.
     plan with plan/plan_path: re-plan from your reviewed operators/scenarios; patches are regenerated
     (set an operator's capture to "retobs_adapter:<symbol>" to wire a CaptureSpec from retobs_adapter.py).
     apply: pass the reviewed plan (or plan_path); patches files and writes retobs/integration.yaml.
@@ -270,7 +273,7 @@ async def _integrate_project(
         payload = json.loads(Path(plan_path).read_text(encoding="utf-8"))
         plan = payload.get("plan", payload)
     reviewed = IntegrationPlan.from_dict(plan) if plan else None
-    options = IntegrationOptions(reviewed, db_path, framework=framework)
+    options = IntegrationOptions(reviewed, db_path, framework=framework, watch_commands=tuple(watch or ()))
     return (await integrate_project(Path(project_root), IntegrationPhase(phase), options)).to_dict()
 
 

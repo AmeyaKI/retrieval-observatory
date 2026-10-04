@@ -1441,9 +1441,8 @@ def create_app(
             pid = row.get("pipeline_id")
             qid = row.get("query_id")
             current = scored[qid].get(pid)
-            if current is None:
-                scored[qid][pid] = (stage, float(row["value"]))  # type: ignore[assignment]
-            elif stage >= current[0]:
+            # A query's final answer (stage -1) outranks every stage; otherwise the deepest stage.
+            if current is None or current[0] != -1 and (stage == -1 or stage >= current[0]):
                 scored[qid][pid] = (stage, float(row["value"]))  # type: ignore[assignment]
         winners = []
         for qid, values in scored.items():
@@ -1963,21 +1962,25 @@ def create_app(
 
 
 def _headline_winner(metrics: Dict[str, Any]) -> Dict[str, Any] | None:
-    """Pick best final-stage NDCG@10 across pipelines (tie-break Recall@10)."""
-    final_stage_by_pipeline: Dict[str, int] = {}
+    """Pick best final-answer NDCG@10 across pipelines (tie-break Recall@10): stage -1, each
+    query's own final answer, or the terminal spine stage for runs scored before those rows."""
+    final_stage_by_pipeline: Dict[str, int] = {
+        value["pipeline_id"]: -1
+        for value in metrics.values()
+        if value.get("pipeline_id") and value.get("stage_index") == -1 and value.get("metric_name") in {"ndcg", "recall"}
+    }
     for value in metrics.values():
         if value.get("branch_id"):
             continue
         pid = value.get("pipeline_id")
         sidx = value.get("stage_index", -1)
-        if pid and sidx >= 0:
+        if pid and sidx >= 0 and final_stage_by_pipeline.get(pid) != -1:
             final_stage_by_pipeline[pid] = max(final_stage_by_pipeline.get(pid, -1), sidx)
 
     candidates = [
         {"metric": key, **value}
         for key, value in metrics.items()
-        if value.get("stage_index", -1) >= 0
-        and not value.get("branch_id")
+        if not value.get("branch_id")
         and value.get("pipeline_id") in final_stage_by_pipeline
         and value.get("stage_index") == final_stage_by_pipeline[value.get("pipeline_id")]
         and value.get("metric_name") in {"ndcg", "recall"}
@@ -2235,8 +2238,9 @@ def _compute_stage_contributions(
         after_stages = keys_by_pipeline.get(after_id, {})
         if not before_stages or not after_stages:
             continue
-        before_last = max(s for s in before_stages if s >= 0)
-        after_last = max(s for s in after_stages if s >= 0)
+        # A pipeline whose steps are unlinked has no spine stage; its final answer lives at stage -1.
+        before_last = max((s for s in before_stages if s >= 0), default=-1)
+        after_last = max((s for s in after_stages if s >= 0), default=-1)
         deltas, lat_before, lat_after, has_indeterminate = _build_delta(before_id, before_last, None, after_id, after_last, None)
         contributions.append(
             {

@@ -83,21 +83,47 @@ def _item_getter(item: Any) -> Callable[..., Any]:
     return lambda key, default=None: getattr(item, key, default)
 
 
+class UnreadableCandidates(ValueError):
+    """An output item that is not a string and carries no id. A position is never an id, so the
+    whole output is unreadable as candidates rather than partly invented."""
+
+    def __init__(self, index: int, item: Any):
+        what = ", not a candidate" if isinstance(item, (list, tuple)) else " with no id"
+        super().__init__(f"item {index} is a {type(item).__name__}{what}")
+
+    def describe(self, items: Sequence[Any]) -> str:
+        """The capture-failure detail for the returned ``items``: their type, size and first id-less item."""
+        size = f" of {len(items)} items" if hasattr(items, "__len__") else ""
+        return f"returned {type(items).__name__}{size}; {self}"
+
+
+def _has_id(value: Any) -> bool:
+    return value is not None and value != ""
+
+
 def _observed_id(get: Callable[..., Any], metadata: Mapping[str, Any]) -> Any:
     """The stable id an application object carries: dict keys or attributes ``doc_id``/``id``,
-    a LlamaIndex node's ``node_id``/``id_`` (also through ``NodeWithScore.node``), or ``metadata["id"]``."""
+    a LlamaIndex node's ``node_id``/``id_`` (also through ``NodeWithScore.node``), or ``metadata["id"]``.
+    ``None`` and ``""`` are missing; ``0`` is an id. ``None`` when the object carries no id."""
     for key in ("doc_id", "id", "node_id", "id_"):
         value = get(key)
-        if value:
+        if _has_id(value):
             return value
     node = get("node")
     if node is not None:
         node_get = _item_getter(node)
         for key in ("node_id", "id_", "id"):
             value = node_get(key)
-            if value:
+            if _has_id(value):
                 return value
-    return metadata.get("id")
+    value = metadata.get("id")
+    return value if _has_id(value) else None
+
+
+def observed_id(item: Any) -> Any:
+    """The id one returned item carries under the candidate id rule, or ``None``."""
+    get = _item_getter(item)
+    return _observed_id(get, dict(get("metadata", {}) or {}))
 
 
 def _item_fields(item: Any, index: int) -> _CandidateFields:
@@ -106,9 +132,10 @@ def _item_fields(item: Any, index: int) -> _CandidateFields:
     get = _item_getter(item)
     metadata = dict(get("metadata", {}) or {})
     observed_doc_id = _observed_id(get, metadata)
-    doc_id = str(observed_doc_id or index)
+    if observed_doc_id is None:
+        raise UnreadableCandidates(index, item)
     return _CandidateFields(
-        doc_id=doc_id,
+        doc_id=str(observed_doc_id),
         score=float(get("score", 0.0)),
         rank=int(get("rank", index)),
         metadata=metadata,
@@ -120,7 +147,7 @@ def _item_fields(item: Any, index: int) -> _CandidateFields:
         char_start=get("char_start"),
         char_end=get("char_end"),
         parent_candidate_ids=tuple(get("parent_candidate_ids", ()) or ()),
-        identity_evidence=get("identity_evidence") or ("partial" if not observed_doc_id else None),
+        identity_evidence=get("identity_evidence"),
         decision_reason=get("decision_reason"),
         decision_evidence=get("decision_evidence"),
         add_reason=get("add_reason"),

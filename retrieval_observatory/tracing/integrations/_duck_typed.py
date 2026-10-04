@@ -4,8 +4,9 @@ import time
 import uuid
 from typing import Any, Callable, Optional, Sequence
 
-from retrieval_observatory.sdk.observe import _append, current_trace
-from retrieval_observatory.tracing.candidates import build_candidate_transition
+from retrieval_observatory.sdk.observe import _append, _append_failures, current_trace
+from retrieval_observatory.tracing.candidates import UnreadableCandidates, build_candidate_transition
+from retrieval_observatory.tracing.capture import CaptureFailure
 from retrieval_observatory.tracing.model import OperatorSpan, latest_span_of, next_node_id
 from retrieval_observatory.tracing.integrations.operator_registry import ComponentEvent, OperatorRegistry
 
@@ -94,15 +95,18 @@ def wrap_callable(
         node_of = {parent: span.op_id if span is not None else parent for parent, span in parents.items()}
         input_groups = {span.op_id: span.outputs for span in parents.values() if span is not None}
         invocation_ids = tuple(span.invocation_id for span in parents.values() if span is not None)
+        transition, output_capture = None, "unavailable"
         if status == "FIRED":
-            transition = build_candidate_transition(
-                input_groups=input_groups,
-                output_items=documents,
-                op_id=node_id,
-                op_type=op_type,
-            )
-        else:
-            transition = None
+            try:
+                transition = build_candidate_transition(
+                    input_groups=input_groups,
+                    output_items=documents,
+                    op_id=node_id,
+                    op_type=op_type,
+                )
+                output_capture = "recorded"
+            except UnreadableCandidates as exc:  # positions are never ids
+                _append_failures(trace, [CaptureFailure(node_id, None, "outputs", "candidate_ids_missing", exc.describe(documents))])
         span = OperatorSpan(
             op_id=node_id,
             op_type=op_type,  # type: ignore[arg-type]
@@ -119,7 +123,7 @@ def wrap_callable(
             invocation_id=uuid.uuid4().hex,
             operator_id=resolved_op_id,
             input_capture="inferred" if resolved.parent_ids else "not_applicable",
-            output_capture="recorded" if status == "FIRED" else "unavailable",
+            output_capture=output_capture,
             parent_invocation_ids=invocation_ids if len(invocation_ids) == len(parents) and all(invocation_ids) else (),
             parent_linkage="inferred" if resolved.parent_ids else "recorded",
         )

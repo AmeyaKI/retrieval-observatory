@@ -63,7 +63,9 @@ async def test_drop_newest_offer_never_blocks() -> None:
     assert sink.offer(_trace("one")) is True
     started = time.perf_counter()
     assert sink.offer(_trace("two")) is False
-    assert time.perf_counter() - started < 0.01
+    # The exporter hangs forever, so a blocking offer would never return; the bound only has to
+    # tell "returned at once" from "waited", with room for a shared CI runner's scheduling pauses.
+    assert time.perf_counter() - started < 0.5
     assert sink.health().drop_reasons == {"queue_full": 1}
     await sink.shutdown(0)
 

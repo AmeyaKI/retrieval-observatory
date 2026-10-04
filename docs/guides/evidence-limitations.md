@@ -55,7 +55,7 @@ Each operator records how its boundary was captured:
 | input `positional` | Candidates passed positionally, such as `rrf_fusion(*lanes)`; lanes cannot be named. |
 | input `inferred` | Inputs reconstructed from parent spans' outputs, or supplied by a framework callback. Labeled, never shown as recorded. |
 | output `truncated` | Only part of the output was kept (a capture limit). Removals past the cut are `unknown`. |
-| `unavailable` | Nothing was captured, for example a generator or an unsupported return shape. Never recorded as an empty list. |
+| `unavailable` | Nothing was captured, for example a generator, an unsupported return shape, or items that carry no id (`candidate_ids_missing`; a position is never an id). Never recorded as an empty list. |
 
 A partial boundary does not stop investigation. Rows that cross it are marked
 `insufficient_evidence` or carry `capture partial`, their exits are `unknown`, and the rest of

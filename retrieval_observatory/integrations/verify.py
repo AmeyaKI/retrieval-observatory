@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -591,7 +592,67 @@ def _return_transition_failures(trace: RetrievalTrace) -> List[Dict[str, Any]]:
     return failures
 
 
-def _topology_observed(manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], no_traces: str) -> Dict[str, Any]:
+def _watch_failures(manifest: IntegrationManifest, project_root) -> List[Dict[str, Any]]:
+    """Compare the applied operators with the search ``--watch`` saw (``retobs/watch.json``).
+
+    Nothing is reported unless that file is about this pipeline: it holds at least one step, and at
+    least one declared operator ran as a watched step or folded inside one. An empty, unreadable or
+    unrelated file is not evidence about this plan.
+    """
+    from retrieval_observatory.integrations.watch import WATCH_FILE
+    from retrieval_observatory.integrations.watch_map import build_watch_map
+
+    if project_root is None:
+        return []
+    try:
+        watch = build_watch_map(json.loads((Path(project_root) / WATCH_FILE).read_text(encoding="utf-8")))
+    except Exception:
+        return []
+    declared = {(op.relative_path, op.symbol): op for op in manifest.operators}
+    watched = {(step.relative_path, step.symbol): step for step in watch.steps}
+    ran = {*watched, *(key for step in watch.steps for key in step.inside_keys)}
+    if not ran & set(declared):
+        return []
+    declared_id = {key: op.op_id for key, op in declared.items()}
+    watched_key = {step.op_id: key for key, step in watched.items()}
+    failures: List[Dict[str, Any]] = []
+    for key, step in watched.items():
+        # A GATE hands on a route, not documents; the proposed chooser is the agent's to confirm or drop.
+        if key not in declared and step.op_type != "GATE":
+            failures.append(_failure(
+                "watched_step_unmarked",
+                f"{step.symbol} ({step.relative_path}) handled the documents in the watched search "
+                f"(took {step.took}, returned {step.returned}) but is not in the plan",
+                f"add {step.symbol} in {step.relative_path} to the plan's operators and plan again", step.op_id,
+            ))
+    for key, op in declared.items():
+        if key not in ran:
+            failures.append(_failure(
+                "declared_step_not_watched",
+                f"{op.op_id} ({op.symbol} in {op.relative_path}) never ran in the watched searches",
+                "remove it from the plan, or add a --watch command for the search path that runs it", op.op_id,
+            ))
+    for key, op in declared.items():
+        step = watched.get(key)
+        if step is None:
+            continue
+        expected = sorted(
+            declared_id.get(watched_key[parent], f"{watched[watched_key[parent]].symbol} (not in the plan)")
+            for parent in step.parent_ids if parent in watched_key
+        )
+        if sorted(op.parent_ids) != expected:
+            failures.append(_failure(
+                "declared_link_differs_from_watch",
+                f"{op.op_id} declares parents {sorted(op.parent_ids)} but in the watched search it received documents from {expected}",
+                f"make {op.op_id}'s parents match the watched search ({expected}), adding any step marked 'not in the plan' first, then plan again",
+                op.op_id,
+            ))
+    return failures
+
+
+def _topology_observed(
+    manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], no_traces: str, project_root=None
+) -> Dict[str, Any]:
     declared = sorted({op.op_id for op in manifest.operators})
     observed = sorted({_operator_id(span) for trace in traces for span in trace.spans if not _is_return_boundary(span)})
     undeclared = sorted(set(observed) - set(declared))
@@ -609,12 +670,14 @@ def _topology_observed(manifest: IntegrationManifest, traces: Sequence[Retrieval
             "undeclared_operator_observed", f"operator {op_id!r} fired but the manifest does not declare it",
             f"add {op_id!r} to the plan's operators, or remove its @observe decorator if it is not part of this pipeline", op_id,
         ))
+    watch_failures = _watch_failures(manifest, project_root)
+    failures.extend(watch_failures)
     if not traces:
         failures.append(_failure("no_traces", no_traces, "run one declared scenario, then verify again"))
         status = "unavailable"
     elif valid == 0:
         status = "unavailable"
-    elif valid < len(traces) or undeclared or transitions:
+    elif valid < len(traces) or undeclared or transitions or watch_failures:
         status = "partial"
     else:
         status = "ready"
@@ -631,24 +694,26 @@ def _topology_observed(manifest: IntegrationManifest, traces: Sequence[Retrieval
 
 def _actual_input_output_capture(traces: Sequence[RetrievalTrace]) -> Dict[str, Any]:
     spans = [span for trace in traces for span in trace.spans if span.status == "FIRED" and not _is_return_boundary(span)]
-    output_codes: Dict[str, set[str]] = {}
+    # First recorded detail per failure code: the returned shape is what tells the reader the fix.
+    output_codes: Dict[str, Dict[str, str]] = {}
     for trace in traces:
         for failure in trace.capture_failures:
             if failure.get("phase") == "outputs":
-                output_codes.setdefault(str(failure.get("op_id")), set()).add(str(failure.get("code")))
+                output_codes.setdefault(str(failure.get("op_id")), {}).setdefault(str(failure.get("code")), str(failure.get("detail")))
 
     def complete(span: OperatorSpan) -> bool:
         return span.input_capture in _COMPLETE_INPUT_CAPTURE and span.output_capture == "recorded"
 
     by_operator: Dict[str, Dict[str, int]] = {}
-    codes_by_operator: Dict[str, set[str]] = {}
+    codes_by_operator: Dict[str, Dict[str, str]] = {}
     for span in spans:
         operator = _operator_id(span)
         row = by_operator.setdefault(operator, {"recorded": 0, "positional": 0, "inferred": 0, "unavailable": 0, "output_unavailable": 0})
         row["recorded" if span.input_capture in _COMPLETE_INPUT_CAPTURE else span.input_capture] += 1
         if span.output_capture != "recorded":
             row["output_unavailable"] += 1
-            codes_by_operator.setdefault(operator, set()).update(output_codes.get(span.op_id, ()))
+            for code, detail in output_codes.get(span.op_id, {}).items():
+                codes_by_operator.setdefault(operator, {}).setdefault(code, detail)
     failures: List[Dict[str, Any]] = []
     for operator, row in sorted(by_operator.items()):
         invocations = sum(row[key] for key in ("recorded", "positional", "inferred", "unavailable"))
@@ -665,13 +730,13 @@ def _actual_input_output_capture(traces: Sequence[RetrievalTrace]) -> Dict[str, 
                 _CAPTURE_SPEC_FIX.format(op=operator), operator,
             ))
         if row["output_unavailable"]:
-            codes = sorted(codes_by_operator.get(operator, ()))
+            codes = sorted(codes_by_operator.get(operator, {}).items())
             failures.append(_failure(
                 "output_capture_unavailable",
                 f"{row['output_unavailable']} of {invocations} invocations of {operator} have no recorded outputs"
-                + (f" ({', '.join(codes)})" if codes else ""),
+                + (f" ({'; '.join(f'{code}: {detail}' for code, detail in codes)})" if codes else ""),
                 f"return a sequence of candidates or a mapping with a `documents` key from {operator}, or define a CaptureSpec "
-                f"`{operator}_capture` in retobs_adapter.py whose `outputs` maps the returned object to candidates",
+                f"`{operator}_capture` in retobs_adapter.py whose `outputs` reads the candidate list from the returned object",
                 operator,
             ))
     completed = sum(1 for span in spans if complete(span))
@@ -977,7 +1042,7 @@ def verify_observed_traces(
         "(its trace_scope decorator records the trace), and that verify uses the same --db."
     )
     builders = {
-        "topology_observed": lambda: _topology_observed(manifest, traces, no_traces),
+        "topology_observed": lambda: _topology_observed(manifest, traces, no_traces, project_root),
         "actual_input_output_capture": lambda: _actual_input_output_capture(traces),
         "candidate_identity": lambda: _candidate_identity(traces),
         "query_identity": lambda: _query_identity(traces),

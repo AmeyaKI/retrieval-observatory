@@ -398,10 +398,11 @@ def rank_metric_keys(keys: Iterable[str], *, policy_metrics: Iterable[str] = ())
     (dropout_count, failure_rate, timeout_rate, latency) while the terminal-stage quality
     that actually answers "did this get worse?" sorts last, behind a hundred other rows.
 
-    Tiers: policy-guarded metrics, then terminal-stage quality, then the rest of the quality
-    funnel (spine before per-branch rows: a gate-skipped span emits no rows, so per-branch
-    rows cover only the queries routed down that branch and their `n` is the served count,
-    not the run's), then operational.
+    Tiers: policy-guarded metrics, then final-answer quality (stage -1, each query's own final
+    answer; the terminal spine stage for runs scored before those rows existed), then the rest
+    of the quality funnel (spine before per-branch rows: a gate-skipped span emits no rows, so
+    per-branch rows cover only the queries routed down that branch and their `n` is the served
+    count, not the run's), then operational.
     """
     guarded = set(policy_metrics)
     parsed: Dict[str, MetricKey] = {}
@@ -416,7 +417,7 @@ def rank_metric_keys(keys: Iterable[str], *, policy_metrics: Iterable[str] = ())
         stage for _p, stage, name, _k, branch in parsed.values()
         if name in QUALITY_METRIC_ORDER and branch is None
     ]
-    final_stage = max(quality_stages, default=None)
+    final_stage = -1 if -1 in quality_stages else max(quality_stages, default=None)
 
     def rank(key: str) -> tuple:
         _pipeline, stage_index, metric_name, k, branch_id = parsed[key]

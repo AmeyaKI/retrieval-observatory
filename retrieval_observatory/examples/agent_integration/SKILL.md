@@ -33,8 +33,8 @@ The one-sentence request this runbook serves:
   loss debugging; report it that way.
 - **Footprint.** Never create a `retobs` package or directory of Python modules inside the project
   (it would shadow the installed library). Project files retobs uses are `retobs/integration-plan.json`,
-  `retobs/integration.yaml`, `.retobs/results.db`, and, only when custom extraction is needed, one
-  root-level `retobs_adapter.py`.
+  `retobs/integration.yaml`, `retobs/watch.json` (not committed), `.retobs/results.db`, and, only when
+  custom extraction is needed, one root-level `retobs_adapter.py`.
 
 ## Workflow
 
@@ -49,49 +49,62 @@ retobs --help
 
 Check: `retobs integrate --help` prints the phases `plan | apply | verify | revert`.
 
-### 1. Discover: read the code before planning
+### 1. Plan from one watched search per search path
 
-Find and write down, with file path and qualified symbol:
+retobs builds the map from what actually runs. You give it one command per search path; it runs
+each command once under an observe-only watcher and proposes the functions that handled documents,
+each one's kind from what it did to them (`SOURCE`, `FUSE`, `FILTER`, `RERANK`, `TRANSFORM`), the
+links from which documents flowed where, the entrypoint, and the scenario commands.
 
-- The **entrypoint**: the function or route a query enters (`retrieve(query)`, `Searcher.search`,
-  `@app.post("/search")`). Note whether it is sync or async and what it returns.
-- Each **operator** the query passes through, with its type: `SOURCE` (first retrieval from an
-  index), `FUSE` (merges lanes), `FILTER`, `RERANK`, `GATE` (chooses a route), `EXPAND`,
-  `TRANSFORM` (changes candidate identity, e.g. chunk to document). Include custom filters and
-  post-processing that change the candidate list; an operator you omit is invisible to verify
-  except as an unexplained change at the next boundary.
-- **Candidate identity**: which field is the stable document or chunk id (`id`, `doc_id`,
-  `metadata["id"]`, `node.node_id`), whether it is a document or a chunk, and any namespace or
-  corpus revision.
-- **Query identity**: whether the entrypoint receives a `query_id` or only text.
-- **Conditional routes**: which inputs make a gate skip a lane. Each route is a scenario.
-- **Labels**: where queries, qrels, and the corpus live (JSON/JSONL), if anywhere.
+1. **Write one command per search path** that runs one real search with the project's normal
+   settings and exits. A search path is a route a router or gate can take: a keyword-only path
+   and a hybrid path are two commands. The shape:
+   `python -c "from app.search import Searcher; Searcher().search('a real question')"`, with a
+   real question from the project's queries when it has them. Commands run from the project root.
+   They must start Python without `-I`, `-S` or `-E` and must not replace `PYTHONPATH` (the
+   watcher is added there). For a server, call the function its search route calls instead.
+2. **Plan from the watch:**
 
-Check: you can name the input and output of every operator without running the code.
+   ```bash
+   retobs integrate . --phase plan --watch "<command>" [--watch "<command 2>" ...] --output retobs/integration-plan.json
+   ```
 
-### 2. Plan, then review the plan
+3. **Check that `discovery.method` is `watched`.** `guessed` means no command ran a search that
+   handed back documents. `discovery.watch_fallback_reason` says so, and the `watch:` open
+   questions give each command's exit code and stderr tail. Fix the command and plan again.
 
-```bash
-retobs integrate . --phase plan --output retobs/integration-plan.json
-```
+`retobs/watch.json` is a local record of the watched search. It holds hashed document ids,
+function names and at most the search's question text, and should not be committed.
 
-The planner is a proposal aid: it finds operators by name and infers parents from plain-name
-calls in the same file. It does not follow method calls or cross-module wiring, so a class-based
-or multi-module pipeline usually comes back with missing `parent_ids` and an honest
-`open_questions` list. Read the plan and fix it; that review is the part only you can do. Follow
-`references/plan-review.md` for the field-by-field checklist. The fields that matter most:
+When no search can run here (it needs a service you are not authorized to call, or data that is
+not present), read the code instead. Write down the entrypoint, each function that changes the
+candidate list with its kind (also `GATE`, which chooses a route, and `EXPAND`), and each route a
+gate can take. Then plan without `--watch`. The planner then guesses steps from function names and
+links them only through plain-name calls within one file, so expect to correct most of it.
+
+Check: `discovery.method` is `watched`, or you can name the input and output of every operator
+from reading the code.
+
+### 2. Review the plan, then re-plan
+
+Review the watched plan before you re-plan: re-planning keeps `discovery.method`,
+`discovery.watch` and the watch's `low_confidence_operators` entries, but not the watch's open
+questions, which are only in this first plan.
+Follow `references/plan-review.md` for the field-by-field checklist. The fields that matter most:
 
 | Field | What to make true |
 |---|---|
-| `operators[].op_type`, `parent_ids` | Exactly the operators from step 1, with their real data-flow parents |
+| `operators[].op_type`, `parent_ids` | Exactly the steps that ran, with their data-flow parents. Each operator's `notes` carry the watched counts (`took`, `returned`) and which parameter each parent fed; without a watch, the operators you found reading the code |
+| `discovery.watch` | `steps` with counts and `inside` (inner functions folded into a step because they worked on documents it made itself); `conditional` (steps only some paths ran); `chooser` (the proposed `GATE`: confirm it); `unmarkable` (lambdas and nested functions that cannot carry a decorator); `notes` (for example a `results[:k]` cut made inside the entrypoint) |
+| `open_questions` | Answer each one. A step whose documents are one element of what it returns (a `(kept, dropped, ...)` tuple), or whose parents' documents arrive in parameters not named after them, comes with a ready `CaptureSpec(...)` line for `retobs_adapter.py` (see step 2b); a placeholder `query_text` comes with a request for the real question |
 | `operators[].input_mapping`, `output_mapping` | How the actual boundary is read (`query:<param>`, `parameter:<name>`, `positional_lanes:<name>`, `capture`, `unavailable`) |
 | `operators[].capture` | `retobs_adapter:<symbol>` when the default rules cannot read an operator's inputs or outputs (see step 2b) |
 | `boundary` | Where the evaluated output leaves the application |
 | `identity` | Candidate id field, unit, namespace, query id source |
-| `scenarios[]` | One per route, each with a runnable `command` and `route` for gated paths; keep the `representative-repeat` scenario (alignment needs the same query twice) |
+| `scenarios[]` | One per route, each with a runnable `command` and `route` for gated paths; keep the `representative-repeat` scenario (alignment needs the same query twice). A watched plan has one per watched command |
 | `judgments` | Paths to queries and qrels `retobs evaluate` accepts (`resolved`); `candidate` means found but a check failed (see `notes`); `unresolved` means missing |
 | `unresolved` | Must be empty before apply; `open_questions` may remain and become limitations |
-| `discovery.low_confidence_operators` | Name matches left out, each with a `reason` (`unreachable_from_entrypoint`, `non_runtime_dir`, `not_operator_shape`); move real operators into `operators` |
+| `discovery.low_confidence_operators` | Name matches left out, each with a `reason` (`not_seen_in_watch`, `folded_into_step` with the watched `step` it ran inside, `unreachable_from_entrypoint`, `non_runtime_dir`, `not_operator_shape`); move real operators into `operators` |
 
 Re-plan from your reviewed file so the patches match the reviewed operators:
 
@@ -208,9 +221,9 @@ the MCP tools `inspect_query` and `inspect_document`.
 ## MCP route
 
 The same service behind the CLI is available as MCP tools once the server is registered
-(`retobs mcp`): `integrate_project(project_root, phase, plan_path=..., db_path=...)` for
-`plan | apply | verify | revert` (pass `plan_path` to the plan phase to re-plan from a reviewed
-file), `evaluate_file` / `evaluate` for the labeled evaluation, `verify_integration` for
+(`retobs mcp`): `integrate_project(project_root, phase, plan_path=..., db_path=..., watch=[...])` for
+`plan | apply | verify | revert` (pass `watch` to the plan phase to plan from watched commands, or
+`plan_path` to re-plan from a reviewed file), `evaluate_file` / `evaluate` for the labeled evaluation, `verify_integration` for
 run-based checks, `inspect_query` and `inspect_document` for investigations. MCP is a transport:
 it grants no filesystem access of its own and does not replace source instrumentation. Edit the
 plan and `retobs_adapter.py` with your own tools; the plan phase result's `discovery.runbook`
@@ -237,6 +250,9 @@ final-output-only endpoint, and do not report a scenario as covered when its com
 | Symptom | Cause and action |
 |---|---|
 | verify: `No traces found for service_id=... in <db>` | The entrypoint was not called, or was called with a different `--db`; run a scenario command from the project root |
+| verify: `watched_step_unmarked` | A function the watched search ran changed the documents but is not in the plan: add it (the detail names file and function) and plan again |
+| verify: `declared_step_not_watched` | A planned operator never ran in any watched search: remove it, or add a `--watch` command for the path that runs it |
+| verify: `declared_link_differs_from_watch` | A declared parent is not where the operator's documents came from: set `parent_ids` as the detail says |
 | apply: `stale integration plan: <file>` | The file changed after planning; re-plan |
 | apply: `already applied (manifest present)` | Run verify, or `revert` and re-apply a new plan |
 | apply: `capture retobs_adapter:<symbol>: ... does not define <symbol>` | Define the `CaptureSpec` at module level in root `retobs_adapter.py` |
@@ -244,4 +260,5 @@ final-output-only endpoint, and do not report a scenario as covered when its com
 | trace: `capture_reference_unresolved` | `@observe` found no `retobs_adapter.py` above the module, or it does not define that `CaptureSpec`; default capture was used instead. Define the spec at module level in root `retobs_adapter.py` |
 | runtime: `ModuleNotFoundError: retobs_adapter` | Code applied by an older retobs imports the adapter; revert and re-apply with this version, which references it as a string |
 | `output_capture_unavailable` with `iterator_output_not_captured` | The operator returns a generator; wrap it in a list inside a `CaptureSpec.outputs` mapping or return a list |
+| `output_capture_unavailable` with `candidate_ids_missing` | The operator returns items with no id (for example a `(kept, dropped, ...)` tuple); add a `CaptureSpec` in `retobs_adapter.py` whose `outputs` reads the candidate list from the return value (`lambda result: result[0]`) |
 | `final_output_shape_unsupported` | The entrypoint returns an object retobs cannot read; return a sequence or a mapping with a `documents` key, or set `boundary` to the last operator's output |
