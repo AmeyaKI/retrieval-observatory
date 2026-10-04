@@ -301,6 +301,10 @@ def indexed_search(query):
     return lexical(query)
 
 
+def chunk(text):
+    return [hit("c1"), hit("c2")]
+
+
 def held(items):
     FRAMES.append(sys._getframe())
     for item in items:
@@ -664,3 +668,19 @@ def test_finished_generators_can_be_dropped_on_the_profile_path(project, extra, 
     record = watched(root, tmp_path / "out", run, force_profile=True)
     assert record["truncated"] is False
     assert {"retrieve", "lexical", "screen"} <= set(by_symbol(record))
+
+
+def test_a_function_called_once_per_document_keeps_no_text(project, extra, tmp_path) -> None:
+    root, module = project
+
+    def run() -> None:
+        for number in range(25):
+            extra.chunk(f"Document {number} says vitamin D helps bones")
+        module.retrieve("secret question")
+
+    record = watched(root, tmp_path / "out", run)
+    text = json.dumps(record)
+    assert "vitamin" not in text and "Document" not in text
+    chunks = [call for call in record["calls"] if call["symbol"] == "chunk"]
+    assert len(chunks) == 25 and all(call["inputs"] == [] for call in chunks)
+    assert by_symbol(record)["retrieve"]["inputs"] == [{"param": "query", "text": "secret question"}]

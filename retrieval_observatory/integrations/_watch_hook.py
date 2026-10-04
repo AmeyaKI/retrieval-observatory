@@ -4,8 +4,10 @@ Started by the ``sitecustomize.py`` that ``integrations.watch`` puts on ``PYTHON
 which of the project's own functions handled lists of documents during one command: who called
 whom, in what order, which ids went in and out. It is observe-only. It never mutates an argument,
 never iterates a generator or iterator, and never raises into the application. It records no
-document text: ids are short sha256 digests, and the only argument values kept are the question
-where the search starts (a query-named string) and short identifier-like scalars.
+document text: ids are short sha256 digests, and the only argument values kept are short
+identifier-like scalars and the search's question. watch.json can hold that question text (a
+query-named string, up to 200 characters) only where the search starts, and for at most 20 calls
+per function: a search runs a handful of times per command, a per-document function once per document.
 
 Standard library only, so the watched process never imports the ``retrieval_observatory`` package:
 the launcher loads this file by path. The id rule, the excluded-directory rule and the query
@@ -15,6 +17,7 @@ and ``sdk.observe._QUERY_PARAMETERS``; a unit test keeps them identical.
 from __future__ import annotations
 
 import atexit
+import collections
 import collections.abc
 import dis
 import functools
@@ -39,6 +42,7 @@ MAX_RECORDED_CALLS = 200_000
 MAX_SCALAR_CHILDREN = 20
 MAX_BUNDLE_ELEMENTS = 50
 MAX_NOTES = 20
+MAX_QUESTION_CALLS = 20
 _SCALAR = re.compile(r"[A-Za-z0-9_.-]{1,32}")
 #: A string in a strings-only list counts as an id only when it looks like one: passages never do.
 _ID_LIKE = re.compile(r"\S{1,200}")
@@ -446,13 +450,20 @@ class _Watcher:
         if self.dropped:
             self.notes.append(f"kept the last {MAX_STEP_CALLS} document-handling calls; {self.dropped} earlier ones were dropped")
         by_id = {record["id"]: record for record in kept}
+        # The question is kept only where the search starts: the outermost call that returned documents,
+        # in a function that ran at most MAX_QUESTION_CALLS times that way. Every other query-named argument
+        # (a tokenizer's or a per-document chunker's text, say) is dropped.
+        starts = []
         for record in kept:
-            # The question is kept only where the search starts: the outermost call that returned documents.
-            # Every other query-named argument (a tokenizer's per-document text, say) is dropped.
             parent = by_id.get(record["parent"])
             while parent is not None and not _returns_objects(parent):
                 parent = by_id.get(parent["parent"])
-            if parent is not None or not _returns_objects(record):
+            if parent is None and _returns_objects(record) and any("text" in item for item in record["inputs"]):
+                starts.append(record)
+        runs = collections.Counter((record["path"], record["symbol"]) for record in starts)
+        asked = {id(record) for record in starts if runs[(record["path"], record["symbol"])] <= MAX_QUESTION_CALLS}
+        for record in kept:
+            if id(record) not in asked:
                 record["inputs"] = [item for item in record["inputs"] if "text" not in item]
         calls = [
             {key: value for key, value in record.items() if not key.startswith("_")}
