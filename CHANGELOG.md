@@ -7,6 +7,18 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.7.0] — 2026-09-24
+
+Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip install retrieval-observatory==0.7.0rc3`); rc2 hardens setup on messy repositories and makes every inspection surface give one answer; rc3 builds the integration plan from a watched real search (`--watch`), never invents document ids, and gives every surface the same final answer; the final date is set when `v0.7.0` is tagged. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
+
+### Added
 - `retobs integrate . --phase plan --watch "<command>"` (repeatable; MCP `integrate_project(watch=[...])`) builds the integration plan from what a real search ran instead of from function names. retobs runs each command from the project root and watches the project's own functions in every Python process it starts, through `integrations/watch.py` and the stdlib-only `integrations/_watch_hook.py` (`sys.monitoring` on 3.12+, `setprofile` on 3.10/3.11). It then proposes exactly the functions that handled documents (`integrations/watch_map.py`, `integrations/watch_plan.py`):
   - **typed by behaviour:** SOURCE, FUSE, FILTER, RERANK or TRANSFORM, with a chooser proposed as GATE;
   - **linked by data flow:** each step's parents are the steps whose documents it received;
@@ -18,32 +30,6 @@ All notable changes to retrieval-observatory are documented here. Versions marke
   - `watched_step_unmarked`: a function that handled documents is not in the plan;
   - `declared_step_not_watched`: a planned operator never ran;
   - `declared_link_differs_from_watch`: a declared parent differs from where the documents came from.
-
-### Changed
-- `integrations/planner.py`:
-  - a plain `--phase plan` labels its discovery `method: "guessed"`;
-  - re-planning from a reviewed plan keeps the watch evidence (`method`, `watch`, `not_seen_in_watch`, `folded_into_step`);
-  - an async entrypoint gets a `benchmark_setup` command.
-- The agent runbook (`examples/agent_integration/SKILL.md`, `references/plan-review.md`) and `docs/integrations/AGENT_QUICKSTART.md` lead with `--watch`; reading the code is the fallback when no search can be run.
-- `tracing/candidates.py` — a position is never a document id: an output item that is not a string and carries no `doc_id`/`id`/`node_id`/`id_`/`metadata["id"]` makes the whole output unreadable (`output_capture="unavailable"` plus a `candidate_ids_missing` capture failure naming the returned shape, e.g. `returned tuple of 4 items; item 1 is a list, not a candidate`) instead of being recorded under invented ids `1..n`. Applies to `@observe`, `trace_scope`, auto-instrumentation and the framework callbacks; `None` and `""` are missing, `0` is an id. Steps with an unreadable output emit no quality metric rows.
-- `sdk/wrappers.py` — `retobs evaluate` reads a callable's results with the same id rule (ids, `(id, score)` pairs, dicts with `id` or `doc_id` — `id` first, as before —, objects with an id attribute) and fails the query with a message naming the item type instead of scoring `repr` strings.
-
-### Fixed
-- `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.
-- `metrics/engine.py`, `sdk/report.py` — each question's final answer is also scored at stage -1 (`<pipeline>|stage-1|recall@10`, …). The run summary (`retobs evaluate`, `retobs report`, the dashboard overview and winners, MCP) reads those rows, so the headline is the mean over every scored question of its own final answer. That holds when steps are unlinked and when only some questions pass through a post-filter; before, the headline could come from an arbitrary step. `compare` ranks these rows first, release `final_retrieval` resolves to them, and v2 guards on them convert to `final_retrieval`.
-- `sdk/report.py`, `runner/execute.py` — a run with an unreadable step reports evidence health `limited`, naming the step and the CaptureSpec to add (manifest `unreadable_operators`).
-- `dashboard/api.py` — cross-pipeline stage contributions no longer fail with `max() iterable argument is empty` when a pipeline's steps are unlinked; they compare the pipelines' final answers.
-- `dashboard/ui` `fmtLatencyMs` and the deprecated `retobs inspect` — sub-millisecond latencies print as `<0.1` or one decimal instead of `0 ms`.
-- `integrations/verify.py` — `output_capture_unavailable` shows the failure code and detail and names the `retobs_adapter.py` CaptureSpec to write.
-- `cli.py` — `inspect-query` shows each trace's recorded wall-clock time (it read a key the trace payload never carries and always printed `0.0 ms`); values under 0.1 ms print as `<0.1 ms`.
-
-### Removed
-
-## [0.7.0] — 2026-09-24
-
-Published first as the pre-releases `0.7.0rc1` and `0.7.0rc2` (`pip install retrieval-observatory==0.7.0rc2`); rc2 hardens setup on messy repositories and makes every inspection surface give one answer; the final date is set when `v0.7.0` is tagged. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
-
-### Added
 - `scripts/smoke_wheel.py` — `adapter_capture_outside_root` check: an installed wheel resolves a root `retobs_adapter.py` from a subpackage run outside the project root.
 
 - `integrations/model.py` — integration plan schema v2: per-operator `input_mapping` / `output_mapping` / `capture` (`retobs_adapter:<symbol>`) / `invocation`, scenario `command` and `route`, `boundary` (`FinalBoundary`), `identity` (`IdentityChoice`), `judgments`, `expected_capabilities` over the eight `CAPABILITY_NAMES`, `actions` (`install | source_edit | benchmark_setup | scenario_execution`, only source edits performed by apply), and non-blocking `open_questions`; `IntegrationPhase.REVERT`.
@@ -114,6 +100,13 @@ Published first as the pre-releases `0.7.0rc1` and `0.7.0rc2` (`pip install retr
 - `tests/fixtures/integration_projects.py` — three representative target projects (plain Python, FastAPI with a class-method retriever and reranker, LangChain `BaseRetriever`) exercised end to end by `tests/integration/test_integration_projects.py`.
 
 ### Changed
+- `integrations/planner.py`:
+  - a plain `--phase plan` labels its discovery `method: "guessed"`;
+  - re-planning from a reviewed plan keeps the watch evidence (`method`, `watch`, `not_seen_in_watch`, `folded_into_step`);
+  - an async entrypoint gets a `benchmark_setup` command.
+- The agent runbook (`examples/agent_integration/SKILL.md`, `references/plan-review.md`) and `docs/integrations/AGENT_QUICKSTART.md` lead with `--watch`; reading the code is the fallback when no search can be run.
+- `tracing/candidates.py` — a position is never a document id: an output item that is not a string and carries no `doc_id`/`id`/`node_id`/`id_`/`metadata["id"]` makes the whole output unreadable (`output_capture="unavailable"` plus a `candidate_ids_missing` capture failure naming the returned shape, e.g. `returned tuple of 4 items; item 1 is a list, not a candidate`) instead of being recorded under invented ids `1..n`. Applies to `@observe`, `trace_scope`, auto-instrumentation and the framework callbacks; `None` and `""` are missing, `0` is an id. Steps with an unreadable output emit no quality metric rows.
+- `sdk/wrappers.py` — `retobs evaluate` reads a callable's results with the same id rule (ids, `(id, score)` pairs, dicts with `id` or `doc_id` — `id` first, as before —, objects with an id attribute) and fails the query with a message naming the item type instead of scoring `repr` strings.
 - `integrations/planner.py` — `benchmark_setup` emits `module:callable` for an entrypoint inside a package, prefixed with `PYTHONPATH=<import root>` when that root is not the project root; loose modules keep `file.py:callable`.
 - `datasets/records.py` — new home of `read_json_records` / `evaluate_inputs` (previously private in `cli.py`), shared by `retobs evaluate` and the planner.
 - `cli.py` — the plan summary's judgment-files line states the judgments status (resolved / candidate / unresolved / none found).
@@ -207,6 +200,13 @@ Published first as the pre-releases `0.7.0rc1` and `0.7.0rc2` (`pip install retr
 - `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
+- `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.
+- `metrics/engine.py`, `sdk/report.py` — each question's final answer is also scored at stage -1 (`<pipeline>|stage-1|recall@10`, …). The run summary (`retobs evaluate`, `retobs report`, the dashboard overview and winners, MCP) reads those rows, so the headline is the mean over every scored question of its own final answer. That holds when steps are unlinked and when only some questions pass through a post-filter; before, the headline could come from an arbitrary step. `compare` ranks these rows first, release `final_retrieval` resolves to them, and v2 guards on them convert to `final_retrieval`.
+- `sdk/report.py`, `runner/execute.py` — a run with an unreadable step reports evidence health `limited`, naming the step and the CaptureSpec to add (manifest `unreadable_operators`).
+- `dashboard/api.py` — cross-pipeline stage contributions no longer fail with `max() iterable argument is empty` when a pipeline's steps are unlinked; they compare the pipelines' final answers.
+- `dashboard/ui` `fmtLatencyMs` and the deprecated `retobs inspect` — sub-millisecond latencies print as `<0.1` or one decimal instead of `0 ms`.
+- `integrations/verify.py` — `output_capture_unavailable` shows the failure code and detail and names the `retobs_adapter.py` CaptureSpec to write.
+- `cli.py` — `inspect-query` shows each trace's recorded wall-clock time (it read a key the trace payload never carries and always printed `0.0 ms`); values under 0.1 ms print as `<0.1 ms`.
 - `integrations/planner.py` — namespace-package layouts without `__init__.py` are reachable: an unresolved absolute import of two or more parts matches the unique project file whose module path ends with it; the scenario command takes the entrypoint's import root from its own imports.
 - `datasets/records.py` — a one-line `.jsonl` file is one record whatever its keys, so a one-row corpus or queries file is no longer read as a mapping.
 - `integrations/detect.py` — `detect_project` returns every entrypoint candidate instead of the first 10.
