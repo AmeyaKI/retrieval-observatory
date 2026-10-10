@@ -104,3 +104,15 @@ def test_search_is_called_one_question_at_a_time_by_default(tmp_path: Path) -> N
 
 def test_concurrency_option_runs_questions_together(tmp_path: Path) -> None:
     assert _most_at_once(tmp_path, "--concurrency", "4") > 1
+
+
+def test_timeout_option_lets_a_slow_question_finish(tmp_path: Path) -> None:
+    target = tmp_path / "slow.py"
+    target.write_text("import time\ndef retrieve(q):\n    time.sleep(0.3)\n    return [{'id': 'd2', 'score': 1.0}]\n", encoding="utf-8")
+
+    too_short = CliRunner().invoke(app, ["evaluate", f"{target}:retrieve", "--format", "json", "--timeout", "0.1", *_data(tmp_path)])
+    assert too_short.exit_code == 1
+    (tmp_path / "again").mkdir()
+    enough = CliRunner().invoke(app, ["evaluate", f"{target}:retrieve", "--format", "json", "--timeout", "5", *_data(tmp_path / "again")])
+    assert enough.exit_code == 0, enough.output
+    assert json.loads(enough.stdout)["evidence_health"] == "ready"

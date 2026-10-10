@@ -100,7 +100,7 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - `tests/fixtures/integration_projects.py` — three representative target projects (plain Python, FastAPI with a class-method retriever and reranker, LangChain `BaseRetriever`) exercised end to end by `tests/integration/test_integration_projects.py`.
 
 ### Changed
-- `cli.py` — `retobs evaluate` calls the search one question at a time; `--concurrency N` opts in to parallel calls. It ran eight at once from worker threads, which a search holding one local index client cannot take.
+- `cli.py` — `retobs evaluate` calls the search one question at a time; `--concurrency N` opts in to parallel calls. It ran eight at once from worker threads, which a search holding one local index client cannot take. `--timeout SECONDS` (SDK `evaluate(timeout_s=)`) raises the 5-second limit per question for a search with slow steps.
 - `integrations/apply.py` — `revert` restores every file that is still exactly the applied patch, leaves a file edited since apply alone and names it with how to clean it (status `failed`, exit 1), and keeps only that file in the manifest; a file cleaned by hand or deleted counts as reverted on the next run. One edited file used to block the whole revert.
 - `sdk/report.py` — the summary prints MRR and MAP as `mrr (whole list)` and `map (whole list)` instead of `mrr@0`, which read as a cutoff.
 - `examples/agent_integration/SKILL.md` — one `--watch` command per mode the project's benchmark measures; a lazily built wrapper module when the search is a method or needs the benchmark's arguments; export the benchmark's real labeled split when judgments are unresolved; compare scores at the same cutoffs.
@@ -261,7 +261,7 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 ### Known limits
 
 - The project's own benchmark command is not scored by retobs: per-question losses come from `retobs evaluate` over the same search, not from the project's report.
-- `retobs evaluate` calls `module:function(query_text)`; a method, or a search that needs the benchmark's arguments, needs a small wrapper module (see the runbook).
+- `retobs evaluate` calls `module:function(query_text)`; a method, or a search that needs the benchmark's arguments, needs a small wrapper module (see the runbook), run from the project root when the project's settings use relative paths.
 - The summary scores recall at 1, 5 and 10 and nDCG@10; other cutoffs (for example Recall@100) cannot be set from the command line.
 - A watch sees only the modes its commands run; a step only another mode runs (a reranker) is planned only when that mode is watched too.
 - Judgment files the planner finds are a guess; when `judgments.status` is not `resolved`, export the benchmark's labeled split.

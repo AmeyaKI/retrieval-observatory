@@ -118,6 +118,7 @@ def benchmark(
     cache: bool = False,
     provenance: Optional[Mapping[str, Any]] = None,
     chunk_map: Optional[Sequence[Sequence[str]]] = None,
+    timeout_s: Optional[float] = None,
 ) -> BenchmarkReport:
     """Benchmark a retrieval pipeline defined in Python.
 
@@ -133,6 +134,7 @@ def benchmark(
     ``embedding_model_revision``, ``reranker_model_revision``); omitted keys stay unknown.
     `chunk_map`: ``(chunk_id, document_id[, namespace])`` rows so chunk-level results are
     judged against document-level qrels.
+    `timeout_s`: how long one question may take before it is recorded as failed (default 5).
     """
     if max_queries is not None and max_queries < 1:
         raise ValueError(f"max_queries must be at least 1 (got {max_queries})")
@@ -155,6 +157,7 @@ def benchmark(
             cache=cache,
             provenance=provenance,
             chunk_map=chunk_map,
+            timeout_s=timeout_s,
         )
     )
 
@@ -269,6 +272,7 @@ async def _benchmark_async(
     cache,
     provenance,
     chunk_map,
+    timeout_s=None,
 ) -> BenchmarkReport:
     from retrieval_observatory.config.schema import (
         DatasetConfig,
@@ -320,7 +324,11 @@ async def _benchmark_async(
         ],
         labels=LabelsConfig(mode=_labels_mode(labels), judge=judge, model=judge_model),
         metrics=metrics_cfg,
-        execution=ExecutionConfig(concurrency=concurrency, cache_results=cache),
+        execution=ExecutionConfig(
+            concurrency=concurrency,
+            cache_results=cache,
+            **({"timeout_ms": round(timeout_s * 1000)} if timeout_s is not None else {}),
+        ),
         release_identity=ReleaseIdentityConfig(**dict(provenance or {})),
     )
 

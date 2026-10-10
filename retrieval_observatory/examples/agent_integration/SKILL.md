@@ -203,24 +203,22 @@ An entrypoint inside a package is named `module:callable`; the plan prefixes
 `retobs evaluate` calls `callable(query_text)`. When the search is a method, or needs arguments the
 project's benchmark passes (mode, depth), write a small root-level module with one function that
 makes that exact call, and point both `benchmark_setup` and the scenarios at it. Build the search
-object on the first call, not at import, and resolve data paths from `__file__`, so the module
-imports from any directory:
+object once at import, so loading models and indexes is not counted against the first question,
+and run commands that import it from the project root:
 
 ```python
-from functools import lru_cache
 from app.search import Searcher
 
-@lru_cache(maxsize=1)
-def _searcher():
-    return Searcher()
+_searcher = Searcher()
 
 def retrieve(query):
-    return _searcher().search(query, mode="hybrid", top_k=100)   # the benchmark's own settings
+    return _searcher.search(query, mode="hybrid", top_k=100)   # the benchmark's own settings
 ```
 
 `retobs evaluate` calls the search one question at a time, as the project's own code does. Pass
 `--concurrency N` only when the search is safe to call from several threads; never add a lock to
-the project's code to make it so.
+the project's code to make it so. A question that takes longer than `--timeout` seconds (default
+5) is recorded as failed; raise it for a search with slow steps such as an LLM call.
 
 When `judgments.status` is not `resolved`, do not point evaluate at whatever files the planner
 found. Find the labeled split the project's benchmark scores against (its data loader names it),
