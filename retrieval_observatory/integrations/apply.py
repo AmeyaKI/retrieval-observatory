@@ -1,4 +1,5 @@
 import ast
+from dataclasses import replace
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ from retrieval_observatory.integrations.model import (
     IntegrationResult,
     PatchOperation,
 )
+from retrieval_observatory.integrations.planner import INSTRUMENTATION_MARKER
 
 NO_MANIFEST = "no retobs/integration.yaml: run apply first"
 
@@ -126,26 +128,46 @@ def _scenario_command_checks(plan: IntegrationPlan) -> tuple[IntegrationCheck, .
     )
 
 
+def _has_retobs_edits(text: str) -> bool:
+    return INSTRUMENTATION_MARKER in text or "retrieval_observatory.sdk.observe import" in text
+
+
 def revert_integration(project_root: Path) -> IntegrationResult:
     """Restore every file apply patched, from the manifest's reversal patches, and drop the manifest.
 
-    A patched file must still hash to its post-apply content: an edit made since apply is never
-    overwritten, and one modified file blocks the whole revert so the project is not left half-restored.
+    A file edited since apply is never overwritten. Every other file is still restored, and the
+    manifest keeps only the patches left undone, so the project is never left with more of
+    retobs in it than it needs and a later revert picks up where this one stopped.
     """
     root = project_root.resolve()
     manifest_path = root / "retobs" / "integration.yaml"
     if not manifest_path.is_file():
         return IntegrationResult("revert", "failed", errors=(NO_MANIFEST,))
     manifest = load_manifest(root)
-    targets = [(_target(root, patch.relative_path), patch) for patch in manifest.reversal_patches]
-    modified = [
-        patch.relative_path
-        for target, patch in targets
-        if not target.is_file() or sha256(target.read_bytes()).hexdigest() != patch.precondition_sha256
-    ]
-    if modified:
-        raise ValueError("; ".join(f"cannot revert {path}: modified since apply; restore it manually" for path in modified))
-    _write_atomically([(target, patch.replacement) for target, patch in targets])
-    manifest_path.unlink()
-    restored = tuple(patch.relative_path for patch in manifest.reversal_patches)
-    return IntegrationResult("revert", "reverted", changed_files=restored + (str(manifest_path.relative_to(root)),))
+    restorable, modified = [], []
+    for patch in manifest.reversal_patches:
+        target = _target(root, patch.relative_path)
+        current = target.read_bytes() if target.is_file() else None
+        if current is not None and sha256(current).hexdigest() == patch.precondition_sha256:
+            restorable.append((target, patch))
+        elif current is not None and _has_retobs_edits(current.decode("utf-8", errors="replace")):
+            modified.append(patch)
+        # Otherwise the file was deleted or cleaned by hand since apply: nothing of retobs is left.
+    _write_atomically([(target, patch.replacement) for target, patch in restorable])
+    restored = tuple(patch.relative_path for _target_path, patch in restorable)
+    manifest_relative = str(manifest_path.relative_to(root))
+    if not modified:
+        manifest_path.unlink()
+        return IntegrationResult("revert", "reverted", changed_files=restored + (manifest_relative,))
+    write_manifest(root, replace(manifest, reversal_patches=tuple(modified)))
+    return IntegrationResult(
+        "revert",
+        "failed",
+        changed_files=restored,
+        errors=tuple(
+            f"cannot revert {patch.relative_path}: modified since apply; delete the lines retobs added "
+            f"(the '@observe'/'@trace_scope' decorators, the retobs import and the comment "
+            f"{INSTRUMENTATION_MARKER!r}) by hand, then run revert again"
+            for patch in modified
+        ),
+    )
