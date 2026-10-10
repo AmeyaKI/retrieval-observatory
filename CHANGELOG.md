@@ -204,6 +204,8 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
+- `dashboard/ui` — Investigate lists a query's relevant misses first, including a relevant document retained below the cutoff; that case sorted with the unjudged rows, so on a 100-deep search the one relevant row could sit below fifty unjudged ones.
+- `pipeline/graph_projection.py` — diagram steps named after the same method (`VectorStore.search`, `LexicalIndex.search`) carry their step id (`Search (dense)`, `Search (bm25)`) instead of two identical `Search` boxes.
 - `runner/execute.py`, `store/sqlite.py`, `store/postgres.py` — a question's saved findings name its pipeline; every row read `typed_findings`, so the summary's affected-queries table showed that instead of the pipeline, and a run with several pipelines kept only the last pipeline's findings per question.
 - `integrations/planner.py`, `datasets/records.py` — source lines are split where Python splits them. A string literal holding U+2028, U+2029 or a form feed shifted every decorator after it, so planning failed with `instrumented source does not parse`; a JSONL record holding those characters was split in two.
 - `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.

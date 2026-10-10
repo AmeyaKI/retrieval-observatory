@@ -94,18 +94,26 @@ export function stageFilter<Row extends JourneyRow>(rows: Row[], stageId: string
   )
 }
 
+/** A relevant entity the final output does not deliver (the misses the rollup counts). */
+function isRelevantMiss(row: JourneyRow): boolean {
+  return row.judgment === 'relevant' && (row.outcome === 'relevant_excluded' || row.outcome === 'not_observed' || row.outcome === 'retained_below_cutoff')
+}
+
 function bucket(row: JourneyRow): number {
-  if (row.outcome === 'relevant_excluded' && row.capture_state === 'complete') return 0
-  if (row.outcome === 'insufficient_evidence') return 1
-  return 2
+  if (isRelevantMiss(row) && row.capture_state === 'complete') return 0
+  if (row.outcome === 'insufficient_evidence' || isRelevantMiss(row)) return 1
+  if (row.outcome === 'relevant_delivered') return 2
+  return 3
 }
 
 function byIds(a: JourneyRow, b: JourneyRow): number {
   return a.query_id.localeCompare(b.query_id) || entityKey(a).localeCompare(entityKey(b))
 }
 
-/** Default table order. Queries view: relevant misses with complete capture first, then evidence-limited
- * rows, then everything else. Documents view: by query then entity. Ties break on query_id, entity. */
+/** Default table order. Queries view: relevant misses with complete capture first (removed, never
+ * observed, or retained below the cutoff), then evidence-limited rows, then delivered relevant rows,
+ * then judged-nonrelevant and unjudged rows. Documents view: by query then entity. Ties break on
+ * query_id, entity. */
 export function sortForView<Row extends JourneyRow>(rows: Row[], view: InvestigateView): Row[] {
   const sorted = [...rows]
   if (view === 'queries') sorted.sort((a, b) => bucket(a) - bucket(b) || byIds(a, b))
@@ -152,7 +160,7 @@ export function queryRollups(rows: JourneyRow[]): QueryRollup[] {
     rollup.rows += 1
     if (!rollup.trace_ids.includes(row.trace_id)) rollup.trace_ids.push(row.trace_id)
     if (row.outcome === 'relevant_delivered') rollup.relevant_delivered += 1
-    if (row.judgment === 'relevant' && (row.outcome === 'relevant_excluded' || row.outcome === 'not_observed' || row.outcome === 'retained_below_cutoff')) {
+    if (isRelevantMiss(row)) {
       rollup.relevant_missed += 1
       if (row.loss_boundary) rollup.boundaryCounts[row.loss_boundary] = (rollup.boundaryCounts[row.loss_boundary] ?? 0) + 1
     }
