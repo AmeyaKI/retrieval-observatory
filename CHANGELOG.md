@@ -269,6 +269,7 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - A watch sees only the modes its commands run; a step only another mode runs (a reranker) is planned only when that mode is watched too.
 - Judgment files the planner finds are a guess; when `judgments.status` is not `resolved`, export the benchmark's labeled split.
 - Watching is POSIX only, and an MCP client waits while a watch runs.
+- Storage is about 1 MB per traced question at 100 candidates per step (609 traces took 760 MB, most of it the investigation index); sample large benchmarks with `--max-queries` or give them their own `--db`.
 
 ---
 
