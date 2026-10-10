@@ -70,3 +70,37 @@ def test_file_target_can_import_its_sibling_package(tmp_path: Path, monkeypatch)
     result = CliRunner().invoke(app, ["evaluate", f"{project / 'eval_target.py'}:retrieve", "--format", "json", *_data(tmp_path)])
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["evidence_health"] == "ready"
+
+
+_IN_FLIGHT = """\
+import threading, time
+_lock = threading.Lock()
+_now = 0
+def retrieve(q):
+    global _now
+    with _lock:
+        _now += 1
+        with open(OUT, "a") as handle:
+            handle.write(f"{_now}\\n")
+    time.sleep(0.05)
+    with _lock:
+        _now -= 1
+    return [{'id': 'd2', 'score': 1.0}]
+"""
+
+
+def _most_at_once(tmp_path: Path, *extra: str) -> int:
+    out = tmp_path / "in_flight.txt"
+    target = tmp_path / "counting.py"
+    target.write_text(f"OUT = {str(out)!r}\n" + _IN_FLIGHT, encoding="utf-8")
+    result = CliRunner().invoke(app, ["evaluate", f"{target}:retrieve", "--format", "json", *extra, *_data(tmp_path)])
+    assert result.exit_code == 0, result.output
+    return max(int(line) for line in out.read_text(encoding="utf-8").split())
+
+
+def test_search_is_called_one_question_at_a_time_by_default(tmp_path: Path) -> None:
+    assert _most_at_once(tmp_path) == 1
+
+
+def test_concurrency_option_runs_questions_together(tmp_path: Path) -> None:
+    assert _most_at_once(tmp_path, "--concurrency", "4") > 1
