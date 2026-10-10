@@ -14,3 +14,14 @@ async def test_diagnostic_roundtrip_preserves_typed_findings(tmp_path) -> None:
     )
     await store.save_diagnostics("run", "query", findings)
     assert await store.query_diagnostics("run", "query") == list(findings)
+
+
+@pytest.mark.asyncio
+async def test_saved_findings_name_their_pipeline(tmp_path) -> None:
+    store = SQLiteStore(db_path=str(tmp_path / "diagnostics.db"))
+    await store.init_db()
+    findings = DiagnosticEngine.default().evaluate(
+        context_for_trace(_trace(), relevant_document_ids={"gold"}, corpus_document_ids={"gold", "other"})
+    )
+    await store.save_diagnostics("run", "query", findings, pipeline_id="hybrid")
+    assert [row["pipeline_id"] for row in await store.get_query_diagnostics("run", "query")] == ["hybrid"]

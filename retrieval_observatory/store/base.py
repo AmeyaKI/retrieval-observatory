@@ -144,7 +144,7 @@ class BaseStore(Protocol):
     async def get_query_diagnostics(self, run_id: str, query_id: Optional[str] = None) -> List[Dict]:
         ...
 
-    async def save_diagnostics(self, run_id: str, query_id: str, findings) -> None:
+    async def save_diagnostics(self, run_id: str, query_id: str, findings, pipeline_id: str = "typed_findings") -> None:
         ...
 
     async def query_diagnostics(self, run_id: str, query_id: Optional[str] = None):

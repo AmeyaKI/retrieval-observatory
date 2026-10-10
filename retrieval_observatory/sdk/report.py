@@ -299,11 +299,12 @@ _REGRESSION_QUALITY_METRICS = ("ndcg", "recall", "mrr", "map")
 
 
 def _metric_label(key: str) -> str:
-    """A metric key as a reader should see it: MRR and MAP are scored over the whole returned
-    list (stored as ``@0``), which ``mrr@0`` hid and made look like a different cutoff."""
-    if key.endswith(("|mrr@0", "|map@0")) or key in ("mrr@0", "map@0"):
-        return key[: -len("@0")] + " (whole list)"
-    return key
+    """A metric key as a reader should see it. ``@0`` marks a metric with no cutoff: MRR and MAP
+    are scored over the whole returned list, and ``mrr@0`` read as a different cutoff."""
+    if not key.endswith("@0"):
+        return key
+    label = key[: -len("@0")]
+    return label + " (whole list)" if label.rsplit("|", 1)[-1] in ("mrr", "map") else label
 
 
 def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:

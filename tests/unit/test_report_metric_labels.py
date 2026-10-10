@@ -22,3 +22,16 @@ def test_whole_list_metrics_are_not_printed_as_cutoff_zero() -> None:
     assert "`hybrid|stage-1|map (whole list)`" in markdown
     assert "`hybrid|stage-1|ndcg@10`" in markdown
     assert set(report.metrics) == set(metrics)  # stored keys are unchanged
+
+
+def test_latency_rows_drop_the_cutoff_marker() -> None:
+    metrics = {
+        "hybrid|stage-1|ndcg@10": {"mean": 0.72},
+        "hybrid|stage0|latency_p50@0": {"mean": 11.4},
+    }
+    report = build_run_report(
+        run_id="r", experiment_name="e", db_path="db", metrics=metrics, diagnostics=[],
+        manifest={"counts": {"attempted": 1, "completed": 1}},
+    )
+
+    assert "`hybrid|stage0|latency_p50`" in report.to_markdown()

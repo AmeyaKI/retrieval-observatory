@@ -102,7 +102,7 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 ### Changed
 - `cli.py` — `retobs evaluate` calls the search one question at a time; `--concurrency N` opts in to parallel calls. It ran eight at once from worker threads, which a search holding one local index client cannot take. `--timeout SECONDS` (SDK `evaluate(timeout_s=)`) raises the 5-second limit per question for a search with slow steps.
 - `integrations/apply.py` — `revert` restores every file that is still exactly the applied patch, leaves a file edited since apply alone and names it with how to clean it (status `failed`, exit 1), and keeps only that file in the manifest; a file cleaned by hand or deleted counts as reverted on the next run. One edited file used to block the whole revert.
-- `sdk/report.py` — the summary prints MRR and MAP as `mrr (whole list)` and `map (whole list)` instead of `mrr@0`, which read as a cutoff.
+- `sdk/report.py` — the summary prints MRR and MAP as `mrr (whole list)` and `map (whole list)` instead of `mrr@0`, which read as a cutoff, and latency rows without the `@0`.
 - `examples/agent_integration/SKILL.md` — one `--watch` command per mode the project's benchmark measures; a lazily built wrapper module when the search is a method or needs the benchmark's arguments; export the benchmark's real labeled split when judgments are unresolved; compare scores at the same cutoffs.
 - `integrations/planner.py`:
   - a plain `--phase plan` labels its discovery `method: "guessed"`;
@@ -204,6 +204,7 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
+- `runner/execute.py`, `store/sqlite.py`, `store/postgres.py` — a question's saved findings name its pipeline; every row read `typed_findings`, so the summary's affected-queries table showed that instead of the pipeline, and a run with several pipelines kept only the last pipeline's findings per question.
 - `integrations/planner.py`, `datasets/records.py` — source lines are split where Python splits them. A string literal holding U+2028, U+2029 or a form feed shifted every decorator after it, so planning failed with `instrumented source does not parse`; a JSONL record holding those characters was split in two.
 - `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.
 - `metrics/engine.py`, `sdk/report.py` — each question's final answer is also scored at stage -1 (`<pipeline>|stage-1|recall@10`, …). The run summary (`retobs evaluate`, `retobs report`, the dashboard overview and winners, MCP) reads those rows, so the headline is the mean over every scored question of its own final answer. That holds when steps are unlinked and when only some questions pass through a post-filter; before, the headline could come from an arbitrary step. `compare` ranks these rows first, release `final_retrieval` resolves to them, and v2 guards on them convert to `final_retrieval`.
