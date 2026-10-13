@@ -58,7 +58,10 @@ links from which documents flowed where, the entrypoint, and the scenario comman
 
 1. **Write one command per search path** that runs one real search with the project's normal
    settings and exits. A search path is a route a router or gate can take: a keyword-only path
-   and a hybrid path are two commands. The shape:
+   and a hybrid path are two commands. When the project's own benchmark compares several modes or
+   configurations (keyword only, vector only, hybrid, hybrid plus a reranker), write one command
+   per mode it measures: a step only one mode runs, such as a reranker, is otherwise never seen
+   and never planned. The shape:
    `python -c "from app.search import Searcher; Searcher().search('a real question')"`, with a
    real question from the project's queries when it has them. Commands run from the project root.
    They must start Python without `-I`, `-S` or `-E` and must not replace `PYTHONPATH` (the
@@ -138,8 +141,9 @@ added and the application need not run from the project root. It checks each fil
 refuses with `stale integration plan` (re-plan), a plan already recorded in
 `retobs/integration.yaml` refuses with `already applied`, and a `capture` reference that
 `retobs_adapter.py` does not define refuses before writing anything. `retobs integrate . --phase
-revert` restores the pre-apply bytes of exactly those files, and refuses if any of them changed
-after apply.
+revert` restores the pre-apply bytes of exactly those files. A file edited after apply is left
+alone and named (exit 1, the others are still restored); delete the retobs lines in it by hand and
+run revert again. So keep your own edits out of the files apply patched where you can.
 
 Check: `git diff` shows only decorators, the import, and the marker in the listed files.
 
@@ -196,6 +200,31 @@ An entrypoint inside a package is named `module:callable`; the plan prefixes
 `PYTHONPATH=<import root>` when the package is not at the project root. A loose module keeps
 `file.py:callable`.
 
+`retobs evaluate` calls `callable(query_text)`. When the search is a method, or needs arguments the
+project's benchmark passes (mode, depth), write a small root-level module with one function that
+makes that exact call, and point both `benchmark_setup` and the scenarios at it. Build the search
+object once at import, so loading models and indexes is not counted against the first question,
+and run commands that import it from the project root:
+
+```python
+from app.search import Searcher
+
+_searcher = Searcher()
+
+def retrieve(query):
+    return _searcher.search(query, mode="hybrid", top_k=100)   # the benchmark's own settings
+```
+
+`retobs evaluate` calls the search one question at a time, as the project's own code does. Pass
+`--concurrency N` only when the search is safe to call from several threads; never add a lock to
+the project's code to make it so. A question that takes longer than `--timeout` seconds (default
+5) is recorded as failed; raise it for a search with slow steps such as an LLM call.
+
+When `judgments.status` is not `resolved`, do not point evaluate at whatever files the planner
+found. Find the labeled split the project's benchmark scores against (its data loader names it),
+export it once to `queries.jsonl`, `qrels.jsonl` and `corpus.jsonl` in a directory the project
+ignores, and check the counts against the benchmark's own.
+
 Accepted judgment rows: `{"query_id", "doc_id", "relevance"}` or
 `{"query_id", "relevant_doc_ids": [...]}` (graded: `{"doc": grade}`). Chunk results scored
 against document labels need `--chunk-map rows.jsonl` with `{chunk_id, document_id}`. The
@@ -203,7 +232,10 @@ evaluation runs the instrumented entrypoint once per query inside a run, so the 
 become the run's traces; failed queries persist an error trace and count against the run.
 
 Check: the command exits 0 and prints recall/nDCG for the pipeline; `--format json` for a
-machine-readable report.
+machine-readable report. The summary scores recall at 1, 5 and 10, nDCG@10, and MRR and MAP over
+the whole returned list. A project headline at another cutoff (Recall@100, MRR@10) is a different
+number: compare like with like before reporting that scores changed. The command line cannot yet
+score at other cutoffs; each trace keeps the question's full returned list.
 
 ### 7. Open the investigation
 
@@ -254,6 +286,7 @@ final-output-only endpoint, and do not report a scenario as covered when its com
 | verify: `declared_step_not_watched` | A planned operator never ran in any watched search: remove it, or add a `--watch` command for the path that runs it |
 | verify: `declared_link_differs_from_watch` | A declared parent is not where the operator's documents came from: set `parent_ids` as the detail says |
 | apply: `stale integration plan: <file>` | The file changed after planning; re-plan |
+| revert: `cannot revert <file>: modified since apply` | Every other file was restored. Delete the decorators, the retobs import and the marker comment in that file by hand, then run revert again to finish |
 | apply: `already applied (manifest present)` | Run verify, or `revert` and re-apply a new plan |
 | apply: `capture retobs_adapter:<symbol>: ... does not define <symbol>` | Define the `CaptureSpec` at module level in root `retobs_adapter.py` |
 | apply: `patch would not compile` | A hand edit broke the patch; re-plan from the reviewed plan instead of editing `patches` |

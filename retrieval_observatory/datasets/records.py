@@ -13,7 +13,9 @@ def read_json_records(path: Path):
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
+        # Only a newline ends a JSONL record: a JSON string may hold U+2028 and other characters
+        # that ``str.splitlines`` would split on.
+        return [json.loads(line) for line in text.split("\n") if line.strip()]
     # A one-line JSONL file parses as a single object; it is still one record, as is a query or
     # judgment row in a ``.json`` file. Any other ``.json`` object is a mapping (doc id -> text, ...).
     if isinstance(parsed, dict) and (path.suffix.lower() == ".jsonl" or "query_id" in parsed or "doc_id" in parsed):

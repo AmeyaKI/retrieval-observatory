@@ -303,6 +303,16 @@ def _locate(root: Path, relative: str, symbol: str, functions: dict[tuple[str, s
     return functions.get((relative, symbol))
 
 
+def _source_lines(source: str) -> list[str]:
+    """Split ``source`` into lines (ends kept) exactly where the Python parser does.
+
+    ``str.splitlines`` also breaks on form feeds, U+2028, U+2029 and other separators that may
+    sit inside a string literal, so its indices drift from the ``ast`` line numbers the
+    decorators are placed by and the patched file stops parsing.
+    """
+    return re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$", source)
+
+
 def _import_insertion_line(source: str, tree: ast.Module) -> int:
     """Zero-based line index for a new top-level import.
 
@@ -310,7 +320,7 @@ def _import_insertion_line(source: str, tree: ast.Module) -> int:
     `from __future__` import — a `__future__` import that is not the first statement is a
     SyntaxError, and jumping the docstring silently demotes it to a bare expression.
     """
-    lines = source.splitlines()
+    lines = _source_lines(source)
     insert_at = 0
     while insert_at < len(lines) and insert_at < 2 and (
         lines[insert_at].startswith("#!") or re.match(r"^#.*coding[:=]", lines[insert_at])
@@ -340,7 +350,7 @@ def _instrument_source(
     entrypoint: tuple[FunctionNode, str] | None = None,
 ) -> str:
     """Add ``@observe`` to each operator and, outermost of the two, ``@trace_scope`` to the entrypoint."""
-    lines = source.splitlines(keepends=True)
+    lines = _source_lines(source)
     needs_observe = bool(nodes) and not any(_OBSERVE_IMPORT.match(line) for line in lines)
     needs_scope = entrypoint is not None and not any(_SCOPE_IMPORT.match(line) for line in lines)
     insert_at = _import_insertion_line(source, ast.parse(source)) if needs_observe or needs_scope else -1

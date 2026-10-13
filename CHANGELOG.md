@@ -14,9 +14,9 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Removed
 
-## [0.7.0] — 2026-09-24
+## [0.7.0] — 2026-10-10
 
-Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip install retrieval-observatory==0.7.0rc3`); rc2 hardens setup on messy repositories and makes every inspection surface give one answer; rc3 builds the integration plan from a watched real search (`--watch`), never invents document ids, and gives every surface the same final answer; the final date is set when `v0.7.0` is tagged. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
+Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip install retrieval-observatory==0.7.0rc3`); rc2 hardens setup on messy repositories and makes every inspection surface give one answer; rc3 builds the integration plan from a watched real search (`--watch`), never invents document ids, and gives every surface the same final answer; the final release fixes what an agent trial on an open-source hybrid search pipeline still hit (planning crash, all-or-nothing revert, parallel calls into the project's search, the `mrr@0` label) and lists the known limits below. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
 
 ### Added
 - `retobs integrate . --phase plan --watch "<command>"` (repeatable; MCP `integrate_project(watch=[...])`) builds the integration plan from what a real search ran instead of from function names. retobs runs each command from the project root and watches the project's own functions in every Python process it starts, through `integrations/watch.py` and the stdlib-only `integrations/_watch_hook.py` (`sys.monitoring` on 3.12+, `setprofile` on 3.10/3.11). It then proposes exactly the functions that handled documents (`integrations/watch_map.py`, `integrations/watch_plan.py`):
@@ -100,6 +100,10 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - `tests/fixtures/integration_projects.py` — three representative target projects (plain Python, FastAPI with a class-method retriever and reranker, LangChain `BaseRetriever`) exercised end to end by `tests/integration/test_integration_projects.py`.
 
 ### Changed
+- `cli.py` — `retobs evaluate` calls the search one question at a time; `--concurrency N` opts in to parallel calls. It ran eight at once from worker threads, which a search holding one local index client cannot take. `--timeout SECONDS` (SDK `evaluate(timeout_s=)`) raises the 5-second limit per question for a search with slow steps.
+- `integrations/apply.py` — `revert` restores every file that is still exactly the applied patch, leaves a file edited since apply alone and names it with how to clean it (status `failed`, exit 1), and keeps only that file in the manifest; a file cleaned by hand or deleted counts as reverted on the next run. One edited file used to block the whole revert.
+- `sdk/report.py` — the summary prints MRR and MAP as `mrr (whole list)` and `map (whole list)` instead of `mrr@0`, which read as a cutoff, and latency rows without the `@0`.
+- `examples/agent_integration/SKILL.md` — one `--watch` command per mode the project's benchmark measures; a lazily built wrapper module when the search is a method or needs the benchmark's arguments; export the benchmark's real labeled split when judgments are unresolved; compare scores at the same cutoffs.
 - `integrations/planner.py`:
   - a plain `--phase plan` labels its discovery `method: "guessed"`;
   - re-planning from a reviewed plan keeps the watch evidence (`method`, `watch`, `not_seen_in_watch`, `folded_into_step`);
@@ -200,6 +204,10 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - `dashboard/api.py` — `GET …/runs/{run}/metrics` computes when per-stage rows are absent; run-level status rows no longer suppress the computation.
 
 ### Fixed
+- `dashboard/ui` — Investigate lists a query's relevant misses first, including a relevant document retained below the cutoff; that case sorted with the unjudged rows, so on a 100-deep search the one relevant row could sit below fifty unjudged ones.
+- `pipeline/graph_projection.py` — diagram steps named after the same method (`VectorStore.search`, `LexicalIndex.search`) carry their step id (`Search (dense)`, `Search (bm25)`) instead of two identical `Search` boxes.
+- `runner/execute.py`, `store/sqlite.py`, `store/postgres.py` — a question's saved findings name its pipeline; every row read `typed_findings`, so the summary's affected-queries table showed that instead of the pipeline, and a run with several pipelines kept only the last pipeline's findings per question.
+- `integrations/planner.py`, `datasets/records.py` — source lines are split where Python splits them. A string literal holding U+2028, U+2029 or a form feed shifted every decorator after it, so planning failed with `instrumented source does not parse`; a JSONL record holding those characters was split in two.
 - `tracing/model.py`, `sdk/observe.py`, `tracing/recorder.py` — a trace has one final answer: the operator whose output the entrypoint returned, else the last operator that fired; several finals only for declared parallel terminal branches. Previously every step without declared links was final.
 - `metrics/engine.py`, `sdk/report.py` — each question's final answer is also scored at stage -1 (`<pipeline>|stage-1|recall@10`, …). The run summary (`retobs evaluate`, `retobs report`, the dashboard overview and winners, MCP) reads those rows, so the headline is the mean over every scored question of its own final answer. That holds when steps are unlinked and when only some questions pass through a post-filter; before, the headline could come from an arbitrary step. `compare` ranks these rows first, release `final_retrieval` resolves to them, and v2 guards on them convert to `final_retrieval`.
 - `sdk/report.py`, `runner/execute.py` — a run with an unreadable step reports evidence health `limited`, naming the step and the CaptureSpec to add (manifest `unreadable_operators`).
@@ -252,6 +260,16 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 - `dashboard/ui` — `RunComparisonDeepDiffs` attribution and recommendation diff sections, `comparisonDiffs.ts` `diffAttribution`/`diffRecommendations`; the retired `#/runs/RUN/queries/Q/diff` link from Audit.
 - Dashboard navigation entries Home, Runs, Queries, Production, Test Sets, Compare, the platform tour, and demo quick links; the scope bar's window and cohort selectors. Their component files remain in the tree until the retirement task deletes them; none are bundled.
 - `cli.py` — the never-registered `classifier`, `forge`, `tracelens`, `advisor`, and `golden` Typer groups and the unregistered `diagram` command (about fourteen dead commands).
+
+### Known limits
+
+- The project's own benchmark command is not scored by retobs: per-question losses come from `retobs evaluate` over the same search, not from the project's report.
+- `retobs evaluate` calls `module:function(query_text)`; a method, or a search that needs the benchmark's arguments, needs a small wrapper module (see the runbook), run from the project root when the project's settings use relative paths.
+- The summary scores recall at 1, 5 and 10 and nDCG@10; other cutoffs (for example Recall@100) cannot be set from the command line.
+- A watch sees only the modes its commands run; a step only another mode runs (a reranker) is planned only when that mode is watched too.
+- Judgment files the planner finds are a guess; when `judgments.status` is not `resolved`, export the benchmark's labeled split.
+- Watching is POSIX only, and an MCP client waits while a watch runs.
+- Storage is about 1 MB per traced question at 100 candidates per step (609 traces took 760 MB, most of it the investigation index); sample large benchmarks with `--max-queries` or give them their own `--db`.
 
 ---
 

@@ -81,6 +81,14 @@ def evaluate_cmd(
     name: Optional[str] = typer.Option(None, "--name", help="Run/pipeline display name."),
     db: Optional[str] = typer.Option(None, "--db", help="SQLite result database; config output is used when omitted."),
     max_queries: Optional[int] = typer.Option(None, "--max-queries", min=1, help="Bound the query sample."),
+    concurrency: int = typer.Option(
+        1, "--concurrency", min=1,
+        help="Questions run at once. The default calls the search one question at a time, as the project's own code does; raise it only when the search is safe to call from several threads.",
+    ),
+    timeout: float = typer.Option(
+        5.0, "--timeout", min=0.1,
+        help="Seconds one question may take before it is recorded as failed; raise it for a search with slow steps (an LLM call, a large reranker).",
+    ),
     format: str = typer.Option("terminal", "--format", help="terminal|json|markdown|html"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Write the report artifact."),
     provenance: List[str] = typer.Option(
@@ -124,6 +132,8 @@ def evaluate_cmd(
                 name=name,
                 db_path=db or ".retobs/results.db",
                 max_queries=max_queries,
+                concurrency=concurrency,
+                timeout_s=timeout,
                 provenance=dict(item.split("=", 1) for item in provenance) or None,
                 chunk_map=_read_chunk_map(chunk_map) if chunk_map else None,
             )

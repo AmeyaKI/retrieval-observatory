@@ -168,3 +168,19 @@ def test_branch_node_metric_carries_served_query_count():
     assert by_id["fast"].metrics.recall.n == 1
     assert graph.to_dict()["nodes"][[n.node_id for n in graph.nodes].index("fast")]["metrics"]["recall"]["n"] == 1
     assert by_id["slow"].metrics.recall is None
+
+
+def test_steps_named_after_the_same_method_get_distinct_labels():
+    from dataclasses import replace
+
+    dense = replace(_span("dense", "SOURCE", []), op_name="search")
+    bm25 = replace(_span("bm25", "SOURCE", []), op_name="search")
+    rrf = replace(_span("rrf", "FUSE", ["dense", "bm25"]), op_name="fuse_hits")
+
+    graph = build_pipeline_graphs({}, [_trace("q", [dense, bm25, rrf], final_op_ids=("rrf",))])[0]
+
+    assert {node.node_id: node.label for node in graph.nodes} == {
+        "dense": "Search (dense)",
+        "bm25": "Search (bm25)",
+        "rrf": "Fuse Hits",
+    }

@@ -339,16 +339,22 @@ describe('stageFilter', () => {
 })
 
 describe('sortForView', () => {
-  it('puts complete relevant misses first, then evidence-limited rows, then the rest by query and entity', () => {
+  it('puts complete relevant misses first, then evidence-limited rows, delivered relevant rows, and the rest', () => {
     const sorted = sortForView([news, faqOutage, unknownRow, policy, missed, archive], 'queries')
     expect(sorted.map((r) => `${r.query_id}/${r.entity_id}`)).toEqual([
+      'q-invoice/doc-archive',
       'q-invoice/doc-missed',
       'q-outage/doc-guide',
-      'q-invoice/doc-archive',
+      'q-refund/doc-policy',
       'q-outage/doc-faq',
       'q-refund/doc-news',
-      'q-refund/doc-policy',
     ])
+  })
+
+  it('puts a relevant document retained below the cutoff above unjudged rows', () => {
+    const below = row({ query_id: 'q-a', entity_id: 'doc-z', outcome: 'retained_below_cutoff', final_membership: 'excluded', in_final_output: false })
+    const unjudged = ['doc-a', 'doc-b'].map((entity_id) => row({ query_id: 'q-a', entity_id, judgment: 'unjudged', outcome: 'unjudged' }))
+    expect(sortForView([...unjudged, below], 'queries').map((r) => r.entity_id)).toEqual(['doc-z', 'doc-a', 'doc-b'])
   })
 
   it('orders the documents view by query then entity', () => {

@@ -245,6 +245,12 @@ def build_pipeline_graphs(
             ))
 
         nodes.sort(key=lambda n: (n.depth, n.node_id))
+        # Two steps named after the same method (``VectorStore.search``, ``LexicalIndex.search``)
+        # would both read "Search"; the step id tells them apart.
+        label_counts = Counter(node.label for node in nodes)
+        for node in nodes:
+            if label_counts[node.label] > 1:
+                node.label = f"{node.label} ({node.node_id})"
         status_counts = Counter(str(trace.status) for trace in pipeline_traces)
         graphs.append(PipelineGraph(
             pipeline_id=pipeline_id,

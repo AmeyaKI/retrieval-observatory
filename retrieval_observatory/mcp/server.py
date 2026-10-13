@@ -260,8 +260,9 @@ async def _integrate_project(
     apply: pass the reviewed plan (or plan_path); patches files and writes retobs/integration.yaml.
     verify: reads retobs/integration.yaml and the traces in db_path (relative paths resolve
     against project_root); plan/plan_path are optional here and must match the applied plan.
-    revert: restores every file apply patched (refuses if one changed since) and removes
-    retobs/integration.yaml; retobs/integration-plan.json is kept.
+    revert: restores every file apply patched and removes retobs/integration.yaml; a file edited since
+    apply is left alone, named in errors (status failed) and kept in the manifest for the next revert;
+    retobs/integration-plan.json is kept.
     framework: override detection (python, fastapi, langchain, llamaindex, http)."""
     from pathlib import Path
     from retrieval_observatory.integrations.model import IntegrationOptions, IntegrationPhase, IntegrationPlan

@@ -666,7 +666,7 @@ class PostgresStore:
             result.append(item)
         return result
 
-    async def save_diagnostics(self, run_id: str, query_id: str, findings) -> None:
+    async def save_diagnostics(self, run_id: str, query_id: str, findings, pipeline_id: str = "typed_findings") -> None:
         if not findings:
             return
         trace_id = next((f.evidence.trace_ids[0] for f in findings if f.evidence and f.evidence.trace_ids), "")
@@ -689,7 +689,7 @@ class PostgresStore:
         await self.save_query_diagnostics([{
             "run_id": run_id,
             "query_id": query_id,
-            "pipeline_id": "typed_findings",
+            "pipeline_id": pipeline_id,
             "difficulty_bucket": "unknown",
             "failure_labels": [f.label for f in findings if f.availability.value == "supported"],
             "missing_relevant_ids": [],

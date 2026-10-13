@@ -75,7 +75,7 @@ class ReportModel:
                 ci = f"{_format_number(value.get('ci_low'))} to {_format_number(value.get('ci_high'))}"
             else:
                 mean, ci = _format_number(value), "unavailable"
-            lines.append(f"| `{key}` | {mean} | {ci} |")
+            lines.append(f"| `{_metric_label(key)}` | {mean} | {ci} |")
         lines.append("")
         if self.affected_queries:
             lines.extend(["## Affected queries", "", "| Query | Pipeline | Findings |", "|---|---|---|"])
@@ -296,6 +296,15 @@ _QUALITY_ROWS_PER_PIPELINE = 3
 _QUALITY_ROWS_TOTAL = 6
 #: Metric-name prefixes `BenchmarkReport.assert_no_regression` treats as retrieval quality.
 _REGRESSION_QUALITY_METRICS = ("ndcg", "recall", "mrr", "map")
+
+
+def _metric_label(key: str) -> str:
+    """A metric key as a reader should see it. ``@0`` marks a metric with no cutoff: MRR and MAP
+    are scored over the whole returned list, and ``mrr@0`` read as a different cutoff."""
+    if not key.endswith("@0"):
+        return key
+    label = key[: -len("@0")]
+    return label + " (whole list)" if label.rsplit("|", 1)[-1] in ("mrr", "map") else label
 
 
 def _headline_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:

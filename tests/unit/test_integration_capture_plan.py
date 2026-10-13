@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 
 from retrieval_observatory.cli import app
 from retrieval_observatory.integrations.apply import apply_integration_plan, revert_integration
+from retrieval_observatory.integrations.manifest import load_manifest
 from retrieval_observatory.integrations.model import (
     CAPABILITY_NAMES,
     CAPABILITY_STATUSES,
@@ -284,19 +285,43 @@ async def test_apply_marks_edits_and_revert_restores_only_retobs_edits(tmp_path:
     assert (root / "retobs" / "integration-plan.json").is_file()
 
 
-async def test_revert_refuses_when_a_file_changed_after_apply(tmp_path: Path) -> None:
+async def test_revert_restores_untouched_files_and_names_the_edited_one(tmp_path: Path) -> None:
     root = _project(tmp_path, REVERT_PROJECT)
-    await _applied(root)
+    _plan, originals = await _applied(root)
     edited = (root / "app.py").read_text(encoding="utf-8") + "# local change\n"
     (root / "app.py").write_text(edited, encoding="utf-8")
-    instrumented = (root / "search" / "bm25.py").read_bytes()
 
-    with pytest.raises(ValueError, match=r"cannot revert app\.py: modified since apply"):
-        await integrate_project(root, IntegrationPhase.REVERT, IntegrationOptions())
+    reverted = await integrate_project(root, IntegrationPhase.REVERT, IntegrationOptions())
 
+    assert reverted.status == "failed"
+    assert reverted.changed_files == ("search/bm25.py",)
+    assert len(reverted.errors) == 1 and "cannot revert app.py: modified since apply" in reverted.errors[0]
     assert (root / "app.py").read_text(encoding="utf-8") == edited
-    assert (root / "search" / "bm25.py").read_bytes() == instrumented
-    assert (root / "retobs" / "integration.yaml").is_file()
+    assert (root / "search" / "bm25.py").read_bytes() == originals["search/bm25.py"]
+    remaining = load_manifest(root).reversal_patches
+    assert [patch.relative_path for patch in remaining] == ["app.py"]
+
+    # Cleaned by hand (the local change kept), the next revert has nothing left to undo.
+    (root / "app.py").write_text(originals["app.py"].decode("utf-8") + "# local change\n", encoding="utf-8")
+    again = await integrate_project(root, IntegrationPhase.REVERT, IntegrationOptions())
+
+    assert again.status == "reverted"
+    assert (root / "app.py").read_text(encoding="utf-8").endswith("# local change\n")
+    assert not (root / "retobs" / "integration.yaml").exists()
+
+
+def test_cli_revert_exits_nonzero_when_a_file_is_left(tmp_path: Path) -> None:
+    root = _project(tmp_path / "proj", {"app.py": TWO_STAGE})
+    plan_path = tmp_path / "plan.json"
+    runner = CliRunner()
+    assert runner.invoke(app, ["integrate", str(root), "--phase", "plan", "--output", str(plan_path)]).exit_code == 0
+    assert runner.invoke(app, ["integrate", str(root), "--phase", "apply", "--plan", str(plan_path)]).exit_code == 0
+    (root / "app.py").write_text((root / "app.py").read_text(encoding="utf-8") + "# local change\n", encoding="utf-8")
+
+    reverted = runner.invoke(app, ["integrate", str(root), "--phase", "revert"])
+
+    assert reverted.exit_code == 1
+    assert "cannot revert app.py" in json.loads(reverted.output)["errors"][0]
 
 
 def test_revert_without_manifest_reports_failed(tmp_path: Path) -> None:

@@ -266,7 +266,7 @@ async def execute_benchmark(
             cutoff=diagnostic_cutoff,
         )
         findings = diagnostic_engine.evaluate(context)
-        await store.save_diagnostics(run_id, trace.query_id, findings)
+        await store.save_diagnostics(run_id, trace.query_id, findings, pipeline_id=trace.pipeline_id)
         diagnostics.append({
             "run_id": run_id,
             "query_id": trace.query_id,
