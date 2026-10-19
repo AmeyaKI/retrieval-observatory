@@ -1,17 +1,17 @@
 {
   "demo": "retobs demo (golden hybrid fixture)",
   "files": {
-    "audit-pass.png": "80946b7c4700439c85bc1d244e6dcf2be9e33bcb3466711f6f4e60ae2c0cc88f",
-    "investigate-compare.png": "49339147e2d3e51914643e91e6b40a78ae0133f2fde7a51f5a32a34654900088",
-    "investigate-lost-document.png": "7ab64c31f4c84096d2dae53e3d4274f0fb7f54c3ebe557996f491ca1411a068b",
-    "retrieval-debugging-loop.webm": "ed25c6b2fd42599019bd76baa8135ea7cdbfe45434e6256b10966149e6c9dcf5"
+    "audit-pass.png": "deec652506aaebf36f5c255966ea2deb64d12265baac95fbaa0d8a1d617ac136",
+    "investigate-compare.png": "9810d0a77cc688e5d8c784b49d0528f6a4017c067721b1121e0e0e2376b2ac14",
+    "investigate-lost-document.png": "6bfe29ccdcda3949d0dcf1303a184208a74424343a2e177103e39372780f2e90",
+    "retrieval-debugging-loop.webm": "e65c48f52f5a44204ffa742a0bc7272da808a7cc127a3baf21dd15932df64b0d"
   },
   "pages": {
-    "audit-pass.png": "#/audit?db=results&baseline=c098d90c&candidate=97b0b3c2&policy=.retobs%2Fdemo%2Frelease-policy-golden-v3.yaml",
-    "investigate-compare.png": "#/investigate?db=results&run=97b0b3c2&pipeline=golden-hybrid&view=queries&query=q-outage&compare=c098d90c",
-    "investigate-lost-document.png": "#/investigate?db=results&run=c098d90c&pipeline=golden-hybrid&view=documents&query=q-outage&entity=kb%3Adoc-guide"
+    "audit-pass.png": "#/audit?db=results&baseline=088cc271&candidate=4650a4bf&policy=.retobs%2Fdemo%2Frelease-policy-golden-v3.yaml",
+    "investigate-compare.png": "#/investigate?db=results&run=4650a4bf&pipeline=golden-hybrid&view=queries&query=q-outage&compare=088cc271",
+    "investigate-lost-document.png": "#/investigate?db=results&run=088cc271&pipeline=golden-hybrid&view=documents&query=q-outage&entity=kb%3Adoc-guide"
   },
-  "retobs_version": "0.7.0",
+  "retobs_version": "0.8.0",
   "schema_version": 2,
   "source": "scripts/generate_demo_assets.py"
 }

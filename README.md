@@ -63,10 +63,13 @@ retobs evaluate app/search.py:retrieve --queries data/queries.jsonl --qrels data
 retobs serve --db .retobs/results.db
 ```
 
-Open `#/investigate` for the run: the executed pipeline, each query's candidates, and for each
-document its judgment, final outcome (`relevant_delivered`, `relevant_excluded`,
+Open `#/investigate` for the run. It opens with the step that loses the most correct documents,
+the executed pipeline with each step's correct documents found and lost, and the questions and
+documents that missed one. One question shows where each of its correct documents went, step by
+step; each document has its judgment, final outcome (`relevant_delivered`, `relevant_excluded`,
 `retained_below_cutoff`, `not_observed`, `judged_nonrelevant`, `unjudged`,
-`insufficient_evidence`), recorded transitions, and loss boundary. Without a browser:
+`insufficient_evidence`, shown in plain words), recorded transitions, and loss boundary. Without
+a browser:
 
 ```bash
 retobs inspect-document RUN_ID kb:doc-guide --db .retobs/results.db
