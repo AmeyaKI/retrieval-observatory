@@ -201,10 +201,16 @@ def _starting(frame: Any) -> bool:
 
 
 def _suspending(frame: Any) -> bool:
-    """Profile path: whether a generator or coroutine's ``return`` event is a suspension, not its end."""
+    """Profile path: whether a generator or coroutine's ``return`` event is a suspension, not its end.
+
+    A suspension sits on ``YIELD_VALUE`` (3.11, 3.12), before ``YIELD_FROM`` (3.10), or on the
+    ``RESUME`` after its ``YIELD_VALUE`` (3.13+), whose location bits are non-zero.
+    """
     raw = frame.f_code.co_code
     lasti = frame.f_lasti
-    return raw[lasti] == _YIELD_VALUE or (_YIELD_FROM is not None and raw[lasti + 2:lasti + 3] == bytes([_YIELD_FROM]))
+    if raw[lasti] == _YIELD_VALUE or (_YIELD_FROM is not None and raw[lasti + 2:lasti + 3] == bytes([_YIELD_FROM])):
+        return True
+    return _RESUME is not None and raw[lasti] == _RESUME and raw[lasti + 1] & 3 != 0
 
 
 class _Watcher:
