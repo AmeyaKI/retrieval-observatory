@@ -11,6 +11,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ### Changed
 
 ### Fixed
+- `integrations/_watch_hook.py` — on Python 3.13 the `sys.setprofile` path (forced, or when every `sys.monitoring` tool id is taken) recognises a generator or coroutine suspension, which 3.13 reports at the `RESUME` after `YIELD_VALUE`; an awaited step's return value was recorded as empty and a resumed coroutine lost its parent.
 
 ### Removed
 
