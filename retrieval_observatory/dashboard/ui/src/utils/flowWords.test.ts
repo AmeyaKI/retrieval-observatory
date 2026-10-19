@@ -7,6 +7,7 @@ import {
   foldedAggregate,
   foldedStage,
   foldFlow,
+  missedDocuments,
   missedQuestions,
   missLine,
   pathCard,
@@ -533,6 +534,20 @@ describe('the questions that missed a correct document', () => {
     expect(filterMissed(questions, { stage: 'recency_filter' }).map((q) => q.query_id)).toEqual(['q-outage'])
     expect(filterMissed(questions, { stage: 'select', outcome: 'not_observed' }).map((q) => q.query_id)).toEqual(['q-invoice'])
     expect(filterMissed(questions, { stage: null, outcome: null })).toEqual(questions)
+  })
+
+  test('missed documents: grouped by document, the most-missed first, filtered and counted like questions', () => {
+    const twice = { ...flow, misses: [...flow.misses, miss('q-outage', 'doc-late', 'relevant_excluded', 'recency_filter')] }
+    const documents = missedDocuments(twice)
+    expect(documents.map((d) => [d.entity, d.misses.map((m) => m.query_id)])).toEqual([
+      ['default:doc-late', ['q-invoice', 'q-outage']],
+      ['default:doc-archive', ['q-invoice']],
+      ['default:doc-guide', ['q-outage']],
+      ['default:doc-x', ['q-split']],
+      ['default:doc-y', ['q-split']],
+    ])
+    expect(filterMissed(documents, { stage: 'recency_filter' }).map((d) => d.entity_id)).toEqual(['doc-late', 'doc-guide'])
+    expect(reasonChips(documents).map((chip) => chip.label)).toEqual(['Ranked too low or pushed out · 3 (1 pushed out)', 'Dropped · 2', 'Never found · 1'])
   })
 
   test('the reason chips count questions; the first also counts the documents pushed out', () => {

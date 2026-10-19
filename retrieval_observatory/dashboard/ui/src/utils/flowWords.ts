@@ -452,23 +452,44 @@ export function missedQuestions(flow: InvestigationFlow): MissedQuestion[] {
   }))
 }
 
-/** Questions with a miss lost at `stage` and with a miss of `outcome`; null keeps every question. */
-export function filterMissed(questions: MissedQuestion[], filters: { stage?: string | null; outcome?: string | null }): MissedQuestion[] {
+/** One correct document's misses across the questions it is correct for. */
+export interface MissedDocument {
+  /** `namespace:entity_id`. */
+  entity: string
+  namespace: string
+  entity_id: string
+  misses: FlowMiss[]
+}
+
+/** Missed correct documents, the most-missed first (ties by id). */
+export function missedDocuments(flow: InvestigationFlow): MissedDocument[] {
+  const byEntity = new Map<string, FlowMiss[]>()
+  for (const miss of flow.misses) {
+    const entity = `${miss.namespace}:${miss.entity_id}`
+    byEntity.set(entity, [...(byEntity.get(entity) ?? []), miss])
+  }
+  return [...byEntity]
+    .map(([entity, misses]) => ({ entity, namespace: misses[0].namespace, entity_id: misses[0].entity_id, misses }))
+    .sort((a, b) => b.misses.length - a.misses.length || a.entity.localeCompare(b.entity))
+}
+
+/** Questions (or documents) with a miss lost at `stage` and with a miss of `outcome`; null keeps every row. */
+export function filterMissed<Row extends { misses: FlowMiss[] }>(rows: Row[], filters: { stage?: string | null; outcome?: string | null }): Row[] {
   const { stage, outcome } = filters
-  return questions.filter((q) => (!stage || q.misses.some((miss) => miss.loss_boundary === stage)) && (!outcome || q.misses.some((miss) => miss.outcome === outcome)))
+  return rows.filter((row) => (!stage || row.misses.some((miss) => miss.loss_boundary === stage)) && (!outcome || row.misses.some((miss) => miss.outcome === outcome)))
 }
 
 export interface ReasonChip {
   outcome: string
   label: string
-  /** Questions with at least one miss of this outcome. */
+  /** Rows (questions or documents) with at least one miss of this outcome. */
   questions: number
 }
 
-/** The reason filters over the missed list: questions per reason; the first also counts the documents pushed out. */
-export function reasonChips(questions: MissedQuestion[]): ReasonChip[] {
-  const count = (outcome: string) => filterMissed(questions, { outcome }).length
-  const pushed = questions.reduce((sum, q) => sum + q.misses.filter((miss) => miss.outcome === 'retained_below_cutoff' && miss.pushed_out).length, 0)
+/** The reason filters over a missed list: rows per reason; the first also counts the documents pushed out. */
+export function reasonChips(rows: Array<{ misses: FlowMiss[] }>): ReasonChip[] {
+  const count = (outcome: string) => filterMissed(rows, { outcome }).length
+  const pushed = rows.reduce((sum, row) => sum + row.misses.filter((miss) => miss.outcome === 'retained_below_cutoff' && miss.pushed_out).length, 0)
   const low = count('retained_below_cutoff')
   const chips: ReasonChip[] = [
     { outcome: 'retained_below_cutoff', label: `Ranked too low or pushed out · ${low} (${pushed} pushed out)`, questions: low },

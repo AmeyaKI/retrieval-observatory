@@ -1,7 +1,7 @@
 import { KeyboardEvent, ReactNode } from 'react'
 import { FlowMiss, InvestigationDocumentRow, JourneyRow, QuerySummaryRow } from '../api'
 import { DashboardSelection } from '../context/dashboardQuery'
-import { MissedQuestion, missLine, plural } from '../utils/flowWords'
+import { MissedDocument, MissedQuestion, missLine, plural } from '../utils/flowWords'
 import { ranksTrail } from '../utils/journeyWords'
 import {
   cameFrom,
@@ -20,13 +20,13 @@ import {
   splitEntity,
 } from '../utils/queryDebugger'
 
-// The tables of Investigate. Five row shapes share the chrome: a semantic table with caption and
+// The tables of Investigate. Six row shapes share the chrome: a semantic table with caption and
 // column headers, sortable headers with aria-sort (an arrow on the active column only), focusable
 // selectable rows, a live summary line, the active URL filters as removable chips with "Clear
 // filters" while one is set, and rows that stack into blocks below 640 px instead of the page
 // scrolling sideways.
 
-export type TableShape = 'queries' | 'missed' | 'query-candidates' | 'documents' | 'document-queries'
+export type TableShape = 'queries' | 'missed' | 'query-candidates' | 'documents' | 'missed-documents' | 'document-queries'
 
 export interface SortState {
   key: string
@@ -36,7 +36,7 @@ export interface SortState {
 export interface InvestigationTableProps {
   shape: TableShape
   /** The queries shape takes the stored per-query summaries, or journey rows (rolled up client-side) when a pair-level filter is set. */
-  rows: JourneyRow[] | InvestigationDocumentRow[] | QuerySummaryRow[] | MissedQuestion[]
+  rows: JourneyRow[] | InvestigationDocumentRow[] | QuerySummaryRow[] | MissedQuestion[] | MissedDocument[]
   selection: DashboardSelection
   /** Server-side row total when known (the missed list: the rows after its filters). */
   total: number | null
@@ -74,6 +74,7 @@ const CAPTIONS: Record<TableShape, string> = {
   missed: 'Questions that missed a correct document and what happened to it; activate a row to open the question',
   'query-candidates': 'Candidates of this question; activate a row to follow that document',
   documents: 'Documents of this run with the questions they are correct for; activate a row to open the document',
+  'missed-documents': 'Correct documents that missed the top k and what happened to them; activate a row to open the document',
   'document-queries': 'Questions in which the selected document appears; activate a row to follow it',
 }
 
@@ -85,7 +86,7 @@ const TONE_TEXT: Record<OutcomeTone, string> = {
 }
 
 // Stacked rows below 640 px: the lead cell on line one (with what happened, when it fits), the rest after.
-export const LINE_TWO = 'max-sm:text-xs max-sm:text-ink-muted'
+export const LINE_TWO = 'max-sm:text-[13px] max-sm:text-ink-muted'
 export const DOT = "max-sm:before:mr-2 max-sm:before:content-['·']"
 const QUESTION_STACK = 'max-sm:order-1 max-sm:basis-full'
 const WHAT_STACK = 'max-sm:order-5 max-sm:basis-full sm:w-2/5'
@@ -100,10 +101,10 @@ function phone(text: string): ReactNode {
 function questionCell(id: string, text: string | null | undefined): ReactNode {
   return text ? (
     <>
-      {text} <span className="ml-1 whitespace-nowrap font-mono text-xs text-ink-muted">{id}</span>
+      {text} <span className="ml-1 whitespace-nowrap font-mono text-xs text-ink-muted max-sm:text-[13px]">{id}</span>
     </>
   ) : (
-    <span className="whitespace-nowrap font-mono text-xs">{id}</span>
+    <span className="whitespace-nowrap font-mono text-xs max-sm:text-[13px]">{id}</span>
   )
 }
 
@@ -128,7 +129,7 @@ function missLines(misses: FlowMiss[], k: number | null, nameOf: (opId: string) 
     return (
       <span key={`${miss.trace_id}|${miss.namespace}:${miss.entity_id}`} className="block">
         {text}
-        {sub && <span className="block text-xs text-ink-muted">{sub}</span>}
+        {sub && <span className="block text-xs text-ink-muted max-sm:text-[13px]">{sub}</span>}
       </span>
     )
   })
@@ -210,7 +211,7 @@ function candidateColumns(k: number | null, singleNamespace: boolean, isSource?:
     {
       key: 'entity',
       header: 'Document',
-      cell: (row) => <span className="font-mono text-xs max-sm:break-all sm:whitespace-nowrap">{displayEntity(row, singleNamespace)}</span>,
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all max-sm:text-[13px] sm:whitespace-nowrap">{displayEntity(row, singleNamespace)}</span>,
       sortValue: entityKey,
       stack: 'max-sm:order-1 max-sm:min-w-0 max-sm:flex-1',
     },
@@ -226,6 +227,46 @@ function candidateColumns(k: number | null, singleNamespace: boolean, isSource?:
   ]
 }
 
+function missedDocumentColumns(k: number | null, singleNamespace: boolean, nameOf: (opId: string) => string): Column<MissedDocument>[] {
+  const questions = (row: MissedDocument) => new Set(row.misses.map((miss) => miss.query_id)).size
+  return [
+    {
+      key: 'entity',
+      header: 'Document',
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all max-sm:text-[13px] sm:whitespace-nowrap">{displayEntity(row, singleNamespace)}</span>,
+      sortValue: (row) => row.entity,
+      stack: 'max-sm:order-1 max-sm:basis-full',
+    },
+    {
+      key: 'questions',
+      header: 'Missed in',
+      cell: (row) => <span className={`font-semibold ${TONE_TEXT.negative}`}>{plural(questions(row), 'question')}</span>,
+      sortValue: questions,
+      numeric: true,
+      stack: `max-sm:order-4 ${NOWRAP}`,
+    },
+    {
+      key: 'outcome',
+      header: 'What happened',
+      cell: (row) =>
+        row.misses.map((miss) => {
+          const { text, sub } = missLine(miss, k, nameOf)
+          return (
+            <span key={`${miss.trace_id}|${miss.query_id}`} className="block">
+              {text}
+              <span className="block text-xs text-ink-muted max-sm:text-[13px]">
+                Question {miss.query_id}
+                {sub ? ` · ${sub}` : ''}
+              </span>
+            </span>
+          )
+        }),
+      sortValue: (row) => missLine(row.misses[0], k, nameOf).text,
+      stack: WHAT_STACK,
+    },
+  ]
+}
+
 /** Correct-document misses of a document: its correct questions it was not delivered in. */
 function documentMisses(row: InvestigationDocumentRow): number {
   return Math.max(0, row.judged_relevant_queries.length - row.delivered)
@@ -236,7 +277,7 @@ function documentColumns(singleNamespace: boolean): Column<InvestigationDocument
     {
       key: 'entity',
       header: 'Document',
-      cell: (row) => <span className="font-mono text-xs max-sm:break-all sm:whitespace-nowrap">{displayEntity(splitEntity(row.entity), singleNamespace)}</span>,
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all max-sm:text-[13px] sm:whitespace-nowrap">{displayEntity(splitEntity(row.entity), singleNamespace)}</span>,
       sortValue: (row) => row.entity,
       stack: 'max-sm:order-1 max-sm:basis-full',
     },
@@ -365,6 +406,20 @@ function shapeRows(props: InvestigationTableProps): Shaped<any> {
   const { shape, selection, sort, isSource, total, k = null, singleNamespace = false, misses = new Map(), stepLabel = (opId: string) => opId } = props
   const count = total ?? props.rows.length
   const openQuestion = (row: { query_id: string; trace_ids: string[] }) => ({ query: row.query_id, trace: row.trace_ids.length === 1 ? row.trace_ids[0] : null, entity: null })
+  if (shape === 'missed-documents') {
+    const missed = props.rows as MissedDocument[]
+    const columns = missedDocumentColumns(k, singleNamespace, stepLabel)
+    return {
+      columns,
+      display: applySort(missed, columns, sort),
+      key: (row) => row.entity,
+      // One miss: open the document with that question selected, so the diagram draws its path.
+      patch: (row) => (row.misses.length === 1 ? { entity: row.entity, query: row.misses[0].query_id, trace: row.misses[0].trace_id } : { entity: row.entity, query: null, trace: null }),
+      selected: (row) => selection.entity === row.entity,
+      line: `${plural(count, 'document')} · ${missed.length} shown`,
+      chips: false,
+    }
+  }
   if (shape === 'missed') {
     const missed = props.rows as MissedQuestion[]
     const columns = missedColumns(k, stepLabel)
@@ -468,7 +523,7 @@ export default function InvestigationTable(props: InvestigationTableProps) {
 
   return (
     <div className="app-card">
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2 text-xs max-sm:text-[13px]">
         <p aria-live="polite" className="text-ink-muted">
           {shaped.line}
         </p>

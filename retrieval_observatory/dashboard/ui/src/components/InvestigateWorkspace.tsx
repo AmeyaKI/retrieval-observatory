@@ -26,7 +26,7 @@ import {
 import { useDashboardContext } from '../context/DashboardContext'
 import { DashboardSelection } from '../context/dashboardQuery'
 import { collapseInvocations, collapsedNodeId } from '../utils/dagLayout'
-import { flowStepOf, foldFlow, missedQuestions, plural, runHeadline, stepName } from '../utils/flowWords'
+import { flowStepOf, foldFlow, missedDocuments, missedQuestions, plural, runHeadline, stepName } from '../utils/flowWords'
 import { auditLink, buildHash } from '../utils/focusedRoutes'
 import { entityKey, focusRowFor, isJourneyRow, OUTCOME_LABELS, sortForView, splitEntity, stageFilter } from '../utils/queryDebugger'
 import CandidateLineageDiff, { CompareHeadline } from './CandidateLineageDiff'
@@ -483,6 +483,8 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   // Each question's missed correct documents, named like the diagram's (folded) steps.
   const missed = foldedFlow && !comparing(selection) ? missedQuestions(foldedFlow) : []
   const missesByQuery = new Map(missed.map((question) => [question.query_id, question.misses]))
+  // The documents list leads with the correct documents that missed, from the same flow.
+  const missedDocs = foldedFlow && mode === 'documents' ? missedDocuments(foldedFlow) : []
 
   let body: React.ReactNode
   if (!db || !run) {
@@ -587,6 +589,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     const relevantDelivered = relevantRows.filter((row) => row.outcome === 'relevant_delivered').length
     const headline = listPage && foldedFlow ? runHeadline(foldedFlow, graph) : null
     const questionLists = mode === 'queries' && !comparison
+    const documentLists = mode === 'documents' && !comparison
     const summaries = new Map(rows.filter((row): row is QuerySummaryRow => 'loss_boundaries' in row).map((row) => [row.query_id, row]))
     const documentRows = rows.filter((row): row is InvestigationDocumentRow => 'judged_relevant_queries' in row)
     const tableNamespace = mode === 'documents' ? new Set(documentRows.map((row) => splitEntity(row.entity).namespace)).size <= 1 : singleNamespace
@@ -795,6 +798,32 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
                 <summary className="cursor-pointer pt-2 text-sm font-semibold text-ink">
                   {summaries.size > 0 ? `All ${plural(ready.total ?? rows.length, 'question')}` : rows.length > 0 ? 'Questions with a matching document' : 'All questions'}
                 </summary>
+                {table || emptyPanel}
+                {loadMoreBar}
+              </details>
+            )}
+          </>
+        ) : documentLists ? (
+          <>
+            {missedDocs.length > 0 && (
+              <MissedQuestions
+                key={JSON.stringify([db, run, selection.pipeline, selection.stage, selection.outcome, collapsed])}
+                kind="documents"
+                questions={missedDocs}
+                singleNamespace={new Set(missedDocs.map((row) => row.namespace)).size <= 1}
+                k={foldedFlow!.k}
+                selection={selection}
+                stage={selection.stage ? { id: stageNodeId as string, name: stageNode ? stepName(stageNode).name : stepLabel(selection.stage) } : null}
+                stepLabel={stepLabel}
+                sort={missedSort}
+                onSort={setMissedSort}
+                onSelect={select}
+              />
+            )}
+            {(rows.length > 0 || !indexUnavailable) && (
+              // Open by default when no correct document was missed (or the flow is unavailable): then it is the only list.
+              <details open={missedDocs.length === 0} className="space-y-2">
+                <summary className="cursor-pointer pt-2 text-sm font-semibold text-ink">All {plural(ready.total ?? rows.length, 'document')}</summary>
                 {table || emptyPanel}
                 {loadMoreBar}
               </details>

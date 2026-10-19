@@ -1,15 +1,15 @@
 import { ReactNode, useState } from 'react'
 import { JourneyRow } from '../api'
 import { DashboardSelection } from '../context/dashboardQuery'
-import { filterMissed, MissedQuestion, reasonChips, RunHeadlineWords } from '../utils/flowWords'
+import { filterMissed, MissedDocument, MissedQuestion, plural, reasonChips, RunHeadlineWords } from '../utils/flowWords'
 import { documentSentence } from '../utils/journeyWords'
 import { displayEntity, splitEntity } from '../utils/queryDebugger'
 import { BADGE } from './InvestigationGraph'
 import InvestigationTable, { SortState } from './InvestigationTable'
 
 // The parts of a run's page around the diagram: the headline that names the step losing the most
-// correct documents, the list of questions that missed one (filtered by reason and by the selected
-// step), and one document's header.
+// correct documents, the lists of questions and of correct documents that missed the top k (filtered
+// by reason and by the selected step), and one document's header.
 
 const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent'
 const SHOWN = 50
@@ -77,8 +77,11 @@ export function DocumentHeader({ entity, rows, questions, singleNamespace, onBac
 }
 
 export interface MissedQuestionsProps {
-  /** Every question with a missed correct document, from the flow folded like the diagram. */
-  questions: MissedQuestion[]
+  /** Every question (or, with `kind="documents"`, every correct document) with a miss, from the flow folded like the diagram. */
+  questions: MissedQuestion[] | MissedDocument[]
+  kind?: 'questions' | 'documents'
+  /** Show document ids without their namespace (the documents list). */
+  singleNamespace?: boolean
   k: number
   selection: DashboardSelection
   /** The selected step as the folded flow names it, and its plain name; null without one. */
@@ -99,9 +102,11 @@ const CHIP_TONE: Record<string, string> = {
 }
 
 /** Mount with a key of the filters so "Show more" starts over when they change. */
-export function MissedQuestions({ questions, k, selection, stage, stepLabel, sort, onSort, onSelect }: MissedQuestionsProps) {
+export function MissedQuestions({ questions, kind = 'questions', singleNamespace, k, selection, stage, stepLabel, sort, onSort, onSelect }: MissedQuestionsProps) {
   const [limit, setLimit] = useState(SHOWN)
-  const atStage = stage ? filterMissed(questions, { stage: stage.id }) : questions
+  const documents = kind === 'documents'
+  const rows: Array<MissedQuestion | MissedDocument> = questions
+  const atStage = stage ? filterMissed(rows, { stage: stage.id }) : rows
   const shown = filterMissed(atStage, { outcome: selection.outcome })
   const chips = reasonChips(atStage).map((chip) => {
     const active = selection.outcome === chip.outcome
@@ -121,7 +126,7 @@ export function MissedQuestions({ questions, k, selection, stage, stepLabel, sor
     <section aria-labelledby="missed-title" className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2">
         <h2 id="missed-title" className="text-sm font-semibold text-ink">
-          Questions that missed a correct document ({questions.length})
+          {documents ? 'Correct documents that were missed' : 'Questions that missed a correct document'} ({questions.length})
         </h2>
         {/* Any filter, even a reason no chip offers, can be cleared from here. */}
         {(selection.stage || selection.outcome) && (
@@ -132,7 +137,13 @@ export function MissedQuestions({ questions, k, selection, stage, stepLabel, sor
       </div>
       {stage && (
         <div role="status" className="app-inset flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm text-ink">
-          <span>{atStage.length > 0 ? `Showing questions where ${stage.name} lost a correct document (${atStage.length})` : `${stage.name} lost no correct documents.`}</span>
+          <span>
+            {atStage.length === 0
+              ? `${stage.name} lost no correct documents.`
+              : documents
+                ? `Showing correct documents that ${stage.name} lost (${atStage.length})`
+                : `Showing questions where ${stage.name} lost a correct document (${atStage.length})`}
+          </span>
           <button type="button" onClick={() => onSelect({ stage: null })} className={resetClass}>
             Clear
           </button>
@@ -140,8 +151,9 @@ export function MissedQuestions({ questions, k, selection, stage, stepLabel, sor
       )}
       {atStage.length > 0 && (
         <InvestigationTable
-          shape="missed"
-          rows={shown.slice(0, limit)}
+          shape={documents ? 'missed-documents' : 'missed'}
+          rows={shown.slice(0, limit) as MissedQuestion[] | MissedDocument[]}
+          singleNamespace={singleNamespace}
           selection={selection}
           total={shown.length}
           sort={sort}
@@ -155,7 +167,7 @@ export function MissedQuestions({ questions, k, selection, stage, stepLabel, sor
       {shown.length > limit && (
         <p className="flex items-center gap-3 text-xs text-ink-muted">
           <span>
-            {limit} of {shown.length} questions
+            {limit} of {plural(shown.length, documents ? 'document' : 'question')}
           </span>
           <button type="button" onClick={() => setLimit((value) => value + SHOWN)} className={`font-medium text-accent hover:underline ${FOCUS_RING}`}>
             Show more

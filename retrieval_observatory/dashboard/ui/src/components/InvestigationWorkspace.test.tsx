@@ -6,7 +6,7 @@ vi.hoisted(() => {
 })
 import type { FlowMiss, FlowStep, InvestigationDocumentRow, InvestigationFlow, InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode, QuerySummaryRow, StageSummary } from '../api'
 import { DEFAULT_SELECTION } from '../context/dashboardQuery'
-import { missedQuestions, runHeadline } from '../utils/flowWords'
+import { missedDocuments, missedQuestions, runHeadline } from '../utils/flowWords'
 import { nextIndexForKey } from '../utils/queryDebugger'
 import JourneyCard from './InvestigationDetail'
 import InvestigationGraph, { FlowTable, StepCard } from './InvestigationGraph'
@@ -957,6 +957,22 @@ describe('Run view', () => {
     const none = renderToStaticMarkup(<MissedQuestions {...missedProps} stage={{ id: 'select', name: 'Select' }} />)
     expect(words(none)).toContain('Select lost no correct documents. Clear')
     expect(none).not.toContain('<table')
+  })
+
+  test('the documents list leads with the correct documents that were missed', () => {
+    const documents = missedDocuments(DEMO_FLOW)
+    const html = renderToStaticMarkup(<MissedQuestions {...missedProps} kind="documents" questions={documents} singleNamespace />)
+    expect(html).toContain('Correct documents that were missed (2)')
+    expect(html).toContain('Correct documents that missed the top k and what happened to them')
+    expect(words(html)).toContain('doc-archive 1 question Never found by any search Question q-invoice')
+    expect(words(html)).toContain('doc-guide 1 question Dropped by Recency Filter Question q-outage · Lexical had it at #1')
+    expect(html).toContain('2 documents · 2 shown')
+    // Phone second lines are 13 px, not the 12 px floor.
+    expect(html).toContain('max-sm:text-[13px]')
+    expect(html).not.toContain('max-sm:text-xs')
+    const atStep = renderToStaticMarkup(<MissedQuestions {...missedProps} kind="documents" questions={documents} singleNamespace stage={{ id: 'recency_filter', name: 'Recency Filter' }} />)
+    expect(words(atStep)).toContain('Showing correct documents that Recency Filter lost (1) Clear')
+    expect(atStep).not.toContain('doc-archive')
   })
 
   test('the missed list shows 50 questions at a time', () => {
