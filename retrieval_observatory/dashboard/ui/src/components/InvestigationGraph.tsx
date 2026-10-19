@@ -94,7 +94,7 @@ export function StepCard({
           : words.ghost
             ? 'border border-ink-faint/50'
             : 'border border-hairline'
-  const title = [node.label, node.node_id, kind, words.metric, words.badge?.text, words.note].filter(Boolean).join('\n')
+  const title = [node.label, node.node_id, kind, words.metric, words.badge?.text, words.fullNote ?? words.note].filter(Boolean).join('\n')
   return (
     <foreignObject x={node.x} y={node.y} width={node.w} height={node.h} style={{ overflow: 'visible' }}>
       <button
@@ -235,7 +235,7 @@ export default function InvestigationGraph({
   if (!graph || !shown || !layout) {
     return (
       <p role="status" className="text-sm text-ink-muted">
-        No pipeline topology recorded for this run; the tables below still hold every indexed journey.
+        No pipeline steps were recorded for this run, so there is no diagram; the lists below still show everything indexed.
       </p>
     )
   }

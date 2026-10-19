@@ -255,6 +255,15 @@ export function settleBuild(
     })
 }
 
+/** A 404 in plain words; the service's own detail when its code is not one of these. */
+const NOT_FOUND: Record<string, string> = {
+  run_not_found: 'This run is not in the database.',
+  pipeline_not_found: 'This run has no traces for the selected pipeline.',
+  query_not_found: 'This question has no traces in this run.',
+  trace_not_found: 'This question has no trace with that id.',
+  entity_not_found: 'This document does not appear in any question of this run.',
+}
+
 function Notice({ tone, title, children }: { tone: 'warning' | 'neutral' | 'negative'; title: string; children?: React.ReactNode }) {
   const color = tone === 'warning' ? 'text-status-warning' : tone === 'negative' ? 'text-status-negative' : 'text-status-neutral'
   return (
@@ -278,7 +287,7 @@ function Panel({ title, children, id }: { title: string; children: React.ReactNo
 
 const linkClass = 'text-accent underline underline-offset-2'
 const buttonClass =
-  'rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
+  'rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-surface hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
 
 interface Props {
   /** Reports the pipelines the service names for the current run, so the scope bar can offer them. */
@@ -436,6 +445,8 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const questionPage = mode === 'query-candidates' && !comparing(selection)
   // The run's lists lead with the flow: they wait for the scope stream so nothing jumps when it lands.
   const listPage = (mode === 'queries' || mode === 'documents') && !comparing(selection)
+  // Compare names steps from the graph: it waits too, so no raw step id shows before the names arrive.
+  const waitsForScope = listPage || comparing(selection)
 
   // Graph inputs derived from the two streams.
   const envelope = phase.kind === 'ready' ? phase.envelope : null
@@ -489,7 +500,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         )}
       </Panel>
     )
-  } else if (phase.kind === 'loading' || phase.kind === 'idle' || (listPage && phase.kind === 'ready' && scope.kind !== 'ready')) {
+  } else if (phase.kind === 'loading' || phase.kind === 'idle' || (waitsForScope && phase.kind === 'ready' && scope.kind !== 'ready')) {
     body = (
       <div role="status" className="app-card p-6 text-sm text-ink-muted">
         Loading {viewWord}…
@@ -515,8 +526,12 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
       )
     } else if (error.status === 404) {
       body = (
-        <Panel id="investigate-missing" title="Nothing recorded for this scope">
-          <p>{error.detail ?? error.message}</p>
+        <Panel id="investigate-missing" title="Nothing recorded here">
+          <p>
+            {(error.code === 'query_not_found' && comparing(selection) ? 'This question has no rows in either run.' : error.code && NOT_FOUND[error.code]) ??
+              error.detail ??
+              error.message}
+          </p>
           <p className="mt-2">
             {DRILL_DOWN.has(mode) ? (
               <button type="button" onClick={clearDrillDown} className={linkClass}>
@@ -576,15 +591,15 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     const documentRows = rows.filter((row): row is InvestigationDocumentRow => 'judged_relevant_queries' in row)
     const tableNamespace = mode === 'documents' ? new Set(documentRows.map((row) => splitEntity(row.entity).namespace)).size <= 1 : singleNamespace
     const emptyPanel = !comparison && rows.length === 0 && !indexUnavailable && (
-      <Panel id="investigate-empty" title={`No ${viewWord} for this scope`}>
+      <Panel id="investigate-empty" title={`No ${viewWord} to show`}>
         <p>
           {selection.stage || selection.outcome
-            ? 'No rows match the current stage/outcome filters.'
-            : 'The index holds no rows for this run and pipeline.'}
+            ? `No ${viewWord} match the selected step or reason.`
+            : `The index holds no ${viewWord} for this run and pipeline.`}
         </p>
         {(selection.stage || selection.outcome) && (
           <button type="button" onClick={resetSelection} className={`${linkClass} mt-2`}>
-            Reset selection
+            Clear filters
           </button>
         )}
       </Panel>
@@ -644,24 +659,29 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         {indexUnavailable && (
           <Panel id="investigate-index" title="Index this run">
             <p>
-              Journey rows for this run have not been indexed yet{rows.length === 0 ? `, so the ${viewWord} list is empty` : ''}.
-              Indexing reads the recorded traces once and stores the per-query outcomes.
+              This run has not been indexed yet{rows.length === 0 ? `, so there are no ${viewWord} to show` : ''}. Indexing reads the recorded traces once
+              and stores what happened to each question's documents.
             </p>
             {buildButton('Index this run')}
           </Panel>
         )}
         {indexStale && (
           <div role="status" className="app-inset px-3 py-2 text-xs">
-            <span className="font-semibold text-status-warning">Stale index — rebuild</span>
+            <span className="font-semibold text-status-warning">The index is out of date</span>
             <span className="ml-2 text-ink-muted">
-              The stored rows predate the current judgments or derivation; counts may not match the traces.
+              It was built from older judgments or an older version of retobs, so its counts may not match the traces.
             </span>
             {buildButton('Rebuild index')}
           </div>
         )}
+        {listPage && scope.kind === 'ready' && !scope.flow && !indexUnavailable && (
+          <Notice tone="neutral" title="Correct-document counts could not be loaded">
+            The diagram shows candidate counts instead.
+          </Notice>
+        )}
         {partialRows > 0 && !comparison && (
-          <Notice tone="warning" title={`${partialRows} of ${rows.length} rows are evidence-limited`}>
-            An operator boundary was not fully captured for them, so no removal reason is asserted.
+          <Notice tone="warning" title={`${partialRows} of ${rows.length} rows were only partly recorded`}>
+            A step's input or output was not fully captured for them, so their reasons are not asserted.
           </Notice>
         )}
         {multipleTraces && (
@@ -687,7 +707,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
                 {graph && `${graph.trace_count} ${graph.trace_count === 1 ? 'question' : 'questions'}`}
               </span>
             )}
-            {scope.kind === 'ready' && scope.graphError && <span className="text-xs text-ink-faint">topology unavailable: {scope.graphError}</span>}
+            {scope.kind === 'ready' && scope.graphError && <span className="text-xs text-ink-faint">The diagram could not be loaded: {scope.graphError}</span>}
           </div>
           {scope.kind === 'loading' ? (
             <p role="status" className="text-sm text-ink-muted">
@@ -763,7 +783,6 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
                 k={foldedFlow!.k}
                 selection={selection}
                 stage={selection.stage ? { id: stageNodeId as string, name: stageNode ? stepName(stageNode).name : stepLabel(selection.stage) } : null}
-                summaries={summaries}
                 stepLabel={stepLabel}
                 sort={missedSort}
                 onSort={setMissedSort}

@@ -102,7 +102,7 @@ export function GraphTable({ graph }: { graph: PipelineGraph }) {
   for (const edge of graph.edges) parents.set(edge.target, [...(parents.get(edge.target) ?? []), edge.source])
   return (
     <div
-      className="overflow-x-auto rounded border border-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 dark:border-slate-700"
+      className="overflow-x-auto rounded border border-slate-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent dark:border-slate-700"
       tabIndex={0}
       role="region"
       aria-label={`Operator table for pipeline ${graph.pipeline_id}`}

@@ -28,12 +28,6 @@ import {
 
 export type TableShape = 'queries' | 'missed' | 'query-candidates' | 'documents' | 'document-queries'
 
-/** One row of the missed list: a question's missed correct documents and how many correct documents it has. */
-export interface MissedRow extends MissedQuestion {
-  /** From its stored summary (or all missed when it got none); null when unknown. */
-  relevant: number | null
-}
-
 export interface SortState {
   key: string
   dir: 'asc' | 'desc'
@@ -42,12 +36,12 @@ export interface SortState {
 export interface InvestigationTableProps {
   shape: TableShape
   /** The queries shape takes the stored per-query summaries, or journey rows (rolled up client-side) when a pair-level filter is set. */
-  rows: JourneyRow[] | InvestigationDocumentRow[] | QuerySummaryRow[] | MissedRow[]
+  rows: JourneyRow[] | InvestigationDocumentRow[] | QuerySummaryRow[] | MissedQuestion[]
   selection: DashboardSelection
   /** Server-side row total when known (the missed list: the rows after its filters). */
   total: number | null
   sort: SortState | null
-  /** Names the SOURCE operators for the "Came from" column; without it every introducing operator counts. */
+  /** Names the SOURCE operators for the "Came from" column and the ranks trail; without it every introducing operator counts. */
   isSource?: (opId: string) => boolean
   /** The cutoff, for "pushed out of the top k" and the "Correct in top k" column. */
   k?: number | null
@@ -55,7 +49,7 @@ export interface InvestigationTableProps {
   singleNamespace?: boolean
   /** A step's plain name; the id when absent. */
   stepLabel?: (opId: string) => string
-  /** Each question's missed correct documents (from the flow): the questions' "What happened" lines and texts. */
+  /** Each question's missed correct documents (from the flow): the questions' counts, "What happened" lines and texts. */
   misses?: Map<string, FlowMiss[]>
   /** Controls at the right of the toolbar (the missed list's reason filters). */
   actions?: ReactNode
@@ -140,15 +134,14 @@ function missLines(misses: FlowMiss[], k: number | null, nameOf: (opId: string) 
   })
 }
 
-function missedColumns(k: number | null, nameOf: (opId: string) => string): Column<MissedRow>[] {
-  const delivered = (row: MissedRow) => (row.relevant != null ? Math.max(0, row.relevant - row.misses.length) : null)
+function missedColumns(k: number | null, nameOf: (opId: string) => string): Column<MissedQuestion>[] {
   return [
     { key: 'query', header: 'Question', cell: (row) => questionCell(row.query_id, row.query_text), sortValue: (row) => row.query_id, stack: QUESTION_STACK },
     {
       key: 'correct',
       header: correctHeader(k),
-      cell: (row) => (row.relevant != null ? correctCell(delivered(row)!, row.relevant, k) : <span className={`font-semibold ${TONE_TEXT.negative}`}>{row.misses.length} missed</span>),
-      sortValue: delivered,
+      cell: (row) => correctCell(row.delivered, row.relevant, k),
+      sortValue: (row) => row.delivered,
       numeric: true,
       stack: `max-sm:order-4 ${NOWRAP}`,
     },
@@ -160,6 +153,11 @@ function missedColumns(k: number | null, nameOf: (opId: string) => string): Colu
 type QueryCounts = Pick<QuerySummaryRow, 'query_id' | 'relevant_delivered' | 'relevant_missed' | 'trace_ids'> & { query_text?: string | null }
 
 function queryColumns(k: number | null, misses: Map<string, FlowMiss[]>, nameOf: (opId: string) => string): Column<QueryCounts>[] {
+  // A question that missed a correct document counts from the flow, like the missed list; the others from their row.
+  const counts = (row: QueryCounts) => {
+    const miss = misses.get(row.query_id)?.[0]
+    return miss ? { delivered: miss.question_delivered, relevant: miss.question_relevant } : { delivered: row.relevant_delivered, relevant: row.relevant_delivered + row.relevant_missed }
+  }
   return [
     {
       key: 'query',
@@ -172,10 +170,10 @@ function queryColumns(k: number | null, misses: Map<string, FlowMiss[]>, nameOf:
       key: 'correct',
       header: correctHeader(k),
       cell: (row) => {
-        const relevant = row.relevant_delivered + row.relevant_missed
-        return relevant > 0 ? correctCell(row.relevant_delivered, relevant, k) : <span className="text-ink-faint">—</span>
+        const { delivered, relevant } = counts(row)
+        return relevant > 0 ? correctCell(delivered, relevant, k) : <span className="text-ink-faint">—</span>
       },
-      sortValue: (row) => row.relevant_missed,
+      sortValue: (row) => counts(row).relevant - counts(row).delivered,
       numeric: true,
       stack: `max-sm:order-4 ${NOWRAP}`,
     },
@@ -302,12 +300,12 @@ function documentColumns(singleNamespace: boolean): Column<InvestigationDocument
   ]
 }
 
-function documentQueryColumns(k: number | null, misses: Map<string, FlowMiss[]>, nameOf: (opId: string) => string): Column<JourneyRow>[] {
+function documentQueryColumns(k: number | null, nameOf: (opId: string) => string, isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
   return [
     {
       key: 'query',
       header: 'Question',
-      cell: (row) => questionCell(row.query_id, misses.get(row.query_id)?.[0]?.query_text),
+      cell: (row) => questionCell(row.query_id, row.query_text),
       sortValue: (row) => row.query_id,
       stack: 'max-sm:order-1 max-sm:min-w-0 max-sm:flex-1',
     },
@@ -319,7 +317,7 @@ function documentQueryColumns(k: number | null, misses: Map<string, FlowMiss[]>,
       sortValue: (row) => row.outcome,
       stack: `max-sm:order-2 ${NOWRAP}`,
     },
-    { key: 'ranks', header: 'Ranks', cell: (row) => ranksTrail(row, nameOf), sortValue: (row) => row.final_rank, stack: `max-sm:order-5 ${LINE_TWO} ${DOT}` },
+    { key: 'ranks', header: 'Ranks', cell: (row) => ranksTrail(row, nameOf, isSource), sortValue: (row) => row.final_rank, stack: `max-sm:order-5 ${LINE_TWO} ${DOT}` },
   ]
 }
 
@@ -368,7 +366,7 @@ function shapeRows(props: InvestigationTableProps): Shaped<any> {
   const count = total ?? props.rows.length
   const openQuestion = (row: { query_id: string; trace_ids: string[] }) => ({ query: row.query_id, trace: row.trace_ids.length === 1 ? row.trace_ids[0] : null, entity: null })
   if (shape === 'missed') {
-    const missed = props.rows as MissedRow[]
+    const missed = props.rows as MissedQuestion[]
     const columns = missedColumns(k, stepLabel)
     return {
       columns,
@@ -424,7 +422,7 @@ function shapeRows(props: InvestigationTableProps): Shaped<any> {
       chips: true,
     }
   }
-  const columns = documentQueryColumns(k, misses, stepLabel)
+  const columns = documentQueryColumns(k, stepLabel, isSource)
   return {
     columns,
     display: applySort(sortForView(journeys, 'documents'), columns, sort),

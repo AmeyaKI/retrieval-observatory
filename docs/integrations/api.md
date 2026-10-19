@@ -6,7 +6,7 @@ Use `GET /dbs` to select a database, then scope reads to `/dbs/{db_id}/...`. Run
 
 | Task | Routes |
 |---|---|
-| Investigate | `GET /dbs/{db}/investigation/runs/{run}/queries[/{query}]`, `.../documents[/{entity}]`, `.../compare?against=BASELINE[&query=]`; `POST .../projection` builds a Run's rows explicitly. GET never writes. |
+| Investigate | `GET /dbs/{db}/investigation/runs/{run}/queries[/{query}]`, `.../documents[/{entity}]`, `.../compare?against=BASELINE[&query=]`, `.../flow` (correct documents per step); `POST .../projection` builds a Run's rows explicitly. GET never writes. |
 | Connect | `GET /dbs/{db}/integrations`, `GET /dbs/{db}/integrations/{service}:{pipeline}` (the record `integrate --phase verify` persisted). |
 | Audit | `POST /compare` with baseline and candidate selections; the response carries the `audit-1` release audit under `audit`. |
 

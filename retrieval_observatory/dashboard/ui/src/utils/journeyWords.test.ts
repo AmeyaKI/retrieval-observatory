@@ -183,6 +183,31 @@ const FAQ = row({
   ],
 })
 
+// Demo q-invoice: doc-guide's two chunks. Select keeps chunk-1 at #2 and removes chunk-2 as a duplicate (the seeded events).
+const chunk2 = { occurrence_entity_id: 'doc-guide/chunk-2', candidate_id: 'kb:doc-guide/chunk-2' }
+const chunk1 = { occurrence_entity_id: 'doc-guide/chunk-1', candidate_id: 'kb:doc-guide/chunk-1' }
+const INVOICE_GUIDE = row({
+  query_id: 'q-invoice',
+  entity_id: 'doc-guide',
+  final_membership: 'included',
+  in_final_output: true,
+  final_rank: 2,
+  outcome: 'relevant_delivered',
+  confusion: 'TP',
+  events: [
+    event('dense', 'introduced', null, 1, chunk1),
+    event('lexical', 'introduced', null, 1, chunk2),
+    event('recency_filter', 'removed', 1, null, { ...chunk2, reason: 'min_score' }),
+    event('rerank@dense', 'demoted', 1, 2, chunk1),
+    event('fuse', 'retained', 2, 2, chunk1),
+    event('expand_gate', 'retained', 2, 2, chunk1),
+    event('expand', 'retained', 2, 2, chunk1),
+    event('expand', 'recovered', null, 4, { ...chunk2, reason: 'expanded' }),
+    event('select', 'retained', 2, 2, chunk1),
+    event('select', 'removed', 4, null, { ...chunk2, reason: 'duplicate_document' }),
+  ],
+})
+
 const texts = (steps: ReturnType<typeof journeySteps>) => steps.map((step) => step.text)
 
 describe('journeySteps', () => {
@@ -240,10 +265,35 @@ describe('journeySteps', () => {
     expect(verdictSentence(partial, DEMO_GRAPH, null, 3)).toBe('Lexical found it at rank 2; Dense did not return it; Rerank did not record what happened to it.')
   })
 
+  test('a step that removed a duplicate chunk but output another keeps the document at its output rank', () => {
+    const steps = journeySteps(INVOICE_GUIDE, DEMO_GRAPH, DEMO_STAGES, 3)
+    expect(steps.find((step) => step.opId === 'select')).toEqual({ opId: 'select', name: 'Select', tone: 'neutral', text: 'Select kept it at rank 2', sub: 'Removed a duplicate occurrence' })
+    expect(steps[steps.length - 1]).toMatchObject({ tone: 'positive', text: 'Delivered at #2' })
+    expect(verdictSentence(INVOICE_GUIDE, DEMO_GRAPH, DEMO_STAGES, 3)).toBe('Dense found it at rank 1; Lexical found it at rank 1; Select delivered it at #2.')
+    // As the loss boundary (a top 1), the step placed it below the cutoff; it did not remove it.
+    const lost = { ...INVOICE_GUIDE, final_membership: 'excluded' as const, outcome: 'retained_below_cutoff' as const, loss_boundary: 'select' }
+    expect(journeySteps(lost, DEMO_GRAPH, DEMO_STAGES, 1).find((step) => step.opId === 'select')).toMatchObject({ tone: 'negative', sub: 'Below the top 1 cutoff · Removed a duplicate occurrence' })
+    expect(verdictSentence(lost, DEMO_GRAPH, DEMO_STAGES, 1)).toBe('Dense found it at rank 1; Lexical found it at rank 1; Select placed it 2nd, below the top 1.')
+    // A reason that is not recorded as a duplicate only says another occurrence was kept.
+    const other = { ...INVOICE_GUIDE, events: INVOICE_GUIDE.events.map((e) => (e.reason === 'duplicate_document' ? { ...e, reason: null } : e)) }
+    expect(journeySteps(other, DEMO_GRAPH, DEMO_STAGES, 3).find((step) => step.opId === 'select')!.sub).toBe('Kept another occurrence')
+  })
+
   test('several events at one step fold into one entry', () => {
     const chunks = row({ loss_boundary: 'fuse', events: [event('dense', 'introduced', null, 1), event('dense', 'introduced', null, 4), event('fuse', 'demoted', 1, 5), event('fuse', 'demoted', 4, 7)] })
-    expect(texts(journeySteps(chunks, DEMO_GRAPH, DEMO_STAGES, 3)).slice(0, 2)).toEqual(['Dense found it at rank 4', 'Lexical did not return it'])
-    expect(journeySteps(chunks, DEMO_GRAPH, DEMO_STAGES, 3).find((s) => s.opId === 'fuse')!.text).toBe('Fuse moved it 1 → 7')
+    // The document's rank at a step is its best occurrence's: best input → best output.
+    expect(texts(journeySteps(chunks, DEMO_GRAPH, DEMO_STAGES, 3)).slice(0, 2)).toEqual(['Dense found it at rank 1', 'Lexical did not return it'])
+    expect(journeySteps(chunks, DEMO_GRAPH, DEMO_STAGES, 3).find((s) => s.opId === 'fuse')!.text).toBe('Fuse moved it 1 → 5')
+  })
+
+  test('a step that kept one chunk and brought another back kept the document at its best rank (demo q-invoice, doc-guide at expand)', () => {
+    const expand = journeySteps(INVOICE_GUIDE, DEMO_GRAPH, DEMO_STAGES, 3).find((s) => s.opId === 'expand')!
+    expect(expand).toMatchObject({ tone: 'neutral', text: 'Expand kept it at rank 2', sub: null })
+    const tail = { ...INVOICE_GUIDE, events: INVOICE_GUIDE.events.filter((e) => ['fuse', 'expand_gate', 'expand', 'select'].includes(e.op_id)) }
+    expect(ranksTrail(tail, (id) => DEMO_GRAPH.nodes.find((n) => n.node_id === id)!.label)).toBe('Fuse #2 → Expand Gate #2 → Expand #2 → Select #2')
+    // "Brought it back" only when no event at the step had the document in its input.
+    const back = { ...INVOICE_GUIDE, events: INVOICE_GUIDE.events.filter((e) => !(e.op_id === 'expand' && e.kind === 'retained')) }
+    expect(journeySteps(back, DEMO_GRAPH, DEMO_STAGES, 3).find((s) => s.opId === 'expand')!.text).toBe('Expand brought it back at rank 4')
   })
 })
 
@@ -281,12 +331,21 @@ describe('ranksTrail', () => {
     expect(ranksTrail(row({ events: [] }), nameOf)).toBe('—')
   })
 
-  test('more than four steps keep the first three and the last', () => {
-    expect(ranksTrail(FAQ, nameOf)).toBe('Dense #1 → Lexical #2 → Recency Filter removed → … → Select #1')
+  test('searches that ran side by side share one hop', () => {
+    const both = row({ events: [event('dense', 'introduced', null, 3), event('bm25', 'introduced', null, 8), event('rrf', 'promoted', 3, 4)] })
+    const realName = (id: string) => REAL_GRAPH.nodes.find((n) => n.node_id === id)!.label
+    const isSource = (id: string) => REAL_GRAPH.nodes.find((n) => n.node_id === id)?.op_type === 'SOURCE'
+    expect(ranksTrail(both, realName, isSource)).toBe('Search (dense) #3 · Search (bm25) #8 → Fuse Hits #4')
+    // Without the graph, a step that only introduced the document counts as a search.
+    expect(ranksTrail(both, realName)).toBe('Search (dense) #3 · Search (bm25) #8 → Fuse Hits #4')
+  })
+
+  test('more than four hops keep the first three and the last; the searches count as one', () => {
+    expect(ranksTrail(FAQ, nameOf)).toBe('Dense #1 · Lexical #2 → Recency Filter removed → Rerank #1 → … → Select #1')
   })
 
   test('a step that kept one occurrence and removed another shows the kept rank; unknown reads not recorded', () => {
-    const twice = row({ events: [event('dense', 'introduced', null, 1), event('select', 'retained', 2, 2), event('select', 'removed', 4, null)] })
+    const twice = row({ events: [event('dense', 'introduced', null, 1), event('select', 'retained', 2, 2), event('select', 'removed', 4, null, chunk2)] })
     expect(ranksTrail(twice, nameOf)).toBe('Dense #1 → Select #2')
     const unknown = row({ events: [event('lexical', 'introduced', null, 1), event('rerank@lexical', 'unknown', 1, null)] })
     expect(ranksTrail(unknown, nameOf)).toBe('Lexical #1 → Rerank not recorded')

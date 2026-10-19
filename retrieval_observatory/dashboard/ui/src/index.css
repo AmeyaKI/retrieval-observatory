@@ -76,10 +76,9 @@ body {
   .hairline-b { border-bottom: 1px solid rgb(var(--hairline)); }
   .hairline-r { border-right: 1px solid rgb(var(--hairline)); }
   .eyebrow {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
     color: rgb(var(--ink-faint));
   }
 }

@@ -1,5 +1,5 @@
 import { InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph } from '../api'
-import { plural, statusWord, stepName } from './flowWords'
+import { foldStep, plural, statusWord, stepName } from './flowWords'
 
 // One document's journey through a question in plain words: a numbered step list for its card and
 // one verdict sentence for the page header, both built from the same entries. Raw event kinds stay
@@ -25,6 +25,8 @@ interface Entry {
   input: number | null
   output: number | null
   reason: string | null
+  /** A removal of another occurrence at a step that kept the document. */
+  also: string | null
   stage: InvestigationStage | undefined
   boundary: boolean
 }
@@ -35,13 +37,7 @@ export function ordinal(n: number): string {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
 }
 
-/** Several events at one step fold into one: a removal or unknown wins, otherwise first input rank → last output rank. */
-function fold(events: JourneyEvent[]): Pick<Entry, 'kind' | 'input' | 'output' | 'reason'> {
-  const exit = events.find((e) => e.kind === 'removed') ?? events.find((e) => e.kind === 'unknown')
-  if (exit) return { kind: exit.kind === 'removed' ? 'removed' : 'unknown', input: exit.input_rank, output: exit.output_rank, reason: exit.reason }
-  const kind: Kind = events.some((e) => e.kind === 'introduced') ? 'found' : events.some((e) => e.kind === 'recovered') ? 'recovered' : 'moved'
-  return { kind, input: events[0].input_rank, output: events[events.length - 1].output_rank, reason: null }
-}
+type Folded = Pick<Entry, 'kind' | 'input' | 'output' | 'reason' | 'also'>
 
 function entries(row: JourneyRow, graph: PipelineGraph | null, stages: InvestigationStage[] | null): Entry[] {
   const node = (id: string) => graph?.nodes.find((n) => n.node_id === id)
@@ -51,19 +47,20 @@ function entries(row: JourneyRow, graph: PipelineGraph | null, stages: Investiga
     const found = node(id)
     return found ? stepName(found).name : id
   }
-  const make = (opId: string, part: Pick<Entry, 'kind' | 'input' | 'output' | 'reason'>): Entry => ({
+  const make = (opId: string, part: Folded): Entry => ({
     opId,
     name: nameOf(opId),
     ...part,
     stage: stageOf(opId),
     boundary: row.loss_boundary === opId,
   })
-  const none = { input: null, output: null, reason: null }
+  const none = { input: null, output: null, reason: null, also: null }
 
   const byOp = new Map<string, JourneyEvent[]>()
   for (const event of row.events) byOp.set(event.op_id, [...(byOp.get(event.op_id) ?? []), event])
   const order = [...byOp.keys()]
-  const visited = order.map((id) => make(id, fold(byOp.get(id)!)))
+  // Several events at one step fold by the shared rule (flowWords.foldStep).
+  const visited = order.map((id) => make(id, foldStep(byOp.get(id)!)))
   // Sources that ran for this question but never returned it (all sources when the spans are unknown).
   const sourceIds = graph ? graph.nodes.filter((n) => n.op_type === 'SOURCE').map((n) => n.node_id) : (stages ?? []).filter((s) => s.op_type === 'SOURCE').map((s) => s.op_id)
   const silent = sourceIds
@@ -97,12 +94,14 @@ function fellBelow(entry: Entry, k: number | null): boolean {
 function stepOf(entry: Entry, k: number | null): JourneyStep {
   const { opId, name } = entry
   const step = (tone: StepTone, text: string, sub: string | null = null): JourneyStep => ({ opId, name, tone, text, sub })
+  // A step that kept the document after removing another occurrence says so under its line.
+  const also = (sub: string | null) => [sub, entry.also].filter(Boolean).join(' · ') || null
   switch (entry.kind) {
     case 'found':
       return step(
         'accent',
         entry.output != null ? `${name} found it at rank ${entry.output}` : `${name} found it`,
-        k != null && entry.output != null ? (entry.output <= k ? `In its own top ${k}` : `Outside its own top ${k}`) : null,
+        also(k != null && entry.output != null ? (entry.output <= k ? `In its own top ${k}` : `Outside its own top ${k}`) : null),
       )
     case 'missing': {
       const stage = entry.stage
@@ -114,13 +113,13 @@ function stepOf(entry: Entry, k: number | null): JourneyStep {
     case 'removed':
       return step(entry.boundary ? 'negative' : 'neutral', `${name} removed it`, entry.reason ? `Reason: ${entry.reason}` : 'No reason recorded')
     case 'recovered':
-      return step('accent', entry.output != null ? `${name} brought it back at rank ${entry.output}` : `${name} brought it back`)
+      return step('accent', entry.output != null ? `${name} brought it back at rank ${entry.output}` : `${name} brought it back`, also(null))
     case 'unknown':
       return step('warning', `${name}: not fully recorded`, 'No reason can be given')
     default: {
       const { input, output } = entry
       const text = input != null && output != null && input !== output ? `${name} moved it ${input} → ${output}` : output != null ? `${name} kept it at rank ${output}` : `${name} kept it`
-      return fellBelow(entry, k) ? step('negative', text, `Below the top ${k} cutoff`) : step('neutral', text)
+      return fellBelow(entry, k) ? step('negative', text, also(`Below the top ${k} cutoff`)) : step('neutral', text, also(null))
     }
   }
 }
@@ -159,19 +158,25 @@ export function verdictSentence(row: JourneyRow, graph: PipelineGraph | null, st
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`
 }
 
-/** The document's ranks step by step, compactly: `Lexical #1 → Recency Filter removed`. A step shows
- * the best rank it output, else whether it removed the document. More than four steps keep the first three and the last. */
-export function ranksTrail(row: JourneyRow, nameOf: (opId: string) => string): string {
+/** The document's ranks step by step, compactly: `Search (dense) #3 · Search (bm25) #8 → Fuse Hits #4`.
+ * The searches ran side by side (` · `), then each later step (` → `). A step shows the best rank it
+ * output, else whether it removed the document. More than four hops (the searches count as one) keep
+ * the first three and the last. Without `isSource`, a step that only introduced the document is a search. */
+export function ranksTrail(row: JourneyRow, nameOf: (opId: string) => string, isSource?: (opId: string) => boolean): string {
   const byOp = new Map<string, JourneyEvent[]>()
   for (const event of row.events) byOp.set(event.op_id, [...(byOp.get(event.op_id) ?? []), event])
-  const hops = [...byOp].map(([opId, events]) => {
-    // A step that kept one of the document's occurrences shows its best rank, even if it removed another.
-    const ranks = events.map((event) => event.output_rank).filter((rank): rank is number => rank != null)
+  const hop = (opId: string, events: JourneyEvent[]) => {
+    // The shared fold: a step that kept one of the document's occurrences shows its best rank, even if it removed another.
+    const step = foldStep(events)
     const name = nameOf(opId)
-    if (ranks.length > 0) return `${name} #${Math.min(...ranks)}`
-    if (events.some((event) => event.kind === 'removed')) return `${name} removed`
-    return events.some((event) => event.kind === 'unknown') ? `${name} not recorded` : name
-  })
+    if (step.kind === 'removed') return `${name} removed`
+    if (step.kind === 'unknown') return `${name} not recorded`
+    return step.output != null ? `${name} #${step.output}` : name
+  }
+  const steps = [...byOp]
+  const searches = steps.filter(([opId, events]) => (isSource ? isSource(opId) : events.every((event) => event.kind === 'introduced')))
+  const later = steps.filter((entry) => !searches.includes(entry))
+  const hops = [...(searches.length > 0 ? [searches.map(([opId, events]) => hop(opId, events)).join(' · ')] : []), ...later.map(([opId, events]) => hop(opId, events))]
   if (hops.length === 0) return '—'
   return (hops.length > 4 ? [...hops.slice(0, 3), '…', hops[hops.length - 1]] : hops).join(' → ')
 }

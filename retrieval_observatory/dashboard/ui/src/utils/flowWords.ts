@@ -19,6 +19,8 @@ export interface CardWords {
   noteTone: Tone | null
   badge: Badge | null
   ghost: boolean
+  /** The note in full for the card's title tooltip, when the card shows a shorter one. */
+  fullNote?: string | null
 }
 
 const KIND: Record<string, string> = {
@@ -167,6 +169,50 @@ function join(parts: Array<string | null>): string | null {
   return kept.length > 0 ? kept.join(' · ') : null
 }
 
+/** What one step did with the document, from all its events there (several chunks, folded invocations). */
+export interface FoldedStep {
+  /** found / recovered: the document entered here (no event had it in its input); moved: kept it. */
+  kind: 'found' | 'recovered' | 'moved' | 'removed' | 'unknown'
+  /** Best (lowest) input rank of any of its occurrences. */
+  input: number | null
+  /** Best output rank of the occurrences it kept. */
+  output: number | null
+  /** The removal (or unknown) reason when it did not keep the document. */
+  reason: string | null
+  /** It kept the document but removed another occurrence: the words for that removal. */
+  also: string | null
+}
+
+const best = (ranks: Array<number | null>): number | null => {
+  const known = ranks.filter((rank): rank is number => rank != null)
+  return known.length > 0 ? Math.min(...known) : null
+}
+
+/** The one fold rule for several events at one step. Any occurrence in its output means the step
+ * kept the document, at the best output rank among them; an occurrence output and then removed (a
+ * folded op#2) does not count. Removal or unknown wins only when no occurrence was kept. Found /
+ * brought back only when no event had the document in its input. */
+export function foldStep(events: JourneyEvent[]): FoldedStep {
+  const removed = events.filter((e) => e.kind === 'removed')
+  const gone = new Set(removed.map((e) => e.occurrence_entity_id))
+  const kept = events.filter((e) => e.kind !== 'removed' && e.output_present && !gone.has(e.occurrence_entity_id))
+  if (kept.length === 0) {
+    const exit = removed[0] ?? events.find((e) => e.kind === 'unknown')
+    if (exit) return { kind: exit.kind === 'removed' ? 'removed' : 'unknown', input: exit.input_rank, output: exit.output_rank, reason: exit.reason, also: null }
+  }
+  const passed = kept.length > 0 ? kept : events
+  const entered = !events.some((e) => e.input_present)
+  const kind = entered && passed.some((e) => e.kind === 'introduced') ? 'found' : entered && passed.some((e) => e.kind === 'recovered') ? 'recovered' : 'moved'
+  const duplicate = removed.every((e) => e.reason_evidence === 'recorded' && /dup/i.test(e.reason ?? ''))
+  return {
+    kind,
+    input: best(events.map((e) => e.input_rank)),
+    output: best(passed.map((e) => e.output_rank)),
+    reason: null,
+    also: removed.length > 0 && kept.length > 0 ? (duplicate ? 'Removed a duplicate occurrence' : 'Kept another occurrence') : null,
+  }
+}
+
 /** Run mode: correct documents over the whole run (or the stored candidate counts without judgments).
  * `separateResult`: a result card follows the final step, so the step carries only its own facts. */
 export function runCard(
@@ -204,23 +250,22 @@ export function runCard(
     removal = s.removed_but_delivered === s.removed ? 'all still delivered' : `${s.removed_but_delivered} still delivered`
   }
   let final: string | null = null
+  let shown = removal
   const soleFinal = node.is_final_output && graph.nodes.filter((n) => n.is_final_output).length === 1
   if (soleFinal && !separateResult) {
     const top = `${totals.delivered} of ${totals.relevant} in top ${k}`
     if (badge?.tone === 'negative') final = top
     else {
-      // The result replaces a neutral removal badge; the removal stays in words.
+      // The result replaces a neutral removal badge; the removal stays in the title and the step panel.
       if (badge) removal = `${badge.text} · ${removal}`
+      shown = null
       badge = { tone: 'positive', text: top }
     }
   }
-  return {
-    metric,
-    note: join([source ? `${s.in_top_k} in its top ${k}` : null, removal, final, ghost ? ranFor : null]),
-    noteTone: final ? 'positive' : null,
-    badge,
-    ghost,
-  }
+  const notes = (removed: string | null) => join([source ? `${s.in_top_k} in its top ${k}` : null, removed, final, ghost ? ranFor : null])
+  const words: CardWords = { metric, note: notes(shown), noteTone: final ? 'positive' : null, badge, ghost }
+  if (shown !== removal) words.fullNote = notes(removal)
+  return words
 }
 
 /** Path mode: one document's rank at the step. `stage` undefined = the question did not run it; null = spans not loaded. */
@@ -237,21 +282,22 @@ export function pathCard(
   let notes: Array<string | null> = []
   let tone: Tone | null = null
   let ghost = false
-  const event = events.find((e) => e.kind === 'removed') ?? events.find((e) => e.kind === 'unknown') ?? events[events.length - 1]
-  if (event) {
-    const rank = `Rank ${event.output_rank ?? '—'}`
-    if (event.kind === 'introduced') {
+  let fell = false
+  const step = events.length > 0 ? foldStep(events) : null
+  if (step) {
+    const rank = `Rank ${step.output ?? '—'}`
+    if (step.kind === 'found') {
       badge = { tone: 'accent', text: rank }
-      notes = ['Found it']
-    } else if (event.kind === 'removed') {
+      notes = ['Found it', step.also]
+    } else if (step.kind === 'removed') {
       badge = { tone: 'negative', text: 'Removed' }
-      notes = [event.reason ?? 'No reason recorded']
-    } else if (event.kind === 'unknown') {
+      notes = [step.reason ?? 'No reason recorded']
+    } else if (step.kind === 'unknown') {
       badge = { tone: 'warning', text: 'Not recorded' }
     } else {
-      const fell = lossBoundary && k != null && event.output_rank != null && event.output_rank > k
+      fell = lossBoundary && k != null && step.output != null && step.output > k
       badge = { tone: fell ? 'negative' : 'accent', text: rank }
-      notes = [event.input_rank != null && event.input_rank !== event.output_rank ? `was ${event.input_rank}` : null, fell ? `fell below the top ${k}` : null]
+      notes = [step.input != null && step.input !== step.output ? `was ${step.input}` : null, step.also, fell ? `fell below the top ${k}` : null]
       if (fell) tone = 'negative'
     }
   } else if (stage === undefined) {
@@ -267,11 +313,19 @@ export function pathCard(
   } else {
     notes = [node.op_type === 'SOURCE' ? `Not in its top ${stage.emitted}` : "Didn't reach it"]
   }
+  const delivery = finalRank != null ? `Delivered at #${finalRank}` : 'Not delivered'
   if (isFinal) {
-    notes.push(finalRank != null ? `Delivered at #${finalRank}` : 'Not delivered')
+    notes.push(delivery)
     if (finalRank != null && tone === null) tone = 'positive'
   }
-  return { metric: '', note: join(notes), noteTone: tone, badge, ghost }
+  // A card holds two short lines; the title keeps every word. It says "below top k", and the final
+  // card keeps its delivery: a kept occurrence, and "Not delivered" after "below top k", go to the title.
+  const shown = notes
+    .filter((note) => !(isFinal && ((step?.also && note === step.also) || (fell && note === delivery))))
+    .map((note) => (fell && note === `fell below the top ${k}` ? `below top ${k}` : note))
+  const words: CardWords = { metric: '', note: join(shown), noteTone: tone, badge, ghost }
+  if (join(shown) !== join(notes)) words.fullNote = join(notes)
+  return words
 }
 
 /** Question mode: candidates in and out of the step for one question. */
@@ -380,19 +434,21 @@ export interface MissedQuestion {
   /** The question's trace when all its misses share one. */
   trace_id: string | null
   misses: FlowMiss[]
-  /** It delivered none of its correct documents: the server lists those questions first. */
-  none: boolean
+  /** The question's correct documents, and how many of them it delivered. */
+  relevant: number
+  delivered: number
 }
 
 export function missedQuestions(flow: InvestigationFlow): MissedQuestion[] {
   const byQuery = new Map<string, FlowMiss[]>()
   for (const miss of flow.misses) byQuery.set(miss.query_id, [...(byQuery.get(miss.query_id) ?? []), miss])
-  return [...byQuery].map(([query_id, misses], index) => ({
+  return [...byQuery].map(([query_id, misses]) => ({
     query_id,
     query_text: misses.find((miss) => miss.query_text)?.query_text ?? null,
     trace_id: new Set(misses.map((miss) => miss.trace_id)).size === 1 ? misses[0].trace_id : null,
     misses,
-    none: index < flow.totals.questions_with_none,
+    relevant: misses[0].question_relevant,
+    delivered: misses[0].question_delivered,
   }))
 }
 

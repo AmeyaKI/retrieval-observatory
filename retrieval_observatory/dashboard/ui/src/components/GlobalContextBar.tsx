@@ -32,7 +32,7 @@ export function runLabel(run: Run): string {
 }
 
 const selectClass =
-  'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-60 max-w-[18rem]'
+  'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60 max-w-[18rem]'
 
 function ViewTabs({ view, onChange }: { view: InvestigateView; onChange: (view: InvestigateView) => void }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([])
@@ -65,7 +65,7 @@ function ViewTabs({ view, onChange }: { view: InvestigateView; onChange: (view: 
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(tab.id)}
             onKeyDown={(event) => onKeyDown(event, index)}
-            className={`rounded px-2.5 py-1 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 ${
+            className={`rounded px-2.5 py-1 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent ${
               selected ? 'bg-surface text-ink font-semibold shadow-card' : 'text-ink-muted hover:text-ink'
             }`}
           >
@@ -161,7 +161,7 @@ export default function GlobalContextBar({ workspace, pipelineHint }: Props) {
         </select>
       </label>
       {isDemoDb && (
-        <span className="rounded-full app-inset px-2 py-0.5 text-[10px] font-medium text-ink-muted" title="Seeded by retobs demo; not your pipeline">
+        <span className="rounded-full app-inset px-2 py-0.5 text-xs font-medium text-ink-muted" title="Seeded by retobs demo; not your pipeline">
           Deterministic demo data
         </span>
       )}

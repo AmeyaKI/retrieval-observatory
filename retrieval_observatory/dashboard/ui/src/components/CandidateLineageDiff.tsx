@@ -216,7 +216,7 @@ export default function CandidateLineageDiff({ envelope, rows, stepNameOf = (opI
   return (
     <section aria-label="Comparison" className="space-y-3">
       {rows.length === 0 ? (
-        <p className="text-sm text-ink-muted">No documents to compare for this scope.</p>
+        <p className="text-sm text-ink-muted">No documents to compare between these runs.</p>
       ) : (
         <>
           {correct.length > 0 ? (

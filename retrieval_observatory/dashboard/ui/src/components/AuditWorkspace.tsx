@@ -14,7 +14,7 @@ type AuditResult =
   | { key: string; error: string }
 
 const selectClass =
-  'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600 disabled:opacity-60 min-w-0 max-w-[20rem]'
+  'rounded-md border border-hairline bg-surface px-2 py-1 text-xs text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60 min-w-0 max-w-[20rem]'
 
 export default function AuditWorkspace() {
   const { selection, updateSelection } = useDashboardContext()
@@ -166,7 +166,7 @@ export default function AuditWorkspace() {
               className="mt-1 w-full rounded-md border border-hairline bg-surface px-2 py-1 font-mono text-xs text-ink"
             />
           </label>
-          <button type="submit" className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white">
+          <button type="submit" className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-surface">
             Apply policy
           </button>
           {policy && (

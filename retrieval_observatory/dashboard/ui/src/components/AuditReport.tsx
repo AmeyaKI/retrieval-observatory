@@ -68,7 +68,7 @@ function Section({ id, title, children }: { id: string; title: ReactNode; childr
 
 function Table({ label, headers, children }: { label: string; headers: string[]; children: ReactNode }) {
   return (
-    <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" tabIndex={0} role="region" aria-label={label}>
+    <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" tabIndex={0} role="region" aria-label={label}>
       <table className="w-full text-xs" aria-label={label}>
         <thead>
           <tr>
@@ -329,7 +329,7 @@ export default function AuditReport({ audit, db }: { audit: ReleaseAudit; db: st
             const source = audit.sources[role]
             return (
               <div key={role}>
-                <p className="eyebrow">{role}</p>
+                <p className="eyebrow">{role === 'baseline' ? 'Baseline' : 'Candidate'}</p>
                 <Dl
                   rows={[
                     ['Run', source.run_id],

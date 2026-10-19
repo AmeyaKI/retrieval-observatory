@@ -250,11 +250,12 @@ describe('runCard', () => {
     })
     expect(runCard(RERANK_LEXICAL, flowStepOf(DEMO_FLOW, 'rerank@lexical'), DEMO_FLOW, DEMO_GRAPH, null)).toMatchObject({ metric: 'None reached it', badge: null, note: null })
     expect(runCard(EXPAND, DEMO_FLOW.steps.expand, DEMO_FLOW, DEMO_GRAPH, null)).toMatchObject({ metric: '2 correct in', ghost: true, note: 'Ran for 1 of 3 questions' })
-    // The final result replaces a neutral removal badge; the removal stays in words.
+    // The final result replaces a neutral removal badge; the removal stays in the title (and the step panel).
     expect(runCard(SELECT, DEMO_FLOW.steps.select, DEMO_FLOW, DEMO_GRAPH, null)).toMatchObject({
       metric: '4 correct in',
       badge: { tone: 'positive', text: '4 of 6 in top 3' },
-      note: 'Removed 1 · all still delivered',
+      note: null,
+      fullNote: 'Removed 1 · all still delivered',
     })
     expect(runCard(SELECT, DEMO_FLOW.steps.select, DEMO_FLOW, DEMO_GRAPH, null, true)).toMatchObject({
       badge: { tone: 'neutral', text: 'Removed 1' },
@@ -301,14 +302,45 @@ describe('pathCard', () => {
   })
 
   test('the loss boundary says the document fell below the top k; the final step says whether it was delivered', () => {
+    // The card's note fits a phone (below the top k at the final step is not delivered); the title keeps the full words.
     expect(pathCard(SELECT, [event('select', 'promoted', 5, 4)], fired(), 3, true, null, true)).toEqual({
       metric: '',
       badge: { tone: 'negative', text: 'Rank 4' },
-      note: 'was 5 · fell below the top 3 · Not delivered',
+      note: 'was 5 · below top 3',
+      fullNote: 'was 5 · fell below the top 3 · Not delivered',
       noteTone: 'negative',
       ghost: false,
     })
+    expect(pathCard(RERANK_LEXICAL, [event('rerank@lexical', 'demoted', 2, 14)], fired(), 10, false, null, true)).toMatchObject({ note: 'was 2 · below top 10', fullNote: 'was 2 · fell below the top 10' })
     expect(pathCard(SELECT, [event('select', 'retained', 2, 2)], fired(), 3, true, 2, false)).toMatchObject({ badge: { tone: 'accent', text: 'Rank 2' }, note: 'Delivered at #2', noteTone: 'positive' })
+  })
+
+  test('a step that removed a duplicate chunk but kept the document at its output rank (demo q-invoice, doc-guide at select)', () => {
+    const chunk = (e: JourneyEvent, occurrence: string): JourneyEvent => ({ ...e, occurrence_entity_id: occurrence, candidate_id: `kb:${occurrence}` })
+    const kept = chunk(event('select', 'retained', 2, 2), 'doc-guide/chunk-1')
+    const duplicate = chunk(event('select', 'removed', 4, null, 'duplicate_document'), 'doc-guide/chunk-2')
+    expect(pathCard(SELECT, [kept, duplicate], fired(), 3, false, null, false)).toMatchObject({ badge: { tone: 'accent', text: 'Rank 2' }, note: 'Removed a duplicate occurrence' })
+    // On the final card the delivery leads; the removal of the duplicate stays in the title (and the journey card).
+    expect(pathCard(SELECT, [kept, duplicate], fired(), 3, true, 2, false)).toMatchObject({
+      badge: { tone: 'accent', text: 'Rank 2' },
+      note: 'Delivered at #2',
+      fullNote: 'Removed a duplicate occurrence · Delivered at #2',
+      noteTone: 'positive',
+    })
+    // A removal reason that does not say duplicate (or was not recorded) only says another occurrence was kept.
+    expect(pathCard(SELECT, [kept, { ...duplicate, reason: 'min_score' }], fired(), 3, false, null, false).note).toBe('Kept another occurrence')
+    expect(pathCard(SELECT, [kept, { ...duplicate, reason_evidence: 'inferred' }], fired(), 3, false, null, false).note).toBe('Kept another occurrence')
+    // The same occurrence kept by one invocation and removed by the next (folded) was removed.
+    expect(pathCard(SELECT, [kept, chunk(event('select', 'removed', 2, null, 'min_score'), 'doc-guide/chunk-1')], fired(), 3, false, null, false)).toMatchObject({
+      badge: { tone: 'negative', text: 'Removed' },
+      note: 'min_score',
+    })
+  })
+
+  test('a step that kept one chunk and brought another back shows the best rank (demo q-invoice, doc-guide at expand)', () => {
+    const chunk = (e: JourneyEvent, occurrence: string): JourneyEvent => ({ ...e, occurrence_entity_id: occurrence, candidate_id: `kb:${occurrence}` })
+    const events = [chunk(event('expand', 'retained', 2, 2), 'doc-guide/chunk-1'), chunk(event('expand', 'recovered', null, 4, 'expanded'), 'doc-guide/chunk-2')]
+    expect(pathCard(EXPAND, events, fired(), 3, false, null, false)).toMatchObject({ badge: { tone: 'accent', text: 'Rank 2' }, note: null })
   })
 
   test('a step with no event for the document', () => {
@@ -363,6 +395,8 @@ function miss(query_id: string, entity_id: string, outcome: FlowMiss['outcome'],
     best_op: null,
     pushed_out: false,
     events: [],
+    question_relevant: 1,
+    question_delivered: 0,
     ...extra,
   }
 }
@@ -471,24 +505,25 @@ describe('the questions that missed a correct document', () => {
     expect(missLine(miss('1', 'a', 'retained_below_cutoff', 'rrf', { best_op: 'rrf', best_rank: 36 }), 10, nameOf).sub).toBeNull()
   })
 
+  const invoice = { question_relevant: 3, question_delivered: 1 }
+  const split = { question_relevant: 2, question_delivered: 0 }
   const flow: InvestigationFlow = {
     ...DEMO_FLOW,
-    totals: { ...DEMO_FLOW.totals, questions_with_none: 1 },
     misses: [
       miss('q-outage', 'doc-guide', 'relevant_excluded', 'recency_filter', { query_text: 'why is the site down', best_op: 'lexical', best_rank: 1 }),
-      miss('q-invoice', 'doc-archive', 'not_observed', 'not_observed', { query_text: 'invoice for order 42' }),
-      miss('q-invoice', 'doc-late', 'retained_below_cutoff', 'select', { best_op: 'lexical', best_rank: 2, pushed_out: true }),
-      miss('q-split', 'doc-x', 'retained_below_cutoff', 'select', { trace_id: 't:a' }),
-      miss('q-split', 'doc-y', 'retained_below_cutoff', 'select', { trace_id: 't:b' }),
+      miss('q-invoice', 'doc-archive', 'not_observed', 'not_observed', { query_text: 'invoice for order 42', ...invoice }),
+      miss('q-invoice', 'doc-late', 'retained_below_cutoff', 'select', { best_op: 'lexical', best_rank: 2, pushed_out: true, ...invoice }),
+      miss('q-split', 'doc-x', 'retained_below_cutoff', 'select', { trace_id: 't:a', ...split }),
+      miss('q-split', 'doc-y', 'retained_below_cutoff', 'select', { trace_id: 't:b', ...split }),
     ],
   }
 
-  test('grouped by question in the server order; the first questions_with_none got none', () => {
+  test('grouped by question in the server order, each with its own correct and delivered counts', () => {
     const questions = missedQuestions(flow)
-    expect(questions.map((q) => [q.query_id, q.query_text, q.trace_id, q.misses.length, q.none])).toEqual([
-      ['q-outage', 'why is the site down', 't:q-outage', 1, true],
-      ['q-invoice', 'invoice for order 42', 't:q-invoice', 2, false],
-      ['q-split', null, null, 2, false],
+    expect(questions.map((q) => [q.query_id, q.query_text, q.trace_id, q.misses.length, q.delivered, q.relevant])).toEqual([
+      ['q-outage', 'why is the site down', 't:q-outage', 1, 0, 1],
+      ['q-invoice', 'invoice for order 42', 't:q-invoice', 2, 1, 3],
+      ['q-split', null, null, 2, 0, 2],
     ])
   })
 

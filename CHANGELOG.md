@@ -7,7 +7,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
-- `dashboard/investigation_api.py` — `GET /dbs/{db}/investigation/runs/{run}/flow`: per-step counts of correct documents found, removed and lost (pushed out of the top k, ranked too low, dropped), plus each missed correct document; `queries/{query_id}` scope carries `query_text`.
+- `dashboard/investigation_api.py` — `GET /dbs/{db}/investigation/runs/{run}/flow`: per-step counts of correct documents found, removed and lost (pushed out of the top k, ranked too low, dropped), plus each missed correct document with its question's `question_relevant` and `question_delivered`; `queries/{query_id}` scope carries `query_text`, and `documents/{entity}` rows carry their question's `query_text`.
 
 ### Changed
 - `dashboard/ui` Investigate diagram (`InvestigationGraph.tsx`, `utils/flowLayout.ts`, `utils/flowWords.ts`, `OperatorInspector.tsx`) — cards and line thickness show correct documents per step from `/flow`; lanes line up before their merge, a result card follows the only final step when it fits, the diagram turns top to bottom on phones or when it does not fit; plain-word cards, step panel and steps table replace the glyph legend, operator table and zoom.

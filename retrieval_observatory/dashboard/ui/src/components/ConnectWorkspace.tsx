@@ -65,7 +65,7 @@ function VerifiedAt({ iso }: { iso: string }) {
 /** A command block that may scroll sideways: focusable and named so keyboard users can scroll it. */
 function Command({ children }: { children: string }) {
   return (
-    <pre tabIndex={0} role="region" aria-label={`Command: ${children.trim().split('\n')[0]}`} className={`${codeClass} focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600`}>
+    <pre tabIndex={0} role="region" aria-label={`Command: ${children.trim().split('\n')[0]}`} className={`${codeClass} focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent`}>
       {children}
     </pre>
   )
@@ -205,7 +205,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
           ? 'Internal transitions are observed'
           : 'Final output only: per-stage loss attribution is unavailable until internal operators are instrumented'}
       </p>
-      <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" tabIndex={0} role="region" aria-label={`Operators of ${record.integration_id}`}>
+      <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" tabIndex={0} role="region" aria-label={`Operators of ${record.integration_id}`}>
         <table className="w-full text-xs" aria-label={`Operators of ${record.integration_id}`}>
           <thead>
             <tr>
@@ -247,7 +247,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
       </div>
 
       <SubHeading>Verified capabilities</SubHeading>
-      <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600" tabIndex={0} role="region" aria-label={`Verified capabilities of ${record.integration_id}`}>
+      <div className="mt-2 overflow-x-auto focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent" tabIndex={0} role="region" aria-label={`Verified capabilities of ${record.integration_id}`}>
         <table className="w-full text-xs" aria-label={`Verified capabilities of ${record.integration_id}`}>
           <thead>
             <tr>
@@ -308,7 +308,7 @@ export function IntegrationPanel({ db, record }: { db: string; record: Integrati
         <p className="mt-2">
           <a
             href={investigateLink({ db, run: investigation.run_id, pipeline: investigation.pipeline_id })}
-            className="inline-block rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:opacity-90"
+            className="inline-block rounded-md bg-accent px-3 py-1.5 font-medium text-surface hover:opacity-90"
           >
             Open the first investigation
           </a>

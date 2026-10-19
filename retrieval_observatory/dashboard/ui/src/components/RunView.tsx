@@ -1,11 +1,11 @@
 import { ReactNode, useState } from 'react'
-import { JourneyRow, QuerySummaryRow } from '../api'
+import { JourneyRow } from '../api'
 import { DashboardSelection } from '../context/dashboardQuery'
 import { filterMissed, MissedQuestion, reasonChips, RunHeadlineWords } from '../utils/flowWords'
 import { documentSentence } from '../utils/journeyWords'
 import { displayEntity, splitEntity } from '../utils/queryDebugger'
 import { BADGE } from './InvestigationGraph'
-import InvestigationTable, { MissedRow, SortState } from './InvestigationTable'
+import InvestigationTable, { SortState } from './InvestigationTable'
 
 // The parts of a run's page around the diagram: the headline that names the step losing the most
 // correct documents, the list of questions that missed one (filtered by reason and by the selected
@@ -83,8 +83,6 @@ export interface MissedQuestionsProps {
   selection: DashboardSelection
   /** The selected step as the folded flow names it, and its plain name; null without one. */
   stage: { id: string; name: string } | null
-  /** The loaded stored summaries, for each question's number of correct documents. */
-  summaries: Map<string, QuerySummaryRow>
   stepLabel: (opId: string) => string
   sort: SortState | null
   onSort: (sort: SortState | null) => void
@@ -92,6 +90,7 @@ export interface MissedQuestionsProps {
 }
 
 const chipClass = `whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${FOCUS_RING}`
+const resetClass = `rounded border border-hairline bg-surface px-2 py-0.5 text-xs text-ink hover:bg-surface-muted ${FOCUS_RING}`
 const CHIP_TONE: Record<string, string> = {
   retained_below_cutoff: BADGE.negative,
   relevant_excluded: BADGE.negative,
@@ -100,15 +99,10 @@ const CHIP_TONE: Record<string, string> = {
 }
 
 /** Mount with a key of the filters so "Show more" starts over when they change. */
-export function MissedQuestions({ questions, k, selection, stage, summaries, stepLabel, sort, onSort, onSelect }: MissedQuestionsProps) {
+export function MissedQuestions({ questions, k, selection, stage, stepLabel, sort, onSort, onSelect }: MissedQuestionsProps) {
   const [limit, setLimit] = useState(SHOWN)
   const atStage = stage ? filterMissed(questions, { stage: stage.id }) : questions
   const shown = filterMissed(atStage, { outcome: selection.outcome })
-  const rows: MissedRow[] = shown.slice(0, limit).map((question) => {
-    const summary = summaries.get(question.query_id)
-    const relevant = summary ? summary.relevant_delivered + summary.relevant_missed : question.none ? question.misses.length : null
-    return { ...question, relevant }
-  })
   const chips = reasonChips(atStage).map((chip) => {
     const active = selection.outcome === chip.outcome
     return (
@@ -125,13 +119,21 @@ export function MissedQuestions({ questions, k, selection, stage, summaries, ste
   })
   return (
     <section aria-labelledby="missed-title" className="space-y-2">
-      <h2 id="missed-title" className="pt-2 text-sm font-semibold text-ink">
-        Questions that missed a correct document ({questions.length})
-      </h2>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-2">
+        <h2 id="missed-title" className="text-sm font-semibold text-ink">
+          Questions that missed a correct document ({questions.length})
+        </h2>
+        {/* Any filter, even a reason no chip offers, can be cleared from here. */}
+        {(selection.stage || selection.outcome) && (
+          <button type="button" onClick={() => onSelect({ stage: null, outcome: null })} className={resetClass}>
+            Clear filters
+          </button>
+        )}
+      </div>
       {stage && (
         <div role="status" className="app-inset flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm text-ink">
           <span>{atStage.length > 0 ? `Showing questions where ${stage.name} lost a correct document (${atStage.length})` : `${stage.name} lost no correct documents.`}</span>
-          <button type="button" onClick={() => onSelect({ stage: null })} className={`rounded border border-hairline bg-surface px-2 py-0.5 text-xs text-ink hover:bg-surface-muted ${FOCUS_RING}`}>
+          <button type="button" onClick={() => onSelect({ stage: null })} className={resetClass}>
             Clear
           </button>
         </div>
@@ -139,7 +141,7 @@ export function MissedQuestions({ questions, k, selection, stage, summaries, ste
       {atStage.length > 0 && (
         <InvestigationTable
           shape="missed"
-          rows={rows}
+          rows={shown.slice(0, limit)}
           selection={selection}
           total={shown.length}
           sort={sort}

@@ -619,6 +619,8 @@ export interface JourneyRow {
   investigation_link: string
   /** Optional captured content (`text`, `title`, `preview`); absent from the projection today. */
   metadata?: Record<string, unknown> | null
+  /** The question's text; carried by one document's rows (`/documents/{entity}`). */
+  query_text?: string | null
 }
 
 export interface InvestigationStage {
@@ -757,6 +759,9 @@ export interface FlowMiss {
   best_op: string | null
   pushed_out: boolean
   events: Pick<JourneyEvent, 'op_id' | 'kind' | 'input_rank' | 'output_rank' | 'reason'>[]
+  /** The question's correct documents, and how many of them it delivered. */
+  question_relevant: number
+  question_delivered: number
 }
 
 export interface InvestigationFlow {
