@@ -220,6 +220,39 @@ def test_queries_view_lists_exact_per_query_summaries(db_path: Path) -> None:
     assert [row["query_id"] for row in _get(client, base, f"{RUN}/queries", query_id="q-o*")["rows"]] == ["q-outage"]
 
 
+def test_flow_counts_correct_documents_per_step_once_projected(db_path: Path) -> None:
+    client, base = _client(db_path)
+    before = _get(client, base, f"{RUN}/flow")
+    assert before["flow"] is None and before["rows"] == [] and "projection_unavailable" in _codes(before)
+    assert _get(client, base, f"{RUN}/queries/q-refund")["scope"]["query_text"] is None  # no stored query summary yet
+    _build(client, base)
+
+    envelope = _get(client, base, f"{RUN}/flow")
+    flow, totals = envelope["flow"], envelope["flow"]["totals"]
+    assert envelope["scope"]["rows_kind"] == "flow" and envelope["rows"] == [] and flow["k"] == envelope["scope"]["k"] == 3
+    assert totals["relevant"] == _get(client, base, f"{RUN}/queries", judgment="relevant")["total"] == 6
+    assert sum(envelope["capabilities"]["capture"].values()) == totals["relevant"]
+    assert totals["delivered"] + totals["missed"] == totals["relevant"]
+    lost = sum(step["lost_total"] for step in flow["steps"].values())
+    assert totals["delivered"] + lost + totals["never_found"] + totals["insufficient"] == totals["relevant"]
+    assert totals["questions"] == envelope["coverage"]["queries_with_traces"] == 3
+    assert len(flow["misses"]) == totals["missed"] == 1
+    miss = flow["misses"][0]
+    assert (miss["query_id"], miss["entity_id"], miss["outcome"], miss["best_rank"], miss["best_op"], miss["events"]) == (
+        "q-invoice", "doc-archive", "not_observed", None, None, [],
+    )
+    relevant = [row for row in _get(client, base, f"{RUN}/queries", judgment="relevant", limit=200)["rows"] if row["query_id"] == "q-invoice"]
+    assert miss["question_relevant"] == len(relevant) and miss["question_delivered"] == sum(row["outcome"] == "relevant_delivered" for row in relevant)
+    filtered = flow["steps"]["recency_filter"]
+    assert filtered["removed"] == filtered["removed_but_delivered"] == 2  # removed in one lane, delivered through another
+
+    queries = {row["query_id"]: row for row in _get(client, base, f"{RUN}/queries")["rows"]}
+    assert miss["query_text"] == queries["q-invoice"]["query_text"]
+    assert _get(client, base, f"{RUN}/queries/q-refund")["scope"]["query_text"] == queries["q-refund"]["query_text"]
+    document = _get(client, base, f"{RUN}/documents/kb:doc-guide")["rows"]
+    assert document and all(row["query_text"] == queries[row["query_id"]]["query_text"] for row in document)
+
+
 def test_queries_view_with_a_filter_returns_pairs(db_path: Path) -> None:
     client, base = _client(db_path)
     _build(client, base)
@@ -295,8 +328,8 @@ def test_gets_are_read_only(db_path: Path) -> None:
     before = hashlib.sha256(db_path.read_bytes()).hexdigest()
     client, base = _client(db_path, read_only=True)
     paths = (
-        f"{RUN}/queries", f"{RUN}/queries/q-refund", f"{RUN}/documents", f"{RUN}/documents/kb:doc-faq", f"{RUN}/projection",
-        f"{OTHER_RUN}/queries", f"{OTHER_RUN}/queries/q-invoice", f"{OTHER_RUN}/documents",
+        f"{RUN}/queries", f"{RUN}/queries/q-refund", f"{RUN}/documents", f"{RUN}/documents/kb:doc-faq", f"{RUN}/projection", f"{RUN}/flow",
+        f"{OTHER_RUN}/queries", f"{OTHER_RUN}/queries/q-invoice", f"{OTHER_RUN}/documents", f"{OTHER_RUN}/flow",
     )
     for path in paths:
         assert client.get(f"{base}/{path}", params={"pipeline_id": PIPELINE}).status_code == 200, path

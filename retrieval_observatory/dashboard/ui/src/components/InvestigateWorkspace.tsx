@@ -6,12 +6,14 @@ import {
   fetchInvestigationComparisonQuery,
   fetchInvestigationDocument,
   fetchInvestigationDocuments,
+  fetchInvestigationFlow,
   fetchInvestigationQueries,
   fetchInvestigationQuery,
   fetchPipelineGraphs,
   InvestigationDocumentRow,
   InvestigationEnvelope,
   InvestigationFinding,
+  InvestigationFlow,
   InvestigationParams,
   InvestigationStage,
   isStageSummary,
@@ -23,21 +25,30 @@ import {
 } from '../api'
 import { useDashboardContext } from '../context/DashboardContext'
 import { DashboardSelection } from '../context/dashboardQuery'
+import { collapseInvocations, collapsedNodeId } from '../utils/dagLayout'
+import { flowStepOf, foldFlow, missedDocuments, missedQuestions, plural, runHeadline, stepName } from '../utils/flowWords'
 import { auditLink, buildHash } from '../utils/focusedRoutes'
-import { entityKey, isJourneyRow, OUTCOME_LABELS, pathHighlight, stageFilter } from '../utils/queryDebugger'
-import CandidateLineageDiff from './CandidateLineageDiff'
-import InvestigationDetail from './InvestigationDetail'
-import InvestigationGraph from './InvestigationGraph'
+import { entityKey, focusRowFor, isJourneyRow, OUTCOME_LABELS, sortForView, splitEntity, stageFilter } from '../utils/queryDebugger'
+import CandidateLineageDiff, { CompareHeadline } from './CandidateLineageDiff'
+import JourneyCard from './InvestigationDetail'
+import InvestigationGraph, { graphMode } from './InvestigationGraph'
 import InvestigationTable, { SortState, TableShape } from './InvestigationTable'
 import OperatorInspector from './OperatorInspector'
+import { CorrectDocuments, DeliveredList, QuestionHeader } from './QuestionView'
+import { DocumentHeader, MissedQuestions, RunHeadline } from './RunView'
 
-// Investigate: scope bar (shell) → pipeline diagram → one primary table → selected journey detail.
+// Investigate: scope bar (shell) → headline → pipeline diagram → tables. A run's questions lead with
+// the step that loses the most correct documents and the questions that missed one (from the flow),
+// then every question; one question adds its header, the path of one document on the diagram, the
+// journey cards of its correct documents and what it delivered instead; one document adds its
+// header and its journey card under the diagram.
 // Every selection lives in the URL (updateSelection); the only component state is request
-// phases, table sort and the graph's collapse/zoom. Two request streams, each sequence-guarded:
-// the scope stream (run-union graph + stored stage aggregates, once per db/run/pipeline) and the
-// view stream (the list or drill-down the URL names). With `compare=` set on the queries view the
-// view stream asks for paired journey rows against that baseline run instead; the scope stream
-// still draws the selected (candidate) run's graph.
+// phases, table sort and the graph's collapse. Two request streams, each sequence-guarded: the
+// scope stream (run-union graph + stored stage aggregates + correct-document flow, once per
+// db/run/pipeline) and the view stream (the list or drill-down the URL names; one question also asks
+// for its delivered rows in the same guarded step). With `compare=`
+// set on the queries view the view stream asks for paired journey rows against that baseline run
+// instead; the scope stream still draws the selected (candidate) run's graph.
 
 export const PAGE_SIZE = 50
 
@@ -114,6 +125,20 @@ export function pipelineIdsFromDetail(detail: string | null): string[] {
     .filter(Boolean)
 }
 
+/** One question's final output, for "Delivered instead"; a failure never fails the page. */
+function deliveredFor(db: string, run: string, selection: DashboardSelection): Promise<JourneyRow[] | 'failed' | null> {
+  if (modeFor(selection) !== 'query-candidates' || comparing(selection)) return Promise.resolve(null)
+  return fetchInvestigationQuery(db, run, selection.query as string, {
+    pipeline_id: selection.pipeline,
+    trace_id: selection.trace,
+    final_membership: 'included',
+    limit: PAGE_SIZE,
+  }).then(
+    (envelope) => envelope.rows,
+    () => 'failed' as const,
+  )
+}
+
 export function modeFor(selection: DashboardSelection): Mode {
   if (selection.view === 'documents') return selection.entity ? 'document-queries' : 'documents'
   return selection.query ? 'query-candidates' : 'queries'
@@ -154,12 +179,21 @@ type Phase =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'failed'; error: InvestigationError }
-  | { kind: 'ready'; envelope: Envelope; rows: Row[]; partialRows: number; loadingMore: boolean; moreError: string | null }
+  | {
+      kind: 'ready'
+      envelope: Envelope
+      rows: Row[]
+      partialRows: number
+      loadingMore: boolean
+      moreError: string | null
+      /** One question's delivered rows; 'failed' when that request failed, null in other views. */
+      delivered: JourneyRow[] | 'failed' | null
+    }
 
 type Scope =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'ready'; graphs: PipelineGraph[]; stages: StageSummary[] | null; pipelineId: string | null; graphError: string | null }
+  | { kind: 'ready'; graphs: PipelineGraph[]; stages: StageSummary[] | null; flow: InvestigationFlow | null; pipelineId: string | null; graphError: string | null }
 
 function partialCount(envelope: Envelope): number {
   return envelope.capabilities?.capture?.partial_rows ?? 0
@@ -221,6 +255,15 @@ export function settleBuild(
     })
 }
 
+/** A 404 in plain words; the service's own detail when its code is not one of these. */
+const NOT_FOUND: Record<string, string> = {
+  run_not_found: 'This run is not in the database.',
+  pipeline_not_found: 'This run has no traces for the selected pipeline.',
+  query_not_found: 'This question has no traces in this run.',
+  trace_not_found: 'This question has no trace with that id.',
+  entity_not_found: 'This document does not appear in any question of this run.',
+}
+
 function Notice({ tone, title, children }: { tone: 'warning' | 'neutral' | 'negative'; title: string; children?: React.ReactNode }) {
   const color = tone === 'warning' ? 'text-status-warning' : tone === 'negative' ? 'text-status-negative' : 'text-status-neutral'
   return (
@@ -244,7 +287,7 @@ function Panel({ title, children, id }: { title: string; children: React.ReactNo
 
 const linkClass = 'text-accent underline underline-offset-2'
 const buttonClass =
-  'rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
+  'rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-surface hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
 
 interface Props {
   /** Reports the pipelines the service names for the current run, so the scope bar can offer them. */
@@ -260,6 +303,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const [build, setBuild] = useState<BuildState>({ kind: 'idle' })
   const [reloadTick, setReloadTick] = useState(0)
   const [sort, setSort] = useState<SortState | null>(null)
+  const [missedSort, setMissedSort] = useState<SortState | null>(null)
   const [collapsed, setCollapsed] = useState(true)
   const sequence = useRef(0)
   const scopeSequence = useRef(0)
@@ -294,10 +338,10 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     const mySequence = ++sequence.current
     setPhase({ kind: 'loading' })
     setBuild({ kind: 'idle' })
-    requestFor(db, run, selection, null)
-      .then((envelope) => {
+    Promise.all([requestFor(db, run, selection, null), deliveredFor(db, run, selection)])
+      .then(([envelope, delivered]) => {
         if (mySequence !== sequence.current) return
-        setPhase({ kind: 'ready', envelope, rows: envelope.rows as Row[], partialRows: partialCount(envelope), loadingMore: false, moreError: null })
+        setPhase({ kind: 'ready', envelope, rows: envelope.rows as Row[], partialRows: partialCount(envelope), loadingMore: false, moreError: null, delivered })
         onPipelinesRef.current?.({ runId: run, ids: envelope.scope.pipeline_id ? [envelope.scope.pipeline_id] : [] })
       })
       .catch((raw: unknown) => {
@@ -309,7 +353,8 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestKey])
 
-  // Scope stream: the run-union topology and the stored per-operator aggregates, once per scope.
+  // Scope stream: the run-union topology, the stored per-operator aggregates and the correct-document
+  // flow, once per scope. The flow is asked for by pipeline only: it always counts the whole run.
   const scopeKey = JSON.stringify([db, run, selection.pipeline, reloadTick])
   useEffect(() => {
     if (!db || !run) {
@@ -326,9 +371,13 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
       (envelope) => ({ stages: aggregateStages(envelope), pipelineId: envelope.scope.pipeline_id as string | null }),
       () => ({ stages: null, pipelineId: null }),
     )
-    Promise.all([graphs, aggregates]).then(([graph, aggregate]) => {
+    const flow = fetchInvestigationFlow(db, run, { pipeline_id: selection.pipeline }).then(
+      (envelope) => envelope.flow,
+      () => null,
+    )
+    Promise.all([graphs, aggregates, flow]).then(([graph, aggregate, counts]) => {
       if (mySequence !== scopeSequence.current) return
-      setScope({ kind: 'ready', graphs: graph.list, stages: aggregate.stages, pipelineId: aggregate.pipelineId, graphError: graph.error })
+      setScope({ kind: 'ready', graphs: graph.list, stages: aggregate.stages, flow: counts, pipelineId: aggregate.pipelineId, graphError: graph.error })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey])
@@ -349,7 +398,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         setPhase((current) =>
           current.kind === 'ready'
             ? {
-                kind: 'ready',
+                ...current,
                 envelope,
                 rows: [...current.rows, ...(envelope.rows as Row[])],
                 partialRows: current.partialRows + partialCount(envelope),
@@ -392,6 +441,12 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
 
   const dbRunCount = databases.find((d) => d.db_id === db)?.run_count
   const title = run ? `Run ${run}` : 'Investigate'
+  const viewWord = view === 'queries' ? 'questions' : 'documents'
+  const questionPage = mode === 'query-candidates' && !comparing(selection)
+  // The run's lists lead with the flow: they wait for the scope stream so nothing jumps when it lands.
+  const listPage = (mode === 'queries' || mode === 'documents') && !comparing(selection)
+  // Compare names steps from the graph: it waits too, so no raw step id shows before the names arrive.
+  const waitsForScope = listPage || comparing(selection)
 
   // Graph inputs derived from the two streams.
   const envelope = phase.kind === 'ready' ? phase.envelope : null
@@ -401,21 +456,41 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const traceStages = envelope && mode === 'query-candidates' ? traceStagesOf(envelope) : null
   const aggregate = scope.kind === 'ready' ? scope.stages : null
   const journeyRows = phase.kind === 'ready' ? phase.rows.filter(isJourney) : []
+  const delivered = phase.kind === 'ready' ? phase.delivered : null
+  // One question: its candidates plus its delivered rows (an outcome filter can leave delivered ones out of the page).
+  const known = new Set(journeyRows.map((row) => `${row.trace_id}|${entityKey(row)}`))
+  const questionRows = Array.isArray(delivered) ? [...journeyRows, ...delivered.filter((row) => !known.has(`${row.trace_id}|${entityKey(row)}`))] : journeyRows
+  const relevantRows = sortForView(questionRows.filter((row) => row.judgment === 'relevant'), 'queries')
+  const singleNamespace = new Set(questionRows.map((row) => row.namespace)).size <= 1
+  // The document the diagram follows: the URL's, else (one question) the first correct document missed, else the first correct one.
   const selectedRow =
     mode === 'query-candidates'
-      ? journeyRows.find((row) => entityKey(row) === selection.entity && (!selection.trace || row.trace_id === selection.trace)) ?? null
+      ? focusRowFor(questionRows, selection.entity, selection.trace)
       : mode === 'document-queries'
         ? journeyRows.find((row) => row.query_id === selection.query && (!selection.trace || row.trace_id === selection.trace)) ?? null
         : null
-  const highlight = selectedRow ? pathHighlight(selectedRow, graph) : null
+  const flow = scope.kind === 'ready' ? scope.flow : null
+  const stageNodeId = selection.stage ? (collapsed ? collapsedNodeId(selection.stage) : selection.stage) : null
+  const stageNode = stageNodeId && graph ? (collapsed ? collapseInvocations(graph) : graph).nodes.find((node) => node.node_id === stageNodeId) ?? null : null
+  const foldedFlow = foldFlow(flow, collapsed)
+  const diagramMode = graphMode(selectedRow, traceStages)
   const opTypes = new Map(graph?.nodes.map((node) => [node.node_id, node.op_type]) ?? [])
   const isSource = graph ? (opId: string) => opTypes.get(opId) === 'SOURCE' : undefined
+  const stepLabel = (opId: string) => {
+    const node = graph?.nodes.find((n) => n.node_id === opId)
+    return node ? stepName(node).name : opId
+  }
+  // Each question's missed correct documents, named like the diagram's (folded) steps.
+  const missed = foldedFlow && !comparing(selection) ? missedQuestions(foldedFlow) : []
+  const missesByQuery = new Map(missed.map((question) => [question.query_id, question.misses]))
+  // The documents list leads with the correct documents that missed, from the same flow.
+  const missedDocs = foldedFlow && mode === 'documents' ? missedDocuments(foldedFlow) : []
 
   let body: React.ReactNode
   if (!db || !run) {
     body = (
       <Panel id="investigate-prompt" title="Choose a run">
-        <p>Pick a database and a run in the scope bar to load its queries and documents.</p>
+        <p>Pick a database and a run in the scope bar to load its questions and documents.</p>
         {dbRunCount === 0 && (
           <p className="mt-2">
             This database has no runs yet.{' '}
@@ -427,10 +502,10 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         )}
       </Panel>
     )
-  } else if (phase.kind === 'loading' || phase.kind === 'idle') {
+  } else if (phase.kind === 'loading' || phase.kind === 'idle' || (waitsForScope && phase.kind === 'ready' && scope.kind !== 'ready')) {
     body = (
       <div role="status" className="app-card p-6 text-sm text-ink-muted">
-        Loading {view}…
+        Loading {viewWord}…
       </div>
     )
   } else if (phase.kind === 'failed') {
@@ -453,12 +528,16 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
       )
     } else if (error.status === 404) {
       body = (
-        <Panel id="investigate-missing" title="Nothing recorded for this scope">
-          <p>{error.detail ?? error.message}</p>
+        <Panel id="investigate-missing" title="Nothing recorded here">
+          <p>
+            {(error.code === 'query_not_found' && comparing(selection) ? 'This question has no rows in either run.' : error.code && NOT_FOUND[error.code]) ??
+              error.detail ??
+              error.message}
+          </p>
           <p className="mt-2">
             {DRILL_DOWN.has(mode) ? (
               <button type="button" onClick={clearDrillDown} className={linkClass}>
-                Back to all {view}
+                Back to all {viewWord}
               </button>
             ) : (
               <button type="button" onClick={() => select({ run: null })} className={linkClass}>
@@ -483,11 +562,14 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     const { rows, partialRows } = phase
     const ready = phase.envelope
     const comparison = isComparison(ready) ? ready : null
+    // Every loaded page: a later page's envelope carries only its own rows.
+    const diffRows = comparison ? (rows as JourneyDiffRow[]) : []
     const findings = ready.findings ?? []
     const has = (code: string) => findings.some((f) => f.code === code)
     const indexUnavailable = has('projection_unavailable')
     const indexStale = has('projection_stale')
     const multipleTraces = has('multiple_traces') && mode === 'query-candidates' && !selection.trace
+    const k = ready.scope.k
     const traceIds = [...new Set(journeyRows.map((row) => row.trace_id))]
     const tableRows: Row[] = DRILL_DOWN.has(mode) ? stageFilter(journeyRows, selection.stage) : rows
     const buildButton = (label: string) => (
@@ -504,52 +586,131 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
       </div>
     )
 
+    const relevantDelivered = relevantRows.filter((row) => row.outcome === 'relevant_delivered').length
+    const headline = listPage && foldedFlow ? runHeadline(foldedFlow, graph) : null
+    const questionLists = mode === 'queries' && !comparison
+    const documentLists = mode === 'documents' && !comparison
+    const summaries = new Map(rows.filter((row): row is QuerySummaryRow => 'loss_boundaries' in row).map((row) => [row.query_id, row]))
+    const documentRows = rows.filter((row): row is InvestigationDocumentRow => 'judged_relevant_queries' in row)
+    const tableNamespace = mode === 'documents' ? new Set(documentRows.map((row) => splitEntity(row.entity).namespace)).size <= 1 : singleNamespace
+    const emptyPanel = !comparison && rows.length === 0 && !indexUnavailable && (
+      <Panel id="investigate-empty" title={`No ${viewWord} to show`}>
+        <p>
+          {selection.stage || selection.outcome
+            ? `No ${viewWord} match the selected step or reason.`
+            : `The index holds no ${viewWord} for this run and pipeline.`}
+        </p>
+        {(selection.stage || selection.outcome) && (
+          <button type="button" onClick={resetSelection} className={`${linkClass} mt-2`}>
+            Clear filters
+          </button>
+        )}
+      </Panel>
+    )
+    const table = !comparison && rows.length > 0 && (
+      <InvestigationTable
+        shape={mode}
+        rows={tableRows as JourneyRow[] | QuerySummaryRow[] | InvestigationDocumentRow[]}
+        selection={selection}
+        total={ready.total}
+        sort={sort}
+        isSource={isSource}
+        k={k ?? foldedFlow?.k ?? null}
+        singleNamespace={tableNamespace}
+        stepLabel={stepLabel}
+        misses={missesByQuery}
+        onSort={setSort}
+        onSelect={select}
+      />
+    )
+    const loadMoreBar = ready.next_cursor && (
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={loadMore} disabled={phase.loadingMore} className={buttonClass}>
+          {phase.loadingMore ? 'Loading…' : 'Load more'}
+        </button>
+        <span className="text-xs text-ink-muted">
+          {rows.length}
+          {ready.total != null ? ` of ${ready.total}` : ''} rows
+        </span>
+        {phase.moreError && (
+          <span role="alert" className="text-xs text-status-negative">
+            {phase.moreError}
+          </span>
+        )}
+      </div>
+    )
     body = (
       <div className="space-y-3">
+        {headline && <RunHeadline words={headline} />}
+        {comparison && <CompareHeadline envelope={comparison} rows={diffRows} auditHref={auditLink({ db, baseline: selection.compare, candidate: run })} />}
+        {mode === 'document-queries' && (
+          <DocumentHeader entity={selection.entity as string} rows={journeyRows} questions={ready.total ?? journeyRows.length} singleNamespace={singleNamespace} onBack={clearDrillDown} />
+        )}
+        {questionPage && (
+          <QuestionHeader
+            queryId={selection.query as string}
+            queryText={ready.scope.query_text}
+            k={k}
+            relevant={relevantRows}
+            focus={selectedRow}
+            graph={graph}
+            stages={traceStages}
+            singleNamespace={singleNamespace}
+            onBack={clearDrillDown}
+          />
+        )}
         {indexUnavailable && (
           <Panel id="investigate-index" title="Index this run">
             <p>
-              Journey rows for this run have not been indexed yet{rows.length === 0 ? `, so the ${view} list is empty` : ''}.
-              Indexing reads the recorded traces once and stores the per-query outcomes.
+              This run has not been indexed yet{rows.length === 0 ? `, so there are no ${viewWord} to show` : ''}. Indexing reads the recorded traces once
+              and stores what happened to each question's documents.
             </p>
             {buildButton('Index this run')}
           </Panel>
         )}
         {indexStale && (
           <div role="status" className="app-inset px-3 py-2 text-xs">
-            <span className="font-semibold text-status-warning">Stale index — rebuild</span>
+            <span className="font-semibold text-status-warning">The index is out of date</span>
             <span className="ml-2 text-ink-muted">
-              The stored rows predate the current judgments or derivation; counts may not match the traces.
+              It was built from older judgments or an older version of retobs, so its counts may not match the traces.
             </span>
             {buildButton('Rebuild index')}
           </div>
         )}
-        {partialRows > 0 && (
-          <Notice tone="warning" title={`${partialRows} of ${rows.length} rows are evidence-limited`}>
-            An operator boundary was not fully captured for them, so no removal reason is asserted.
+        {listPage && scope.kind === 'ready' && !scope.flow && !indexUnavailable && (
+          <Notice tone="neutral" title="Correct-document counts could not be loaded">
+            The diagram shows candidate counts instead.
           </Notice>
         )}
-        {comparison && (
-          <div role="status" className="app-inset px-3 py-2 text-xs">
-            Comparing candidate <code className="font-mono">{run}</code> against baseline <code className="font-mono">{selection.compare}</code>
-            {' · '}
-            <a href={auditLink({ db, baseline: selection.compare, candidate: run })} className={linkClass}>
-              Back to audit
-            </a>
-          </div>
+        {partialRows > 0 && !comparison && (
+          <Notice tone="warning" title={`${partialRows} of ${rows.length} rows were only partly recorded`}>
+            A step's input or output was not fully captured for them, so their reasons are not asserted.
+          </Notice>
+        )}
+        {multipleTraces && (
+          <Notice tone="neutral" title={`This question ran ${traceIds.length} times.`}>
+            Pick one:
+            {traceIds.map((traceId) => (
+              <button key={traceId} type="button" onClick={() => select({ trace: traceId })} className={`${linkClass} ml-2 font-mono`}>
+                {traceId}
+              </button>
+            ))}
+          </Notice>
         )}
 
         <section aria-labelledby="investigate-graph-title" className="app-card space-y-2 p-4">
-          <div className="flex flex-wrap items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="investigate-graph-title" className="text-sm font-semibold text-ink">
-              Pipeline {effectivePipeline ? <span className="font-mono">{effectivePipeline}</span> : null}
+              {diagramMode === 'path' ? `Path of ${selectedRow!.entity_id}` : diagramMode === 'question' ? 'One question' : 'Where correct documents go'}
             </h2>
-            {graph && (
+            {(effectivePipeline || graph) && (
               <span className="text-xs text-ink-muted">
-                {graph.trace_count} {graph.trace_count === 1 ? 'trace' : 'traces'} · {graph.complete_trace_count} complete
+                {effectivePipeline && <span className="font-mono">{effectivePipeline}</span>}
+                {effectivePipeline && graph && ' · '}
+                {graph && `${graph.trace_count} ${graph.trace_count === 1 ? 'question' : 'questions'}`}
               </span>
             )}
-            {scope.kind === 'ready' && scope.graphError && <span className="text-xs text-ink-faint">topology unavailable: {scope.graphError}</span>}
+            {scope.kind === 'ready' && scope.graphError && <span className="text-xs text-ink-faint">The diagram could not be loaded: {scope.graphError}</span>}
           </div>
           {scope.kind === 'loading' ? (
             <p role="status" className="text-sm text-ink-muted">
@@ -558,10 +719,12 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
           ) : (
             <InvestigationGraph
               graph={graph}
-              stages={traceStages ?? aggregate}
-              mode={traceStages ? 'query' : 'aggregate'}
+              flow={flow}
+              stages={aggregate}
+              traceStages={traceStages}
+              focus={selectedRow}
+              k={k}
               selectedStageId={selection.stage}
-              highlight={highlight}
               collapsed={collapsed}
               onToggleCollapsed={() => setCollapsed((value) => !value)}
               onSelectStage={(opId) => select({ stage: opId })}
@@ -570,17 +733,38 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
           {selection.stage && (
             <OperatorInspector
               opId={selection.stage}
+              node={stageNode}
+              flowStep={flowStepOf(foldedFlow, stageNodeId ?? selection.stage)}
+              flow={foldedFlow}
               stage={traceStages?.find((stage) => stage.op_id === selection.stage) ?? null}
               aggregate={aggregate?.find((stage) => stage.op_id === selection.stage) ?? null}
             />
           )}
         </section>
 
-        {DRILL_DOWN.has(mode) && (
+        {mode === 'document-queries' && selectedRow && (
+          <JourneyCard row={selectedRow} graph={graph} stages={null} k={k} expanded isHeading singleNamespace={singleNamespace} />
+        )}
+        {questionPage && (
+          <div className="grid items-start gap-3 lg:grid-cols-[1.2fr_1fr]">
+            <CorrectDocuments
+              relevant={relevantRows}
+              focus={selectedRow}
+              graph={graph}
+              stages={traceStages}
+              k={k}
+              singleNamespace={singleNamespace}
+              onSelect={(row) => select({ entity: entityKey(row), trace: row.trace_id })}
+            />
+            {delivered && (
+              <DeliveredList rows={delivered} k={k} allDelivered={relevantDelivered === relevantRows.length} singleNamespace={singleNamespace} isSource={isSource} />
+            )}
+          </div>
+        )}
+        {mode === 'query-candidates' && !questionPage && (
           <p className="text-sm text-ink-muted">
-            {mode === 'query-candidates' ? 'Query' : 'Document'}{' '}
-            <code className="font-mono text-ink">{mode === 'query-candidates' ? selection.query : selection.entity}</code>
-            {mode === 'query-candidates' && selection.trace && (
+            Question <code className="font-mono text-ink">{selection.query}</code>
+            {selection.trace && (
               <>
                 {' '}
                 · trace <code className="font-mono text-ink">{selection.trace}</code>
@@ -588,65 +772,71 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
             )}
             {' · '}
             <button type="button" onClick={clearDrillDown} className={linkClass}>
-              All {view}
+              All {viewWord}
             </button>
           </p>
         )}
-        {multipleTraces && (
-          <Notice tone="neutral" title={`This query has ${traceIds.length} traces`}>
-            Pick one to see its execution:
-            {traceIds.map((traceId) => (
-              <button key={traceId} type="button" onClick={() => select({ trace: traceId })} className={`${linkClass} ml-2 font-mono`}>
-                {traceId}
-              </button>
-            ))}
-          </Notice>
-        )}
-        {comparison && <CandidateLineageDiff envelope={comparison} onSelectEntity={(entity, query) => select({ query, entity })} />}
-        {!comparison && rows.length === 0 && !indexUnavailable && (
-          <Panel id="investigate-empty" title={`No ${view} for this scope`}>
-            <p>
-              {selection.stage || selection.outcome
-                ? 'No rows match the current stage/outcome filters.'
-                : 'The index holds no rows for this run and pipeline.'}
-            </p>
-            {(selection.stage || selection.outcome) && (
-              <button type="button" onClick={resetSelection} className={`${linkClass} mt-2`}>
-                Reset selection
-              </button>
+        {comparison && <CandidateLineageDiff envelope={comparison} rows={diffRows} stepNameOf={stepLabel} onSelectEntity={(entity, query) => select({ query, entity })} />}
+        {questionLists ? (
+          <>
+            {missed.length > 0 && (
+              <MissedQuestions
+                key={JSON.stringify([db, run, selection.pipeline, selection.stage, selection.outcome, collapsed])}
+                questions={missed}
+                k={foldedFlow!.k}
+                selection={selection}
+                stage={selection.stage ? { id: stageNodeId as string, name: stageNode ? stepName(stageNode).name : stepLabel(selection.stage) } : null}
+                stepLabel={stepLabel}
+                sort={missedSort}
+                onSort={setMissedSort}
+                onSelect={select}
+              />
             )}
-          </Panel>
-        )}
-        {!comparison && rows.length > 0 && (
-          <InvestigationTable
-            shape={mode}
-            rows={tableRows as JourneyRow[] | QuerySummaryRow[] | InvestigationDocumentRow[]}
-            selection={selection}
-            total={ready.total}
-            sort={sort}
-            isSource={isSource}
-            onSort={setSort}
-            onSelect={select}
-            onReset={resetSelection}
-          />
-        )}
-        {ready.next_cursor && (
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={loadMore} disabled={phase.loadingMore} className={buttonClass}>
-              {phase.loadingMore ? 'Loading…' : 'Load more'}
-            </button>
-            <span className="text-xs text-ink-muted">
-              {rows.length}
-              {ready.total != null ? ` of ${ready.total}` : ''} rows
-            </span>
-            {phase.moreError && (
-              <span role="alert" className="text-xs text-status-negative">
-                {phase.moreError}
-              </span>
+            {(rows.length > 0 || !indexUnavailable) && (
+              // Open by default when nothing was missed (or the flow is unavailable): then it is the only list.
+              <details open={missed.length === 0} className="space-y-2">
+                <summary className="cursor-pointer pt-2 text-sm font-semibold text-ink">
+                  {summaries.size > 0 ? `All ${plural(ready.total ?? rows.length, 'question')}` : rows.length > 0 ? 'Questions with a matching document' : 'All questions'}
+                </summary>
+                {table || emptyPanel}
+                {loadMoreBar}
+              </details>
             )}
-          </div>
+          </>
+        ) : documentLists ? (
+          <>
+            {missedDocs.length > 0 && (
+              <MissedQuestions
+                key={JSON.stringify([db, run, selection.pipeline, selection.stage, selection.outcome, collapsed])}
+                kind="documents"
+                questions={missedDocs}
+                singleNamespace={new Set(missedDocs.map((row) => row.namespace)).size <= 1}
+                k={foldedFlow!.k}
+                selection={selection}
+                stage={selection.stage ? { id: stageNodeId as string, name: stageNode ? stepName(stageNode).name : stepLabel(selection.stage) } : null}
+                stepLabel={stepLabel}
+                sort={missedSort}
+                onSort={setMissedSort}
+                onSelect={select}
+              />
+            )}
+            {(rows.length > 0 || !indexUnavailable) && (
+              // Open by default when no correct document was missed (or the flow is unavailable): then it is the only list.
+              <details open={missedDocs.length === 0} className="space-y-2">
+                <summary className="cursor-pointer pt-2 text-sm font-semibold text-ink">All {plural(ready.total ?? rows.length, 'document')}</summary>
+                {table || emptyPanel}
+                {loadMoreBar}
+              </details>
+            )}
+          </>
+        ) : (
+          <>
+            {emptyPanel}
+            {questionPage && rows.length > 0 && <h2 className="pt-2 text-sm font-semibold text-ink">All {plural(ready.total ?? rows.length, 'candidate')}</h2>}
+            {table}
+            {loadMoreBar}
+          </>
         )}
-        {!comparison && selectedRow && <InvestigationDetail row={selectedRow} stages={traceStages} />}
         <EvidenceDetails envelope={ready} findings={findings} derivation={journeyRows[0]?.derivation_version ?? null} />
       </div>
     )
@@ -654,13 +844,22 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
 
   return (
     <main className="flex-1 overflow-auto p-4 sm:p-6" aria-labelledby="investigate-title">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-4">
-          <p className="eyebrow">Investigate</p>
-          <h1 id="investigate-title" className="mt-1 text-xl font-semibold text-ink">
-            {title}
-          </h1>
-        </header>
+      <div className="mx-auto max-w-[1240px]">
+        {db && run ? (
+          <header className="mb-3 flex flex-wrap items-baseline gap-x-2">
+            <h1 id="investigate-title" className="text-sm font-semibold text-ink-muted">
+              {title}
+            </h1>
+            {effectivePipeline && <span className="font-mono text-xs text-ink-muted">{effectivePipeline}</span>}
+          </header>
+        ) : (
+          <header className="mb-4">
+            <p className="eyebrow">Investigate</p>
+            <h1 id="investigate-title" className="mt-1 text-xl font-semibold text-ink">
+              {title}
+            </h1>
+          </header>
+        )}
         <section id="investigate-view" role="tabpanel" aria-labelledby={`view-tab-${view}`}>
           {body}
         </section>

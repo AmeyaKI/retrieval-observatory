@@ -1,19 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import type { JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode } from '../api'
 import {
+  cameFrom,
   contentPreview,
+  displayEntity,
   evidenceLabel,
+  focusRowFor,
+  isPushedOut,
+  judgedText,
   nextIndexForKey,
   OUTCOME_LABELS,
-  outcomeGlyph,
   outcomeLabel,
+  outcomeText,
+  outcomeTone,
   pathHighlight,
-  principalLossBoundaries,
   queryRollups,
   sortForView,
-  sourceLanes,
+  splitEntity,
   stageFilter,
-  transitionText,
 } from './queryDebugger'
 
 // Rows mirror tests/fixtures/investigation_cases.py (golden-hybrid: dense + lexical lanes,
@@ -299,24 +303,47 @@ describe('pathHighlight', () => {
 
 describe('outcome vocabulary', () => {
   const outcomes = Object.keys(OUTCOME_LABELS) as Array<keyof typeof OUTCOME_LABELS>
-  it('covers all seven outcomes with non-empty text and glyph', () => {
+  it('covers all seven outcomes with plain words and a tone', () => {
     expect(outcomes).toHaveLength(7)
-    for (const outcome of outcomes) {
-      expect(outcomeLabel(outcome).length).toBeGreaterThan(0)
-      expect(outcomeGlyph(outcome).length).toBeGreaterThan(0)
-    }
-    expect(outcomeLabel('relevant_delivered')).toBe('Relevant, delivered')
-    expect(outcomeLabel('relevant_excluded')).toBe('Relevant, excluded')
-    expect(outcomeLabel('retained_below_cutoff')).toBe('Retained below cutoff')
-    expect(outcomeLabel('not_observed')).toBe('Not observed in retrieval')
-    expect(outcomeLabel('judged_nonrelevant')).toBe('Judged nonrelevant')
-    expect(outcomeLabel('unjudged')).toBe('Unjudged')
-    expect(outcomeLabel('insufficient_evidence')).toBe('Insufficient evidence')
+    expect(Object.fromEntries(outcomes.map((outcome) => [outcome, [outcomeLabel(outcome), outcomeTone(outcome)]]))).toEqual({
+      relevant_delivered: ['Correct, delivered', 'positive'],
+      relevant_excluded: ['Correct, dropped', 'negative'],
+      retained_below_cutoff: ['Correct, ranked too low', 'negative'],
+      not_observed: ['Correct, never found', 'negative'],
+      judged_nonrelevant: ['Not correct', 'neutral'],
+      unjudged: ['Not judged', 'neutral'],
+      insufficient_evidence: ['Not enough evidence', 'warning'],
+    })
   })
 
-  it('falls back to the raw value and a question mark for an unknown outcome', () => {
+  it('falls back to the raw value and a neutral tone for an unknown outcome', () => {
     expect(outcomeLabel('later_outcome')).toBe('later_outcome')
-    expect(outcomeGlyph('later_outcome')).toBe('?')
+    expect(outcomeTone('later_outcome')).toBe('neutral')
+  })
+
+  it('says "pushed out of the top k" when another step had the document in the top k (the server rule)', () => {
+    // legal: retained below the cutoff at select; recency_filter had it at #2, inside the top 3.
+    expect(isPushedOut(legal, 3)).toBe(true)
+    expect(outcomeText(legal, 3)).toBe('Correct, pushed out of the top 3')
+    // Inside the top 3 only at the loss boundary itself, or never: ranked too low.
+    expect(isPushedOut(legal, 1)).toBe(false)
+    expect(outcomeText(legal, 1)).toBe('Correct, ranked too low')
+    expect(isPushedOut(legal, null)).toBe(false)
+    expect(outcomeText(missed, 3)).toBe('Correct, dropped')
+  })
+
+  it('states the judgment, the source lanes and the id in plain words', () => {
+    expect(judgedText(policy)).toBe('Correct · grade 2')
+    expect(judgedText(legal)).toBe('Correct')
+    expect(judgedText(faqOutage)).toBe('Not correct')
+    expect(judgedText(news)).toBe('Not judged')
+    const isSource = (opId: string) => GOLDEN_GRAPH.nodes.find((n) => n.node_id === opId)?.op_type === 'SOURCE'
+    expect(cameFrom(policy, isSource)).toBe('dense #1 · lexical #1')
+    expect(cameFrom(faqOutage, isSource)).toBe('dense #1 · lexical #2')
+    expect(cameFrom(row({ events: [event('dense', 'introduced', null, 16), event('lexical', 'introduced', null, 4), event('expand', 'introduced', null, 1)] }), isSource)).toBe('lexical #4 · dense #16')
+    expect(cameFrom(archive, isSource)).toBe('—')
+    expect(displayEntity(policy, true)).toBe('doc-policy')
+    expect(displayEntity(policy, false)).toBe('kb:doc-policy')
   })
 
   it('maps reason evidence to the three user-facing labels', () => {
@@ -338,6 +365,17 @@ describe('stageFilter', () => {
   })
 })
 
+describe('focusRowFor', () => {
+  it('follows the URL entity, else the first correct document missed, else the first correct one', () => {
+    const rows = [faqOutage, policy, news, missed, legal]
+    expect(focusRowFor(rows, 'kb:doc-news', null)).toBe(news)
+    expect(focusRowFor(rows, 'kb:doc-news', 'other-trace')).toBe(missed)
+    expect(focusRowFor(rows, null, null)).toBe(missed)
+    expect(focusRowFor([faqOutage, policy, news], null, null)).toBe(policy)
+    expect(focusRowFor([faqOutage, news], null, null)).toBeNull()
+  })
+})
+
 describe('sortForView', () => {
   it('puts complete relevant misses first, then evidence-limited rows, delivered relevant rows, and the rest', () => {
     const sorted = sortForView([news, faqOutage, unknownRow, policy, missed, archive], 'queries')
@@ -349,6 +387,13 @@ describe('sortForView', () => {
       'q-outage/doc-faq',
       'q-refund/doc-news',
     ])
+  })
+
+  it('orders the rows that are not correct documents by final rank, unranked last, ties by id', () => {
+    const other = (entity_id: string, final_rank: number | null, judgment: JourneyRow['judgment'] = 'unjudged') =>
+      row({ query_id: 'q-a', entity_id, judgment, outcome: judgment === 'nonrelevant' ? 'judged_nonrelevant' : 'unjudged', final_rank })
+    const rows = [other('doc-c', null), other('doc-b', 7), other('doc-a', null), other('doc-d', 2, 'nonrelevant'), other('doc-e', 7), policy, legal]
+    expect(sortForView(rows, 'queries').map((r) => r.entity_id)).toEqual(['doc-legal', 'doc-policy', 'doc-d', 'doc-b', 'doc-e', 'doc-a', 'doc-c'])
   })
 
   it('puts a relevant document retained below the cutoff above unjudged rows', () => {
@@ -378,22 +423,10 @@ describe('row helpers', () => {
     })
   })
 
-  it('names at most three stored loss boundaries with their counts, most frequent first', () => {
-    expect(principalLossBoundaries({ select: 1, recency_filter: 3, not_observed: 2, unknown: 1 })).toEqual(['recency_filter ×3', 'not_observed ×2', 'select ×1'])
-    expect(principalLossBoundaries({})).toEqual([])
-  })
-
-  it('renders the compact transition sequence with removal and unknown marks only', () => {
-    expect(transitionText(news)).toBe('lexical ▸ recency_filter ✕')
-    expect(transitionText(policy)).toBe('dense ▸ lexical ▸ recency_filter ✕ ▸ rerank@dense ▸ fuse ▸ expand_gate ▸ select')
-    expect(transitionText(faqOutage)).toContain('rerank@lexical ◌')
-  })
-
-  it('lists SOURCE lanes that introduced the entity', () => {
-    const isSource = (opId: string) => GOLDEN_GRAPH.nodes.find((n) => n.node_id === opId)?.op_type === 'SOURCE'
-    expect(sourceLanes(policy, isSource)).toEqual(['dense', 'lexical'])
-    expect(sourceLanes(legal, isSource)).toEqual(['lexical'])
-    expect(sourceLanes(archive, isSource)).toEqual([])
+  it('splits a namespace:entity handle at its first colon', () => {
+    expect(splitEntity('default:31715818')).toEqual({ namespace: 'default', entity_id: '31715818' })
+    expect(splitEntity('kb:doc:2')).toEqual({ namespace: 'kb', entity_id: 'doc:2' })
+    expect(splitEntity('bare')).toEqual({ namespace: '', entity_id: 'bare' })
   })
 
   it('previews captured content only when the payload carries it', () => {

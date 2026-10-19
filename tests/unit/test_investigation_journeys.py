@@ -9,7 +9,7 @@ import pytest
 
 from retrieval_observatory.datasets.judgments import ChunkMap, EvaluationSpec, JudgmentSet
 from retrieval_observatory.evidence.investigation import JourneyRow
-from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_journeys, summarize_stages
+from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_flow, summarize_journeys, summarize_stages
 from retrieval_observatory.tracing import candidate_journeys
 from tests.fixtures.investigation_cases import (
     EVALUATION_SPEC,
@@ -200,3 +200,81 @@ async def test_compat_adapter_matches_fixture_survival(run):
     assert by_doc["doc-news"]["drop_reason"] == "stale_year" and by_doc["doc-news"]["drop_reason_inferred"] is False
     assert all(row["miss_type"] is None for row in rows)
     assert "replay" not in inspect.getsource(candidate_journeys)
+
+
+def _flow_event(op_id: str, kind: str, rank_in: int | None = None, rank_out: int | None = None, reason: str | None = None) -> dict:
+    return {
+        "op_id": op_id, "kind": kind, "input_present": rank_in is not None, "output_present": rank_out is not None,
+        "input_rank": rank_in, "output_rank": rank_out, "reason": reason,
+    }
+
+
+def _flow_row(query_id: str, entity_id: str, outcome: str, events: list[dict], loss_boundary: str | None = None, final_rank: int | None = None) -> dict:
+    return {
+        "query_id": query_id, "namespace": "kb", "entity_id": entity_id, "trace_id": f"t-{query_id}", "judgment": "relevant",
+        "outcome": outcome, "loss_boundary": loss_boundary, "final_rank": final_rank, "capture_state": "complete", "events": events,
+    }
+
+
+def test_flow_counts_relevant_rows_per_step_and_lists_each_miss():
+    # dense -> fuse and bm25 -> filter -> fuse; fuse is the final step; k = 3.
+    rows = [
+        _flow_row("q1", "d-hit", "relevant_delivered", [  # two chunks at dense still count as one row there
+            _flow_event("dense", "introduced", rank_out=1), _flow_event("dense", "introduced", rank_out=3), _flow_event("bm25", "introduced", rank_out=1),
+            _flow_event("filter", "retained", 1, 1), _flow_event("fuse", "retained", 1, 1),
+        ], final_rank=1),
+        _flow_row("q1", "d-lane", "relevant_delivered", [  # removed in the bm25 lane, delivered through dense
+            _flow_event("dense", "introduced", rank_out=2), _flow_event("bm25", "introduced", rank_out=3),
+            _flow_event("filter", "removed", 3, reason="min_score"), _flow_event("fuse", "retained", 2, 2),
+        ], final_rank=2),
+        _flow_row("q1", "d-dropped", "relevant_excluded", [
+            _flow_event("bm25", "introduced", rank_out=2), _flow_event("filter", "removed", 2, reason="min_score"),
+        ], loss_boundary="filter"),
+        _flow_row("q2", "d-pushed", "retained_below_cutoff", [
+            _flow_event("dense", "introduced", rank_out=2), _flow_event("fuse", "demoted", 2, 5),
+        ], loss_boundary="fuse", final_rank=5),
+        _flow_row("q2", "d-low", "retained_below_cutoff", [
+            _flow_event("dense", "introduced", rank_out=7), _flow_event("bm25", "introduced", rank_out=9),
+            _flow_event("filter", "retained", 9, 9), _flow_event("fuse", "demoted", 7, 8),
+        ], loss_boundary="fuse", final_rank=8),
+        _flow_row("q3", "d-never", "not_observed", [], loss_boundary="not_observed"),
+    ]
+    flow = summarize_flow(rows, 3, {"q2": "why is it slow"})
+
+    assert flow["k"] == 3
+    assert flow["totals"] == {
+        "relevant": 6, "delivered": 2, "missed": 4, "never_found": 1, "insufficient": 0,
+        "questions": 3, "questions_judged": 3, "questions_with_miss": 3, "questions_with_none": 2,
+    }
+    assert summarize_flow(rows, 3, {}, questions=5)["totals"]["questions"] == 5
+
+    def step(seen, input, output, in_top_k, removed=0, removed_but_delivered=0, dropped=0, ranked_low=0, pushed_out=0):
+        return {
+            "seen": seen, "input": input, "output": output, "in_top_k": in_top_k, "removed": removed, "removed_but_delivered": removed_but_delivered,
+            "lost": {"dropped": dropped, "ranked_low": ranked_low, "pushed_out": pushed_out, "unknown": 0}, "lost_total": dropped + ranked_low + pushed_out,
+        }
+
+    assert flow["steps"] == {
+        "dense": step(4, 0, 4, 3),
+        "bm25": step(4, 0, 4, 3),
+        "filter": step(4, 4, 2, 1, removed=2, removed_but_delivered=1, dropped=1),
+        "fuse": step(4, 4, 4, 2, ranked_low=1, pushed_out=1),
+    }
+    lost = sum(step["lost_total"] for step in flow["steps"].values())
+    assert flow["totals"]["delivered"] + lost + flow["totals"]["never_found"] == flow["totals"]["relevant"]
+    assert {key: flow["copresence"][key] for key in ("dense→fuse", "bm25→filter", "filter→fuse")} == {
+        "dense→fuse": 4, "bm25→filter": 4, "filter→fuse": 2,
+    }
+    assert "dense→dense" not in flow["copresence"]
+
+    misses = flow["misses"]
+    assert [(m["query_id"], m["entity_id"]) for m in misses] == [("q2", "d-low"), ("q2", "d-pushed"), ("q3", "d-never"), ("q1", "d-dropped")]
+    assert [(m["best_rank"], m["best_op"], m["pushed_out"]) for m in misses] == [(7, "dense", False), (2, "dense", True), (None, None, False), (2, "bm25", False)]
+    assert [m["query_text"] for m in misses] == ["why is it slow", "why is it slow", None, None]
+    assert misses[3]["events"] == [
+        {"op_id": "bm25", "kind": "introduced", "input_rank": None, "output_rank": 2, "reason": None},
+        {"op_id": "filter", "kind": "removed", "input_rank": 2, "output_rank": None, "reason": "min_score"},
+    ]
+    assert {key: misses[0][key] for key in ("namespace", "trace_id", "outcome", "loss_boundary", "final_rank", "capture_state")} == {
+        "namespace": "kb", "trace_id": "t-q2", "outcome": "retained_below_cutoff", "loss_boundary": "fuse", "final_rank": 8, "capture_state": "complete",
+    }

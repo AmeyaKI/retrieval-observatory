@@ -26,6 +26,7 @@ from retrieval_observatory.dashboard.registry import DbRegistry
 from retrieval_observatory.evidence.service import (
     InvestigationRequest,
     inspect_document,
+    inspect_flow,
     inspect_investigation,
     inspect_query,
     resolve_scope,
@@ -143,6 +144,13 @@ async def test_outcome_filtered_page_uses_a_pairs_index(db_path: Path) -> None:
     envelope = await inspect_investigation(store, _request(outcome="relevant_excluded"))
     assert envelope["scope"]["rows_kind"] == "pairs" and envelope["rows"]
     assert all(row["outcome"] == "relevant_excluded" for row in envelope["rows"])
+    _assert_indexed(_plans(db_path, statements), "investigation_pairs")
+
+
+async def test_flow_reads_the_relevant_pairs_through_a_pairs_index(db_path: Path) -> None:
+    store, statements = _traced_store(db_path)
+    envelope = await inspect_flow(store, _request())
+    assert envelope["flow"]["totals"]["relevant"] > 0
     _assert_indexed(_plans(db_path, statements), "investigation_pairs")
 
 

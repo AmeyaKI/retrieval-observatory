@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test } from 'vitest'
-import CandidateLineageDiff from './CandidateLineageDiff'
-import { ComparisonEnvelope, JourneyDiffRow, JourneySide } from '../api'
+import CandidateLineageDiff, { CompareHeadline } from './CandidateLineageDiff'
+import { ComparisonEnvelope, JourneyDiffRow, JourneySide, StageAlignment } from '../api'
 
 /** Static markup escapes quotes and ampersands; compare against the text a reader sees. */
 function decode(html: string): string {
@@ -67,7 +67,24 @@ const rows: JourneyDiffRow[] = [
   },
 ]
 
-function envelope(overrides: { corpus_changed?: boolean; query_id?: string } = {}): ComparisonEnvelope {
+const notCorrect = side({ outcome: 'judged_nonrelevant', judgment: 'nonrelevant', final_membership: 'excluded', in_final_output: false, final_rank: null, loss_boundary: 'select' })
+
+/** A judged-nonrelevant row whose path changed between the runs. */
+const otherRow: JourneyDiffRow = {
+  ...rows[2],
+  query_id: 'q-billing',
+  entity_id: 'doc-legal',
+  change: 'path_changed',
+  detail: 'excluded (select) → excluded (fuse)',
+  baseline: notCorrect,
+  candidate: { ...notCorrect, loss_boundary: 'fuse' },
+  capture_limited: false,
+  priority: 4,
+}
+
+function envelope(
+  overrides: { corpus_changed?: boolean; query_id?: string; rows?: JourneyDiffRow[]; stage_alignment?: StageAlignment | null } = {},
+): ComparisonEnvelope {
   return {
     schema_version: 1,
     scope: {
@@ -83,8 +100,8 @@ function envelope(overrides: { corpus_changed?: boolean; query_id?: string } = {
     },
     capabilities: { projection: 'ready', judgments: 'ready', capture: { complete_rows: 2, partial_rows: 1 } },
     coverage: { queries_attempted: 2, queries_with_traces: 2, queries_projected: 2, pairs: 3, events: 6 },
-    rows,
-    total: 3,
+    rows: overrides.rows ?? rows,
+    total: (overrides.rows ?? rows).length,
     next_cursor: null,
     summary: null,
     stages: null,
@@ -98,55 +115,136 @@ function envelope(overrides: { corpus_changed?: boolean; query_id?: string } = {
         corpus_changed: overrides.corpus_changed ?? false,
         query_inputs_identical: true,
       },
-      stage_alignment: {
-        matched: [
-          ['rerank@dense', 'rerank@fast'],
-          ['select', 'select'],
-        ],
-        baseline_only: ['expand'],
-        candidate_only: ['boost'],
-      },
+      stage_alignment:
+        overrides.stage_alignment !== undefined
+          ? overrides.stage_alignment
+          : {
+              matched: [
+                ['rerank@dense', 'rerank@fast'],
+                ['select', 'select'],
+              ],
+              baseline_only: ['expand'],
+              candidate_only: ['boost'],
+            },
       summary: { pairs: 3, by_change: { lost: 1, gained: 1, unchanged: 1 }, by_alignment: { aligned: 3 }, capture_limited: 1 },
     },
   }
 }
 
-describe('CandidateLineageDiff', () => {
-  test('names both runs and renders every pair with a glyph, a label and the observed detail', () => {
-    const html = decode(renderToStaticMarkup(<CandidateLineageDiff envelope={envelope()} onSelectEntity={() => {}} />))
+const names: Record<string, string> = { select: 'Select' }
 
+function renderDiff(env: ComparisonEnvelope): string {
+  return decode(renderToStaticMarkup(<CandidateLineageDiff envelope={env} rows={env.rows} stepNameOf={(opId) => names[opId] ?? opId} onSelectEntity={() => {}} />))
+}
+
+function renderHeadline(env: ComparisonEnvelope): string {
+  return decode(renderToStaticMarkup(<CompareHeadline envelope={env} rows={env.rows} auditHref="#/audit?baseline=base&candidate=cand" />))
+}
+
+/** The text of the `<tr>` rows inside the table whose caption starts with `caption`. */
+function tableRows(html: string, caption: string): string[] {
+  const start = html.indexOf(`>${caption}`)
+  if (start < 0) return []
+  const table = html.slice(start, html.indexOf('</table>', start))
+  return [...table.matchAll(/<tr class[^>]*>([\s\S]*?)<\/tr>/g)].map((match) => match[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim())
+}
+
+describe('CompareHeadline', () => {
+  test('counts correct documents gained and lost, names both runs and links back to the audit', () => {
+    const html = renderHeadline(envelope())
+
+    expect(html).toContain('<h2 class="text-[22px] font-semibold leading-tight text-ink">Against baseline base: 1 correct document gained, 1 lost.</h2>')
+    expect(html.replace(/<[^>]+>/g, '')).toContain('Candidate cand · baseline base · 3 documents compared · Back to audit')
     expect(html).toContain('<span class="font-mono">cand</span>')
-    expect(html).toContain('<span class="font-mono">base</span>')
-    expect(html).toContain('<span aria-hidden="true">✕</span> Lost')
-    expect(html).toContain('<span aria-hidden="true">✓</span> Gained')
-    expect(html).toContain('<span aria-hidden="true">=</span> Unchanged')
-    expect(html).toContain('included at rank 3 → excluded (select)')
-    expect(html).toContain('excluded (not_observed) → included at rank 1')
-    expect(html).toContain('included at rank 2 in both runs')
-    expect(html).toContain('included #3 · relevant')
-    expect(html).toContain('excluded at select · relevant')
-    expect(html.match(/capture partial/g)).toHaveLength(1)
-    expect(html).toContain('3 pairs · 1 lost · 1 gained · 0 rank changed · 0 path changed · 1 evidence-limited')
+    expect(html).toContain('href="#/audit?baseline=base&candidate=cand"')
+    expect(html).toContain('1 row was only partly recorded, so its reasons are not asserted.')
+    expect(html).not.toContain('Technical details')
+  })
 
-    expect(html).toContain('Stage alignment')
-    expect(html).toContain('<code class="font-mono">rerank@dense</code> ↔ <code class="font-mono">rerank@fast</code>')
-    expect(html).toMatch(/Baseline only[\s\S]*expand/)
-    expect(html).toMatch(/Candidate only[\s\S]*boost/)
+  test('a corpus change is a calm blocking notice; compatibility findings sit in Technical details with their codes', () => {
+    const env = envelope({ corpus_changed: true })
+    env.comparison.compatibility.findings = [{ code: 'corpus_hash_changed', detail: 'corpus hash differs' } as ComparisonEnvelope['comparison']['compatibility']['findings'][number]]
+    const html = renderHeadline(env)
+
+    expect(html).toContain('role="status"')
+    expect(html).toContain("The corpus changed between the runs, so documents are not paired; each run's evidence is shown as recorded.")
+    expect(html).toMatch(/<summary[^>]*>Technical details<\/summary>[\s\S]*corpus_hash_changed/)
+  })
+
+  test('different question inputs get their own notice; no notice when nothing was partly recorded', () => {
+    const env = envelope({ rows: [rows[0], rows[1]] })
+    env.comparison.compatibility.query_inputs_identical = false
+    const html = renderHeadline(env)
+
+    expect(html).toContain("The question inputs differ between the runs; questions whose input changed can't be compared.")
+    expect(html).not.toContain('partly recorded')
+  })
+})
+
+describe('CandidateLineageDiff', () => {
+  test('correct documents that changed lead, lost before gained, each side in words and the change as a pill', () => {
+    const html = renderDiff(envelope())
+
+    expect(html).toContain('Correct documents that changed (2)</caption>')
+    expect(tableRows(html, 'Correct documents that changed')).toEqual([
+      'q-refund doc-guide Delivered at #3 Dropped by Select Lost',
+      'q-refund doc-faq Never found Delivered at #1 Gained',
+    ])
+    expect(html).toContain('bg-status-negative/10 text-status-negative">Lost</span>')
+    expect(html).toContain('bg-status-positive/10 text-status-positive">Gained</span>')
+    expect(html).toContain('title="included at rank 3 → excluded (select)"')
+    expect(html).not.toContain('Other changes')
+    expect(html).toMatch(/<details[^>]*><summary[^>]*>Unchanged \(1\)<\/summary>/)
+    expect(tableRows(html, 'Unchanged (1)')).toEqual(['q-billing doc-terms Delivered at #2 · Partly recorded Delivered at #2 Unchanged'])
+    expect(html.replace(/<[^>]+>/g, '')).not.toMatch(/[✕✓◐↕⇢∅↔]/)
     expect(html).not.toMatch(/caused|cause of/i)
   })
 
-  test('a corpus change blocks the matched comparison with a status notice', () => {
-    const html = decode(renderToStaticMarkup(<CandidateLineageDiff envelope={envelope({ corpus_changed: true })} onSelectEntity={() => {}} />))
+  test('stage alignment lists only the differences', () => {
+    const html = renderDiff(envelope())
 
-    expect(html).toContain('role="status"')
-    expect(html).toContain("matched comparison blocked: corpus changed; showing each run's evidence")
+    expect(html).toContain('Steps that differ between the runs')
+    expect(html).toContain('<code class="font-mono text-xs text-ink">rerank@dense</code> in the baseline matches <code class="font-mono text-xs text-ink">rerank@fast</code> in the')
+    expect(html).toMatch(/Only in the baseline: [\s\S]*expand/)
+    expect(html).toMatch(/Only in the candidate: [\s\S]*boost/)
+    expect(html).toContain('The other step matches.')
   })
 
-  test('the Query column appears only on the list scope', () => {
-    const list = renderToStaticMarkup(<CandidateLineageDiff envelope={envelope()} onSelectEntity={() => {}} />)
-    const single = renderToStaticMarkup(<CandidateLineageDiff envelope={envelope({ query_id: 'q-refund' })} onSelectEntity={() => {}} />)
+  test('stage alignment collapses to one line when every step matches, and is absent on the list scope', () => {
+    const matched: StageAlignment = { matched: [['dense', 'dense'], ['fuse', 'fuse'], ['select', 'select']], baseline_only: [], candidate_only: [] }
+    const html = renderDiff(envelope({ stage_alignment: matched }))
 
-    expect(list).toContain('>Query</th>')
-    expect(single).not.toContain('>Query</th>')
+    expect(html).toContain('All 3 steps match between the runs.')
+    expect(html).not.toContain('Steps that differ')
+    expect(renderDiff(envelope({ stage_alignment: null }))).not.toContain('match between the runs')
+  })
+
+  test('other changes stay collapsed and neutral under correct documents, and open when no correct document changed', () => {
+    const lostOther: JourneyDiffRow = { ...otherRow, entity_id: 'doc-ad', change: 'lost', priority: 0 }
+    const withCorrect = renderDiff(envelope({ rows: [...rows, otherRow, lostOther] }))
+    expect(withCorrect).toMatch(/<details[^>]*><summary[^>]*>Other changes \(2\)<\/summary>/)
+    expect(withCorrect).toContain('<caption class="sr-only">Other changes (2)</caption>')
+    expect(tableRows(withCorrect, 'Other changes (2)')).toEqual([
+      'q-billing doc-ad Not in the top 10 Not in the top 10 Lost',
+      'q-billing doc-legal Not in the top 10 Not in the top 10 Different path',
+    ])
+    expect(withCorrect).toContain('border-hairline bg-surface-muted text-ink-muted">Lost</span>')
+
+    const without = renderDiff(envelope({ rows: [otherRow, rows[2]] }))
+    expect(without).toContain('No correct document changed between the runs.')
+    expect(without).not.toMatch(/<summary[^>]*>Other changes/)
+    expect(without).toMatch(/<caption class="border-b[^"]*">Other changes \(1\)<\/caption>/)
+  })
+
+  test('the Question column appears only on the list scope; one namespace drops the prefix', () => {
+    const list = renderDiff(envelope())
+    const single = renderDiff(envelope({ query_id: 'q-refund' }))
+
+    expect(list).toContain('>Question</th>')
+    expect(single).not.toContain('>Question</th>')
+    expect(list).toContain('>doc-guide</button>')
+    const mixed = renderDiff(envelope({ rows: [rows[0], { ...rows[1], namespace: 'tickets' }] }))
+    expect(mixed).toContain('>kb:doc-guide</button>')
+    expect(mixed).toContain('>tickets:doc-faq</button>')
   })
 })

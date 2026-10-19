@@ -339,7 +339,7 @@ describe('Investigate helpers', () => {
     expect(pipelineIdsFromConfig(undefined)).toEqual([])
   })
 
-  test('every outcome has a glyph and a text label (never colour alone)', () => {
+  test('every outcome has a text label and a tone (never colour alone)', () => {
     for (const outcome of [
       'relevant_delivered',
       'relevant_excluded',
@@ -349,8 +349,8 @@ describe('Investigate helpers', () => {
       'unjudged',
       'insufficient_evidence',
     ] as const) {
-      expect(OUTCOME_LABELS[outcome].glyph.length).toBeGreaterThan(0)
       expect(OUTCOME_LABELS[outcome].label.length).toBeGreaterThan(0)
+      expect(['positive', 'negative', 'warning', 'neutral']).toContain(OUTCOME_LABELS[outcome].tone)
     }
   })
 })

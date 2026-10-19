@@ -13,6 +13,7 @@ from retrieval_observatory.evidence.service import (
     build_projection,
     compare_investigations,
     inspect_document,
+    inspect_flow,
     inspect_investigation,
     inspect_query,
     resolve_scope,
@@ -42,6 +43,10 @@ def build_investigation_router(registry: DbRegistry) -> APIRouter:
     @router.get("/runs/{run_id}/queries/{query_id}")
     async def get_query(db_id: str, run_id: str, query_id: str, request: Request) -> Dict[str, Any]:
         return await call(db_id, inspect_query, {**request.query_params, "run_id": run_id, "query_id": query_id})
+
+    @router.get("/runs/{run_id}/flow")
+    async def get_flow(db_id: str, run_id: str, request: Request) -> Dict[str, Any]:
+        return await call(db_id, inspect_flow, {**request.query_params, "run_id": run_id})
 
     # Comparison: ``run_id`` is the candidate, ``against`` the baseline. ``pipeline``/``query`` are
     # accepted as short forms of ``pipeline_id``/``query_id``; a missing ``against`` is a 400.

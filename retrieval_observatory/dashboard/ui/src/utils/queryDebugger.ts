@@ -8,35 +8,64 @@ export type EventKind = JourneyEvent['kind']
 export type Outcome = JourneyRow['outcome']
 export type ReasonEvidence = JourneyEvent['reason_evidence']
 
-/** User-facing outcome vocabulary: text plus a glyph, never colour alone. */
-export const OUTCOME_LABELS: Record<Outcome, { glyph: string; label: string }> = {
-  relevant_delivered: { glyph: '✓', label: 'Relevant, delivered' },
-  relevant_excluded: { glyph: '✕', label: 'Relevant, excluded' },
-  retained_below_cutoff: { glyph: '↓', label: 'Retained below cutoff' },
-  not_observed: { glyph: '○', label: 'Not observed in retrieval' },
-  judged_nonrelevant: { glyph: '–', label: 'Judged nonrelevant' },
-  unjudged: { glyph: '?', label: 'Unjudged' },
-  insufficient_evidence: { glyph: '◌', label: 'Insufficient evidence' },
+export type OutcomeTone = 'positive' | 'negative' | 'warning' | 'neutral'
+
+/** User-facing outcome vocabulary: plain words plus a tone for colour (the words alone carry the meaning). */
+export const OUTCOME_LABELS: Record<Outcome, { label: string; tone: OutcomeTone }> = {
+  relevant_delivered: { label: 'Correct, delivered', tone: 'positive' },
+  relevant_excluded: { label: 'Correct, dropped', tone: 'negative' },
+  retained_below_cutoff: { label: 'Correct, ranked too low', tone: 'negative' },
+  not_observed: { label: 'Correct, never found', tone: 'negative' },
+  judged_nonrelevant: { label: 'Not correct', tone: 'neutral' },
+  unjudged: { label: 'Not judged', tone: 'neutral' },
+  insufficient_evidence: { label: 'Not enough evidence', tone: 'warning' },
 }
 
 export function outcomeLabel(outcome: Outcome | string): string {
   return OUTCOME_LABELS[outcome as Outcome]?.label ?? outcome
 }
 
-export function outcomeGlyph(outcome: Outcome | string): string {
-  return OUTCOME_LABELS[outcome as Outcome]?.glyph ?? '?'
+export function outcomeTone(outcome: Outcome | string): OutcomeTone {
+  return OUTCOME_LABELS[outcome as Outcome]?.tone ?? 'neutral'
 }
 
-/** Neutral glyphs for event kinds; a branch-local removal is a fact, not a verdict, so no red. */
-export const KIND_GLYPHS: Record<EventKind, string> = {
-  introduced: '+',
-  retained: '=',
-  promoted: '↑',
-  demoted: '↓',
-  removed: '✕',
-  recovered: '↻',
-  transformed: '⇢',
-  unknown: '◌',
+/** Ranked too low at its loss boundary although another step had it in the top k (the server's `pushed_out`). */
+export function isPushedOut(row: JourneyRow, k: number | null): boolean {
+  if (row.outcome !== 'retained_below_cutoff' || k == null) return false
+  return row.events.some((event) => event.op_id !== row.loss_boundary && event.output_present && event.output_rank != null && event.output_rank <= k)
+}
+
+export function outcomeText(row: JourneyRow, k: number | null): string {
+  return isPushedOut(row, k) ? `Correct, pushed out of the top ${k}` : outcomeLabel(row.outcome)
+}
+
+export function judgedText(row: JourneyRow): string {
+  if (row.judgment === 'relevant') return row.grade != null && row.grade > 1 ? `Correct · grade ${row.grade}` : 'Correct'
+  return row.judgment === 'nonrelevant' ? 'Not correct' : 'Not judged'
+}
+
+/** Where the document entered: `dense #5 · bm25 #37`, best rank first; without `isSource` every introducing step counts. */
+export function cameFrom(row: JourneyRow, isSource?: (opId: string) => boolean): string {
+  const found = new Map<string, number | null>()
+  for (const event of row.events) {
+    if (event.kind === 'introduced' && (!isSource || isSource(event.op_id)) && !found.has(event.op_id)) found.set(event.op_id, event.output_rank)
+  }
+  if (found.size === 0) return '—'
+  return [...found]
+    .sort((a, b) => (a[1] ?? Infinity) - (b[1] ?? Infinity))
+    .map(([opId, rank]) => (rank != null ? `${opId} #${rank}` : opId))
+    .join(' · ')
+}
+
+/** The id a person reads: the namespace only when the scope has more than one. */
+export function displayEntity(row: Pick<JourneyRow, 'namespace' | 'entity_id'>, singleNamespace: boolean): string {
+  return singleNamespace ? row.entity_id : `${row.namespace}:${row.entity_id}`
+}
+
+/** `namespace:entity_id` (a document summary's `entity`, the URL's `entity`) split at its first colon. */
+export function splitEntity(entity: string): Pick<JourneyRow, 'namespace' | 'entity_id'> {
+  const at = entity.indexOf(':')
+  return at < 0 ? { namespace: '', entity_id: entity } : { namespace: entity.slice(0, at), entity_id: entity.slice(at + 1) }
 }
 
 export function evidenceLabel(evidence: ReasonEvidence | string | null | undefined): 'recorded' | 'inferred' | 'unavailable' {
@@ -110,15 +139,31 @@ function byIds(a: JourneyRow, b: JourneyRow): number {
   return a.query_id.localeCompare(b.query_id) || entityKey(a).localeCompare(entityKey(b))
 }
 
+/** Final rank ascending; rows without one last. */
+function byRank(a: JourneyRow, b: JourneyRow): number {
+  return (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity)
+}
+
 /** Default table order. Queries view: relevant misses with complete capture first (removed, never
  * observed, or retained below the cutoff), then evidence-limited rows, then delivered relevant rows,
- * then judged-nonrelevant and unjudged rows. Documents view: by query then entity. Ties break on
- * query_id, entity. */
+ * then every other row by final rank (rows without one last). Documents view: by query then entity.
+ * Ties break on query_id, entity. */
 export function sortForView<Row extends JourneyRow>(rows: Row[], view: InvestigateView): Row[] {
   const sorted = [...rows]
-  if (view === 'queries') sorted.sort((a, b) => bucket(a) - bucket(b) || byIds(a, b))
+  if (view === 'queries') sorted.sort((a, b) => bucket(a) - bucket(b) || (bucket(a) === 3 ? byRank(a, b) : 0) || byIds(a, b))
   else sorted.sort(byIds)
   return sorted
+}
+
+/** The document a question page follows: the URL's entity, else the first correct document it
+ * missed (table order), else its first correct document, else none. */
+export function focusRowFor<Row extends JourneyRow>(rows: Row[], entity: string | null, trace: string | null): Row | null {
+  if (entity) {
+    const selected = rows.find((row) => entityKey(row) === entity && (!trace || row.trace_id === trace))
+    if (selected) return selected
+  }
+  const ordered = sortForView(rows, 'queries')
+  return ordered.find(isRelevantMiss) ?? ordered.find((row) => row.judgment === 'relevant') ?? null
 }
 
 /** Roving-focus rule for table rows; null when the key is not a navigation key. */
@@ -174,36 +219,6 @@ export function queryRollups(rows: JourneyRow[]): QueryRollup[] {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([id]) => id),
   }))
-}
-
-/** The stored summary's top loss boundaries as `op ×n`, most frequent first (ties by name), at most three. */
-export function principalLossBoundaries(counts: Record<string, number>, limit = 3): string[] {
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([id, count]) => `${id} ×${count}`)
-}
-
-/** SOURCE operators that introduced the entity; without a graph every introducing operator counts. */
-export function sourceLanes(row: JourneyRow, isSource?: (opId: string) => boolean): string[] {
-  const lanes: string[] = []
-  for (const event of row.events) {
-    if (event.kind !== 'introduced' || (isSource && !isSource(event.op_id))) continue
-    if (!lanes.includes(event.op_id)) lanes.push(event.op_id)
-  }
-  return lanes
-}
-
-/** Compact recorded transition sequence: `dense ▸ recency_filter ✕ ▸ fuse ▸ select`. Only
- * removals (✕) and uncaptured boundaries (◌) carry a glyph. */
-export function transitionText(row: JourneyRow): string {
-  const steps: string[] = []
-  for (const event of row.events) {
-    const mark = event.kind === 'removed' ? ' ✕' : event.kind === 'unknown' ? ' ◌' : ''
-    const step = `${event.op_id}${mark}`
-    if (steps[steps.length - 1] !== step) steps.push(step)
-  }
-  return steps.join(' ▸ ')
 }
 
 /** Content preview from a row or event payload, when the projection captured any. */

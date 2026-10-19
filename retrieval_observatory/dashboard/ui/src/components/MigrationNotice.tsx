@@ -24,7 +24,7 @@ export default function MigrationNotice({ destination, replacement, message, hre
           <a
             href={href}
             data-replacement={replacement}
-            className="rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600"
+            className="rounded-md bg-accent px-3 py-1.5 font-medium text-surface hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent"
           >
             Open {label}
           </a>

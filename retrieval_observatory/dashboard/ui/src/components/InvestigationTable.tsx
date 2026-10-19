@@ -1,27 +1,32 @@
 import { KeyboardEvent, ReactNode } from 'react'
-import { InvestigationDocumentRow, JourneyRow, QuerySummaryRow } from '../api'
+import { FlowMiss, InvestigationDocumentRow, JourneyRow, QuerySummaryRow } from '../api'
 import { DashboardSelection } from '../context/dashboardQuery'
+import { MissedDocument, MissedQuestion, missLine, plural } from '../utils/flowWords'
+import { ranksTrail } from '../utils/journeyWords'
 import {
+  cameFrom,
+  displayEntity,
   entityKey,
-  evidenceLabel,
   isJourneyRow,
   isQuerySummaryRow,
+  judgedText,
   nextIndexForKey,
-  outcomeGlyph,
   outcomeLabel,
-  principalLossBoundaries,
+  outcomeText,
+  outcomeTone,
+  OutcomeTone,
   queryRollups,
-  QueryRollup,
   sortForView,
-  sourceLanes,
-  transitionText,
+  splitEntity,
 } from '../utils/queryDebugger'
 
-// The one primary table of Investigate. Four row shapes share the chrome: a semantic table with
-// caption and column headers, sortable headers with aria-sort, focusable selectable rows, a live
-// summary line, the active URL filters as removable chips, and one reset control.
+// The tables of Investigate. Six row shapes share the chrome: a semantic table with caption and
+// column headers, sortable headers with aria-sort (an arrow on the active column only), focusable
+// selectable rows, a live summary line, the active URL filters as removable chips with "Clear
+// filters" while one is set, and rows that stack into blocks below 640 px instead of the page
+// scrolling sideways.
 
-export type TableShape = 'queries' | 'query-candidates' | 'documents' | 'document-queries'
+export type TableShape = 'queries' | 'missed' | 'query-candidates' | 'documents' | 'missed-documents' | 'document-queries'
 
 export interface SortState {
   key: string
@@ -31,16 +36,25 @@ export interface SortState {
 export interface InvestigationTableProps {
   shape: TableShape
   /** The queries shape takes the stored per-query summaries, or journey rows (rolled up client-side) when a pair-level filter is set. */
-  rows: JourneyRow[] | InvestigationDocumentRow[] | QuerySummaryRow[]
+  rows: JourneyRow[] | InvestigationDocumentRow[] | QuerySummaryRow[] | MissedQuestion[] | MissedDocument[]
   selection: DashboardSelection
-  /** Server-side row total when known; the live line reads "N rows, M shown" (or "N queries" for summaries). */
+  /** Server-side row total when known (the missed list: the rows after its filters). */
   total: number | null
   sort: SortState | null
-  /** Names the SOURCE operators for the "Source lanes" column; without it every introducing operator counts. */
+  /** Names the SOURCE operators for the "Came from" column and the ranks trail; without it every introducing operator counts. */
   isSource?: (opId: string) => boolean
+  /** The cutoff, for "pushed out of the top k" and the "Correct in top k" column. */
+  k?: number | null
+  /** Show ids without their namespace (the scope has only one). */
+  singleNamespace?: boolean
+  /** A step's plain name; the id when absent. */
+  stepLabel?: (opId: string) => string
+  /** Each question's missed correct documents (from the flow): the questions' counts, "What happened" lines and texts. */
+  misses?: Map<string, FlowMiss[]>
+  /** Controls at the right of the toolbar (the missed list's reason filters). */
+  actions?: ReactNode
   onSort: (sort: SortState | null) => void
   onSelect: (patch: Partial<DashboardSelection>) => void
-  onReset: () => void
 }
 
 type SortValue = string | number | null
@@ -51,202 +65,302 @@ interface Column<Row> {
   cell: (row: Row) => ReactNode
   sortValue: (row: Row) => SortValue
   numeric?: boolean
+  /** Below 640 px (stacked rows): order and look of the cell. */
+  stack: string
 }
 
 const CAPTIONS: Record<TableShape, string> = {
-  queries: 'Queries of this run with their relevant deliveries, misses and loss boundaries; activate a row to open its candidates',
-  'query-candidates': 'Candidates of the selected query; activate a row to open its journey',
-  documents: 'Documents of this run across queries; activate a row to open its queries',
-  'document-queries': 'Queries in which the selected document appears; activate a row to open its journey',
+  queries: 'Questions of this run with their correct documents in the top k; activate a row to open the question',
+  missed: 'Questions that missed a correct document and what happened to it; activate a row to open the question',
+  'query-candidates': 'Candidates of this question; activate a row to follow that document',
+  documents: 'Documents of this run with the questions they are correct for; activate a row to open the document',
+  'missed-documents': 'Correct documents that missed the top k and what happened to them; activate a row to open the document',
+  'document-queries': 'Questions in which the selected document appears; activate a row to follow it',
 }
 
-function Outcome({ outcome }: { outcome: string }) {
+const TONE_TEXT: Record<OutcomeTone, string> = {
+  positive: 'text-status-positive',
+  negative: 'text-status-negative',
+  warning: 'text-status-warning',
+  neutral: 'text-ink-muted',
+}
+
+// Stacked rows below 640 px: the lead cell on line one (with what happened, when it fits), the rest after.
+export const LINE_TWO = 'max-sm:text-[13px] max-sm:text-ink-muted'
+export const DOT = "max-sm:before:mr-2 max-sm:before:content-['·']"
+const QUESTION_STACK = 'max-sm:order-1 max-sm:basis-full'
+const WHAT_STACK = 'max-sm:order-5 max-sm:basis-full sm:w-2/5'
+/** Short cells keep one line on a wide screen so the question column takes the slack. */
+const NOWRAP = 'sm:whitespace-nowrap'
+
+/** A word that stands in for the hidden column header on a phone. */
+function phone(text: string): ReactNode {
+  return <span className="sm:hidden">{text}</span>
+}
+
+function questionCell(id: string, text: string | null | undefined): ReactNode {
+  return text ? (
+    <>
+      {text} <span className="ml-1 whitespace-nowrap font-mono text-xs text-ink-muted max-sm:text-[13px]">{id}</span>
+    </>
+  ) : (
+    <span className="whitespace-nowrap font-mono text-xs max-sm:text-[13px]">{id}</span>
+  )
+}
+
+function correctHeader(k: number | null): string {
+  return k != null ? `Correct in top ${k}` : 'Correct delivered'
+}
+
+/** `{d} of {n}`: green when all were delivered, red when none, amber in between. */
+function correctCell(delivered: number, relevant: number, k: number | null): ReactNode {
+  const tone = delivered === relevant ? TONE_TEXT.positive : delivered === 0 ? TONE_TEXT.negative : TONE_TEXT.warning
   return (
-    <span className="whitespace-nowrap">
-      <span aria-hidden="true" className="mr-1.5 inline-block w-3 text-center">
-        {outcomeGlyph(outcome)}
-      </span>
-      {outcomeLabel(outcome)}
+    <span className={`font-semibold ${tone}`}>
+      {delivered} of {relevant}
+      {phone(k != null ? ` correct in top ${k}` : ' correct delivered')}
     </span>
   )
 }
 
-function mono(value: ReactNode): ReactNode {
-  return <span className="font-mono text-xs">{value}</span>
+function missLines(misses: FlowMiss[], k: number | null, nameOf: (opId: string) => string): ReactNode {
+  return misses.map((miss) => {
+    const { text, sub } = missLine(miss, k, nameOf)
+    return (
+      <span key={`${miss.trace_id}|${miss.namespace}:${miss.entity_id}`} className="block">
+        {text}
+        {sub && <span className="block text-xs text-ink-muted max-sm:text-[13px]">{sub}</span>}
+      </span>
+    )
+  })
 }
 
-/** Query and entity ids never wrap at their hyphens; the table scrolls inside its own container instead. */
-function monoId(value: ReactNode): ReactNode {
-  return <span className="whitespace-nowrap font-mono text-xs">{value}</span>
+function missedColumns(k: number | null, nameOf: (opId: string) => string): Column<MissedQuestion>[] {
+  return [
+    { key: 'query', header: 'Question', cell: (row) => questionCell(row.query_id, row.query_text), sortValue: (row) => row.query_id, stack: QUESTION_STACK },
+    {
+      key: 'correct',
+      header: correctHeader(k),
+      cell: (row) => correctCell(row.delivered, row.relevant, k),
+      sortValue: (row) => row.delivered,
+      numeric: true,
+      stack: `max-sm:order-4 ${NOWRAP}`,
+    },
+    { key: 'outcome', header: 'What happened', cell: (row) => missLines(row.misses, k, nameOf), sortValue: (row) => missLine(row.misses[0], k, nameOf).text, stack: WHAT_STACK },
+  ]
 }
 
 // The per-query counts shared by a stored summary and a client-side rollup.
-type QueryCounts = Pick<QuerySummaryRow, 'query_id' | 'relevant_delivered' | 'relevant_missed' | 'unjudged_included' | 'unknown_capture'>
+type QueryCounts = Pick<QuerySummaryRow, 'query_id' | 'relevant_delivered' | 'relevant_missed' | 'trace_ids'> & { query_text?: string | null }
 
-const QUERY_COUNT_COLUMNS: Column<QueryCounts>[] = [
-  {
-    key: 'relevant',
-    header: 'Relevant delivered / missed',
-    cell: (row) => (
-      <>
-        <span aria-hidden="true">✓</span> {row.relevant_delivered} delivered · <span aria-hidden="true">✕</span> {row.relevant_missed} missed
-      </>
-    ),
-    sortValue: (row) => row.relevant_missed,
-    numeric: true,
-  },
-  { key: 'unjudged', header: 'Unjudged included', cell: (row) => row.unjudged_included, sortValue: (row) => row.unjudged_included, numeric: true },
-  { key: 'unknown', header: 'Unknown capture', cell: (row) => row.unknown_capture, sortValue: (row) => row.unknown_capture, numeric: true },
-]
-
-function boundariesCell(boundaries: string[]): ReactNode {
-  return boundaries.length ? mono(boundaries.join(', ')) : <span className="text-ink-faint">—</span>
-}
-
-const QUERY_COLUMNS: Column<QueryRollup>[] = [
-  { key: 'query', header: 'Query', cell: (row) => monoId(row.query_id), sortValue: (row) => row.query_id },
-  ...QUERY_COUNT_COLUMNS,
-  { key: 'boundaries', header: 'Principal loss boundaries', cell: (row) => boundariesCell(row.boundaries), sortValue: (row) => row.boundaries[0] ?? null },
-]
-
-const QUERY_SUMMARY_COLUMNS: Column<QuerySummaryRow>[] = [
-  {
-    key: 'query',
-    header: 'Query',
-    cell: (row) =>
-      row.query_text ? (
-        <>
-          {row.query_text} <span className="ml-1 whitespace-nowrap font-mono text-xs text-ink-muted">{row.query_id}</span>
-        </>
-      ) : (
-        monoId(row.query_id)
-      ),
-    sortValue: (row) => row.query_id,
-  },
-  ...QUERY_COUNT_COLUMNS,
-  {
-    key: 'boundaries',
-    header: 'Principal loss boundaries',
-    cell: (row) => boundariesCell(principalLossBoundaries(row.loss_boundaries)),
-    sortValue: (row) => principalLossBoundaries(row.loss_boundaries)[0] ?? null,
-  },
-]
-
-function candidateColumns(isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
+function queryColumns(k: number | null, misses: Map<string, FlowMiss[]>, nameOf: (opId: string) => string): Column<QueryCounts>[] {
+  // A question that missed a correct document counts from the flow, like the missed list; the others from their row.
+  const counts = (row: QueryCounts) => {
+    const miss = misses.get(row.query_id)?.[0]
+    return miss ? { delivered: miss.question_delivered, relevant: miss.question_relevant } : { delivered: row.relevant_delivered, relevant: row.relevant_delivered + row.relevant_missed }
+  }
   return [
-    { key: 'entity', header: 'Entity', cell: (row) => monoId(entityKey(row)), sortValue: entityKey },
     {
-      key: 'judgment',
-      header: 'Judgment',
-      cell: (row) => (
-        <>
-          {row.judgment}
-          {row.grade != null && <span className="ml-1 text-xs text-ink-muted">grade {row.grade}</span>}
-          {row.judgment_source && <span className="ml-1 text-xs text-ink-faint">({row.judgment_source})</span>}
-        </>
-      ),
-      sortValue: (row) => row.judgment,
+      key: 'query',
+      header: 'Question',
+      cell: (row) => questionCell(row.query_id, row.query_text ?? misses.get(row.query_id)?.[0]?.query_text),
+      sortValue: (row) => row.query_id,
+      stack: QUESTION_STACK,
     },
     {
-      key: 'lanes',
-      header: 'Source lanes',
+      key: 'correct',
+      header: correctHeader(k),
       cell: (row) => {
-        const lanes = sourceLanes(row, isSource)
-        return lanes.length ? mono(lanes.join(', ')) : <span className="text-ink-faint">not observed</span>
+        const { delivered, relevant } = counts(row)
+        return relevant > 0 ? correctCell(delivered, relevant, k) : <span className="text-ink-faint">—</span>
       },
-      sortValue: (row) => sourceLanes(row, isSource).join(','),
-    },
-    {
-      key: 'final',
-      header: 'Final rank / membership',
-      cell: (row) => (
-        <>
-          <span className="tabular-nums">{row.final_rank ?? '—'}</span> <span className="text-ink-muted">{row.final_membership}</span>
-        </>
-      ),
-      sortValue: (row) => row.final_rank,
+      sortValue: (row) => counts(row).relevant - counts(row).delivered,
       numeric: true,
+      stack: `max-sm:order-4 ${NOWRAP}`,
     },
-    { key: 'outcome', header: 'Outcome', cell: (row) => <Outcome outcome={row.outcome} />, sortValue: (row) => row.outcome },
-    { key: 'boundary', header: 'Loss boundary', cell: (row) => (row.loss_boundary ? mono(row.loss_boundary) : <span className="text-ink-faint">—</span>), sortValue: (row) => row.loss_boundary },
     {
-      key: 'evidence',
-      header: 'Evidence',
+      key: 'outcome',
+      header: 'What happened',
       cell: (row) => {
-        const last = [...row.events].reverse().find((event) => event.kind === 'removed' || event.kind === 'unknown') ?? row.events[row.events.length - 1]
-        return (
-          <>
-            {last ? evidenceLabel(last.reason_evidence) : 'unavailable'} · {row.capture_state === 'partial' && <span aria-hidden="true">⚠ </span>}
-            {row.capture_state} capture
-          </>
-        )
+        const own = misses.get(row.query_id)
+        if (own?.length) return missLines(own, k, nameOf)
+        if (row.relevant_missed > 0) return <span className={TONE_TEXT.negative}>{row.relevant_missed} missed</span>
+        return row.relevant_delivered > 0 ? 'All delivered' : <span className="text-ink-muted">No correct documents recorded</span>
       },
-      sortValue: (row) => row.capture_state,
+      sortValue: (row) => row.relevant_missed,
+      stack: WHAT_STACK,
     },
   ]
 }
 
-const DOCUMENT_COLUMNS: Column<InvestigationDocumentRow>[] = [
-  { key: 'entity', header: 'Document', cell: (row) => monoId(row.entity), sortValue: (row) => row.entity },
-  {
-    key: 'relevant',
-    header: 'Judged-relevant queries',
-    cell: (row) => (
-      <span title={row.judged_relevant_queries.join(', ')}>
-        {row.judged_relevant_queries.length} of {row.queries}
-      </span>
-    ),
-    sortValue: (row) => row.judged_relevant_queries.length,
-    numeric: true,
-  },
-  { key: 'delivered', header: 'Delivered', cell: (row) => <><span aria-hidden="true">✓</span> {row.delivered}</>, sortValue: (row) => row.delivered, numeric: true },
-  { key: 'excluded', header: 'Known downstream loss', cell: (row) => <><span aria-hidden="true">✕</span> {row.excluded}</>, sortValue: (row) => row.excluded, numeric: true },
-  { key: 'unobserved', header: 'Unobserved', cell: (row) => <><span aria-hidden="true">○</span> {row.not_observed}</>, sortValue: (row) => row.not_observed, numeric: true },
-  { key: 'unknown', header: 'Unknown', cell: (row) => <><span aria-hidden="true">◌</span> {row.unknown}</>, sortValue: (row) => row.unknown, numeric: true },
-]
+function candidateColumns(k: number | null, singleNamespace: boolean, isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
+  return [
+    {
+      key: 'rank',
+      header: 'Rank',
+      cell: (row) => (
+        <>
+          {phone('Rank ')}
+          {row.final_rank ?? '—'}
+        </>
+      ),
+      sortValue: (row) => row.final_rank,
+      numeric: true,
+      stack: `max-sm:order-4 ${LINE_TWO}`,
+    },
+    {
+      key: 'entity',
+      header: 'Document',
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all max-sm:text-[13px] sm:whitespace-nowrap">{displayEntity(row, singleNamespace)}</span>,
+      sortValue: entityKey,
+      stack: 'max-sm:order-1 max-sm:min-w-0 max-sm:flex-1',
+    },
+    { key: 'judged', header: 'Judged', cell: judgedText, sortValue: (row) => row.judgment, stack: `max-sm:order-5 ${LINE_TWO} ${DOT} ${NOWRAP}` },
+    { key: 'from', header: 'Came from', cell: (row) => cameFrom(row, isSource), sortValue: (row) => cameFrom(row, isSource), stack: `max-sm:order-6 ${LINE_TWO} ${DOT}` },
+    {
+      key: 'outcome',
+      header: 'What happened',
+      cell: (row) => <span className={TONE_TEXT[outcomeTone(row.outcome)]}>{outcomeText(row, k)}</span>,
+      sortValue: (row) => row.outcome,
+      stack: `max-sm:order-2 ${NOWRAP}`,
+    },
+  ]
+}
 
-const DOCUMENT_QUERY_COLUMNS: Column<JourneyRow>[] = [
-  { key: 'query', header: 'Query', cell: (row) => monoId(row.query_id), sortValue: (row) => row.query_id },
-  {
-    key: 'judgment',
-    header: 'Judgment for this entity',
-    cell: (row) => (
-      <>
-        {row.judgment}
-        {row.grade != null && <span className="ml-1 text-xs text-ink-muted">grade {row.grade}</span>}
-      </>
-    ),
-    sortValue: (row) => row.judgment,
-  },
-  {
-    key: 'outcome',
-    header: 'Final outcome / rank',
-    cell: (row) => (
-      <>
-        <Outcome outcome={row.outcome} /> <span className="tabular-nums text-ink-muted">{row.final_rank != null ? `#${row.final_rank}` : ''}</span>
-      </>
-    ),
-    sortValue: (row) => row.outcome,
-  },
-  {
-    key: 'transitions',
-    header: 'Recorded transition sequence',
-    cell: (row) => (row.events.length ? <span className="block min-w-[16rem] font-mono text-xs">{transitionText(row)}</span> : <span className="text-ink-faint">not observed</span>),
-    sortValue: (row) => row.events.length,
-    numeric: true,
-  },
-  {
-    key: 'capture',
-    header: 'Capture',
-    cell: (row) => (
-      <>
-        {row.capture_state === 'partial' && <span aria-hidden="true">⚠ </span>}
-        {row.capture_state}
-      </>
-    ),
-    sortValue: (row) => row.capture_state,
-  },
-]
+function missedDocumentColumns(k: number | null, singleNamespace: boolean, nameOf: (opId: string) => string): Column<MissedDocument>[] {
+  const questions = (row: MissedDocument) => new Set(row.misses.map((miss) => miss.query_id)).size
+  return [
+    {
+      key: 'entity',
+      header: 'Document',
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all max-sm:text-[13px] sm:whitespace-nowrap">{displayEntity(row, singleNamespace)}</span>,
+      sortValue: (row) => row.entity,
+      stack: 'max-sm:order-1 max-sm:basis-full',
+    },
+    {
+      key: 'questions',
+      header: 'Missed in',
+      cell: (row) => <span className={`font-semibold ${TONE_TEXT.negative}`}>{plural(questions(row), 'question')}</span>,
+      sortValue: questions,
+      numeric: true,
+      stack: `max-sm:order-4 ${NOWRAP}`,
+    },
+    {
+      key: 'outcome',
+      header: 'What happened',
+      cell: (row) =>
+        row.misses.map((miss) => {
+          const { text, sub } = missLine(miss, k, nameOf)
+          return (
+            <span key={`${miss.trace_id}|${miss.query_id}`} className="block">
+              {text}
+              <span className="block text-xs text-ink-muted max-sm:text-[13px]">
+                Question {miss.query_id}
+                {sub ? ` · ${sub}` : ''}
+              </span>
+            </span>
+          )
+        }),
+      sortValue: (row) => missLine(row.misses[0], k, nameOf).text,
+      stack: WHAT_STACK,
+    },
+  ]
+}
+
+/** Correct-document misses of a document: its correct questions it was not delivered in. */
+function documentMisses(row: InvestigationDocumentRow): number {
+  return Math.max(0, row.judged_relevant_queries.length - row.delivered)
+}
+
+function documentColumns(singleNamespace: boolean): Column<InvestigationDocumentRow>[] {
+  return [
+    {
+      key: 'entity',
+      header: 'Document',
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all max-sm:text-[13px] sm:whitespace-nowrap">{displayEntity(splitEntity(row.entity), singleNamespace)}</span>,
+      sortValue: (row) => row.entity,
+      stack: 'max-sm:order-1 max-sm:basis-full',
+    },
+    {
+      key: 'relevant',
+      header: 'Correct for',
+      cell: (row) =>
+        row.judged_relevant_queries.length > 0 ? (
+          <span title={row.judged_relevant_queries.join(', ')}>
+            {phone('Correct for ')}
+            {plural(row.judged_relevant_queries.length, 'question')}
+          </span>
+        ) : (
+          <span className="text-ink-faint">
+            {phone('Correct for ')}—
+          </span>
+        ),
+      sortValue: (row) => row.judged_relevant_queries.length,
+      numeric: true,
+      stack: `max-sm:order-4 ${LINE_TWO} ${NOWRAP}`,
+    },
+    {
+      key: 'delivered',
+      header: 'Delivered',
+      cell: (row) => (
+        <>
+          {phone('Delivered ')}
+          {row.delivered}
+        </>
+      ),
+      sortValue: (row) => row.delivered,
+      numeric: true,
+      stack: `max-sm:order-5 ${LINE_TWO} ${DOT} ${NOWRAP}`,
+    },
+    {
+      key: 'missed',
+      header: 'Missed',
+      cell: (row) => (
+        <span className={documentMisses(row) > 0 ? TONE_TEXT.negative : undefined}>
+          {phone('Missed ')}
+          {documentMisses(row)}
+        </span>
+      ),
+      sortValue: documentMisses,
+      numeric: true,
+      stack: `max-sm:order-6 ${LINE_TWO} ${DOT} ${NOWRAP}`,
+    },
+    {
+      key: 'queries',
+      header: 'Appears in',
+      cell: (row) => (
+        <>
+          {phone('Appears in ')}
+          {plural(row.queries, 'question')}
+        </>
+      ),
+      sortValue: (row) => row.queries,
+      numeric: true,
+      stack: `max-sm:order-7 ${LINE_TWO} ${DOT} ${NOWRAP}`,
+    },
+  ]
+}
+
+function documentQueryColumns(k: number | null, nameOf: (opId: string) => string, isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
+  return [
+    {
+      key: 'query',
+      header: 'Question',
+      cell: (row) => questionCell(row.query_id, row.query_text),
+      sortValue: (row) => row.query_id,
+      stack: 'max-sm:order-1 max-sm:min-w-0 max-sm:flex-1',
+    },
+    { key: 'judged', header: 'Judged', cell: judgedText, sortValue: (row) => row.judgment, stack: `max-sm:order-4 ${LINE_TWO} ${NOWRAP}` },
+    {
+      key: 'outcome',
+      header: 'What happened',
+      cell: (row) => <span className={TONE_TEXT[outcomeTone(row.outcome)]}>{outcomeText(row, k)}</span>,
+      sortValue: (row) => row.outcome,
+      stack: `max-sm:order-2 ${NOWRAP}`,
+    },
+    { key: 'ranks', header: 'Ranks', cell: (row) => ranksTrail(row, nameOf, isSource), sortValue: (row) => row.final_rank, stack: `max-sm:order-5 ${LINE_TWO} ${DOT}` },
+  ]
+}
 
 function compare(a: SortValue, b: SortValue): number {
   if (a === b) return 0
@@ -282,77 +396,111 @@ interface Shaped<Row> {
   selected: (row: Row) => boolean
   /** The live summary line above the table. */
   line: string
+  /** The URL filters show as chips in the toolbar (the missed list shows them above it instead). */
+  chips: boolean
 }
 
 // Row type is erased here: each shape closes over its own columns, so the renderer stays shape-agnostic.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function shapeRows(props: InvestigationTableProps): Shaped<any> {
-  const { shape, rows, selection, sort, isSource, total } = props
-  const count = total ?? rows.length
+  const { shape, selection, sort, isSource, total, k = null, singleNamespace = false, misses = new Map(), stepLabel = (opId: string) => opId } = props
+  const count = total ?? props.rows.length
+  const openQuestion = (row: { query_id: string; trace_ids: string[] }) => ({ query: row.query_id, trace: row.trace_ids.length === 1 ? row.trace_ids[0] : null, entity: null })
+  if (shape === 'missed-documents') {
+    const missed = props.rows as MissedDocument[]
+    const columns = missedDocumentColumns(k, singleNamespace, stepLabel)
+    return {
+      columns,
+      display: applySort(missed, columns, sort),
+      key: (row) => row.entity,
+      // One miss: open the document with that question selected, so the diagram draws its path.
+      patch: (row) => (row.misses.length === 1 ? { entity: row.entity, query: row.misses[0].query_id, trace: row.misses[0].trace_id } : { entity: row.entity, query: null, trace: null }),
+      selected: (row) => selection.entity === row.entity,
+      line: `${plural(count, 'document')} · ${missed.length} shown`,
+      chips: false,
+    }
+  }
+  if (shape === 'missed') {
+    const missed = props.rows as MissedQuestion[]
+    const columns = missedColumns(k, stepLabel)
+    return {
+      columns,
+      display: applySort(missed, columns, sort),
+      key: (row) => row.query_id,
+      patch: (row) => ({ query: row.query_id, trace: row.trace_id, entity: null }),
+      selected: (row) => selection.query === row.query_id,
+      line: `${plural(count, 'question')} · ${missed.length} shown`,
+      chips: false,
+    }
+  }
+  const rows = props.rows as Array<JourneyRow | InvestigationDocumentRow | QuerySummaryRow>
   if (shape === 'documents') {
     const documents = rows.filter((row): row is InvestigationDocumentRow => !isJourneyRow(row) && !isQuerySummaryRow(row))
+    // Documents that missed a question they are correct for lead; the server order otherwise.
+    const ordered = [...documents.filter((row) => documentMisses(row) > 0), ...documents.filter((row) => documentMisses(row) === 0)]
+    const columns = documentColumns(singleNamespace)
     return {
-      columns: DOCUMENT_COLUMNS,
-      display: applySort(documents, DOCUMENT_COLUMNS, sort),
+      columns,
+      display: applySort(ordered, columns, sort),
       key: (row) => row.entity,
       patch: (row) => ({ entity: row.entity, query: null, trace: null }),
       selected: (row) => selection.entity === row.entity,
-      line: `${count} rows, ${documents.length} shown`,
+      line: `${plural(count, 'document')} · ${documents.length} shown`,
+      chips: true,
     }
   }
   if (shape === 'queries') {
     // Stored summaries carry every pair of each query; journey rows only arrive with a pair-level filter.
+    const columns = queryColumns(k, misses, stepLabel)
     const summaries = rows.filter(isQuerySummaryRow)
-    if (summaries.length) {
-      return {
-        columns: QUERY_SUMMARY_COLUMNS,
-        display: applySort(summaries, QUERY_SUMMARY_COLUMNS, sort),
-        key: (row) => row.query_id,
-        patch: (row) => ({ query: row.query_id, trace: row.trace_ids.length === 1 ? row.trace_ids[0] : null, entity: null }),
-        selected: (row) => selection.query === row.query_id,
-        line: `${count} queries`,
-      }
-    }
-    const rollups = queryRollups(sortForView(rows.filter(isJourneyRow), 'queries'))
+    const rollups = summaries.length ? [] : queryRollups(sortForView(rows.filter(isJourneyRow), 'queries'))
     return {
-      columns: QUERY_COLUMNS,
-      display: applySort(rollups, QUERY_COLUMNS, sort),
+      columns,
+      display: applySort<QueryCounts>(summaries.length ? summaries : rollups, columns, sort),
       key: (row) => row.query_id,
-      patch: (row) => ({ query: row.query_id, trace: row.trace_ids.length === 1 ? row.trace_ids[0] : null, entity: null }),
+      patch: openQuestion,
       selected: (row) => selection.query === row.query_id,
-      line: `${count} candidate rows across ${rollups.length} queries (filtered)`,
+      line: summaries.length ? plural(count, 'question') : `${plural(count, 'candidate row')} across ${plural(rollups.length, 'question')} (filtered)`,
+      chips: true,
     }
   }
   const journeys = rows.filter(isJourneyRow)
   if (shape === 'query-candidates') {
-    const columns = candidateColumns(isSource)
+    const columns = candidateColumns(k, singleNamespace, isSource)
     return {
       columns,
       display: applySort(sortForView(journeys, 'queries'), columns, sort),
       key: (row) => `${row.trace_id}|${entityKey(row)}`,
       patch: (row) => ({ entity: entityKey(row), trace: row.trace_id }),
       selected: (row) => selection.entity === entityKey(row) && (!selection.trace || selection.trace === row.trace_id),
-      line: `${count} rows, ${journeys.length} shown`,
+      line: `${plural(count, 'candidate')} · ${journeys.length} shown`,
+      chips: true,
     }
   }
+  const columns = documentQueryColumns(k, stepLabel, isSource)
   return {
-    columns: DOCUMENT_QUERY_COLUMNS,
-    display: applySort(sortForView(journeys, 'documents'), DOCUMENT_QUERY_COLUMNS, sort),
+    columns,
+    display: applySort(sortForView(journeys, 'documents'), columns, sort),
     key: (row) => `${row.trace_id}|${row.query_id}`,
     patch: (row) => ({ query: row.query_id, trace: row.trace_id }),
     selected: (row) => selection.query === row.query_id,
-    line: `${count} rows, ${journeys.length} shown`,
+    line: `${plural(count, 'question')} · ${journeys.length} shown`,
+    chips: true,
   }
 }
 
-const headerButtonClass = 'inline-flex items-center gap-1 font-medium hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
+const headerButtonClass = `inline-flex items-center gap-1 whitespace-nowrap font-medium hover:text-ink ${FOCUS}`
+const SELECTED_BAR = 'shadow-[inset_3px_0_0_0_rgb(var(--accent))]'
+const resetClass = `rounded border border-hairline px-2 py-0.5 text-xs text-ink hover:bg-surface-muted ${FOCUS}`
+export const STACKED_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-2 max-sm:px-3 max-sm:py-2 max-sm:after:order-3 max-sm:after:basis-full max-sm:after:content-['']"
 
 export default function InvestigationTable(props: InvestigationTableProps) {
-  const { shape, selection, sort, onSort, onSelect, onReset } = props
+  const { shape, selection, sort, stepLabel, actions, onSort, onSelect } = props
   const shaped = shapeRows(props)
   const chips: Array<[string, Partial<DashboardSelection>]> = []
-  if (selection.stage) chips.push([`stage: ${selection.stage}`, { stage: null }])
-  if (selection.outcome) chips.push([`outcome: ${outcomeLabel(selection.outcome)}`, { outcome: null }])
+  if (shaped.chips && selection.stage) chips.push([`Lost at ${stepLabel ? stepLabel(selection.stage) : selection.stage}`, { stage: null }])
+  if (shaped.chips && selection.outcome) chips.push([outcomeLabel(selection.outcome), { outcome: null }])
 
   const toggleSort = (key: string) => {
     if (!sort || sort.key !== key) onSort({ key, dir: 'asc' })
@@ -375,22 +523,25 @@ export default function InvestigationTable(props: InvestigationTableProps) {
 
   return (
     <div className="app-card">
-      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2 text-xs max-sm:text-[13px]">
         <p aria-live="polite" className="text-ink-muted">
           {shaped.line}
         </p>
         {chips.map(([label, patch]) => (
           <Chip key={label} label={label} onRemove={() => onSelect(patch)} />
         ))}
-        <button type="button" onClick={onReset} className="ml-auto rounded border border-hairline px-2 py-0.5 text-xs text-ink hover:bg-surface-muted">
-          Reset selection
-        </button>
+        {chips.length > 0 && (
+          <button type="button" onClick={() => onSelect({ stage: null, outcome: null })} className={`ml-auto ${resetClass}`}>
+            Clear filters
+          </button>
+        )}
+        {actions && <div className="ml-auto flex flex-wrap gap-2">{actions}</div>}
       </div>
       <div className="overflow-x-auto">
-        {/* A floor width: on narrow screens the table scrolls in this container instead of squeezing columns. */}
-        <table className="w-full min-w-[48rem] text-sm">
+        {/* Rows turn into stacked blocks on a phone, so the table never needs a floor width. */}
+        <table className="w-full text-sm max-sm:block">
           <caption className="sr-only">{CAPTIONS[shape]}</caption>
-          <thead className="text-left text-xs text-ink-faint">
+          <thead className="text-left text-xs text-ink-faint max-sm:sr-only">
             <tr>
               {shaped.columns.map((column) => {
                 const active = sort?.key === column.key
@@ -398,16 +549,14 @@ export default function InvestigationTable(props: InvestigationTableProps) {
                   <th key={column.key} scope="col" aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-3 py-2 font-medium">
                     <button type="button" onClick={() => toggleSort(column.key)} className={headerButtonClass}>
                       {column.header}
-                      <span aria-hidden="true" className="text-[10px]">
-                        {active ? (sort!.dir === 'asc' ? '▲' : '▼') : '↕'}
-                      </span>
+                      {active && <span aria-hidden="true">{sort!.dir === 'asc' ? '▲' : '▼'}</span>}
                     </button>
                   </th>
                 )
               })}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="max-sm:block">
             {shaped.display.map((row, index) => {
               const selected = shaped.selected(row)
               const patch = shaped.patch(row)
@@ -418,12 +567,11 @@ export default function InvestigationTable(props: InvestigationTableProps) {
                   aria-selected={selected}
                   onClick={() => onSelect(patch)}
                   onKeyDown={(event) => onRowKey(event, index, patch)}
-                  className={`cursor-pointer border-t border-hairline hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600 ${selected ? 'bg-accent-muted/40' : ''}`}
+                  className={`cursor-pointer border-t border-hairline align-top hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${STACKED_ROW} ${selected ? SELECTED_BAR : ''}`}
                 >
                   {shaped.columns.map((column) => (
-                    <td key={column.key} className={`px-3 py-2 ${column.numeric ? 'tabular-nums' : ''}`}>
+                    <td key={column.key} className={`px-3 py-2 ${column.numeric ? 'tabular-nums' : ''} max-sm:p-0 ${column.stack}`}>
                       {column.cell(row)}
-                      {selected && column === shaped.columns[0] && <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-faint">selected</span>}
                     </td>
                   ))}
                 </tr>
