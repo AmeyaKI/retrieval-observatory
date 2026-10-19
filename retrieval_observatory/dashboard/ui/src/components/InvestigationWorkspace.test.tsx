@@ -4,8 +4,9 @@ import { describe, expect, test, vi } from 'vitest'
 vi.hoisted(() => {
   ;(globalThis as { window?: unknown }).window = { location: { origin: 'http://localhost' } }
 })
-import type { FlowStep, InvestigationDocumentRow, InvestigationFlow, InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode, QuerySummaryRow, StageSummary } from '../api'
+import type { FlowMiss, FlowStep, InvestigationDocumentRow, InvestigationFlow, InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode, QuerySummaryRow, StageSummary } from '../api'
 import { DEFAULT_SELECTION } from '../context/dashboardQuery'
+import { missedQuestions, runHeadline } from '../utils/flowWords'
 import { nextIndexForKey } from '../utils/queryDebugger'
 import JourneyCard from './InvestigationDetail'
 import InvestigationGraph, { FlowTable, StepCard } from './InvestigationGraph'
@@ -13,6 +14,7 @@ import InvestigationTable from './InvestigationTable'
 import { modeFor, settleBuild, singleFlight } from './InvestigateWorkspace'
 import OperatorInspector from './OperatorInspector'
 import { CorrectDocuments, DeliveredList, QuestionHeader } from './QuestionView'
+import { DocumentHeader, MissedQuestions, RunHeadline } from './RunView'
 
 // Fixtures mirror tests/fixtures/investigation_cases.py (golden-hybrid).
 
@@ -313,38 +315,97 @@ const SUMMARIES: QuerySummaryRow[] = [
 ]
 
 const noop = () => undefined
-const base = { total: null, sort: null, onSort: noop, onSelect: noop, onReset: noop }
+const base = { total: null, sort: null, onSort: noop, onSelect: noop }
 
 describe('InvestigationTable', () => {
-  test('queries shape lists the stored per-query summaries with exact counts', () => {
-    const html = renderToStaticMarkup(<InvestigationTable shape="queries" rows={SUMMARIES} selection={{ ...DEFAULT_SELECTION, query: 'q-refund' }} {...base} total={202} />)
-    expect(html).toContain('<caption')
-    expect(html.match(/scope="col"/g)).toHaveLength(5)
-    expect(html).toContain('202 queries')
-    expect(html).not.toContain('rows,')
-    expect(html).toContain('How do I get a refund?')
-    expect(html).toContain('>q-refund</span>')
-    expect(html).toContain('>✓</span> 2 delivered · <span aria-hidden="true">✕</span> 0 missed')
-    expect(html).toContain('>✓</span> 2 delivered · <span aria-hidden="true">✕</span> 1 missed')
-    expect(html).toContain('recency_filter ×1, select ×1')
-    expect(html).toContain('not_observed ×1')
-    expect(html.match(/aria-selected="true"/g)).toHaveLength(1)
-  })
+  const headers = (html: string) => [...html.matchAll(/<th scope="col"[^>]*>.*?<button[^>]*>([^<]+)/g)].map((m) => m[1])
+  const bodyRows = (html: string) => [...html.matchAll(/<tr tabindex="0"[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => words(m[1]))
+  const outageMisses = new Map<string, FlowMiss[]>([['q-invoice', [flowMiss('q-invoice', 'doc-archive', 'not_observed', 'not_observed')]]])
 
-  test('queries shape rolls journey rows up per query when a pair-level filter is set', () => {
+  test('queries shape lists every question with its correct documents in the top k and what happened', () => {
     const html = renderToStaticMarkup(
-      <InvestigationTable shape="queries" rows={[policy, legal, news, faqOutage, archive]} selection={{ ...DEFAULT_SELECTION, query: 'q-refund', stage: 'select' }} {...base} total={12} />,
+      <InvestigationTable shape="queries" rows={SUMMARIES} selection={{ ...DEFAULT_SELECTION, query: 'q-refund' }} {...base} total={202} k={3} misses={outageMisses} />,
     )
     expect(html).toContain('<caption')
-    expect(html.match(/scope="col"/g)).toHaveLength(5)
-    expect(html).toContain('Principal loss boundaries')
-    expect(html).toContain('aria-selected="true"')
+    expect(headers(html)).toEqual(['Question', 'Correct in top 3', 'What happened'])
+    expect(html).toContain('>202 questions</p>')
+    expect(bodyRows(html)).toEqual([
+      'q-invoice 2 of 3 correct in top 3 Never found by any search',
+      'q-outage 1 of 1 correct in top 3 All delivered',
+      'How do I get a refund? q-refund 2 of 2 correct in top 3 All delivered',
+    ])
+    expect(html).toContain('text-status-warning">2 of 3')
+    expect(html).toContain('text-status-positive">2 of 2')
+    // Without the flow's misses a question reads how many it missed.
+    expect(words(renderToStaticMarkup(<InvestigationTable shape="queries" rows={SUMMARIES} selection={DEFAULT_SELECTION} {...base} k={3} />))).toContain('2 of 3 correct in top 3 1 missed')
     expect(html.match(/aria-selected="true"/g)).toHaveLength(1)
-    expect(html).toContain('12 candidate rows across 3 queries (filtered)')
+    for (const gone of ['Principal loss boundaries', 'Unjudged included', 'Unknown capture', 'recency_filter ×1', 'Reset selection', 'min-w-[48rem]', '✓', '✕']) expect(html).not.toContain(gone)
+    expect(html).toContain('max-sm:flex')
+  })
+
+  test('queries shape rolls journey rows up per question when a pair-level filter is set', () => {
+    const html = renderToStaticMarkup(
+      <InvestigationTable
+        shape="queries"
+        rows={[policy, legal, news, faqOutage, archive]}
+        selection={{ ...DEFAULT_SELECTION, query: 'q-refund', stage: 'select' }}
+        {...base}
+        total={12}
+        k={3}
+        stepLabel={(opId) => (opId === 'select' ? 'Select' : opId)}
+      />,
+    )
+    expect(headers(html)).toEqual(['Question', 'Correct in top 3', 'What happened'])
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1)
+    expect(html).toContain('12 candidate rows across 3 questions (filtered)')
     expect(html).toContain('aria-live="polite"')
-    expect(html).toContain('stage: select')
-    expect(html).toContain('Reset selection')
+    expect(html).toContain('Lost at Select')
+    expect(html).toContain('Clear filters')
     expect(html).toContain('aria-sort="none"')
+    expect(bodyRows(html)).toContain('q-refund 1 of 2 correct in top 3 1 missed')
+  })
+
+  test('missed shape: one row per question, a line per missed correct document', () => {
+    const flow: InvestigationFlow = {
+      ...FLOW,
+      totals: { ...FLOW.totals, questions_with_none: 1 },
+      misses: [
+        flowMiss('q-outage', 'doc-guide', 'relevant_excluded', 'recency_filter', { query_text: 'why is the site down', best_op: 'lexical', best_rank: 1 }),
+        flowMiss('q-invoice', 'doc-archive', 'not_observed', 'not_observed', { query_text: 'invoice for order 42' }),
+      ],
+    }
+    const [outage, invoice] = missedQuestions(flow)
+    const onSelect = vi.fn()
+    const element = InvestigationTable({
+      shape: 'missed',
+      rows: [
+        { ...outage, relevant: 1 },
+        { ...invoice, relevant: null },
+      ],
+      selection: DEFAULT_SELECTION,
+      ...base,
+      total: 2,
+      k: 3,
+      stepLabel: (opId) => LABELS[opId] ?? opId,
+      onSelect,
+    })
+    const html = renderToStaticMarkup(element)
+    expect(html).toContain('<caption class="sr-only">Questions that missed a correct document')
+    expect(headers(html)).toEqual(['Question', 'Correct in top 3', 'What happened'])
+    expect(bodyRows(html)).toEqual(['why is the site down q-outage 0 of 1 correct in top 3 Dropped by Recency Filter Lexical had it at #1', 'invoice for order 42 q-invoice 1 missed Never found by any search'])
+    expect(html).toContain('2 questions · 2 shown')
+    expect(html.match(/tabindex="0"/g)).toHaveLength(2)
+    expect(html).not.toContain('Clear filters')
+    // Activating a row opens the question on its one trace.
+    const findRows = (node: unknown): Array<{ props: { onClick: () => void } }> => {
+      if (!node || typeof node !== 'object') return []
+      const el = node as { type?: unknown; props?: { children?: unknown; onClick?: () => void } }
+      const own = el.type === 'tr' && el.props?.onClick ? [el as { props: { onClick: () => void } }] : []
+      const children = el.props?.children
+      return [...own, ...(Array.isArray(children) ? children.flatMap(findRows) : findRows(children))]
+    }
+    findRows(element)[0].props.onClick()
+    expect(onSelect).toHaveBeenCalledWith({ query: 'q-outage', trace: 't:q-outage', entity: null })
   })
 
   test('query candidates shape says in words what happened to each candidate and where it came from', () => {
@@ -392,25 +453,38 @@ describe('InvestigationTable', () => {
     expect(plain).toContain('>—</td>')
   })
 
-  test('documents shape lists per-entity counts with glyphs', () => {
-    const html = renderToStaticMarkup(<InvestigationTable shape="documents" rows={DOCUMENTS} selection={{ ...DEFAULT_SELECTION, view: 'documents', entity: 'kb:doc-faq' }} {...base} total={8} />)
-    expect(html).toContain('Judged-relevant queries')
-    expect(html).toContain('Known downstream loss')
-    expect(html).toContain('1 of 2')
-    expect(html).toContain('8 rows, 2 shown')
+  test('documents shape: correct for, delivered, missed (of its correct questions) and appears in; missed ones lead', () => {
+    const html = renderToStaticMarkup(<InvestigationTable shape="documents" rows={DOCUMENTS} selection={{ ...DEFAULT_SELECTION, view: 'documents', entity: 'kb:doc-faq' }} {...base} total={8} singleNamespace />)
+    expect(headers(html)).toEqual(['Document', 'Correct for', 'Delivered', 'Missed', 'Appears in'])
+    // doc-archive was never found for its one correct question: missed once, not excluded + not observed.
+    expect(bodyRows(html)).toEqual(['doc-archive Correct for 1 question Delivered 0 Missed 1 Appears in 1 question', 'doc-faq Correct for 1 question Delivered 1 Missed 0 Appears in 2 questions'])
+    expect(html).toContain('8 documents · 2 shown')
     expect(html.match(/aria-selected="true"/g)).toHaveLength(1)
+    const none = renderToStaticMarkup(<InvestigationTable shape="documents" rows={[{ ...DOCUMENTS[0], judged_relevant_queries: [] }]} selection={DEFAULT_SELECTION} {...base} />)
+    expect(bodyRows(none)).toEqual(['kb:doc-faq Correct for — Delivered 1 Missed 0 Appears in 2 questions'])
+    for (const gone of ['Judged-relevant queries', 'Known downstream loss', 'Unobserved', '✓', '✕', '○', '◌']) expect(html).not.toContain(gone)
   })
 
-  test('document queries shape renders the compact transition sequence and capture', () => {
+  test('document queries shape: the question, judged, what happened and a compact trail of ranks', () => {
     const html = renderToStaticMarkup(
-      <InvestigationTable shape="document-queries" rows={[news, faqOutage]} selection={{ ...DEFAULT_SELECTION, view: 'documents', entity: 'kb:doc-news', query: 'q-refund' }} {...base} />,
+      <InvestigationTable
+        shape="document-queries"
+        rows={[news, faqOutage]}
+        selection={{ ...DEFAULT_SELECTION, view: 'documents', entity: 'kb:doc-news', query: 'q-refund' }}
+        {...base}
+        k={3}
+        stepLabel={(opId) => (LABELS[opId] ?? opId).replace(/ \(.*\)$/, '')}
+        misses={new Map([['q-outage', [flowMiss('q-outage', 'doc-guide', 'relevant_excluded', 'recency_filter', { query_text: 'why is the site down' })]]])}
+      />,
     )
-    expect(html).toContain('Recorded transition sequence')
-    expect(html).toContain('lexical ▸ recency_filter ✕')
-    expect(html).toContain('rerank@lexical ◌')
-    expect(html).toContain('⚠ </span>partial')
-    expect(html).toContain('Not correct')
-    expect(html).not.toContain('Judged nonrelevant')
+    expect(headers(html)).toEqual(['Question', 'Judged', 'What happened', 'Ranks'])
+    expect(bodyRows(html)).toEqual([
+      'why is the site down q-outage Not correct Not correct Dense #1 → Lexical #2 → Recency Filter #2 → … → Select #1',
+      'q-refund Not judged Not judged Lexical #2 → Recency Filter removed',
+    ])
+    expect(html).toContain('<span class="text-ink-muted">Not judged</span>')
+    expect(html).toContain('2 questions · 2 shown')
+    for (const gone of ['Recorded transition sequence', '▸', '✕', '◌', '⚠', 'Judged nonrelevant', 'Capture']) expect(html).not.toContain(gone)
   })
 
   test('row keyboard handling is a pure index rule', () => {
@@ -580,6 +654,25 @@ const FLOW: InvestigationFlow = {
   },
   copresence: { 'dense→rerank@dense': 4, 'lexical→recency_filter': 5, 'rerank@dense→fuse': 4, 'fuse→expand_gate': 4, 'expand_gate→expand': 2, 'expand→select': 2, 'expand_gate→select': 4, 'dense→fuse': 4 },
   misses: [],
+}
+
+function flowMiss(query_id: string, entity_id: string, outcome: FlowMiss['outcome'], loss_boundary: string | null, extra: Partial<FlowMiss> = {}): FlowMiss {
+  return {
+    query_id,
+    query_text: null,
+    namespace: 'kb',
+    entity_id,
+    trace_id: `t:${query_id}`,
+    outcome,
+    loss_boundary,
+    final_rank: null,
+    capture_state: 'complete',
+    best_rank: null,
+    best_op: null,
+    pushed_out: false,
+    events: [],
+    ...extra,
+  }
 }
 
 /** The markup outside every <details> disclosure: what a reader sees without opening one. */
@@ -783,6 +876,88 @@ describe('InvestigationGraph', () => {
   test('says so when no topology was recorded', () => {
     const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={null} stages={AGGREGATE} />)
     expect(html).toContain('No pipeline topology recorded for this run; the tables below still hold every indexed journey.')
+  })
+})
+
+describe('Run view', () => {
+  const DEMO_FLOW: InvestigationFlow = {
+    ...FLOW,
+    misses: [
+      flowMiss('q-outage', 'doc-guide', 'relevant_excluded', 'recency_filter', { query_text: 'why is the site down', best_op: 'lexical', best_rank: 1 }),
+      flowMiss('q-invoice', 'doc-archive', 'not_observed', 'not_observed', { query_text: 'invoice for order 42' }),
+    ],
+  }
+  const missedProps = {
+    questions: missedQuestions(DEMO_FLOW),
+    k: 3,
+    selection: DEFAULT_SELECTION,
+    stage: null,
+    summaries: new Map(SUMMARIES.map((summary) => [summary.query_id, summary])),
+    stepLabel: (opId: string) => LABELS[opId] ?? opId,
+    sort: null,
+    onSort: noop,
+    onSelect: noop,
+  }
+
+  test('the headline names the step that loses the most, its lost count in red; the lede numbers stand out', () => {
+    const html = renderToStaticMarkup(<RunHeadline words={runHeadline(DEMO_FLOW, LABELLED)} />)
+    expect(html).toContain('<h2 class="text-[22px] font-semibold leading-tight text-ink">Recency Filter loses the most correct documents: <span class="text-status-negative">1 of the 2</span> that missed the top 3.</h2>')
+    expect(words(html)).toContain('4 of 6 correct documents ( 67% ) reached the top 3 across 3 questions. The one lost at Recency Filter was in the top 3 at an earlier step. 1 was never found by any search.')
+    expect(html).toContain('<span class="font-semibold text-ink">67%</span>')
+    expect(html).toContain('text-[15px]')
+    // A digit inside a step name is not a number of the sentence.
+    const named = renderToStaticMarkup(<RunHeadline words={{ headline: 'x', lede: ['Of the 3 lost at Search (bm25), 1 was in the top 10 at an earlier step.'], lost: null }} />)
+    expect(named).toContain('Search (bm25)')
+    expect(named.match(/font-semibold text-ink">/g)).toHaveLength(3)
+    const none = renderToStaticMarkup(<RunHeadline words={runHeadline({ ...FLOW, totals: { ...FLOW.totals, relevant: 0 } }, LABELLED)} />)
+    expect(none).toContain('This run has no correct answers recorded, so losses can&#x27;t be counted.')
+    expect(none).not.toContain('<p')
+  })
+
+  test('the missed list: reason chips filter it, each question reads its correct count and what happened', () => {
+    const html = renderToStaticMarkup(<MissedQuestions {...missedProps} />)
+    expect(html).toContain('<h2 id="missed-title"')
+    expect(html).toContain('Questions that missed a correct document (2)')
+    expect([...html.matchAll(/<button type="button" aria-pressed="(true|false)"[^>]*>([^<]+)<\/button>/g)].map((m) => `${m[2]} ${m[1]}`)).toEqual([
+      'Ranked too low or pushed out · 0 (0 pushed out) false',
+      'Dropped · 1 false',
+      'Never found · 1 false',
+    ])
+    // q-outage got none (all its misses); q-invoice's count comes from its stored summary.
+    expect(words(html)).toContain('why is the site down q-outage 0 of 1 correct in top 3 Dropped by Recency Filter Lexical had it at #1')
+    expect(words(html)).toContain('invoice for order 42 q-invoice 2 of 3 correct in top 3 Never found by any search')
+    expect(html).not.toContain('role="status"')
+    const dropped = renderToStaticMarkup(<MissedQuestions {...missedProps} selection={{ ...DEFAULT_SELECTION, outcome: 'relevant_excluded' }} />)
+    expect(dropped).toContain('aria-pressed="true"')
+    expect(dropped).toContain('1 question · 1 shown')
+    expect(dropped).not.toContain('q-invoice')
+  })
+
+  test('a selected step filters the list under a banner that clears it', () => {
+    const html = renderToStaticMarkup(<MissedQuestions {...missedProps} stage={{ id: 'recency_filter', name: 'Recency Filter' }} />)
+    expect(html).toContain('role="status"')
+    expect(words(html)).toContain('Showing questions where Recency Filter lost a correct document (1) Clear')
+    expect(html).toContain('1 question · 1 shown')
+    expect(html).not.toContain('q-invoice')
+    const none = renderToStaticMarkup(<MissedQuestions {...missedProps} stage={{ id: 'select', name: 'Select' }} />)
+    expect(words(none)).toContain('Select lost no correct documents. Clear')
+    expect(none).not.toContain('<table')
+  })
+
+  test('the missed list shows 50 questions at a time', () => {
+    const many: InvestigationFlow = { ...FLOW, misses: Array.from({ length: 120 }, (_, i) => flowMiss(`q${i}`, 'doc', 'not_observed', 'not_observed')) }
+    const html = renderToStaticMarkup(<MissedQuestions {...missedProps} questions={missedQuestions(many)} />)
+    expect(html.match(/<tr tabindex="0"/g)).toHaveLength(50)
+    expect(words(html)).toContain('50 of 120 questions Show more')
+    expect(html).toContain('120 questions · 50 shown')
+  })
+
+  test('one document: its id and a sentence on the questions it is correct for', () => {
+    const guide = row({ entity_id: 'doc-guide', query_id: 'q-outage', outcome: 'relevant_excluded', final_rank: null, loss_boundary: 'recency_filter' })
+    const html = renderToStaticMarkup(<DocumentHeader entity="kb:doc-guide" rows={[guide, { ...policy, entity_id: 'doc-guide', query_id: 'q-invoice' }, { ...news, entity_id: 'doc-guide' }]} questions={3} singleNamespace onBack={noop} />)
+    expect(words(html)).toContain('← All documents · Document doc-guide')
+    expect(html).toContain('<h2 class="mt-1 text-[22px] font-semibold leading-tight text-ink">Correct for 2 questions: delivered in 1, missed in 1.</h2>')
+    expect(renderToStaticMarkup(<DocumentHeader entity="kb:doc-news" rows={[news]} questions={2} singleNamespace={false} onBack={noop} />)).toContain('Not judged correct for any question; it appears in 2 questions.')
   })
 })
 

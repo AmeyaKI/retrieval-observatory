@@ -14,11 +14,10 @@ import {
   outcomeText,
   outcomeTone,
   pathHighlight,
-  principalLossBoundaries,
   queryRollups,
   sortForView,
+  splitEntity,
   stageFilter,
-  transitionText,
 } from './queryDebugger'
 
 // Rows mirror tests/fixtures/investigation_cases.py (golden-hybrid: dense + lexical lanes,
@@ -390,6 +389,13 @@ describe('sortForView', () => {
     ])
   })
 
+  it('orders the rows that are not correct documents by final rank, unranked last, ties by id', () => {
+    const other = (entity_id: string, final_rank: number | null, judgment: JourneyRow['judgment'] = 'unjudged') =>
+      row({ query_id: 'q-a', entity_id, judgment, outcome: judgment === 'nonrelevant' ? 'judged_nonrelevant' : 'unjudged', final_rank })
+    const rows = [other('doc-c', null), other('doc-b', 7), other('doc-a', null), other('doc-d', 2, 'nonrelevant'), other('doc-e', 7), policy, legal]
+    expect(sortForView(rows, 'queries').map((r) => r.entity_id)).toEqual(['doc-legal', 'doc-policy', 'doc-d', 'doc-b', 'doc-e', 'doc-a', 'doc-c'])
+  })
+
   it('puts a relevant document retained below the cutoff above unjudged rows', () => {
     const below = row({ query_id: 'q-a', entity_id: 'doc-z', outcome: 'retained_below_cutoff', final_membership: 'excluded', in_final_output: false })
     const unjudged = ['doc-a', 'doc-b'].map((entity_id) => row({ query_id: 'q-a', entity_id, judgment: 'unjudged', outcome: 'unjudged' }))
@@ -417,15 +423,10 @@ describe('row helpers', () => {
     })
   })
 
-  it('names at most three stored loss boundaries with their counts, most frequent first', () => {
-    expect(principalLossBoundaries({ select: 1, recency_filter: 3, not_observed: 2, unknown: 1 })).toEqual(['recency_filter ×3', 'not_observed ×2', 'select ×1'])
-    expect(principalLossBoundaries({})).toEqual([])
-  })
-
-  it('renders the compact transition sequence with removal and unknown marks only', () => {
-    expect(transitionText(news)).toBe('lexical ▸ recency_filter ✕')
-    expect(transitionText(policy)).toBe('dense ▸ lexical ▸ recency_filter ✕ ▸ rerank@dense ▸ fuse ▸ expand_gate ▸ select')
-    expect(transitionText(faqOutage)).toContain('rerank@lexical ◌')
+  it('splits a namespace:entity handle at its first colon', () => {
+    expect(splitEntity('default:31715818')).toEqual({ namespace: 'default', entity_id: '31715818' })
+    expect(splitEntity('kb:doc:2')).toEqual({ namespace: 'kb', entity_id: 'doc:2' })
+    expect(splitEntity('bare')).toEqual({ namespace: '', entity_id: 'bare' })
   })
 
   it('previews captured content only when the payload carries it', () => {

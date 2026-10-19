@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode } from '../api'
-import { journeySteps, ordinal, verdictSentence } from './journeyWords'
+import { documentSentence, journeySteps, ordinal, ranksTrail, verdictSentence } from './journeyWords'
 
 const emptyMetrics = { 'ndcg@10': null, recall: null, latency_p50: null }
 const emptyLatency = { count: 0, mean_ms: null, p50_ms: null, p95_ms: null }
@@ -269,5 +269,38 @@ describe('verdictSentence', () => {
     expect([1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 36, 101, 111, 112, 113].map(ordinal)).toEqual([
       '1st', '2nd', '3rd', '4th', '11th', '12th', '13th', '21st', '22nd', '23rd', '36th', '101st', '111th', '112th', '113th',
     ])
+  })
+})
+
+describe('ranksTrail', () => {
+  const nameOf = (id: string) => DEMO_GRAPH.nodes.find((n) => n.node_id === id)?.label.replace(/ \(.*\)$/, '') ?? id
+
+  test('one hop per step: its rank, or removed', () => {
+    expect(ranksTrail(GUIDE, nameOf)).toBe('Lexical #1 → Recency Filter removed')
+    expect(ranksTrail(REAL_MISS, (id) => REAL_GRAPH.nodes.find((n) => n.node_id === id)!.label)).toBe('Search (dense) #14 → Fuse Hits #36')
+    expect(ranksTrail(row({ events: [] }), nameOf)).toBe('—')
+  })
+
+  test('more than four steps keep the first three and the last', () => {
+    expect(ranksTrail(FAQ, nameOf)).toBe('Dense #1 → Lexical #2 → Recency Filter removed → … → Select #1')
+  })
+
+  test('a step that kept one occurrence and removed another shows the kept rank; unknown reads not recorded', () => {
+    const twice = row({ events: [event('dense', 'introduced', null, 1), event('select', 'retained', 2, 2), event('select', 'removed', 4, null)] })
+    expect(ranksTrail(twice, nameOf)).toBe('Dense #1 → Select #2')
+    const unknown = row({ events: [event('lexical', 'introduced', null, 1), event('rerank@lexical', 'unknown', 1, null)] })
+    expect(ranksTrail(unknown, nameOf)).toBe('Lexical #1 → Rerank not recorded')
+  })
+})
+
+describe('documentSentence', () => {
+  test('correct for how many questions, delivered in and missed in how many', () => {
+    const other = row({ query_id: 'q-refund', judgment: 'unjudged', outcome: 'unjudged' })
+    // One document (doc-guide) over its questions: dropped for q-outage, delivered for q-invoice.
+    const delivered = { ...FAQ, entity_id: 'doc-guide', query_id: 'q-invoice' }
+    expect(documentSentence([GUIDE, other], 2)).toBe('Correct for 1 question: delivered in 0, missed in 1.')
+    expect(documentSentence([delivered, GUIDE, other], 3)).toBe('Correct for 2 questions: delivered in 1, missed in 1.')
+    expect(documentSentence([other], 4)).toBe('Not judged correct for any question; it appears in 4 questions.')
+    expect(documentSentence([other], 1)).toBe('Not judged correct for any question; it appears in 1 question.')
   })
 })

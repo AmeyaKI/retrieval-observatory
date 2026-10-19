@@ -1,5 +1,5 @@
 import { InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph } from '../api'
-import { statusWord, stepName } from './flowWords'
+import { plural, statusWord, stepName } from './flowWords'
 
 // One document's journey through a question in plain words: a numbered step list for its card and
 // one verdict sentence for the page header, both built from the same entries. Raw event kinds stay
@@ -157,4 +157,29 @@ export function verdictSentence(row: JourneyRow, graph: PipelineGraph | null, st
   }
   const sentence = clauses.join('; ')
   return `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`
+}
+
+/** The document's ranks step by step, compactly: `Lexical #1 → Recency Filter removed`. A step shows
+ * the best rank it output, else whether it removed the document. More than four steps keep the first three and the last. */
+export function ranksTrail(row: JourneyRow, nameOf: (opId: string) => string): string {
+  const byOp = new Map<string, JourneyEvent[]>()
+  for (const event of row.events) byOp.set(event.op_id, [...(byOp.get(event.op_id) ?? []), event])
+  const hops = [...byOp].map(([opId, events]) => {
+    // A step that kept one of the document's occurrences shows its best rank, even if it removed another.
+    const ranks = events.map((event) => event.output_rank).filter((rank): rank is number => rank != null)
+    const name = nameOf(opId)
+    if (ranks.length > 0) return `${name} #${Math.min(...ranks)}`
+    if (events.some((event) => event.kind === 'removed')) return `${name} removed`
+    return events.some((event) => event.kind === 'unknown') ? `${name} not recorded` : name
+  })
+  if (hops.length === 0) return '—'
+  return (hops.length > 4 ? [...hops.slice(0, 3), '…', hops[hops.length - 1]] : hops).join(' → ')
+}
+
+/** One document over the questions it appears in: correct for how many, delivered in and missed in how many. */
+export function documentSentence(rows: JourneyRow[], questions: number): string {
+  const correct = new Set(rows.filter((row) => row.judgment === 'relevant').map((row) => row.query_id))
+  const delivered = new Set(rows.filter((row) => row.outcome === 'relevant_delivered').map((row) => row.query_id))
+  if (correct.size === 0) return `Not judged correct for any question; it appears in ${plural(questions, 'question')}.`
+  return `Correct for ${plural(correct.size, 'question')}: delivered in ${delivered.size}, missed in ${correct.size - delivered.size}.`
 }

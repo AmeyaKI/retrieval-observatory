@@ -62,6 +62,12 @@ export function displayEntity(row: Pick<JourneyRow, 'namespace' | 'entity_id'>, 
   return singleNamespace ? row.entity_id : `${row.namespace}:${row.entity_id}`
 }
 
+/** `namespace:entity_id` (a document summary's `entity`, the URL's `entity`) split at its first colon. */
+export function splitEntity(entity: string): Pick<JourneyRow, 'namespace' | 'entity_id'> {
+  const at = entity.indexOf(':')
+  return at < 0 ? { namespace: '', entity_id: entity } : { namespace: entity.slice(0, at), entity_id: entity.slice(at + 1) }
+}
+
 export function evidenceLabel(evidence: ReasonEvidence | string | null | undefined): 'recorded' | 'inferred' | 'unavailable' {
   if (evidence === 'recorded') return 'recorded'
   if (evidence === 'inferred' || evidence === 'legacy_inferred') return 'inferred'
@@ -133,13 +139,18 @@ function byIds(a: JourneyRow, b: JourneyRow): number {
   return a.query_id.localeCompare(b.query_id) || entityKey(a).localeCompare(entityKey(b))
 }
 
+/** Final rank ascending; rows without one last. */
+function byRank(a: JourneyRow, b: JourneyRow): number {
+  return (a.final_rank ?? Infinity) - (b.final_rank ?? Infinity)
+}
+
 /** Default table order. Queries view: relevant misses with complete capture first (removed, never
  * observed, or retained below the cutoff), then evidence-limited rows, then delivered relevant rows,
- * then judged-nonrelevant and unjudged rows. Documents view: by query then entity. Ties break on
- * query_id, entity. */
+ * then every other row by final rank (rows without one last). Documents view: by query then entity.
+ * Ties break on query_id, entity. */
 export function sortForView<Row extends JourneyRow>(rows: Row[], view: InvestigateView): Row[] {
   const sorted = [...rows]
-  if (view === 'queries') sorted.sort((a, b) => bucket(a) - bucket(b) || byIds(a, b))
+  if (view === 'queries') sorted.sort((a, b) => bucket(a) - bucket(b) || (bucket(a) === 3 ? byRank(a, b) : 0) || byIds(a, b))
   else sorted.sort(byIds)
   return sorted
 }
@@ -208,26 +219,6 @@ export function queryRollups(rows: JourneyRow[]): QueryRollup[] {
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([id]) => id),
   }))
-}
-
-/** The stored summary's top loss boundaries as `op ×n`, most frequent first (ties by name), at most three. */
-export function principalLossBoundaries(counts: Record<string, number>, limit = 3): string[] {
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([id, count]) => `${id} ×${count}`)
-}
-
-/** Compact recorded transition sequence: `dense ▸ recency_filter ✕ ▸ fuse ▸ select`. Only
- * removals (✕) and uncaptured boundaries (◌) carry a glyph. */
-export function transitionText(row: JourneyRow): string {
-  const steps: string[] = []
-  for (const event of row.events) {
-    const mark = event.kind === 'removed' ? ' ✕' : event.kind === 'unknown' ? ' ◌' : ''
-    const step = `${event.op_id}${mark}`
-    if (steps[steps.length - 1] !== step) steps.push(step)
-  }
-  return steps.join(' ▸ ')
 }
 
 /** Content preview from a row or event payload, when the projection captured any. */

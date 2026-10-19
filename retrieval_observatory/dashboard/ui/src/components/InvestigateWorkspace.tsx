@@ -26,19 +26,22 @@ import {
 import { useDashboardContext } from '../context/DashboardContext'
 import { DashboardSelection } from '../context/dashboardQuery'
 import { collapseInvocations, collapsedNodeId } from '../utils/dagLayout'
-import { flowStepOf, foldFlow, plural, stepName } from '../utils/flowWords'
+import { flowStepOf, foldFlow, missedQuestions, plural, runHeadline, stepName } from '../utils/flowWords'
 import { auditLink, buildHash } from '../utils/focusedRoutes'
-import { entityKey, focusRowFor, isJourneyRow, OUTCOME_LABELS, sortForView, stageFilter } from '../utils/queryDebugger'
+import { entityKey, focusRowFor, isJourneyRow, OUTCOME_LABELS, sortForView, splitEntity, stageFilter } from '../utils/queryDebugger'
 import CandidateLineageDiff from './CandidateLineageDiff'
 import JourneyCard from './InvestigationDetail'
 import InvestigationGraph, { graphMode } from './InvestigationGraph'
 import InvestigationTable, { SortState, TableShape } from './InvestigationTable'
 import OperatorInspector from './OperatorInspector'
 import { CorrectDocuments, DeliveredList, QuestionHeader } from './QuestionView'
+import { DocumentHeader, MissedQuestions, RunHeadline } from './RunView'
 
-// Investigate: scope bar (shell) → pipeline diagram → one primary table. One question adds its
-// header, the path of one document on the diagram, the journey cards of its correct documents and
-// what it delivered instead; one document adds its journey card under the diagram.
+// Investigate: scope bar (shell) → headline → pipeline diagram → tables. A run's questions lead with
+// the step that loses the most correct documents and the questions that missed one (from the flow),
+// then every question; one question adds its header, the path of one document on the diagram, the
+// journey cards of its correct documents and what it delivered instead; one document adds its
+// header and its journey card under the diagram.
 // Every selection lives in the URL (updateSelection); the only component state is request
 // phases, table sort and the graph's collapse. Two request streams, each sequence-guarded: the
 // scope stream (run-union graph + stored stage aggregates + correct-document flow, once per
@@ -291,6 +294,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const [build, setBuild] = useState<BuildState>({ kind: 'idle' })
   const [reloadTick, setReloadTick] = useState(0)
   const [sort, setSort] = useState<SortState | null>(null)
+  const [missedSort, setMissedSort] = useState<SortState | null>(null)
   const [collapsed, setCollapsed] = useState(true)
   const sequence = useRef(0)
   const scopeSequence = useRef(0)
@@ -430,6 +434,8 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   const title = run ? `Run ${run}` : 'Investigate'
   const viewWord = view === 'queries' ? 'questions' : 'documents'
   const questionPage = mode === 'query-candidates' && !comparing(selection)
+  // The run's lists lead with the flow: they wait for the scope stream so nothing jumps when it lands.
+  const listPage = (mode === 'queries' || mode === 'documents') && !comparing(selection)
 
   // Graph inputs derived from the two streams.
   const envelope = phase.kind === 'ready' ? phase.envelope : null
@@ -463,6 +469,9 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     const node = graph?.nodes.find((n) => n.node_id === opId)
     return node ? stepName(node).name : opId
   }
+  // Each question's missed correct documents, named like the diagram's (folded) steps.
+  const missed = foldedFlow && !comparing(selection) ? missedQuestions(foldedFlow) : []
+  const missesByQuery = new Map(missed.map((question) => [question.query_id, question.misses]))
 
   let body: React.ReactNode
   if (!db || !run) {
@@ -480,7 +489,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         )}
       </Panel>
     )
-  } else if (phase.kind === 'loading' || phase.kind === 'idle') {
+  } else if (phase.kind === 'loading' || phase.kind === 'idle' || (listPage && phase.kind === 'ready' && scope.kind !== 'ready')) {
     body = (
       <div role="status" className="app-card p-6 text-sm text-ink-muted">
         Loading {viewWord}…
@@ -559,8 +568,63 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     )
 
     const relevantDelivered = relevantRows.filter((row) => row.outcome === 'relevant_delivered').length
+    const headline = listPage && foldedFlow ? runHeadline(foldedFlow, graph) : null
+    const questionLists = mode === 'queries' && !comparison
+    const summaries = new Map(rows.filter((row): row is QuerySummaryRow => 'loss_boundaries' in row).map((row) => [row.query_id, row]))
+    const documentRows = rows.filter((row): row is InvestigationDocumentRow => 'judged_relevant_queries' in row)
+    const tableNamespace = mode === 'documents' ? new Set(documentRows.map((row) => splitEntity(row.entity).namespace)).size <= 1 : singleNamespace
+    const emptyPanel = !comparison && rows.length === 0 && !indexUnavailable && (
+      <Panel id="investigate-empty" title={`No ${viewWord} for this scope`}>
+        <p>
+          {selection.stage || selection.outcome
+            ? 'No rows match the current stage/outcome filters.'
+            : 'The index holds no rows for this run and pipeline.'}
+        </p>
+        {(selection.stage || selection.outcome) && (
+          <button type="button" onClick={resetSelection} className={`${linkClass} mt-2`}>
+            Reset selection
+          </button>
+        )}
+      </Panel>
+    )
+    const table = !comparison && rows.length > 0 && (
+      <InvestigationTable
+        shape={mode}
+        rows={tableRows as JourneyRow[] | QuerySummaryRow[] | InvestigationDocumentRow[]}
+        selection={selection}
+        total={ready.total}
+        sort={sort}
+        isSource={isSource}
+        k={k ?? foldedFlow?.k ?? null}
+        singleNamespace={tableNamespace}
+        stepLabel={stepLabel}
+        misses={missesByQuery}
+        onSort={setSort}
+        onSelect={select}
+      />
+    )
+    const loadMoreBar = ready.next_cursor && (
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={loadMore} disabled={phase.loadingMore} className={buttonClass}>
+          {phase.loadingMore ? 'Loading…' : 'Load more'}
+        </button>
+        <span className="text-xs text-ink-muted">
+          {rows.length}
+          {ready.total != null ? ` of ${ready.total}` : ''} rows
+        </span>
+        {phase.moreError && (
+          <span role="alert" className="text-xs text-status-negative">
+            {phase.moreError}
+          </span>
+        )}
+      </div>
+    )
     body = (
       <div className="space-y-3">
+        {headline && <RunHeadline words={headline} />}
+        {mode === 'document-queries' && (
+          <DocumentHeader entity={selection.entity as string} rows={journeyRows} questions={ready.total ?? journeyRows.length} singleNamespace={singleNamespace} onBack={clearDrillDown} />
+        )}
         {questionPage && (
           <QuestionHeader
             queryId={selection.query as string}
@@ -680,11 +744,10 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
             )}
           </div>
         )}
-        {DRILL_DOWN.has(mode) && !questionPage && (
+        {mode === 'query-candidates' && !questionPage && (
           <p className="text-sm text-ink-muted">
-            {mode === 'query-candidates' ? 'Query' : 'Document'}{' '}
-            <code className="font-mono text-ink">{mode === 'query-candidates' ? selection.query : selection.entity}</code>
-            {mode === 'query-candidates' && selection.trace && (
+            Query <code className="font-mono text-ink">{selection.query}</code>
+            {selection.trace && (
               <>
                 {' '}
                 · trace <code className="font-mono text-ink">{selection.trace}</code>
@@ -697,54 +760,40 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
           </p>
         )}
         {comparison && <CandidateLineageDiff envelope={comparison} onSelectEntity={(entity, query) => select({ query, entity })} />}
-        {!comparison && rows.length === 0 && !indexUnavailable && (
-          <Panel id="investigate-empty" title={`No ${viewWord} for this scope`}>
-            <p>
-              {selection.stage || selection.outcome
-                ? 'No rows match the current stage/outcome filters.'
-                : 'The index holds no rows for this run and pipeline.'}
-            </p>
-            {(selection.stage || selection.outcome) && (
-              <button type="button" onClick={resetSelection} className={`${linkClass} mt-2`}>
-                Reset selection
-              </button>
+        {questionLists ? (
+          <>
+            {missed.length > 0 && (
+              <MissedQuestions
+                key={JSON.stringify([db, run, selection.pipeline, selection.stage, selection.outcome, collapsed])}
+                questions={missed}
+                k={foldedFlow!.k}
+                selection={selection}
+                stage={selection.stage ? { id: stageNodeId as string, name: stageNode ? stepName(stageNode).name : stepLabel(selection.stage) } : null}
+                summaries={summaries}
+                stepLabel={stepLabel}
+                sort={missedSort}
+                onSort={setMissedSort}
+                onSelect={select}
+              />
             )}
-          </Panel>
-        )}
-        {questionPage && rows.length > 0 && (
-          <h2 className="pt-2 text-sm font-semibold text-ink">All {plural(ready.total ?? rows.length, 'candidate')}</h2>
-        )}
-        {!comparison && rows.length > 0 && (
-          <InvestigationTable
-            shape={mode}
-            rows={tableRows as JourneyRow[] | QuerySummaryRow[] | InvestigationDocumentRow[]}
-            selection={selection}
-            total={ready.total}
-            sort={sort}
-            isSource={isSource}
-            k={k}
-            singleNamespace={singleNamespace}
-            stepLabel={stepLabel}
-            onSort={setSort}
-            onSelect={select}
-            onReset={resetSelection}
-          />
-        )}
-        {ready.next_cursor && (
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={loadMore} disabled={phase.loadingMore} className={buttonClass}>
-              {phase.loadingMore ? 'Loading…' : 'Load more'}
-            </button>
-            <span className="text-xs text-ink-muted">
-              {rows.length}
-              {ready.total != null ? ` of ${ready.total}` : ''} rows
-            </span>
-            {phase.moreError && (
-              <span role="alert" className="text-xs text-status-negative">
-                {phase.moreError}
-              </span>
+            {(rows.length > 0 || !indexUnavailable) && (
+              // Open by default when nothing was missed (or the flow is unavailable): then it is the only list.
+              <details open={missed.length === 0} className="space-y-2">
+                <summary className="cursor-pointer pt-2 text-sm font-semibold text-ink">
+                  {summaries.size > 0 ? `All ${plural(ready.total ?? rows.length, 'question')}` : rows.length > 0 ? 'Questions with a matching document' : 'All questions'}
+                </summary>
+                {table || emptyPanel}
+                {loadMoreBar}
+              </details>
             )}
-          </div>
+          </>
+        ) : (
+          <>
+            {emptyPanel}
+            {questionPage && rows.length > 0 && <h2 className="pt-2 text-sm font-semibold text-ink">All {plural(ready.total ?? rows.length, 'candidate')}</h2>}
+            {table}
+            {loadMoreBar}
+          </>
         )}
         <EvidenceDetails envelope={ready} findings={findings} derivation={journeyRows[0]?.derivation_version ?? null} />
       </div>
@@ -754,7 +803,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   return (
     <main className="flex-1 overflow-auto p-4 sm:p-6" aria-labelledby="investigate-title">
       <div className="mx-auto max-w-[1240px]">
-        {questionPage ? (
+        {db && run && !comparing(selection) ? (
           <header className="mb-3 flex flex-wrap items-baseline gap-x-2">
             <h1 id="investigate-title" className="text-sm font-semibold text-ink-muted">
               {title}

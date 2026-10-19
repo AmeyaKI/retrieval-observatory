@@ -1,6 +1,24 @@
 import { describe, expect, test } from 'vitest'
-import type { FlowStep, InvestigationFlow, InvestigationStage, JourneyEvent, PipelineGraph, PipelineGraphNode, StageSummary } from '../api'
-import { captureWord, flowStepOf, foldedAggregate, foldedStage, foldFlow, pathCard, questionCard, resultWords, runCard, statusWord, stepKind, stepName } from './flowWords'
+import type { FlowMiss, FlowStep, InvestigationFlow, InvestigationStage, JourneyEvent, PipelineGraph, PipelineGraphNode, StageSummary } from '../api'
+import {
+  captureWord,
+  filterMissed,
+  flowStepOf,
+  foldedAggregate,
+  foldedStage,
+  foldFlow,
+  missedQuestions,
+  missLine,
+  pathCard,
+  questionCard,
+  reasonChips,
+  resultWords,
+  runCard,
+  runHeadline,
+  statusWord,
+  stepKind,
+  stepName,
+} from './flowWords'
 
 const emptyMetrics = { 'ndcg@10': null, recall: null, latency_p50: null }
 const emptyLatency = { count: 0, mean_ms: null, p50_ms: null, p95_ms: null }
@@ -174,6 +192,15 @@ describe('folding repeated invocations', () => {
     expect(folded.copresence).toEqual({ 'source→rerank': 4 })
   })
 
+  test('the misses name the folded step too', () => {
+    const lost = { ...flow, misses: [miss('q1', 'd1', 'relevant_excluded', 'rerank#2', { best_op: 'rerank#2', best_rank: 1 }), miss('q2', 'd2', 'not_observed', 'not_observed')] }
+    expect(foldFlow(lost, true)!.misses.map((m) => [m.loss_boundary, m.best_op])).toEqual([
+      ['rerank', 'rerank'],
+      ['not_observed', null],
+    ])
+    expect(foldFlow(lost, false)!.misses[0].loss_boundary).toBe('rerank#2')
+  })
+
   test('a step missing from a loaded flow counts zeros; no flow stays null', () => {
     expect(flowStepOf(flow, 'ghost')).toMatchObject({ seen: 0, input: 0, lost_total: 0 })
     expect(flowStepOf(null, 'source')).toBeNull()
@@ -318,5 +345,169 @@ describe('resultWords', () => {
     expect(resultWords('path', REAL_FLOW, 10, 2)).toMatchObject({ note: 'Delivered at #2', noteTone: 'positive' })
     expect(resultWords('path', REAL_FLOW, 10, null)).toMatchObject({ note: 'Not delivered', noteTone: null })
     expect(resultWords('question', REAL_FLOW, 10, null).figure).toBeNull()
+  })
+})
+
+function miss(query_id: string, entity_id: string, outcome: FlowMiss['outcome'], loss_boundary: string | null, extra: Partial<FlowMiss> = {}): FlowMiss {
+  return {
+    query_id,
+    query_text: null,
+    namespace: 'default',
+    entity_id,
+    trace_id: `t:${query_id}`,
+    outcome,
+    loss_boundary,
+    final_rank: outcome === 'retained_below_cutoff' ? 36 : null,
+    capture_state: 'complete',
+    best_rank: null,
+    best_op: null,
+    pushed_out: false,
+    events: [],
+    ...extra,
+  }
+}
+
+/** The real run's 51 misses: at rrf 14 pushed out of the top 10, 26 ranked too low, 3 dropped; 8 never found. */
+function realMisses(): FlowMiss[] {
+  const list: FlowMiss[] = []
+  for (let i = 0; i < 14; i += 1) list.push(miss(`p${i}`, `e${i}`, 'retained_below_cutoff', 'rrf', { best_op: 'dense', best_rank: 6, final_rank: 19, pushed_out: true }))
+  for (let i = 0; i < 26; i += 1) list.push(miss(`r${i}`, `e${i}`, 'retained_below_cutoff', 'rrf', { best_op: 'dense', best_rank: 14 }))
+  for (let i = 0; i < 3; i += 1) list.push(miss(`d${i}`, `e${i}`, 'relevant_excluded', 'rrf', { best_op: 'bm25', best_rank: 57 }))
+  for (let i = 0; i < 8; i += 1) list.push(miss(`n${i}`, `e${i}`, 'not_observed', 'not_observed'))
+  return list
+}
+
+describe('runHeadline', () => {
+  const REAL: InvestigationFlow = { ...REAL_FLOW, totals: { ...REAL_FLOW.totals, never_found: 8, questions: 300 }, misses: realMisses() }
+
+  test('the real run: one step loses the most, and the lede says how many were in the top k before', () => {
+    expect(runHeadline(REAL, REAL_GRAPH)).toEqual({
+      headline: 'Fuse Hits loses the most correct documents: 43 of the 51 that missed the top 10.',
+      lede: [
+        '288 of 339 correct documents (85%) reached the top 10 across 300 questions.',
+        'Of the 43 lost at Fuse Hits, 14 were in the top 10 at an earlier step; 29 never were.',
+        '8 were never found by any search.',
+      ],
+      lost: '43 of the 51',
+    })
+  })
+
+  test('the demo run: the one document lost at the filter was in the top 3 at an earlier step', () => {
+    const demo: InvestigationFlow = {
+      ...DEMO_FLOW,
+      totals: { ...DEMO_FLOW.totals, missed: 2, never_found: 1 },
+      misses: [miss('q-outage', 'doc-guide', 'relevant_excluded', 'recency_filter', { best_op: 'lexical', best_rank: 1 }), miss('q-invoice', 'doc-archive', 'not_observed', 'not_observed')],
+    }
+    expect(runHeadline(demo, DEMO_GRAPH)).toEqual({
+      headline: 'Recency Filter loses the most correct documents: 1 of the 2 that missed the top 3.',
+      lede: ['4 of 6 correct documents (67%) reached the top 3 across 3 questions.', 'The one lost at Recency Filter was in the top 3 at an earlier step.', '1 was never found by any search.'],
+      lost: '1 of the 2',
+    })
+    const never = { ...demo, misses: [{ ...demo.misses[0], best_rank: 5 }] }
+    expect(runHeadline(never, DEMO_GRAPH).lede[1]).toBe('The one lost at Recency Filter was not in the top 3 at any earlier step.')
+  })
+
+  test('the earlier-step sentence: none, all, some, singular and plural', () => {
+    const at = (before: number, lost: number) => {
+      const misses = Array.from({ length: lost }, (_, i) => miss(`q${i}`, `e${i}`, 'retained_below_cutoff', 'rrf', { best_rank: i < before ? 2 : 40, pushed_out: i < before }))
+      const flow = flowOf(10, 20, 20 - lost, { rrf: step(20, 20, 20, 20 - lost, 0, 0, { ranked_low: lost - before, pushed_out: before }) })
+      return runHeadline({ ...flow, misses }, REAL_GRAPH).lede[1]
+    }
+    expect(at(0, 3)).toBe('None of the 3 lost at Fuse Hits was in the top 10 at an earlier step.')
+    expect(at(3, 3)).toBe('All 3 lost at Fuse Hits were in the top 10 at an earlier step.')
+    expect(at(1, 3)).toBe('Of the 3 lost at Fuse Hits, 1 was in the top 10 at an earlier step; 2 never were.')
+    expect(at(2, 3)).toBe('Of the 3 lost at Fuse Hits, 2 were in the top 10 at an earlier step; 1 never was.')
+  })
+
+  test('steps that tie share the headline, in pipeline order', () => {
+    const flow = flowOf(3, 6, 2, { select: step(4, 4, 2, 2, 2, 0, { dropped: 2 }), recency_filter: step(5, 5, 3, 3, 2, 0, { dropped: 2 }) })
+    expect(runHeadline(flow, DEMO_GRAPH)).toEqual({
+      headline: 'Recency Filter and Select each lose 2 of the 4 correct documents that missed the top 3.',
+      lede: ['2 of 6 correct documents (33%) reached the top 3 across 3 questions.'],
+      lost: '2 of the 4',
+    })
+    const three = flowOf(3, 6, 0, { select: step(4, 4, 2, 2, 2, 0, { dropped: 2 }), recency_filter: step(5, 5, 3, 3, 2, 0, { dropped: 2 }), expand: step(2, 2, 0, 0, 2, 0, { dropped: 2 }) })
+    expect(runHeadline(three, DEMO_GRAPH).headline).toBe('Recency Filter, Expand and Select each lose 2 of the 6 correct documents that missed the top 3.')
+  })
+
+  test('nothing missed, only never-found misses, untraceable misses, no judgments', () => {
+    expect(runHeadline(flowOf(10, 4, 4, { rrf: step(4, 4, 4, 4) }), REAL_GRAPH)).toEqual({
+      headline: 'All 4 correct documents reached the top 10.',
+      lede: ['4 of 4 correct documents (100%) reached the top 10 across 3 questions.'],
+      lost: null,
+    })
+    const never = flowOf(10, 4, 3, { rrf: step(3, 3, 3, 3) })
+    expect(runHeadline({ ...never, totals: { ...never.totals, never_found: 1 } }, REAL_GRAPH)).toEqual({
+      headline: 'No step lost a correct document; 1 was never found by any search.',
+      lede: ['3 of 4 correct documents (75%) reached the top 10 across 3 questions.'],
+      lost: null,
+    })
+    const both = { ...never, totals: { ...never.totals, missed: 3, delivered: 1, never_found: 2, insufficient: 1 } }
+    expect(runHeadline(both, REAL_GRAPH).headline).toBe('No step lost a correct document; 2 were never found by any search.')
+    expect(runHeadline(both, REAL_GRAPH).lede[1]).toBe('1 could not be traced fully.')
+    const unknown = { ...never, totals: { ...never.totals, insufficient: 1 } }
+    expect(runHeadline(unknown, REAL_GRAPH).headline).toBe('No step lost a correct document; 1 could not be traced fully.')
+    expect(runHeadline(flowOf(10, 0, 0, {}), REAL_GRAPH)).toEqual({ headline: "This run has no correct answers recorded, so losses can't be counted.", lede: [], lost: null })
+  })
+
+  test('a step without a graph node is named by its id', () => {
+    expect(runHeadline(REAL, null).headline).toBe('rrf loses the most correct documents: 43 of the 51 that missed the top 10.')
+  })
+})
+
+describe('the questions that missed a correct document', () => {
+  const nameOf = (id: string) => ({ rrf: 'Fuse Hits', dense: 'Search (dense)', bm25: 'Search (bm25)', recency_filter: 'Recency Filter', lexical: 'Lexical' })[id] ?? id
+
+  test('one plain line per missed document, with the step that ranked it best when the line does not say', () => {
+    expect(missLine(miss('1', 'a', 'retained_below_cutoff', 'rrf', { best_op: 'dense', best_rank: 14 }), 10, nameOf)).toEqual({ text: 'Ranked too low at Fuse Hits · #36', sub: 'Search (dense) had it at #14' })
+    expect(missLine(miss('1', 'a', 'retained_below_cutoff', 'rrf', { best_op: 'dense', best_rank: 6, final_rank: 19, pushed_out: true }), 10, nameOf)).toEqual({
+      text: 'Pushed out of the top 10 by Fuse Hits · #6 → #19',
+      sub: null,
+    })
+    expect(missLine(miss('1', 'a', 'relevant_excluded', 'rrf', { best_op: 'bm25', best_rank: 57 }), 10, nameOf)).toEqual({ text: 'Dropped by Fuse Hits', sub: 'Search (bm25) had it at #57' })
+    expect(missLine(miss('1', 'a', 'not_observed', 'not_observed'), 10, nameOf)).toEqual({ text: 'Never found by any search', sub: null })
+    expect(missLine(miss('1', 'a', 'insufficient_evidence', 'rrf'), 10, nameOf)).toEqual({ text: 'Not enough evidence at Fuse Hits', sub: null })
+    // The rank at the losing step itself is already in the line.
+    expect(missLine(miss('1', 'a', 'retained_below_cutoff', 'rrf', { best_op: 'rrf', best_rank: 36 }), 10, nameOf).sub).toBeNull()
+  })
+
+  const flow: InvestigationFlow = {
+    ...DEMO_FLOW,
+    totals: { ...DEMO_FLOW.totals, questions_with_none: 1 },
+    misses: [
+      miss('q-outage', 'doc-guide', 'relevant_excluded', 'recency_filter', { query_text: 'why is the site down', best_op: 'lexical', best_rank: 1 }),
+      miss('q-invoice', 'doc-archive', 'not_observed', 'not_observed', { query_text: 'invoice for order 42' }),
+      miss('q-invoice', 'doc-late', 'retained_below_cutoff', 'select', { best_op: 'lexical', best_rank: 2, pushed_out: true }),
+      miss('q-split', 'doc-x', 'retained_below_cutoff', 'select', { trace_id: 't:a' }),
+      miss('q-split', 'doc-y', 'retained_below_cutoff', 'select', { trace_id: 't:b' }),
+    ],
+  }
+
+  test('grouped by question in the server order; the first questions_with_none got none', () => {
+    const questions = missedQuestions(flow)
+    expect(questions.map((q) => [q.query_id, q.query_text, q.trace_id, q.misses.length, q.none])).toEqual([
+      ['q-outage', 'why is the site down', 't:q-outage', 1, true],
+      ['q-invoice', 'invoice for order 42', 't:q-invoice', 2, false],
+      ['q-split', null, null, 2, false],
+    ])
+  })
+
+  test('filters by a miss of the outcome and by the step that lost it', () => {
+    const questions = missedQuestions(flow)
+    expect(filterMissed(questions, { outcome: 'retained_below_cutoff' }).map((q) => q.query_id)).toEqual(['q-invoice', 'q-split'])
+    expect(filterMissed(questions, { stage: 'recency_filter' }).map((q) => q.query_id)).toEqual(['q-outage'])
+    expect(filterMissed(questions, { stage: 'select', outcome: 'not_observed' }).map((q) => q.query_id)).toEqual(['q-invoice'])
+    expect(filterMissed(questions, { stage: null, outcome: null })).toEqual(questions)
+  })
+
+  test('the reason chips count questions; the first also counts the documents pushed out', () => {
+    expect(reasonChips(missedQuestions(flow)).map((chip) => chip.label)).toEqual(['Ranked too low or pushed out · 2 (1 pushed out)', 'Dropped · 1', 'Never found · 1'])
+    const unknown = { ...flow, misses: [...flow.misses, miss('q-z', 'doc-z', 'insufficient_evidence', 'select')] }
+    expect(reasonChips(missedQuestions(unknown)).map((chip) => [chip.outcome, chip.questions])).toEqual([
+      ['retained_below_cutoff', 2],
+      ['relevant_excluded', 1],
+      ['not_observed', 1],
+      ['insufficient_evidence', 1],
+    ])
   })
 })

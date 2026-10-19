@@ -1,5 +1,6 @@
-import { FlowStep, InvestigationFlow, InvestigationStage, JourneyEvent, PipelineGraph, PipelineGraphNode, StageSummary } from '../api'
+import { FlowMiss, FlowStep, InvestigationFlow, InvestigationStage, JourneyEvent, PipelineGraph, PipelineGraphNode, StageSummary } from '../api'
 import { collapsedNodeId } from './dagLayout'
+import { outcomeLabel } from './queryDebugger'
 
 // Plain words for the pipeline diagram and the step panel. Internal enum values (FIRED,
 // SKIPPED_BY_GATE, capture states, op types) never reach a card; they stay in "Technical details".
@@ -91,7 +92,7 @@ function addSteps(a: FlowStep, b: FlowStep): FlowStep {
   }
 }
 
-/** Collapsed: `op#N` step counts and co-presence pairs fold onto `op` (self-pairs dropped). */
+/** Collapsed: `op#N` step counts, co-presence pairs (self-pairs dropped) and the misses' steps fold onto `op`. */
 export function foldFlow(flow: InvestigationFlow | null, collapsed: boolean): InvestigationFlow | null {
   if (!flow || !collapsed) return flow
   const steps: Record<string, FlowStep> = {}
@@ -107,7 +108,9 @@ export function foldFlow(flow: InvestigationFlow | null, collapsed: boolean): In
     if (source === target) continue
     copresence[`${source}→${target}`] = (copresence[`${source}→${target}`] ?? 0) + count
   }
-  return { ...flow, steps, copresence }
+  const fold = (id: string | null) => (id === null ? null : collapsedNodeId(id))
+  const misses = flow.misses.map((miss) => ({ ...miss, loss_boundary: fold(miss.loss_boundary), best_op: fold(miss.best_op) }))
+  return { ...flow, steps, copresence, misses }
 }
 
 /** A step absent from a loaded flow saw no correct document: zeros, not "unknown". */
@@ -302,4 +305,140 @@ export function resultWords(mode: 'run' | 'question' | 'path', flow: Investigati
   if (!flow || flow.totals.relevant === 0) return { name, figure: null, note: 'No correct answers recorded', noteTone: null }
   const { delivered, relevant } = flow.totals
   return { name, figure: `${delivered} of ${relevant}`, note: `correct delivered · ${Math.round((100 * delivered) / relevant)}%`, noteTone: null }
+}
+
+// ── The run's headline and its questions that missed a correct document ─────────────────────
+
+function was(n: number): string {
+  return n === 1 ? 'was' : 'were'
+}
+
+function listNames(names: string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
+/** The page's headline and its lede sentences; `lost` is the part of the headline to show as lost. */
+export interface RunHeadlineWords {
+  headline: string
+  lede: string[]
+  lost: string | null
+}
+
+/** Whether the worst step's lost documents were in the top k at an earlier step (a misses' best rank within k). */
+function earlierSentence(n: number, before: number, name: string, k: number): string {
+  if (n === 1) return before === 1 ? `The one lost at ${name} was in the top ${k} at an earlier step.` : `The one lost at ${name} was not in the top ${k} at any earlier step.`
+  if (before === 0) return `None of the ${n} lost at ${name} was in the top ${k} at an earlier step.`
+  if (before === n) return `All ${n} lost at ${name} were in the top ${k} at an earlier step.`
+  return `Of the ${n} lost at ${name}, ${before} ${was(before)} in the top ${k} at an earlier step; ${n - before} never ${was(n - before)}.`
+}
+
+/** Which step loses the most correct documents, in one sentence, then the run's result. Pass the
+ * flow folded like the diagram (its steps and misses name the same ids). */
+export function runHeadline(flow: InvestigationFlow, graph: PipelineGraph | null): RunHeadlineWords {
+  const { k, totals } = flow
+  if (totals.relevant === 0) return { headline: "This run has no correct answers recorded, so losses can't be counted.", lede: [], lost: null }
+  const order = (id: string) => {
+    const index = graph?.nodes.findIndex((n) => n.node_id === id) ?? -1
+    return index < 0 ? Infinity : index
+  }
+  const nameOf = (id: string) => {
+    const node = graph?.nodes.find((n) => n.node_id === id)
+    return node ? stepName(node).name : id
+  }
+  const most = Math.max(0, ...Object.values(flow.steps).map((step) => step.lost_total))
+  const worst = most > 0 ? Object.keys(flow.steps).filter((id) => flow.steps[id].lost_total === most).sort((a, b) => order(a) - order(b) || a.localeCompare(b)) : []
+  const pct = Math.round((100 * totals.delivered) / totals.relevant)
+  const lede = [`${totals.delivered} of ${plural(totals.relevant, 'correct document')} (${pct}%) reached the top ${k} across ${plural(totals.questions, 'question')}.`]
+  const never = `${totals.never_found} ${was(totals.never_found)} never found by any search.`
+  const partial = `${totals.insufficient} could not be traced fully.`
+  if (totals.missed === 0) return { headline: `All ${plural(totals.relevant, 'correct document')} reached the top ${k}.`, lede, lost: null }
+  if (worst.length === 0) {
+    const headline = totals.never_found > 0 ? `No step lost a correct document; ${never}` : `No step lost a correct document; ${totals.missed} could not be traced fully.`
+    if (totals.never_found > 0 && totals.insufficient > 0) lede.push(partial)
+    return { headline, lede, lost: null }
+  }
+  const lost = `${most} of the ${totals.missed}`
+  let headline: string
+  if (worst.length === 1) {
+    const name = nameOf(worst[0])
+    headline = `${name} loses the most correct documents: ${lost} that missed the top ${k}.`
+    const here = flow.misses.filter((miss) => miss.loss_boundary === worst[0] && (miss.outcome === 'relevant_excluded' || miss.outcome === 'retained_below_cutoff'))
+    const before = Math.min(most, here.filter((miss) => miss.best_rank != null && miss.best_rank <= k).length)
+    lede.push(earlierSentence(most, before, name, k))
+  } else {
+    headline = `${listNames(worst.map(nameOf))} each lose ${lost} correct documents that missed the top ${k}.`
+  }
+  if (totals.never_found > 0) lede.push(never)
+  if (totals.insufficient > 0) lede.push(partial)
+  return { headline, lede, lost }
+}
+
+/** One question's missed correct documents, in the server's order (questions that got none first). */
+export interface MissedQuestion {
+  query_id: string
+  query_text: string | null
+  /** The question's trace when all its misses share one. */
+  trace_id: string | null
+  misses: FlowMiss[]
+  /** It delivered none of its correct documents: the server lists those questions first. */
+  none: boolean
+}
+
+export function missedQuestions(flow: InvestigationFlow): MissedQuestion[] {
+  const byQuery = new Map<string, FlowMiss[]>()
+  for (const miss of flow.misses) byQuery.set(miss.query_id, [...(byQuery.get(miss.query_id) ?? []), miss])
+  return [...byQuery].map(([query_id, misses], index) => ({
+    query_id,
+    query_text: misses.find((miss) => miss.query_text)?.query_text ?? null,
+    trace_id: new Set(misses.map((miss) => miss.trace_id)).size === 1 ? misses[0].trace_id : null,
+    misses,
+    none: index < flow.totals.questions_with_none,
+  }))
+}
+
+/** Questions with a miss lost at `stage` and with a miss of `outcome`; null keeps every question. */
+export function filterMissed(questions: MissedQuestion[], filters: { stage?: string | null; outcome?: string | null }): MissedQuestion[] {
+  const { stage, outcome } = filters
+  return questions.filter((q) => (!stage || q.misses.some((miss) => miss.loss_boundary === stage)) && (!outcome || q.misses.some((miss) => miss.outcome === outcome)))
+}
+
+export interface ReasonChip {
+  outcome: string
+  label: string
+  /** Questions with at least one miss of this outcome. */
+  questions: number
+}
+
+/** The reason filters over the missed list: questions per reason; the first also counts the documents pushed out. */
+export function reasonChips(questions: MissedQuestion[]): ReasonChip[] {
+  const count = (outcome: string) => filterMissed(questions, { outcome }).length
+  const pushed = questions.reduce((sum, q) => sum + q.misses.filter((miss) => miss.outcome === 'retained_below_cutoff' && miss.pushed_out).length, 0)
+  const low = count('retained_below_cutoff')
+  const chips: ReasonChip[] = [
+    { outcome: 'retained_below_cutoff', label: `Ranked too low or pushed out · ${low} (${pushed} pushed out)`, questions: low },
+    { outcome: 'relevant_excluded', label: `Dropped · ${count('relevant_excluded')}`, questions: count('relevant_excluded') },
+    { outcome: 'not_observed', label: `Never found · ${count('not_observed')}`, questions: count('not_observed') },
+  ]
+  const unknown = count('insufficient_evidence')
+  if (unknown > 0) chips.push({ outcome: 'insufficient_evidence', label: `Not enough evidence · ${unknown}`, questions: unknown })
+  return chips
+}
+
+/** What happened to one missed correct document, with the step that ranked it best when the line does not say so. */
+export function missLine(miss: FlowMiss, k: number | null, nameOf: (opId: string) => string): { text: string; sub: string | null } {
+  const step = miss.loss_boundary && miss.loss_boundary !== 'not_observed' && miss.loss_boundary !== 'unknown' ? nameOf(miss.loss_boundary) : null
+  const at = (word: string) => (step ? ` ${word} ${step}` : '')
+  const final = miss.final_rank != null ? `#${miss.final_rank}` : null
+  let text: string
+  let showsBest = false
+  if (miss.outcome === 'retained_below_cutoff' && miss.pushed_out && miss.best_rank != null) {
+    text = `${k != null ? `Pushed out of the top ${k}` : 'Pushed out'}${at('by')} · #${miss.best_rank}${final ? ` → ${final}` : ''}`
+    showsBest = true
+  } else if (miss.outcome === 'retained_below_cutoff') text = `Ranked too low${at('at')}${final ? ` · ${final}` : ''}`
+  else if (miss.outcome === 'relevant_excluded') text = step ? `Dropped by ${step}` : 'Dropped'
+  else if (miss.outcome === 'not_observed') text = 'Never found by any search'
+  else if (miss.outcome === 'insufficient_evidence') text = `Not enough evidence${at('at')}`
+  else text = outcomeLabel(miss.outcome)
+  const sub = !showsBest && miss.best_rank != null && miss.best_op && miss.best_op !== miss.loss_boundary ? `${nameOf(miss.best_op)} had it at #${miss.best_rank}` : null
+  return { text, sub }
 }
