@@ -1,30 +1,29 @@
 import { JourneyAlignment, JourneyChangeKind, JourneyDiffRow, JourneySide } from '../api'
+import { plural } from './flowWords'
 
-// Pure helpers over paired journey rows (run comparison). Labels carry a glyph and text,
+// Pure helpers over paired journey rows (run comparison). Changes read in plain words with a tone,
 // never colour alone; ordering mirrors the server's priority so a re-sort is a no-op.
 
-export const CHANGE_LABELS: Record<JourneyChangeKind, { glyph: string; label: string }> = {
-  lost: { glyph: '✕', label: 'Lost' },
-  gained: { glyph: '✓', label: 'Gained' },
-  membership_changed: { glyph: '◐', label: 'Membership changed' },
-  rank_changed: { glyph: '↕', label: 'Rank changed' },
-  path_changed: { glyph: '⇢', label: 'Path changed' },
-  unchanged: { glyph: '=', label: 'Unchanged' },
-  unaligned: { glyph: '∅', label: 'Unaligned' },
+export type ChangeTone = 'negative' | 'positive' | 'neutral'
+
+export const CHANGE_LABELS: Record<JourneyChangeKind, { label: string; tone: ChangeTone }> = {
+  lost: { label: 'Lost', tone: 'negative' },
+  gained: { label: 'Gained', tone: 'positive' },
+  membership_changed: { label: 'In or out changed', tone: 'neutral' },
+  rank_changed: { label: 'Moved', tone: 'neutral' },
+  path_changed: { label: 'Different path', tone: 'neutral' },
+  unchanged: { label: 'Unchanged', tone: 'neutral' },
+  unaligned: { label: "Can't be compared", tone: 'neutral' },
 }
 
-export function changeLabel(kind: JourneyChangeKind | string): string {
-  return CHANGE_LABELS[kind as JourneyChangeKind]?.label ?? kind
-}
-
-export function changeGlyph(kind: JourneyChangeKind | string): string {
-  return CHANGE_LABELS[kind as JourneyChangeKind]?.glyph ?? '?'
+export function changeWords(kind: JourneyChangeKind | string): { label: string; tone: ChangeTone } {
+  return CHANGE_LABELS[kind as JourneyChangeKind] ?? { label: kind, tone: 'neutral' }
 }
 
 export const ALIGNMENT_LABELS: Record<JourneyAlignment, string> = {
   aligned: 'Aligned',
-  query_unaligned: 'Query input differs',
-  entity_revision_changed: 'Entity revision changed',
+  query_unaligned: 'Question input differs',
+  entity_revision_changed: 'Document revision changed',
   missing_in_baseline: 'Missing in baseline',
   missing_in_candidate: 'Missing in candidate',
   corpus_changed: 'Corpus changed',
@@ -61,14 +60,55 @@ export function sortDiffRows<Row extends JourneyDiffRow>(rows: Row[]): Row[] {
   )
 }
 
-/** One side of a pair in words: `included #2 · relevant`, `excluded at select · unjudged`,
- * `membership unknown · relevant`, or `no row` when the run holds no row for the entity. */
-export function sideSummary(side: JourneySide | null): string {
-  if (!side) return 'no row'
-  const membership = side.final_membership === 'included' ? 'included' : side.final_membership === 'excluded' ? 'excluded' : 'membership unknown'
-  const rank = side.final_rank != null ? ` #${side.final_rank}` : ''
-  const boundary = side.final_membership === 'excluded' && side.loss_boundary ? ` at ${side.loss_boundary}` : ''
-  return `${membership}${rank}${boundary} · ${side.judgment}`
+/** A correct document: judged relevant in either run. */
+export function isCorrect(row: JourneyDiffRow): boolean {
+  return row.baseline?.judgment === 'relevant' || row.candidate?.judgment === 'relevant'
+}
+
+/** One side of a pair in words. Correct documents read by outcome (`Delivered at #2`, `Dropped by
+ * Recency Filter`); other rows by membership (`In the top 3 at #1`). A partly recorded side names no
+ * step it was dropped by. */
+export function sideWords(side: JourneySide | null, k: number | null, stepNameOf: (opId: string) => string = (opId) => opId): string {
+  if (!side) return 'No row in this run'
+  const rank = side.final_rank
+  switch (side.outcome) {
+    case 'relevant_delivered':
+      return rank != null ? `Delivered at #${rank}` : 'Delivered'
+    case 'retained_below_cutoff':
+      return rank != null ? `Ranked too low · #${rank}` : 'Ranked too low'
+    case 'relevant_excluded':
+      return side.loss_boundary && side.capture_state !== 'partial' ? `Dropped by ${stepNameOf(side.loss_boundary)}` : 'Not delivered'
+    case 'not_observed':
+      return 'Never found'
+    case 'insufficient_evidence':
+      return 'Not enough evidence'
+  }
+  if (side.final_membership === 'included') {
+    const top = k != null ? `In the top ${k}` : 'Delivered'
+    return rank != null ? `${top} at #${rank}` : top
+  }
+  if (side.final_membership === 'excluded') return k != null ? `Not in the top ${k}` : 'Not delivered'
+  return 'Not enough evidence'
+}
+
+/** The compare headline over correct documents only: `Against baseline b: 1 correct document gained,
+ * none lost. 2 correct documents moved rank.` Says so when only some of the pairs are loaded. */
+export function compareHeadline(rows: JourneyDiffRow[], total: number | null, baseline: string): string {
+  const correct = rows.filter(isCorrect)
+  const count = (kind: JourneyChangeKind) => correct.filter((row) => row.change === kind).length
+  const gained = count('gained')
+  const lost = count('lost')
+  const moved = count('rank_changed')
+  const first =
+    gained === 0 && lost === 0
+      ? 'no correct document was gained or lost.'
+      : gained === 0
+        ? `none gained, ${plural(lost, 'correct document')} lost.`
+        : `${plural(gained, 'correct document')} gained, ${lost === 0 ? 'none' : lost} lost.`
+  const sentences = [`Against baseline ${baseline}: ${first}`]
+  if (moved > 0) sentences.push(`${plural(moved, 'correct document')} moved rank.`)
+  if (total != null && rows.length < total) sentences.push(`Counted over the first ${rows.length} of ${total} documents.`)
+  return sentences.join(' ')
 }
 
 export interface DiffTotals {

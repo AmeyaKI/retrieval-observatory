@@ -91,8 +91,8 @@ const TONE_TEXT: Record<OutcomeTone, string> = {
 }
 
 // Stacked rows below 640 px: the lead cell on line one (with what happened, when it fits), the rest after.
-const LINE_TWO = 'max-sm:text-xs max-sm:text-ink-muted'
-const DOT = "max-sm:before:mr-2 max-sm:before:content-['·']"
+export const LINE_TWO = 'max-sm:text-xs max-sm:text-ink-muted'
+export const DOT = "max-sm:before:mr-2 max-sm:before:content-['·']"
 const QUESTION_STACK = 'max-sm:order-1 max-sm:basis-full'
 const WHAT_STACK = 'max-sm:order-5 max-sm:basis-full sm:w-2/5'
 /** Short cells keep one line on a wide screen so the question column takes the slack. */
@@ -440,7 +440,7 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 const headerButtonClass = `inline-flex items-center gap-1 whitespace-nowrap font-medium hover:text-ink ${FOCUS}`
 const SELECTED_BAR = 'shadow-[inset_3px_0_0_0_rgb(var(--accent))]'
 const resetClass = `rounded border border-hairline px-2 py-0.5 text-xs text-ink hover:bg-surface-muted ${FOCUS}`
-const STACKED_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-2 max-sm:px-3 max-sm:py-2 max-sm:after:order-3 max-sm:after:basis-full max-sm:after:content-['']"
+export const STACKED_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-2 max-sm:px-3 max-sm:py-2 max-sm:after:order-3 max-sm:after:basis-full max-sm:after:content-['']"
 
 export default function InvestigationTable(props: InvestigationTableProps) {
   const { shape, selection, sort, stepLabel, actions, onSort, onSelect } = props

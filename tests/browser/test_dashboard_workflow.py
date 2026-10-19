@@ -267,10 +267,11 @@ def test_compare_shows_the_recovered_document(page: Page, demo: dict) -> None:
     query, document = demo["sample_query_id"], demo["repaired_document"]
     page.goto(_investigate(demo, validation, view="queries", query=query, compare=baseline))
 
-    expect(page.get_by_role("heading", name=re.compile(rf"Candidate {validation} against baseline {baseline}"))).to_be_visible()
-    row = page.locator("table:has(caption:text('Paired journeys')) tbody tr", has_text=document)
-    expect(row).to_contain_text("✓ Gained")
-    expect(row).to_contain_text("excluded (recency_filter) → included")
+    expect(page.get_by_role("heading", name=re.compile(rf"Against baseline {baseline}"))).to_be_visible()
+    row = page.locator("table:has(caption:text('Correct documents that changed')) tbody tr", has_text=_shown(document))
+    expect(row).to_contain_text("Gained")
+    expect(row).to_contain_text("Dropped by Recency Filter")
+    expect(row).to_contain_text("Delivered at #2")
     assert _semantic_violations(page) == []
     assert _wcag_aa_violations(page) == []
 
@@ -296,7 +297,7 @@ def test_audit_passes_and_links_changed_queries_into_investigate(page: Page, dem
 
     changed.click()
     expect(page).to_have_url(re.compile(rf"#/investigate\?.*run={validation}.*query={query}.*compare={baseline}"))
-    expect(page.get_by_role("heading", name=re.compile(rf"Candidate {validation} against baseline {baseline}"))).to_be_visible()
+    expect(page.get_by_role("heading", name=re.compile(rf"Against baseline {baseline}"))).to_be_visible()
     assert violations == []
 
 

@@ -29,7 +29,7 @@ import { collapseInvocations, collapsedNodeId } from '../utils/dagLayout'
 import { flowStepOf, foldFlow, missedQuestions, plural, runHeadline, stepName } from '../utils/flowWords'
 import { auditLink, buildHash } from '../utils/focusedRoutes'
 import { entityKey, focusRowFor, isJourneyRow, OUTCOME_LABELS, sortForView, splitEntity, stageFilter } from '../utils/queryDebugger'
-import CandidateLineageDiff from './CandidateLineageDiff'
+import CandidateLineageDiff, { CompareHeadline } from './CandidateLineageDiff'
 import JourneyCard from './InvestigationDetail'
 import InvestigationGraph, { graphMode } from './InvestigationGraph'
 import InvestigationTable, { SortState, TableShape } from './InvestigationTable'
@@ -545,6 +545,8 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     const { rows, partialRows } = phase
     const ready = phase.envelope
     const comparison = isComparison(ready) ? ready : null
+    // Every loaded page: a later page's envelope carries only its own rows.
+    const diffRows = comparison ? (rows as JourneyDiffRow[]) : []
     const findings = ready.findings ?? []
     const has = (code: string) => findings.some((f) => f.code === code)
     const indexUnavailable = has('projection_unavailable')
@@ -622,6 +624,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     body = (
       <div className="space-y-3">
         {headline && <RunHeadline words={headline} />}
+        {comparison && <CompareHeadline envelope={comparison} rows={diffRows} auditHref={auditLink({ db, baseline: selection.compare, candidate: run })} />}
         {mode === 'document-queries' && (
           <DocumentHeader entity={selection.entity as string} rows={journeyRows} questions={ready.total ?? journeyRows.length} singleNamespace={singleNamespace} onBack={clearDrillDown} />
         )}
@@ -656,19 +659,10 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
             {buildButton('Rebuild index')}
           </div>
         )}
-        {partialRows > 0 && (
+        {partialRows > 0 && !comparison && (
           <Notice tone="warning" title={`${partialRows} of ${rows.length} rows are evidence-limited`}>
             An operator boundary was not fully captured for them, so no removal reason is asserted.
           </Notice>
-        )}
-        {comparison && (
-          <div role="status" className="app-inset px-3 py-2 text-xs">
-            Comparing candidate <code className="font-mono">{run}</code> against baseline <code className="font-mono">{selection.compare}</code>
-            {' · '}
-            <a href={auditLink({ db, baseline: selection.compare, candidate: run })} className={linkClass}>
-              Back to audit
-            </a>
-          </div>
         )}
         {multipleTraces && (
           <Notice tone="neutral" title={`This question ran ${traceIds.length} times.`}>
@@ -746,7 +740,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         )}
         {mode === 'query-candidates' && !questionPage && (
           <p className="text-sm text-ink-muted">
-            Query <code className="font-mono text-ink">{selection.query}</code>
+            Question <code className="font-mono text-ink">{selection.query}</code>
             {selection.trace && (
               <>
                 {' '}
@@ -759,7 +753,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
             </button>
           </p>
         )}
-        {comparison && <CandidateLineageDiff envelope={comparison} onSelectEntity={(entity, query) => select({ query, entity })} />}
+        {comparison && <CandidateLineageDiff envelope={comparison} rows={diffRows} stepNameOf={stepLabel} onSelectEntity={(entity, query) => select({ query, entity })} />}
         {questionLists ? (
           <>
             {missed.length > 0 && (
@@ -803,7 +797,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
   return (
     <main className="flex-1 overflow-auto p-4 sm:p-6" aria-labelledby="investigate-title">
       <div className="mx-auto max-w-[1240px]">
-        {db && run && !comparing(selection) ? (
+        {db && run ? (
           <header className="mb-3 flex flex-wrap items-baseline gap-x-2">
             <h1 id="investigate-title" className="text-sm font-semibold text-ink-muted">
               {title}
