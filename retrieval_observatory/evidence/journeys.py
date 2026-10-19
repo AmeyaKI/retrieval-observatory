@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from collections import Counter
 from dataclasses import dataclass, field, replace
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 from weakref import WeakKeyDictionary
 from urllib.parse import quote
 
@@ -405,6 +405,87 @@ def summarize_pair_counts(rows: Sequence[Any], events: int) -> dict[str, Any]:
         "relevant_final_misses_never_observed": sum(not row.observed for row in relevant),
         "unknown_capture": sum(row.outcome == "insufficient_evidence" for row in rows),
         "by_loss_boundary": dict(Counter(row.loss_boundary for row in rows if row.loss_boundary is not None)),
+    }
+
+
+_FLOW_STEP_FIELDS = ("seen", "input", "output", "in_top_k", "removed", "removed_but_delivered")
+_FLOW_LOSS = {"relevant_excluded": "dropped", "retained_below_cutoff": "ranked_low", "insufficient_evidence": "unknown"}
+_FLOW_MISS_EVENT_FIELDS = ("op_id", "kind", "input_rank", "output_rank", "reason")
+
+
+def _in_top_k(event: Mapping[str, Any], k: int) -> bool:
+    return event["output_present"] and event["output_rank"] is not None and event["output_rank"] <= k
+
+
+def summarize_flow(
+    rows: Sequence[Mapping[str, Any]], k: int, query_text: Mapping[str, str | None], *, questions: int | None = None
+) -> dict[str, Any]:
+    """Per step: how many judged-relevant pairs it saw, received, emitted, ranked in the top ``k``,
+    removed and lost; plus one entry per relevant pair not delivered.
+
+    ``rows`` are relevant pairs in ``JourneyRow.to_dict()`` shape. Counts are per row, never per
+    event (a document's several chunks at one step count once). A ``retained_below_cutoff`` row is
+    ``pushed_out`` when a step other than its loss boundary had it in the top ``k``. ``questions``
+    is the scope's traced query count; without it, the judged queries are counted.
+    """
+    steps: dict[str, dict[str, Any]] = {}
+    copresence: Counter[str] = Counter()
+    delivered: dict[str, int] = {}
+    misses: list[dict[str, Any]] = []
+    for row in rows:
+        events, outcome, boundary = row["events"], row["outcome"], row["loss_boundary"]
+        delivered[row["query_id"]] = delivered.get(row["query_id"], 0) + (outcome == "relevant_delivered")
+        pushed_out = outcome == "retained_below_cutoff" and any(e["op_id"] != boundary and _in_top_k(e, k) for e in events)
+        by_op: dict[str, list[Mapping[str, Any]]] = {}
+        for event in events:
+            by_op.setdefault(event["op_id"], []).append(event)
+        for op_id, at in by_op.items():
+            step = steps.setdefault(op_id, {**dict.fromkeys(_FLOW_STEP_FIELDS, 0), "lost": dict.fromkeys(("dropped", "ranked_low", "pushed_out", "unknown"), 0)})
+            removed = any(e["kind"] == "removed" for e in at)
+            step["seen"] += 1
+            step["input"] += any(e["input_present"] for e in at)
+            step["output"] += any(e["output_present"] for e in at)
+            step["in_top_k"] += any(_in_top_k(e, k) for e in at)
+            step["removed"] += removed
+            step["removed_but_delivered"] += removed and outcome == "relevant_delivered"
+        if outcome in _FLOW_LOSS and boundary in by_op:
+            steps[boundary]["lost"]["pushed_out" if pushed_out else _FLOW_LOSS[outcome]] += 1
+        outputs = {e["op_id"] for e in events if e["output_present"]}
+        inputs = {e["op_id"] for e in events if e["input_present"]}
+        copresence.update(f"{a}→{b}" for a in outputs for b in inputs if a != b)
+        if outcome != "relevant_delivered":
+            best = min((e for e in events if e["output_rank"] is not None), key=lambda e: e["output_rank"], default=None)
+            misses.append(
+                {
+                    "query_id": row["query_id"],
+                    "query_text": query_text.get(row["query_id"]),
+                    **{key: row[key] for key in ("namespace", "entity_id", "trace_id", "outcome", "loss_boundary", "final_rank", "capture_state")},
+                    "best_rank": None if best is None else best["output_rank"],
+                    "best_op": None if best is None else best["op_id"],
+                    "pushed_out": pushed_out,
+                    "events": [{key: e[key] for key in _FLOW_MISS_EVENT_FIELDS} for e in events],
+                }
+            )
+    for step in steps.values():
+        step["lost_total"] = step["lost"]["dropped"] + step["lost"]["ranked_low"] + step["lost"]["pushed_out"]
+    misses.sort(key=lambda miss: (delivered[miss["query_id"]] > 0, miss["query_id"], miss["namespace"], miss["entity_id"]))
+    outcomes = Counter(row["outcome"] for row in rows)
+    return {
+        "k": k,
+        "totals": {
+            "relevant": len(rows),
+            "delivered": outcomes["relevant_delivered"],
+            "missed": len(rows) - outcomes["relevant_delivered"],
+            "never_found": outcomes["not_observed"],
+            "insufficient": outcomes["insufficient_evidence"],
+            "questions": len(delivered) if questions is None else questions,
+            "questions_judged": len(delivered),
+            "questions_with_miss": len({miss["query_id"] for miss in misses}),
+            "questions_with_none": sum(count == 0 for count in delivered.values()),
+        },
+        "steps": steps,
+        "copresence": dict(sorted(copresence.items())),
+        "misses": misses,
     }
 
 

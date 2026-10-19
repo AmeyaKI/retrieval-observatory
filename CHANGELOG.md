@@ -7,6 +7,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+- `dashboard/investigation_api.py` — `GET /dbs/{db}/investigation/runs/{run}/flow`: per-step counts of correct documents found, removed and lost (pushed out of the top k, ranked too low, dropped), plus each missed correct document; `queries/{query_id}` scope carries `query_text`.
 
 ### Changed
 

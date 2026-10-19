@@ -24,7 +24,7 @@ from retrieval_observatory.evidence.investigation import (
     Membership,
     Outcome,
 )
-from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_journeys, summarize_pair_counts, summarize_stages
+from retrieval_observatory.evidence.journeys import project_trace_journeys, summarize_flow, summarize_journeys, summarize_pair_counts, summarize_stages
 from retrieval_observatory.store.base import (
     INVESTIGATION_PAGE_LIMIT,
     INVESTIGATION_SORT_KEYS,
@@ -257,6 +257,12 @@ def _summaries(rows: Sequence[JourneyRow], traces: Sequence[RetrievalTrace], que
     return summaries
 
 
+async def _query_texts(store: Any, run_id: str) -> dict[str, str | None]:
+    get_run_queries = getattr(store, "get_run_queries", None)
+    queries = await get_run_queries(run_id) if get_run_queries is not None else []
+    return {str(query["query_id"]): query.get("query_text") for query in queries}
+
+
 async def build_projection(
     store: Any,
     run_id: str,
@@ -272,9 +278,7 @@ async def build_projection(
     traces = await _list_traces(store, TraceQuery(run_id=run_id, pipeline_id=pipeline_id))
     digests = {"evaluation_digest": spec.digest(), "judgment_digest": judgments.digest()}
     rows = [row for trace in traces for row in project_trace_journeys(trace, judgments, spec, chunk_map=chunk_map, **digests)]
-    get_run_queries = getattr(store, "get_run_queries", None)
-    queries = await get_run_queries(run_id) if get_run_queries is not None else []
-    query_text = {str(query["query_id"]): query.get("query_text") for query in queries}
+    query_text = await _query_texts(store, run_id)
     scope = InvestigationScope(run_id, pipeline_id, digests["evaluation_digest"])
     try:
         await store.replace_investigation_projection(
@@ -480,6 +484,24 @@ async def inspect_investigation(store: Any, request: InvestigationRequest) -> di
     return _envelope(resolved, request, projection=state, rows=rows, total=page.total, next_cursor=page.next_cursor, run_payload=run_payload, summary=summary, stages=stages, findings=findings, rows_kind=rows_kind)
 
 
+async def inspect_flow(store: Any, request: InvestigationRequest) -> dict:
+    """Per-step counts of the scope's judged-relevant pairs (``summarize_flow``) under ``flow``; never scans traces."""
+    resolved = await resolve_scope(store, request)
+    meta, state, findings = await _projection_state(store, resolved)
+    findings = [*resolved.findings, *findings]
+    if meta is None:
+        envelope = _envelope(resolved, request, projection=state, rows=[], total=None, next_cursor=None, run_payload=None, summary=None, stages=None, findings=findings, rows_kind="flow")
+        return {**envelope, "flow": None}
+    scope = resolved.store_scope()
+    run_payload = await _run_payload_stored(store, scope)
+    rows = await _all_rows(store, scope, InvestigationFilter(judgment="relevant"), "priority")
+    flow = summarize_flow(rows, resolved.spec.k, await _query_texts(store, resolved.run_id), questions=(run_payload or {}).get("queries_with_traces"))
+    envelope = _envelope(resolved, request, projection=state, rows=[], total=None, next_cursor=None, run_payload=run_payload, summary=None, stages=None, findings=findings, rows_kind="flow")
+    partial = sum(row["capture_state"] == "partial" for row in rows)
+    envelope["capabilities"]["capture"] = {"complete_rows": len(rows) - partial, "partial_rows": partial}
+    return {**envelope, "flow": flow}
+
+
 def _matches(row: Mapping[str, Any], filters: InvestigationFilter) -> bool:
     return all(getattr(filters, f.name) is None or row.get(f.name) == getattr(filters, f.name) for f in fields(filters))
 
@@ -577,7 +599,10 @@ async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
     projected, run_payload = await _scope_payload(store, resolved, meta, traces)
     rows, total, next_cursor, summary = await _pairs(store, resolved, request, projected, order="priority")
     stages = _stages(selected) if selected is not None else None
-    return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=stages, findings=findings, rows_kind="pairs")
+    envelope = _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=stages, findings=findings, rows_kind="pairs")
+    stored = await store.get_investigation_summary(resolved.store_scope(), "query", request.query_id) if meta is not None else None
+    envelope["scope"]["query_text"] = None if stored is None else stored["payload"].get("query_text")
+    return envelope
 
 
 async def inspect_document(store: Any, request: InvestigationRequest) -> dict:

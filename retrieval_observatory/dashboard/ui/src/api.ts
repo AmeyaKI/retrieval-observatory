@@ -539,8 +539,10 @@ export interface InvestigationScope {
   query_id?: string
   trace_id?: string
   entity?: string
-  /** What `rows` holds: stored per-query summaries (unfiltered queries list), document summaries, or candidate pairs. */
-  rows_kind?: 'query_summaries' | 'document_summaries' | 'pairs'
+  /** The one-question response only: the stored question text, null before the run is indexed. */
+  query_text?: string | null
+  /** What `rows` holds: stored per-query summaries (unfiltered queries list), document summaries, or candidate pairs; empty on `/flow`. */
+  rows_kind?: 'query_summaries' | 'document_summaries' | 'pairs' | 'flow'
 }
 
 export interface InvestigationCapabilities {
@@ -708,6 +710,70 @@ export interface InvestigationEnvelope<Row = JourneyRow> {
   findings: InvestigationFinding[]
 }
 
+// Correct-document flow: .../investigation/runs/{run}/flow. Counts judged-relevant pairs (rows, never events).
+
+export interface FlowTotals {
+  relevant: number
+  delivered: number
+  /** relevant - delivered */
+  missed: number
+  never_found: number
+  insufficient: number
+  /** Traced questions in the scope (judged ones when the run summary lacks the count). */
+  questions: number
+  questions_judged: number
+  questions_with_miss: number
+  questions_with_none: number
+}
+
+/** Keyed by event op_id as stored (`op#N` invocations stay separate; the client folds them). */
+export interface FlowStep {
+  seen: number
+  input: number
+  output: number
+  /** Output present at a rank <= k. */
+  in_top_k: number
+  removed: number
+  /** Removed here yet delivered (through another lane). */
+  removed_but_delivered: number
+  /** Losses whose loss_boundary is this step; `pushed_out` = ranked below k here after another step had it in the top k. */
+  lost: { dropped: number; ranked_low: number; pushed_out: number; unknown: number }
+  /** dropped + ranked_low + pushed_out */
+  lost_total: number
+}
+
+export interface FlowMiss {
+  query_id: string
+  query_text: string | null
+  namespace: string
+  entity_id: string
+  trace_id: string
+  outcome: JourneyRow['outcome']
+  loss_boundary: string | null
+  final_rank: number | null
+  capture_state: 'complete' | 'partial'
+  /** Lowest output rank over the pair's events, and the step that gave it. */
+  best_rank: number | null
+  best_op: string | null
+  pushed_out: boolean
+  events: Pick<JourneyEvent, 'op_id' | 'kind' | 'input_rank' | 'output_rank' | 'reason'>[]
+}
+
+export interface InvestigationFlow {
+  k: number
+  totals: FlowTotals
+  steps: Record<string, FlowStep>
+  /** `"a→b"`: correct documents with output at a and input at b, for every ordered pair of steps (not only graph edges). */
+  copresence: Record<string, number>
+  /** One per correct document not delivered; questions that delivered none come first. */
+  misses: FlowMiss[]
+}
+
+/** `rows` is always empty; `flow` is null until the run is indexed (`projection_unavailable`). */
+export interface FlowEnvelope extends InvestigationEnvelope<never> {
+  flow: InvestigationFlow | null
+}
+
 // Run comparison (paired journey rows): .../investigation/runs/{candidate}/compare[/{query}]?against={baseline}
 
 export type JourneyChangeKind = 'lost' | 'gained' | 'membership_changed' | 'rank_changed' | 'path_changed' | 'unchanged' | 'unaligned'
@@ -834,6 +900,11 @@ export async function fetchInvestigationQueries(dbId: string, runId: string, par
 export async function fetchInvestigationQuery(dbId: string, runId: string, queryId: string, params: InvestigationParams = {}): Promise<InvestigationEnvelope> {
   const res = await fetch(`${investigationBase(dbId, runId)}/queries/${encodeURIComponent(queryId)}${investigationQuery(params)}`)
   return parseJson<InvestigationEnvelope>(res, 'fetchInvestigationQuery')
+}
+
+export async function fetchInvestigationFlow(dbId: string, runId: string, params: InvestigationParams = {}): Promise<FlowEnvelope> {
+  const res = await fetch(`${investigationBase(dbId, runId)}/flow${investigationQuery(params)}`)
+  return parseJson<FlowEnvelope>(res, 'fetchInvestigationFlow')
 }
 
 /** `runId` is the candidate run; `params.against` names the baseline run. */
