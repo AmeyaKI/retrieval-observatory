@@ -7,6 +7,18 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.8.0] — 2026-10-19
+
+Investigate leads with the answer. The run view names the step that loses the most correct documents in one sentence; the pipeline diagram shows, per step, how many correct documents it found or received and how many it lost, with line thickness for correct documents passing; questions and documents that missed a correct document come first, in plain words; one question reads where its correct document went, with that document's path drawn on the diagram; compare mode leads with what changed for correct documents. Backed by one read-only endpoint, `GET /dbs/{db}/investigation/runs/{run}/flow`; nothing stored changes, and no URL changes.
+
+### Added
 - `dashboard/investigation_api.py` — `GET /dbs/{db}/investigation/runs/{run}/flow`: per-step counts of correct documents found, removed and lost (pushed out of the top k, ranked too low, dropped), plus each missed correct document with its question's `question_relevant` and `question_delivered`; `queries/{query_id}` scope carries `query_text`, and `documents/{entity}` rows carry their question's `query_text`.
 
 ### Changed
@@ -15,10 +27,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 - `dashboard/ui` Investigate, a run's questions and documents (`InvestigateWorkspace.tsx`, `RunView.tsx`, `InvestigationTable.tsx`, `utils/flowWords.ts`, `utils/journeyWords.ts`) — the run view leads with the step that loses the most correct documents ("Fuse Hits loses the most correct documents: 43 of the 51 that missed the top 10.") and a list of the questions that missed one, each missed document in one plain line, filtered by reason chips (`outcome=`) and by a selected step (`stage=`) under a banner; every question follows in a collapsed list without the unjudged-count columns; documents read Correct for · Delivered · Missed · Appears in, one document a sentence and a compact trail of ranks per question; every Investigate table stacks into blocks on phones; the candidate table orders non-correct rows by final rank
 - `dashboard/ui` Investigate, compare mode (`CandidateLineageDiff.tsx`, `utils/comparisonDiffs.ts`, `InvestigateWorkspace.tsx`) — `compare=` leads with "Against baseline {run}: {g} correct documents gained, {l} lost." (plus how many correct documents moved rank) above the candidate run's diagram, with calm notices for a changed corpus, different question inputs and partly recorded rows; the tables read Question · Document · Before · After · Change in words ("Dropped by Recency Filter", "Delivered at #2", "Gained") with correct documents that changed first and other changes and unchanged rows collapsed; stage alignment is one line when every step matches, otherwise only the differences; glyphs are gone and tables stack on phones.
 - `dashboard/ui` Investigate, documents list (`InvestigateWorkspace.tsx`, `RunView.tsx`, `InvestigationTable.tsx`, `utils/flowWords.ts`) — leads with "Correct documents that were missed" from `/flow` (most-missed first, one line per miss with its question, reason chips and the step filter), with every document under a collapsed "All N documents"; stacked table rows on phones use 13 px second lines instead of 12 px.
-
-### Fixed
-
-### Removed
+- `scripts/generate_demo_assets.py` — waits for the new Investigate wording ("Correct, dropped", "Correct documents that changed") before capturing; the README screenshots and recording show the redesigned Investigate page.
 
 ## [0.7.0] — 2026-10-10
 

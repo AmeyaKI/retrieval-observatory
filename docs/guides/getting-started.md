@@ -24,22 +24,24 @@ scope bar at the top.
 
 ## 2. Find the lost document
 
-In Investigate, choose the `golden-demo-baseline` run. The diagram shows the nine operators
-that ran, with how many queries each served (`expand` served 1 of 3: the gate skipped it for the
-other two). In the queries table, `q-outage` ("why is the site down") has one relevant document
-missed.
+In Investigate, choose the `golden-demo-baseline` run. The page opens with "Recency Filter loses
+the most correct documents: 1 of the 2 that missed the top 3." The diagram shows the nine
+operators that ran, with the correct documents each found or received (`expand` ran for 1 of 3
+questions: the gate skipped it for the other two). Under it, "Questions that missed a correct
+document" lists `q-outage` ("why is the site down"): Dropped by Recency Filter.
 
-Select `q-outage`, then `kb:doc-guide`. Its journey is two events: introduced by `lexical` at rank
-1, removed by `recency_filter` with the recorded reason `min_score`. The dense lane never found it,
-so that removal is its loss boundary. The same answer from the command line:
+Select `q-outage`. The page says "Lexical found it at rank 1; it was not in Dense's top 2; Recency
+Filter removed it (min_score)." and the diagram draws that path: `kb:doc-guide` was introduced by
+`lexical` at rank 1 and removed by `recency_filter` with the recorded reason `min_score`. The dense
+lane never found it, so that removal is its loss boundary. The same answer from the command line:
 
 ```bash
 retobs inspect-document BASELINE kb:doc-guide --db .retobs/demo/results.db
 ```
 
-The table also shows what else was delivered for `q-outage`: `kb:doc-faq`, judged nonrelevant,
-and `kb:doc-news`, which has no judgment and is shown as `unjudged` rather than as a miss.
-[Investigate your pipeline](investigate-your-pipeline.md) explains every column.
+"Delivered instead" shows what `q-outage` returned: `kb:doc-faq`, judged not correct, and
+`kb:doc-news`, which has no judgment and is shown as "Not judged" rather than as a miss.
+[Investigate your pipeline](investigate-your-pipeline.md) explains every part of the page.
 
 ## 3. Audit the fix
 
@@ -57,8 +59,8 @@ operator's recorded output; promotion does not depend on it. See
 [retrieval release decisions](retrieval-release-decisions.md).
 
 To see what changed per document, open the validation run in Investigate with
-`compare=BASELINE` on `q-outage`: `kb:doc-guide` is `Gained`, from excluded at `recency_filter` to
-included at rank 2.
+`compare=BASELINE` on `q-outage`: `kb:doc-guide` is `Gained`, "Dropped by Recency Filter" before and
+"Delivered at #2" after.
 
 ## 4. Your own pipeline
 

@@ -53,12 +53,12 @@ def _pages(context: dict) -> list[tuple[str, str, str]]:
         (
             "investigate-lost-document.png",
             f"#/investigate?db={db}&run={baseline}&pipeline={pipeline}&view=documents&query={query}&entity={entity}",
-            "Relevant, excluded",
+            "Correct, dropped",
         ),
         (
             "investigate-compare.png",
             f"#/investigate?db={db}&run={validation}&pipeline={pipeline}&view=queries&query={query}&compare={baseline}",
-            "Paired journeys",
+            "Correct documents that changed",
         ),
         (
             "audit-pass.png",
