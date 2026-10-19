@@ -1,25 +1,31 @@
 import { KeyboardEvent, ReactNode } from 'react'
 import { InvestigationDocumentRow, JourneyRow, QuerySummaryRow } from '../api'
 import { DashboardSelection } from '../context/dashboardQuery'
+import { plural } from '../utils/flowWords'
 import {
+  cameFrom,
+  displayEntity,
   entityKey,
-  evidenceLabel,
   isJourneyRow,
   isQuerySummaryRow,
+  judgedText,
   nextIndexForKey,
-  outcomeGlyph,
   outcomeLabel,
+  outcomeText,
+  outcomeTone,
+  OutcomeTone,
   principalLossBoundaries,
   queryRollups,
   QueryRollup,
   sortForView,
-  sourceLanes,
   transitionText,
 } from '../utils/queryDebugger'
 
 // The one primary table of Investigate. Four row shapes share the chrome: a semantic table with
 // caption and column headers, sortable headers with aria-sort, focusable selectable rows, a live
-// summary line, the active URL filters as removable chips, and one reset control.
+// summary line, the active URL filters as removable chips, and one reset control. The candidates of
+// one question use the cleaned chrome: chips in words, "Clear filters" only while one is set, a sort
+// arrow on the active column only, and rows that stack into two lines on a phone.
 
 export type TableShape = 'queries' | 'query-candidates' | 'documents' | 'document-queries'
 
@@ -36,10 +42,17 @@ export interface InvestigationTableProps {
   /** Server-side row total when known; the live line reads "N rows, M shown" (or "N queries" for summaries). */
   total: number | null
   sort: SortState | null
-  /** Names the SOURCE operators for the "Source lanes" column; without it every introducing operator counts. */
+  /** Names the SOURCE operators for the "Came from" column; without it every introducing operator counts. */
   isSource?: (opId: string) => boolean
+  /** The question's cutoff, for "pushed out of the top k". */
+  k?: number | null
+  /** Show ids without their namespace (the scope has only one). */
+  singleNamespace?: boolean
+  /** A step's plain name for the stage filter chip; the id when absent. */
+  stepLabel?: (opId: string) => string
   onSort: (sort: SortState | null) => void
   onSelect: (patch: Partial<DashboardSelection>) => void
+  /** "Reset selection" on the shapes that keep the old chrome. */
   onReset: () => void
 }
 
@@ -51,24 +64,26 @@ interface Column<Row> {
   cell: (row: Row) => ReactNode
   sortValue: (row: Row) => SortValue
   numeric?: boolean
+  /** Below 640 px (stacked rows): order and look of the cell. */
+  stack?: string
 }
 
 const CAPTIONS: Record<TableShape, string> = {
   queries: 'Queries of this run with their relevant deliveries, misses and loss boundaries; activate a row to open its candidates',
-  'query-candidates': 'Candidates of the selected query; activate a row to open its journey',
+  'query-candidates': 'Candidates of this question; activate a row to follow that document',
   documents: 'Documents of this run across queries; activate a row to open its queries',
   'document-queries': 'Queries in which the selected document appears; activate a row to open its journey',
 }
 
 function Outcome({ outcome }: { outcome: string }) {
-  return (
-    <span className="whitespace-nowrap">
-      <span aria-hidden="true" className="mr-1.5 inline-block w-3 text-center">
-        {outcomeGlyph(outcome)}
-      </span>
-      {outcomeLabel(outcome)}
-    </span>
-  )
+  return <span className="whitespace-nowrap">{outcomeLabel(outcome)}</span>
+}
+
+const TONE_TEXT: Record<OutcomeTone, string> = {
+  positive: 'text-status-positive',
+  negative: 'text-status-negative',
+  warning: 'text-status-warning',
+  neutral: 'text-ink-muted',
 }
 
 function mono(value: ReactNode): ReactNode {
@@ -132,56 +147,40 @@ const QUERY_SUMMARY_COLUMNS: Column<QuerySummaryRow>[] = [
   },
 ]
 
-function candidateColumns(isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
+// Stacked rows below 640 px: document and what happened on line one, rank · judged · came from on line two.
+const LINE_TWO = 'max-sm:text-xs max-sm:text-ink-muted'
+const DOT = "max-sm:before:mr-2 max-sm:before:content-['·']"
+
+function candidateColumns(k: number | null, singleNamespace: boolean, isSource?: (opId: string) => boolean): Column<JourneyRow>[] {
   return [
-    { key: 'entity', header: 'Entity', cell: (row) => monoId(entityKey(row)), sortValue: entityKey },
     {
-      key: 'judgment',
-      header: 'Judgment',
+      key: 'rank',
+      header: 'Rank',
       cell: (row) => (
         <>
-          {row.judgment}
-          {row.grade != null && <span className="ml-1 text-xs text-ink-muted">grade {row.grade}</span>}
-          {row.judgment_source && <span className="ml-1 text-xs text-ink-faint">({row.judgment_source})</span>}
-        </>
-      ),
-      sortValue: (row) => row.judgment,
-    },
-    {
-      key: 'lanes',
-      header: 'Source lanes',
-      cell: (row) => {
-        const lanes = sourceLanes(row, isSource)
-        return lanes.length ? mono(lanes.join(', ')) : <span className="text-ink-faint">not observed</span>
-      },
-      sortValue: (row) => sourceLanes(row, isSource).join(','),
-    },
-    {
-      key: 'final',
-      header: 'Final rank / membership',
-      cell: (row) => (
-        <>
-          <span className="tabular-nums">{row.final_rank ?? '—'}</span> <span className="text-ink-muted">{row.final_membership}</span>
+          <span className="sm:hidden">Rank </span>
+          {row.final_rank ?? '—'}
         </>
       ),
       sortValue: (row) => row.final_rank,
       numeric: true,
+      stack: `max-sm:order-4 ${LINE_TWO}`,
     },
-    { key: 'outcome', header: 'Outcome', cell: (row) => <Outcome outcome={row.outcome} />, sortValue: (row) => row.outcome },
-    { key: 'boundary', header: 'Loss boundary', cell: (row) => (row.loss_boundary ? mono(row.loss_boundary) : <span className="text-ink-faint">—</span>), sortValue: (row) => row.loss_boundary },
     {
-      key: 'evidence',
-      header: 'Evidence',
-      cell: (row) => {
-        const last = [...row.events].reverse().find((event) => event.kind === 'removed' || event.kind === 'unknown') ?? row.events[row.events.length - 1]
-        return (
-          <>
-            {last ? evidenceLabel(last.reason_evidence) : 'unavailable'} · {row.capture_state === 'partial' && <span aria-hidden="true">⚠ </span>}
-            {row.capture_state} capture
-          </>
-        )
-      },
-      sortValue: (row) => row.capture_state,
+      key: 'entity',
+      header: 'Document',
+      cell: (row) => <span className="font-mono text-xs max-sm:break-all sm:whitespace-nowrap">{displayEntity(row, singleNamespace)}</span>,
+      sortValue: entityKey,
+      stack: 'max-sm:order-1 max-sm:min-w-0 max-sm:flex-1',
+    },
+    { key: 'judged', header: 'Judged', cell: judgedText, sortValue: (row) => row.judgment, stack: `max-sm:order-5 ${LINE_TWO} ${DOT}` },
+    { key: 'from', header: 'Came from', cell: (row) => cameFrom(row, isSource), sortValue: (row) => cameFrom(row, isSource), stack: `max-sm:order-6 ${LINE_TWO} ${DOT}` },
+    {
+      key: 'outcome',
+      header: 'What happened',
+      cell: (row) => <span className={TONE_TEXT[outcomeTone(row.outcome)]}>{outcomeText(row, k)}</span>,
+      sortValue: (row) => row.outcome,
+      stack: 'max-sm:order-2',
     },
   ]
 }
@@ -282,12 +281,14 @@ interface Shaped<Row> {
   selected: (row: Row) => boolean
   /** The live summary line above the table. */
   line: string
+  /** The cleaned chrome; rows stack into two lines below 640 px instead of the table scrolling sideways. */
+  stacked?: boolean
 }
 
 // Row type is erased here: each shape closes over its own columns, so the renderer stays shape-agnostic.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function shapeRows(props: InvestigationTableProps): Shaped<any> {
-  const { shape, rows, selection, sort, isSource, total } = props
+  const { shape, rows, selection, sort, isSource, total, k = null, singleNamespace = false } = props
   const count = total ?? rows.length
   if (shape === 'documents') {
     const documents = rows.filter((row): row is InvestigationDocumentRow => !isJourneyRow(row) && !isQuerySummaryRow(row))
@@ -325,14 +326,15 @@ function shapeRows(props: InvestigationTableProps): Shaped<any> {
   }
   const journeys = rows.filter(isJourneyRow)
   if (shape === 'query-candidates') {
-    const columns = candidateColumns(isSource)
+    const columns = candidateColumns(k, singleNamespace, isSource)
     return {
       columns,
       display: applySort(sortForView(journeys, 'queries'), columns, sort),
       key: (row) => `${row.trace_id}|${entityKey(row)}`,
       patch: (row) => ({ entity: entityKey(row), trace: row.trace_id }),
       selected: (row) => selection.entity === entityKey(row) && (!selection.trace || selection.trace === row.trace_id),
-      line: `${count} rows, ${journeys.length} shown`,
+      line: `${plural(count, 'candidate')} · ${journeys.length} shown`,
+      stacked: true,
     }
   }
   return {
@@ -345,14 +347,19 @@ function shapeRows(props: InvestigationTableProps): Shaped<any> {
   }
 }
 
-const headerButtonClass = 'inline-flex items-center gap-1 font-medium hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
+const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent'
+const headerButtonClass = `inline-flex items-center gap-1 font-medium hover:text-ink ${FOCUS}`
+const SELECTED_BAR = 'shadow-[inset_3px_0_0_0_rgb(var(--accent))]'
+const resetClass = `rounded border border-hairline px-2 py-0.5 text-xs text-ink hover:bg-surface-muted ${FOCUS}`
+const STACKED_ROW = "max-sm:flex max-sm:flex-wrap max-sm:items-baseline max-sm:gap-x-2 max-sm:px-3 max-sm:py-2 max-sm:after:order-3 max-sm:after:basis-full max-sm:after:content-['']"
 
 export default function InvestigationTable(props: InvestigationTableProps) {
-  const { shape, selection, sort, onSort, onSelect, onReset } = props
+  const { shape, selection, sort, stepLabel, onSort, onSelect, onReset } = props
   const shaped = shapeRows(props)
+  const stacked = Boolean(shaped.stacked)
   const chips: Array<[string, Partial<DashboardSelection>]> = []
-  if (selection.stage) chips.push([`stage: ${selection.stage}`, { stage: null }])
-  if (selection.outcome) chips.push([`outcome: ${outcomeLabel(selection.outcome)}`, { outcome: null }])
+  if (selection.stage) chips.push([stacked ? `Lost at ${stepLabel ? stepLabel(selection.stage) : selection.stage}` : `stage: ${selection.stage}`, { stage: null }])
+  if (selection.outcome) chips.push([stacked ? outcomeLabel(selection.outcome) : `outcome: ${outcomeLabel(selection.outcome)}`, { outcome: null }])
 
   const toggleSort = (key: string) => {
     if (!sort || sort.key !== key) onSort({ key, dir: 'asc' })
@@ -382,15 +389,23 @@ export default function InvestigationTable(props: InvestigationTableProps) {
         {chips.map(([label, patch]) => (
           <Chip key={label} label={label} onRemove={() => onSelect(patch)} />
         ))}
-        <button type="button" onClick={onReset} className="ml-auto rounded border border-hairline px-2 py-0.5 text-xs text-ink hover:bg-surface-muted">
-          Reset selection
-        </button>
+        {stacked ? (
+          chips.length > 0 && (
+            <button type="button" onClick={() => onSelect({ stage: null, outcome: null })} className={`ml-auto ${resetClass}`}>
+              Clear filters
+            </button>
+          )
+        ) : (
+          <button type="button" onClick={onReset} className={`ml-auto ${resetClass}`}>
+            Reset selection
+          </button>
+        )}
       </div>
       <div className="overflow-x-auto">
-        {/* A floor width: on narrow screens the table scrolls in this container instead of squeezing columns. */}
-        <table className="w-full min-w-[48rem] text-sm">
+        {/* Stacked shapes turn into two-line rows on a phone; the others keep a floor width and scroll in this container. */}
+        <table className={stacked ? 'w-full text-sm max-sm:block' : 'w-full min-w-[48rem] text-sm'}>
           <caption className="sr-only">{CAPTIONS[shape]}</caption>
-          <thead className="text-left text-xs text-ink-faint">
+          <thead className={`text-left text-xs text-ink-faint ${stacked ? 'max-sm:sr-only' : ''}`}>
             <tr>
               {shaped.columns.map((column) => {
                 const active = sort?.key === column.key
@@ -398,16 +413,20 @@ export default function InvestigationTable(props: InvestigationTableProps) {
                   <th key={column.key} scope="col" aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className="px-3 py-2 font-medium">
                     <button type="button" onClick={() => toggleSort(column.key)} className={headerButtonClass}>
                       {column.header}
-                      <span aria-hidden="true" className="text-[10px]">
-                        {active ? (sort!.dir === 'asc' ? '▲' : '▼') : '↕'}
-                      </span>
+                      {stacked ? (
+                        active && <span aria-hidden="true">{sort!.dir === 'asc' ? '▲' : '▼'}</span>
+                      ) : (
+                        <span aria-hidden="true" className="text-[10px]">
+                          {active ? (sort!.dir === 'asc' ? '▲' : '▼') : '↕'}
+                        </span>
+                      )}
                     </button>
                   </th>
                 )
               })}
             </tr>
           </thead>
-          <tbody>
+          <tbody className={stacked ? 'max-sm:block' : undefined}>
             {shaped.display.map((row, index) => {
               const selected = shaped.selected(row)
               const patch = shaped.patch(row)
@@ -418,12 +437,12 @@ export default function InvestigationTable(props: InvestigationTableProps) {
                   aria-selected={selected}
                   onClick={() => onSelect(patch)}
                   onKeyDown={(event) => onRowKey(event, index, patch)}
-                  className={`cursor-pointer border-t border-hairline hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-600 ${selected ? 'bg-accent-muted/40' : ''}`}
+                  className={`cursor-pointer border-t border-hairline hover:bg-surface-muted focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${stacked ? `${STACKED_ROW} ${selected ? SELECTED_BAR : ''}` : selected ? 'bg-accent-muted/40' : ''}`}
                 >
                   {shaped.columns.map((column) => (
-                    <td key={column.key} className={`px-3 py-2 ${column.numeric ? 'tabular-nums' : ''}`}>
+                    <td key={column.key} className={`px-3 py-2 ${column.numeric ? 'tabular-nums' : ''} ${stacked && column.stack ? `max-sm:p-0 ${column.stack}` : ''}`}>
                       {column.cell(row)}
-                      {selected && column === shaped.columns[0] && <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-faint">selected</span>}
+                      {!stacked && selected && column === shaped.columns[0] && <span className="ml-2 text-[10px] uppercase tracking-wide text-ink-faint">selected</span>}
                     </td>
                   ))}
                 </tr>

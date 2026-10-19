@@ -46,7 +46,8 @@ export function graphMode(focus: JourneyRow | null, traceStages: InvestigationSt
   return focus ? 'path' : traceStages ? 'question' : 'run'
 }
 
-const BADGE: Record<Tone, string> = {
+/** Pill colours per tone, shared by step cards, journey cards and outcome pills. */
+export const BADGE: Record<Tone, string> = {
   negative: 'bg-status-negative/10 text-status-negative',
   positive: 'bg-status-positive/10 text-status-positive',
   // accent-muted is under 4.5:1 behind accent text in dark mode; a 15 % accent tint is not.

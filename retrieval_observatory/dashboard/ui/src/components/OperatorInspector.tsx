@@ -19,13 +19,6 @@ export interface OperatorInspectorProps {
   aggregate: StageSummary | null
 }
 
-/** Kept for the journey detail, which marks partial or missing capture next to the raw value. */
-export function captureGlyph(capture: string): string {
-  if (capture === 'recorded' || capture === 'not_applicable') return ''
-  if (capture === 'unavailable') return '✕'
-  return '⚠'
-}
-
 function runSentence(node: PipelineGraphNode | null, step: FlowStep, flow: InvestigationFlow, aggregate: StageSummary | null): string {
   const k = flow.k
   const ran = aggregate

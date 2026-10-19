@@ -11,6 +11,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 
 ### Changed
 - `dashboard/ui` Investigate diagram (`InvestigationGraph.tsx`, `utils/flowLayout.ts`, `utils/flowWords.ts`, `OperatorInspector.tsx`) — cards and line thickness show correct documents per step from `/flow`; lanes line up before their merge, a result card follows the only final step when it fits, the diagram turns top to bottom on phones or when it does not fit; plain-word cards, step panel and steps table replace the glyph legend, operator table and zoom.
+- `dashboard/ui` Investigate, one question (`InvestigateWorkspace.tsx`, `QuestionView.tsx`, `InvestigationDetail.tsx`, `InvestigationTable.tsx`, `utils/journeyWords.ts`) — the page leads with the question text, "{d} of {n} correct in the top k" and one sentence on where the focused correct document went; the diagram follows that document; journey cards list each correct document's steps in words next to what the question delivered instead; the candidate table reads Rank · Document · Judged · Came from · What happened and stacks into two-line rows on phones. Outcomes use plain words ("Correct, dropped", "Correct, pushed out of the top k", "Not judged"); the Queries tab is now Questions (the URL keeps `view=queries`).
 
 ### Fixed
 

@@ -54,13 +54,14 @@ SETTLE_SCRIPT = """(() => {
   }
 })()"""
 OUTCOME_TEXT = {
-    "Relevant, delivered",
-    "Relevant, excluded",
-    "Retained below cutoff",
-    "Not observed in retrieval",
-    "Judged nonrelevant",
-    "Unjudged",
-    "Insufficient evidence",
+    "Correct, delivered",
+    "Correct, dropped",
+    "Correct, ranked too low",
+    "Correct, never found",
+    "Not correct",
+    "Not judged",
+    "Not enough evidence",
+    "Correct, pushed out of the top 3",
 }
 
 
@@ -212,6 +213,11 @@ def _journey_heading(page: Page):
     return page.locator("#journey-detail-title")
 
 
+def _shown(entity: str) -> str:
+    """The id the page shows for `namespace:entity_id`: the demo has one namespace, so it is left out."""
+    return entity.split(":", 1)[-1]
+
+
 # ── 1. Investigate: landing, run graph, lost document ────────────────────────────────────────
 
 
@@ -239,12 +245,12 @@ def test_investigate_lost_document_is_responsive_and_accessible(page: Page, demo
 
     page.goto(_investigate(demo, baseline, view="documents", entity=document))
     row = page.locator("#investigate-view tbody tr[tabindex]", has_text=query)
-    expect(row).to_contain_text("Relevant, excluded")
-    expect(row).to_contain_text("✕")
+    expect(row).to_contain_text("Correct, dropped")
     row.click()
     expect(page).to_have_url(re.compile(rf"query={re.escape(query)}"))
-    detail = page.get_by_role("region", name=re.compile(rf"in query\s+{re.escape(query)}"))
-    expect(detail).to_contain_text("✕ Relevant, excluded")
+    detail = page.get_by_role("region", name=re.compile(rf"in question\s+{re.escape(query)}"))
+    expect(detail).to_contain_text("Correct, dropped")
+    expect(detail).to_contain_text("Recency Filter removed it")
     expect(detail).to_contain_text(re.compile(r"loss boundary\s+recency_filter"))
     assert _no_horizontal_scroll(page)
     assert _semantic_violations(page) == []
@@ -391,12 +397,12 @@ def test_keyboard_selects_query_document_and_operator(page: Page, demo: dict) ->
     page.keyboard.press("Enter")
     expect(page).to_have_url(re.compile(rf"[?&]query={re.escape(query)}(&|$)"))
 
-    expect(page.locator("#investigate-view tbody tr[tabindex]", has_text=document)).to_be_visible()
+    expect(page.locator("#investigate-view tbody tr[tabindex]", has_text=_shown(document))).to_be_visible()
     _tab_until(page, row)
-    _arrow_to_row(page, document)
+    _arrow_to_row(page, _shown(document))
     page.keyboard.press("Space")
     expect(page).to_have_url(re.compile(rf"[?&]entity={re.escape(quote(document, safe=''))}(&|$)"))
-    expect(_journey_heading(page)).to_contain_text(f"{document} in query {query}")
+    expect(_journey_heading(page)).to_contain_text(f"{_shown(document)} in question {query}")
 
     _tab_until(page, "el.closest('svg foreignObject') && (el.title || '').split('\\n')[1] === arg", "recency_filter", key="Shift+Tab")
     style, width = _focus_ring(page)
@@ -413,7 +419,7 @@ def test_late_query_response_does_not_overwrite_the_newer_query(page: Page, demo
     baseline, query, document = demo["baseline_run_id"], demo["sample_query_id"], demo["repaired_document"]
     other = next(row["query_id"] for row in _get(f"/dbs/{demo['db_id']}/investigation/runs/{baseline}/queries")["rows"] if row["query_id"] != query)
     page.goto(_investigate(demo, baseline, view="queries", query=other, entity=document))
-    expect(_journey_heading(page)).to_contain_text(f"in query {other}")
+    expect(_journey_heading(page)).to_contain_text(f"in question {other}")
 
     stale = f"/queries/{quote(query)}"
     held = _hold(page, lambda url: stale in url)
@@ -423,13 +429,13 @@ def test_late_query_response_does_not_overwrite_the_newer_query(page: Page, demo
         _wait_held(page, held, 1)
         page.go_back()
         expect(page).to_have_url(re.compile(rf"query={other}"))
-        expect(_journey_heading(page)).to_contain_text(f"in query {other}")
+        expect(_journey_heading(page)).to_contain_text(f"in question {other}")
         _release(held)
         _wait_settled(page, stale)
     finally:
         _release(held)
-    expect(_journey_heading(page)).to_contain_text(f"in query {other}")
-    assert f"in query {query}" not in page.inner_text("main")
+    expect(_journey_heading(page)).to_contain_text(f"in question {other}")
+    assert f"in question {query}" not in page.inner_text("main")
 
 
 def test_late_run_response_does_not_overwrite_the_newer_run(page: Page, demo: dict) -> None:
@@ -444,7 +450,7 @@ def test_late_run_response_does_not_overwrite_the_newer_run(page: Page, demo: di
     try:
         run = page.get_by_label("Run", exact=True)
         run.select_option(baseline)
-        expect(page.get_by_role("status").filter(has_text="Loading queries")).to_be_visible()
+        expect(page.get_by_role("status").filter(has_text="Loading questions")).to_be_visible()
         run.select_option(validation)
         expect(page.locator("#investigate-view tbody tr[tabindex]").first).to_be_visible()
         assert len(held) == 2, f"expected the list and aggregate requests of {baseline} to be held, got {len(held)}"
@@ -513,7 +519,7 @@ def test_legacy_query_link_redirects_into_investigate(page: Page, demo: dict) ->
     page.goto(f"{BASE_URL}/#/runs/{baseline}/queries/{query}")
     expect(page).to_have_url(f"{BASE_URL}/#/investigate?run={baseline}&view=queries&query={query}")
     expect(page.get_by_role("heading", level=1)).to_have_text(f"Run {baseline}")
-    expect(page.locator("#investigate-view")).to_contain_text(f"Query {query}")
+    expect(page.locator("#investigate-view")).to_contain_text(f"Question {query}")
 
 
 def test_retired_destination_shows_the_migration_notice(page: Page) -> None:
@@ -534,19 +540,17 @@ def test_outcomes_and_graph_states_carry_glyph_and_text(page: Page, demo: dict) 
     cells = page.evaluate(
         """() => {
           const table = document.querySelector('#investigate-view table:has(tbody tr[tabindex])');
-          const index = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent.includes('outcome'));
+          const index = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent.includes('outcome') || th.textContent.includes('What happened'));
           return [...table.querySelectorAll('tbody tr')].map((tr) => {
-            const cell = tr.children[index];
-            const glyph = cell.querySelector('[aria-hidden="true"]');
-            const clone = cell.cloneNode(true);
+            const clone = tr.children[index].cloneNode(true);
             clone.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove());
-            return { glyph: glyph ? glyph.textContent.trim() : '', text: clone.textContent.replace(/#\\d+/, '').trim() };
+            return { text: clone.textContent.replace(/#\\d+/, '').trim() };
           });
         }"""
     )
     assert cells, "no outcome cells rendered"
     for cell in cells:
-        assert cell["glyph"] and cell["text"] in OUTCOME_TEXT, cell
+        assert cell["text"] in OUTCOME_TEXT, cell
 
     cards = page.evaluate(
         """() => [...document.querySelectorAll('svg foreignObject button')].map((button) => {

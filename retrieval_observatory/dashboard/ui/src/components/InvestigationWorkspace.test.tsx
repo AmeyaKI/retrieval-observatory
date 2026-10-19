@@ -7,11 +7,12 @@ vi.hoisted(() => {
 import type { FlowStep, InvestigationDocumentRow, InvestigationFlow, InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode, QuerySummaryRow, StageSummary } from '../api'
 import { DEFAULT_SELECTION } from '../context/dashboardQuery'
 import { nextIndexForKey } from '../utils/queryDebugger'
-import InvestigationDetail from './InvestigationDetail'
+import JourneyCard from './InvestigationDetail'
 import InvestigationGraph, { FlowTable, StepCard } from './InvestigationGraph'
 import InvestigationTable from './InvestigationTable'
 import { modeFor, settleBuild, singleFlight } from './InvestigateWorkspace'
 import OperatorInspector from './OperatorInspector'
+import { CorrectDocuments, DeliveredList, QuestionHeader } from './QuestionView'
 
 // Fixtures mirror tests/fixtures/investigation_cases.py (golden-hybrid).
 
@@ -346,23 +347,49 @@ describe('InvestigationTable', () => {
     expect(html).toContain('aria-sort="none"')
   })
 
-  test('query candidates shape shows glyph and text for every outcome and the source lanes', () => {
+  test('query candidates shape says in words what happened to each candidate and where it came from', () => {
     const isSource = (opId: string) => opId === 'dense' || opId === 'lexical'
     const html = renderToStaticMarkup(
-      <InvestigationTable shape="query-candidates" rows={[policy, legal, news]} selection={{ ...DEFAULT_SELECTION, query: 'q-refund', entity: 'kb:doc-legal', outcome: 'unjudged' }} isSource={isSource} {...base} sort={{ key: 'entity', dir: 'desc' }} />,
+      <InvestigationTable
+        shape="query-candidates"
+        rows={[policy, legal, news]}
+        selection={{ ...DEFAULT_SELECTION, query: 'q-refund', entity: 'kb:doc-legal', outcome: 'unjudged', stage: 'recency_filter' }}
+        isSource={isSource}
+        k={3}
+        singleNamespace
+        stepLabel={(opId) => (opId === 'recency_filter' ? 'Recency Filter' : opId)}
+        {...base}
+        total={12}
+        sort={{ key: 'entity', dir: 'desc' }}
+      />,
     )
-    expect(html).toContain('Relevant, delivered')
-    expect(html).toContain('>✓<')
-    expect(html).toContain('Retained below cutoff')
-    expect(html).toContain('>↓<')
-    expect(html).toContain('Unjudged')
-    expect(html).toContain('>?<')
-    expect(html).toContain('dense, lexical')
-    expect(html).toContain('outcome: Unjudged')
+    expect(html).toContain('<caption')
+    expect([...html.matchAll(/<th scope="col"[^>]*>.*?<button[^>]*>([^<]+)/g)].map((m) => m[1])).toEqual(['Rank', 'Document', 'Judged', 'Came from', 'What happened'])
+    expect(html).toContain('<span class="text-status-positive">Correct, delivered</span>')
+    expect(html).toContain('<span class="text-status-negative">Correct, pushed out of the top 3</span>')
+    expect(html).toContain('<span class="text-ink-muted">Not judged</span>')
+    expect(html).toContain('Correct · grade 2')
+    expect(html).toContain('dense #1 · lexical #1')
+    expect(html).toContain('>doc-legal</span>')
+    expect(html).not.toContain('kb:doc')
+    expect(html).toContain('12 candidates · 3 shown')
+    expect(html).toContain('aria-live="polite"')
+    // Filters as words, removable one by one or together.
+    expect(html).toContain('Lost at Recency Filter')
+    expect(html).toContain('aria-label="Remove filter Not judged"')
+    expect(html).toContain('Clear filters')
+    // Only the active column shows a sort arrow; selection is the accent bar plus aria-selected.
     expect(html).toContain('aria-sort="descending"')
-    expect(html).toContain('recorded · ')
-    expect(html).toContain('aria-selected="true"')
-    expect(html).toContain('tabindex="0"')
+    expect(html.match(/[▲▼↕]/g)).toEqual(['▼'])
+    expect(html.match(/aria-selected="true"/g)).toHaveLength(1)
+    expect(html).toContain('shadow-[inset_3px_0_0_0_rgb(var(--accent))]')
+    expect(html.match(/tabindex="0"/g)).toHaveLength(3)
+    // Stacked rows on a phone instead of a floor width; no all-caps tag, no glyphs, nothing under 12 px.
+    expect(html).toContain('max-sm:flex')
+    for (const banned of ['min-w-[48rem]', 'uppercase', 'text-[10px]', '>selected<', '✓', '↓', '>?<']) expect(html).not.toContain(banned)
+    const plain = renderToStaticMarkup(<InvestigationTable shape="query-candidates" rows={[news]} selection={{ ...DEFAULT_SELECTION, query: 'q-refund' }} {...base} />)
+    expect(plain).not.toContain('Clear filters')
+    expect(plain).toContain('>—</td>')
   })
 
   test('documents shape lists per-entity counts with glyphs', () => {
@@ -382,7 +409,8 @@ describe('InvestigationTable', () => {
     expect(html).toContain('lexical ▸ recency_filter ✕')
     expect(html).toContain('rerank@lexical ◌')
     expect(html).toContain('⚠ </span>partial')
-    expect(html).toContain('Judged nonrelevant')
+    expect(html).toContain('Not correct')
+    expect(html).not.toContain('Judged nonrelevant')
   })
 
   test('row keyboard handling is a pure index rule', () => {
@@ -393,34 +421,142 @@ describe('InvestigationTable', () => {
   })
 })
 
-describe('InvestigationDetail', () => {
-  test('lists events in order with evidence labels, boundary capture, permalink and IDs-only fallback', () => {
-    const html = renderToStaticMarkup(<InvestigationDetail row={policy} stages={REFUND_STAGES} />)
+// The golden graph with the labels the demo records.
+const LABELS: Record<string, string> = {
+  dense: 'Dense',
+  lexical: 'Lexical',
+  recency_filter: 'Recency Filter',
+  'rerank@dense': 'Rerank (rerank@dense)',
+  'rerank@lexical': 'Rerank (rerank@lexical)',
+  fuse: 'Fuse',
+  expand_gate: 'Expand Gate',
+  expand: 'Expand',
+  select: 'Select',
+}
+const LABELLED: PipelineGraph = { ...GRAPH, nodes: GRAPH.nodes.map((n) => ({ ...n, label: LABELS[n.node_id] })) }
+
+/** Visible words of server-rendered markup. */
+function words(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim()
+}
+
+describe('JourneyCard', () => {
+  const props = { graph: LABELLED, stages: REFUND_STAGES, k: 3, singleNamespace: true }
+
+  test('the expanded card is the named region with the numbered steps in words', () => {
+    const html = renderToStaticMarkup(<JourneyCard row={legal} {...props} expanded isHeading />)
+    expect(html).toContain('<section aria-labelledby="journey-detail-title"')
+    expect(html).toContain('<h3 id="journey-detail-title" class="break-all font-mono text-sm font-semibold text-ink">doc-legal<span class="sr-only"> in question q-refund</span></h3>')
+    expect(html).toContain('Correct, pushed out of the top 3')
+    const steps = [...html.matchAll(/<li class="flex gap-3">([\s\S]*?)<\/li>/g)].map((m) => words(m[1]))
+    expect(steps).toEqual([
+      '1 Lexical found it at rank 4 Outside its own top 3',
+      '2 Dense did not return it Not in its top 3',
+      '3 Recency Filter moved it 4 → 2',
+      '4 Rerank moved it 2 → 3',
+      '5 Fuse moved it 3 → 5',
+      '6 Expand Gate kept it at rank 5',
+      '7 Expand was skipped for this question',
+      '8 Select moved it 5 → 4 Below the top 3 cutoff',
+      '9 Not delivered Final rank #4',
+    ])
+    // Raw kinds, states and ids stay inside the disclosure.
+    expect(html).toContain('<summary class="cursor-pointer text-ink-muted">Technical details</summary>')
+    const visible = outsideDetails(html)
+    for (const raw of ['demoted', 'promoted', 'retained_below_cutoff', 'excluded', 'recorded', 'kb:doc-legal', 'uppercase', 'text-[11px]']) expect(visible).not.toContain(raw)
+    expect(html).toContain('loss boundary select')
+  })
+
+  test('technical details keep the recorded transitions, boundary capture, ids and the permalink', () => {
+    const html = renderToStaticMarkup(<JourneyCard row={policy} {...props} expanded isHeading />)
     const order = ['dense', 'lexical', 'recency_filter', 'rerank@dense', 'fuse', 'expand_gate', 'select'].map((op) => html.indexOf(`<span class="font-mono text-ink">${op}</span>`))
     expect(order.every((index, i) => index > 0 && (i === 0 || index > order[i - 1]))).toBe(true)
     expect(html).toContain('min_score <span class="text-ink-faint">(recorded)</span>')
-    expect(html).toContain('no content captured; IDs only')
     expect(html).toContain('Boundary capture')
     expect(html).toContain('source not recorded')
     expect(html).toContain(`value="${policy.investigation_link.replace(/&/g, '&amp;')}"`)
-    expect(html).toContain('Evidence details')
+    expect(html).toContain('>Copy</button>')
     expect(html).toContain('trace-digest')
+    expect(html).toContain('No content captured; ids only.')
     expect(html).not.toContain('boundary not fully captured')
+    expect(words(outsideDetails(html))).toContain('3 Recency Filter removed it Reason: min_score')
+    expect(words(outsideDetails(html))).toContain('8 Select kept it at rank 2 9 Delivered at #2')
   })
 
-  test('an unknown event says the boundary was not fully captured', () => {
-    const html = renderToStaticMarkup(<InvestigationDetail row={faqOutage} stages={REFUND_STAGES} />)
+  test('an unknown event is not fully recorded; captured content shows when the payload carries it', () => {
+    const html = renderToStaticMarkup(<JourneyCard row={faqOutage} {...props} expanded isHeading />)
+    expect(words(outsideDetails(html))).toContain('5 Rerank : not fully recorded No reason can be given')
+    expect(html).toContain('Not correct')
     expect(html).toContain('boundary not fully captured')
-    expect(html).toContain('◌</span> unknown')
+    expect(html).toContain('in recorded · out truncated')
     expect(html).toContain('deduplicated <span class="text-ink-faint">(recorded)</span>')
-    expect(html).toContain('out <span aria-hidden="true">⚠ </span>truncated')
+    const content = renderToStaticMarkup(<JourneyCard row={row({ metadata: { title: 'Refund policy' } })} {...props} expanded isHeading={false} />)
+    expect(content).toContain('Refund policy')
+    expect(content).toContain('Not observed at any captured boundary')
+    expect(content).not.toContain('journey-detail-title')
+    expect(content).not.toContain('<section')
   })
 
-  test('shows captured content when the payload carries it', () => {
-    const html = renderToStaticMarkup(<InvestigationDetail row={row({ metadata: { title: 'Refund policy' } })} stages={null} />)
-    expect(html).toContain('Refund policy')
-    expect(html).not.toContain('IDs only')
-    expect(html).toContain('Not observed at any captured boundary')
+  test('a collapsed card is one button that selects the document', () => {
+    const onSelect = vi.fn()
+    const element = JourneyCard({ row: policy, ...props, expanded: false, isHeading: false, onSelect })
+    element!.props.onClick()
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    const html = renderToStaticMarkup(element!)
+    expect(html.startsWith('<button type="button"')).toBe(true)
+    expect(words(html)).toBe('doc-policy Correct, delivered Best rank #1')
+    for (const nested of ['<details', '<h3', 'journey-detail-title', '<input']) expect(html).not.toContain(nested)
+  })
+})
+
+describe('One question', () => {
+  const parts = { graph: LABELLED, stages: REFUND_STAGES, k: 3, singleNamespace: true }
+
+  test('the header names the question, counts its correct documents and explains the focused one', () => {
+    const html = renderToStaticMarkup(<QuestionHeader queryId="q-refund" queryText="How do I get a refund?" relevant={[legal, policy]} focus={legal} {...parts} onBack={noop} />)
+    expect(words(html)).toContain('← All questions · Question q-refund')
+    expect(html).toContain('<h2 class="mt-1 text-[22px] font-semibold leading-tight text-ink">“How do I get a refund?”</h2>')
+    expect(html).toContain('bg-status-negative/10 text-status-negative">1 of 2 correct in the top 3</span>')
+    expect(words(html)).toContain("doc-legal : Lexical found it at rank 4; it was not in Dense's top 3; Select placed it 4th, below the top 3.")
+    const all = renderToStaticMarkup(<QuestionHeader queryId="q-refund" queryText={null} relevant={[policy]} focus={policy} {...parts} onBack={noop} />)
+    expect(all).toContain('<span class="font-mono">q-refund</span></h2>')
+    expect(all).toContain('text-status-positive">1 of 1 correct in the top 3</span>')
+    expect(words(all)).toContain('Dense found it at rank 1; Lexical found it at rank 1; Select delivered it at #2.')
+    const none = renderToStaticMarkup(<QuestionHeader queryId="q-x" queryText="x" relevant={[]} focus={null} {...parts} onBack={noop} />)
+    expect(none).toContain('This question has no correct documents recorded.')
+  })
+
+  test('only the focused correct document is expanded and carries the journey heading', () => {
+    const html = renderToStaticMarkup(<CorrectDocuments relevant={[legal, policy]} focus={legal} {...parts} onSelect={noop} />)
+    expect(html).toContain('Correct documents (2)')
+    expect(html.match(/id="journey-detail-title"/g)).toHaveLength(1)
+    expect(html).toContain('doc-legal<span class="sr-only"> in question q-refund</span>')
+    expect(html.match(/<ol class="mt-3/g)).toHaveLength(1)
+    expect(words(html)).toContain('doc-policy Correct, delivered Best rank #1')
+    expect(html).not.toContain('Selected document')
+  })
+
+  test('a selected document that is not correct leads as "Selected document"; the correct ones stay collapsed', () => {
+    const html = renderToStaticMarkup(<CorrectDocuments relevant={[legal, policy]} focus={news} {...parts} onSelect={noop} />)
+    expect(html.indexOf('Selected document')).toBeLessThan(html.indexOf('Correct documents (2)'))
+    expect(html.match(/id="journey-detail-title"/g)).toHaveLength(1)
+    expect(html).toContain('doc-news<span class="sr-only"> in question q-refund</span>')
+    expect(html.match(/<ol class="mt-3/g)).toHaveLength(1)
+    expect(html.match(/<button type="button" class="flex w-full/g)).toHaveLength(2)
+  })
+
+  test('the delivered list ranks what the question delivered, without focusable rows', () => {
+    const faqRefund = row({ entity_id: 'doc-faq', judgment: 'nonrelevant', grade: 0, final_rank: 1, outcome: 'judged_nonrelevant', events: [event('dense', 'introduced', null, 2), event('lexical', 'introduced', null, 1)] })
+    const isSource = (opId: string) => opId === 'dense' || opId === 'lexical'
+    const html = renderToStaticMarkup(<DeliveredList rows={[policy, faqRefund]} k={3} allDelivered={false} singleNamespace isSource={isSource} />)
+    expect(html).toContain('>Delivered instead</h2>')
+    expect(html).toContain('top 3')
+    expect([...html.matchAll(/<th scope="col"[^>]*>([^<]+)/g)].map((m) => m[1])).toEqual(['Rank', 'Document', 'Judged', 'Came from'])
+    const rows = [...html.matchAll(/<tr class="border-t[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => words(m[1]))
+    expect(rows).toEqual(['1 doc-faq Not correct lexical #1 · dense #2', '2 doc-policy Correct · grade 2 dense #1 · lexical #1'])
+    expect(html).not.toContain('tabindex')
+    expect(renderToStaticMarkup(<DeliveredList rows={[policy]} k={3} allDelivered singleNamespace />)).toContain('>Delivered</h2>')
+    expect(renderToStaticMarkup(<DeliveredList rows="failed" k={3} allDelivered={false} singleNamespace />)).toContain('Could not load the delivered list')
   })
 })
 
