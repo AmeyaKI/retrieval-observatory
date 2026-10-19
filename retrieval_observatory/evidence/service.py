@@ -606,7 +606,7 @@ async def inspect_query(store: Any, request: InvestigationRequest) -> dict:
 
 
 async def inspect_document(store: Any, request: InvestigationRequest) -> dict:
-    """One evaluation entity across every query of the scope."""
+    """One evaluation entity across every query of the scope; each row carries its query's text."""
     if not request.entity or request.entity.endswith("*"):
         raise InvestigationError(400, "entity_required", "entity is required as 'namespace:entity_id' or a bare id")
     resolved = await resolve_scope(store, request)
@@ -620,6 +620,8 @@ async def inspect_document(store: Any, request: InvestigationRequest) -> dict:
         raise InvestigationError(404, "entity_not_found", f"entity {entity} has no rows in this scope")
     request = replace(request, entity=entity)
     rows, total, next_cursor, summary = await _pairs(store, resolved, request, projected, order="entity")
+    texts = await _query_texts(store, resolved.run_id)
+    rows = [{**row, "query_text": texts.get(row["query_id"])} for row in rows]
     return _envelope(resolved, request, projection=state, rows=rows, total=total, next_cursor=next_cursor, run_payload=run_payload, summary=summary, stages=None, findings=findings, rows_kind="pairs")
 
 

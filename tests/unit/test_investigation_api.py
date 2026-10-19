@@ -241,12 +241,16 @@ def test_flow_counts_correct_documents_per_step_once_projected(db_path: Path) ->
     assert (miss["query_id"], miss["entity_id"], miss["outcome"], miss["best_rank"], miss["best_op"], miss["events"]) == (
         "q-invoice", "doc-archive", "not_observed", None, None, [],
     )
+    relevant = [row for row in _get(client, base, f"{RUN}/queries", judgment="relevant", limit=200)["rows"] if row["query_id"] == "q-invoice"]
+    assert miss["question_relevant"] == len(relevant) and miss["question_delivered"] == sum(row["outcome"] == "relevant_delivered" for row in relevant)
     filtered = flow["steps"]["recency_filter"]
     assert filtered["removed"] == filtered["removed_but_delivered"] == 2  # removed in one lane, delivered through another
 
     queries = {row["query_id"]: row for row in _get(client, base, f"{RUN}/queries")["rows"]}
     assert miss["query_text"] == queries["q-invoice"]["query_text"]
     assert _get(client, base, f"{RUN}/queries/q-refund")["scope"]["query_text"] == queries["q-refund"]["query_text"]
+    document = _get(client, base, f"{RUN}/documents/kb:doc-guide")["rows"]
+    assert document and all(row["query_text"] == queries[row["query_id"]]["query_text"] for row in document)
 
 
 def test_queries_view_with_a_filter_returns_pairs(db_path: Path) -> None:

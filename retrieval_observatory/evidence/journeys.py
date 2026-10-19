@@ -425,8 +425,9 @@ def summarize_flow(
 
     ``rows`` are relevant pairs in ``JourneyRow.to_dict()`` shape. Counts are per row, never per
     event (a document's several chunks at one step count once). A ``retained_below_cutoff`` row is
-    ``pushed_out`` when a step other than its loss boundary had it in the top ``k``. ``questions``
-    is the scope's traced query count; without it, the judged queries are counted.
+    ``pushed_out`` when a step other than its loss boundary had it in the top ``k``. Each miss also
+    carries its question's relevant and delivered counts. ``questions`` is the scope's traced query
+    count; without it, the judged queries are counted.
     """
     steps: dict[str, dict[str, Any]] = {}
     copresence: Counter[str] = Counter()
@@ -468,6 +469,9 @@ def summarize_flow(
             )
     for step in steps.values():
         step["lost_total"] = step["lost"]["dropped"] + step["lost"]["ranked_low"] + step["lost"]["pushed_out"]
+    judged = Counter(row["query_id"] for row in rows)
+    for miss in misses:
+        miss["question_relevant"], miss["question_delivered"] = judged[miss["query_id"]], delivered[miss["query_id"]]
     misses.sort(key=lambda miss: (delivered[miss["query_id"]] > 0, miss["query_id"], miss["namespace"], miss["entity_id"]))
     outcomes = Counter(row["outcome"] for row in rows)
     return {
