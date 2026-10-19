@@ -4,11 +4,11 @@ import { describe, expect, test, vi } from 'vitest'
 vi.hoisted(() => {
   ;(globalThis as { window?: unknown }).window = { location: { origin: 'http://localhost' } }
 })
-import type { InvestigationDocumentRow, InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode, QuerySummaryRow, StageSummary } from '../api'
+import type { FlowStep, InvestigationDocumentRow, InvestigationFlow, InvestigationStage, JourneyEvent, JourneyRow, PipelineGraph, PipelineGraphNode, QuerySummaryRow, StageSummary } from '../api'
 import { DEFAULT_SELECTION } from '../context/dashboardQuery'
-import { nextIndexForKey, pathHighlight } from '../utils/queryDebugger'
+import { nextIndexForKey } from '../utils/queryDebugger'
 import InvestigationDetail from './InvestigationDetail'
-import InvestigationGraph, { CARD_GEOMETRY, MAX_OVERLAY_LINES, nodeOverlay, STAGE_CARD_H, StageCard } from './InvestigationGraph'
+import InvestigationGraph, { FlowTable, StepCard } from './InvestigationGraph'
 import InvestigationTable from './InvestigationTable'
 import { modeFor, settleBuild, singleFlight } from './InvestigateWorkspace'
 import OperatorInspector from './OperatorInspector'
@@ -424,123 +424,268 @@ describe('InvestigationDetail', () => {
   })
 })
 
+function flowStep(seen: number, input: number, output: number, in_top_k: number, removed = 0, removed_but_delivered = 0, dropped = 0): FlowStep {
+  return { seen, input, output, in_top_k, removed, removed_but_delivered, lost: { dropped, ranked_low: 0, pushed_out: 0, unknown: 0 }, lost_total: dropped }
+}
+
+// GET /flow for the golden run (the seeded demo baseline).
+const FLOW: InvestigationFlow = {
+  k: 3,
+  totals: { relevant: 6, delivered: 4, missed: 2, never_found: 1, insufficient: 0, questions: 3, questions_judged: 3, questions_with_miss: 2, questions_with_none: 1 },
+  steps: {
+    dense: flowStep(4, 0, 4, 4),
+    lexical: flowStep(5, 0, 5, 5),
+    recency_filter: flowStep(5, 5, 0, 0, 5, 4, 1),
+    'rerank@dense': flowStep(4, 4, 4, 4),
+    fuse: flowStep(4, 4, 4, 4),
+    expand_gate: flowStep(4, 4, 4, 4),
+    expand: flowStep(2, 2, 2, 2),
+    select: flowStep(4, 4, 4, 4, 1, 1),
+  },
+  copresence: { 'dense→rerank@dense': 4, 'lexical→recency_filter': 5, 'rerank@dense→fuse': 4, 'fuse→expand_gate': 4, 'expand_gate→expand': 2, 'expand→select': 2, 'expand_gate→select': 4, 'dense→fuse': 4 },
+  misses: [],
+}
+
+/** The markup outside every <details> disclosure: what a reader sees without opening one. */
+function outsideDetails(html: string): string {
+  return html.replace(/<details[\s\S]*?<\/details>/g, '')
+}
+
+function titles(html: string): string[][] {
+  return [...html.matchAll(/<button type="button" aria-pressed="(?:true|false)" title="([^"]*)"/g)].map((m) => m[1].split('\n'))
+}
+
+/** The rendered text of the stage card whose title names `opId` on its second line. */
+function card(html: string, opId: string): string {
+  const cards = html.split('<foreignObject').slice(1)
+  const found = cards.find((markup) => markup.match(/title="([^"]*)"/)?.[1].split('\n')[1] === opId)
+  return (found ?? '>').slice((found ?? '>').indexOf('>') + 1).replace(/<[^>]+>/g, ' ').replace(/&#x27;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
+}
+
 describe('InvestigationGraph', () => {
-  const graphProps = { selectedStageId: null, highlight: null, collapsed: true, onToggleCollapsed: noop, onSelectStage: noop }
+  const graphProps = { flow: null, stages: null, traceStages: null, focus: null, k: 3, selectedStageId: null, collapsed: true, onToggleCollapsed: noop, onSelectStage: noop }
 
-  test('aggregate overlay states served queries with the denominator', () => {
-    expect(nodeOverlay('expand', AGGREGATE, 'aggregate', true).lines[0]).toBe('served 1 of 3 queries')
-    expect(nodeOverlay('recency_filter', AGGREGATE, 'aggregate', true).lines).toEqual(['served 3 of 3 queries', 'received 10 candidates', 'removed 4 · introduced 0', 'unknown boundaries 0'])
-    expect(nodeOverlay('rerank@lexical', AGGREGATE, 'aggregate', true).glyph).toBe('⚠')
-    expect(nodeOverlay('ghost', AGGREGATE, 'aggregate', true).lines).toEqual(['no invocations recorded'])
-    const html = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} />)
-    expect(html).toContain('served 1 of 3 queries')
+  test('run mode follows the correct documents through every step', () => {
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} stages={AGGREGATE} />)
+    expect(card(html, 'dense')).toContain('Found 4 of 6')
+    expect(card(html, 'dense')).toContain('4 in its top 3')
+    expect(card(html, 'lexical')).toContain('Found 5 of 6')
+    expect(card(html, 'recency_filter')).toContain('5 correct in')
+    expect(card(html, 'recency_filter')).toContain('Lost 1')
+    expect(card(html, 'recency_filter')).toContain('Removed 5 · 4 still delivered')
+    expect(card(html, 'rerank@lexical')).toContain('None reached it')
+    expect(card(html, 'expand')).toContain('Ran for 1 of 3 questions')
+    // Seven columns at 1200 px leave no room for a result card: the final step carries the result.
+    expect(card(html, 'select')).toContain('4 of 6 in top 3')
+    expect(html).not.toContain('Final result')
     expect(html).toContain('role="group"')
-    expect(html).toContain('aria-label="Pipeline golden-hybrid: 9 operators, 9 edges; showing counts over the whole run"')
-    expect(html).toContain('aria-label="Legend"')
-    expect(html).toContain('SKIPPED_BY_GATE')
-    expect(html).toContain('aria-label="Zoom in"')
-    expect(html).toContain('aria-label="Zoom out"')
-    expect(html).toContain('aria-label="Reset zoom"')
-    expect(html).toContain('Operator table (accessible equivalent)')
+    expect(html).toContain('aria-label="Pipeline golden-hybrid: 9 steps, 9 edges; showing correct documents over the whole run"')
+    expect(html).toContain('Line thickness = correct documents passing · dashed = ran for only some questions')
+    expect(html).toContain('1 never found by any search')
+    // Edge thickness = correct documents passing; the count labels the long dense lane, empty edges are dashed.
+    expect(html).toContain('stroke-width:12.666')
+    expect(html).toContain('>4 correct</text>')
+    expect(html.match(/stroke-dasharray:5 4/g)).toHaveLength(2)
     expect(html).not.toContain('repeated invocations')
+    expect(html).not.toContain('Zoom')
   })
 
-  test('query overlay shows the trace status as text with a glyph and labels unobserved nodes', () => {
-    const skipped = nodeOverlay('expand', REFUND_STAGES, 'query', true)
-    expect(skipped.lines[0]).toBe('SKIPPED_BY_GATE')
-    expect(skipped.glyph).toBe('⊘')
-    expect(nodeOverlay('rerank@lexical', REFUND_STAGES, 'query', true)).toMatchObject({ lines: ['FIRED', 'in recorded · out truncated', 'received 3 · emitted 3 candidates'], glyph: '⚠' })
-    expect(nodeOverlay('ghost', REFUND_STAGES, 'query', true).lines).toEqual(['not observed for this query'])
-    const html = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={REFUND_STAGES} mode="query" {...graphProps} selectedStageId="select" />)
-    expect(html).toContain('SKIPPED_BY_GATE')
-    expect(html).toContain('>⊘<')
-    expect(html).toContain('aria-pressed="true"')
-    expect(html).toContain('showing one query’s execution; select selected')
+  test('without judgments the cards fall back to the stored candidate counts', () => {
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} stages={AGGREGATE} />)
+    expect(card(html, 'expand')).toContain('Ran for 1 of 3 questions')
+    expect(card(html, 'recency_filter')).toContain('10 candidates in')
+    expect(card(html, 'lexical')).toContain('10 candidates found')
+    expect(html).not.toContain('Line thickness')
+    expect(html).not.toContain('stroke-dasharray')
   })
 
-  test('a highlighted path annotates its nodes with the event kind and thickens its edges', () => {
-    const highlight = pathHighlight(policy, GRAPH)
-    const html = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={REFUND_STAGES} mode="query" {...graphProps} highlight={highlight} />)
-    expect(html).toContain('✕</span> removed')
-    expect(html).toContain('+</span> introduced')
-    expect(html).toContain('↓</span> demoted')
+  test('question mode states each step in words and labels steps the question did not run', () => {
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} traceStages={REFUND_STAGES} selectedStageId="select" />)
+    expect(card(html, 'rerank@lexical')).toContain('3 in · 3 out')
+    expect(card(html, 'rerank@lexical')).toContain('Ran · Partly recorded')
+    expect(card(html, 'expand')).toContain('Skipped by a gate')
+    expect(card(html, 'select')).toContain('Selected')
+    expect(html).toContain('showing one question; select selected')
+    const partial = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} traceStages={REFUND_STAGES.filter((s) => s.op_id !== 'fuse')} />)
+    expect(card(partial, 'fuse')).toContain('Not run for this question')
+  })
+
+  test('path mode shows the document’s rank at each step and draws its path', () => {
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} traceStages={REFUND_STAGES} focus={policy} />)
+    expect(card(html, 'dense')).toContain('Rank 1')
+    expect(card(html, 'dense')).toContain('Found it')
+    expect(card(html, 'recency_filter')).toContain('Removed')
+    expect(card(html, 'recency_filter')).toContain('min_score')
+    expect(card(html, 'fuse')).toContain('Rank 2')
+    expect(card(html, 'fuse')).toContain('was 1')
+    expect(card(html, 'select')).toContain('Delivered at #2')
+    expect(card(html, 'expand')).toContain('Skipped for this question')
+    expect(card(html, 'rerank@lexical')).toContain("Didn't reach it")
     expect(html.match(/data-on-path="true"/g)).toHaveLength(5)
-    expect(html).toContain('path through dense, lexical, recency_filter, rerank@dense, fuse, expand_gate, select')
+    expect(html).toContain('showing the path of doc-policy')
+    expect(html).toContain('Rank of doc-policy at each step')
+    // No correct-document counts in path mode.
+    expect(html).not.toContain('never found by any search')
+
+    const lost = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} traceStages={REFUND_STAGES} focus={legal} />)
+    expect(card(lost, 'select')).toContain('Rank 4')
+    expect(card(lost, 'select')).toContain('was 5 · fell below the top 3 · Not delivered')
+    expect(card(lost, 'rerank@lexical')).toContain('was 2')
+    expect(card(lost, 'dense')).toContain('Not in its top 3')
   })
 
-  test('collapses repeated invocations by default with an explicit expand control', () => {
-    const collapsedHtml = renderToStaticMarkup(<InvestigationGraph graph={REPEATED_GRAPH} stages={null} mode="aggregate" {...graphProps} />)
-    expect(collapsedHtml).toContain('Expand repeated invocations (1)')
-    expect(collapsedHtml).toContain('3 operators, 2 edges')
-    const expandedHtml = renderToStaticMarkup(<InvestigationGraph graph={REPEATED_GRAPH} stages={null} mode="aggregate" {...graphProps} collapsed={false} />)
-    expect(expandedHtml).toContain('Collapse repeated invocations (1)')
-    expect(expandedHtml).toContain('4 operators, 4 edges')
-  })
-
-  test('every card reserves the maximum overlay lines plus the path-event line, with or without a selected journey', () => {
-    const g = CARD_GEOMETRY
-    const content = g.header + g.label + MAX_OVERLAY_LINES * g.line + g.path + (MAX_OVERLAY_LINES + 2) * g.gap
-    expect(STAGE_CARD_H).toBeGreaterThanOrEqual(g.border + g.paddingY + content)
-    // No overlay renders more lines than the card reserves, in either mode or when unobserved.
-    for (const id of GRAPH.nodes.map((n) => n.node_id).concat('ghost')) {
-      expect(nodeOverlay(id, AGGREGATE, 'aggregate', true).lines.length).toBeLessThanOrEqual(MAX_OVERLAY_LINES)
-      expect(nodeOverlay(id, REFUND_STAGES, 'query', true).lines.length).toBeLessThanOrEqual(MAX_OVERLAY_LINES)
-      expect(nodeOverlay(id, null, 'query', true).lines.length).toBeLessThanOrEqual(MAX_OVERLAY_LINES)
+  test('no internal enum, all-caps or sub-12px text outside a disclosure, in any mode', () => {
+    for (const html of [
+      renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} stages={AGGREGATE} />),
+      renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} traceStages={REFUND_STAGES} />),
+      renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} traceStages={REFUND_STAGES} focus={faqOutage} />),
+    ]) {
+      const visible = outsideDetails(html)
+      for (const banned of ['FIRED', 'SKIPPED_BY_GATE', 'TIMEOUT', 'uppercase', 'text-[9px]', 'text-[10px]', 'text-[11px]', 'truncated', 'unavailable']) expect(visible).not.toContain(banned)
     }
-    const heights = (html: string) => [...html.matchAll(/<foreignObject[^>]*height="([\d.]+)"/g)].map((m) => Number(m[1]))
-    const plain = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} />)
-    const highlighted = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} highlight={pathHighlight(policy, GRAPH)} />)
-    expect(heights(plain)).toHaveLength(GRAPH.nodes.length)
-    expect(new Set(heights(plain))).toEqual(new Set([STAGE_CARD_H]))
-    // Layout is stable: selecting a journey does not move or resize any card.
-    expect(heights(highlighted)).toEqual(heights(plain))
-    expect(highlighted.match(/<foreignObject[^>]*>/g)).toEqual(plain.match(/<foreignObject[^>]*>/g))
-    // The classes that pin the geometry above (py-2 = 16px, h-4/leading-4 = 16px, label 18px, lines 12px).
-    for (const pinned of ['py-2', 'flex h-4', 'leading-[18px]', 'leading-[12px]', 'font-medium leading-4']) expect(highlighted).toContain(pinned)
   })
 
-  test('operator cards are keyboard-reachable buttons that select the stage like a click', () => {
-    const html = renderToStaticMarkup(<InvestigationGraph graph={GRAPH} stages={AGGREGATE} mode="aggregate" {...graphProps} selectedStageId="fuse" />)
-    // The container is a named group, not an image, so its buttons stay in the accessibility tree.
+  test('step cards are keyboard-reachable buttons whose title names the step id on its second line', () => {
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} selectedStageId="fuse" />)
     expect(html).not.toContain('role="img"')
     expect(html.match(/<button type="button" aria-pressed="(true|false)"/g)).toHaveLength(GRAPH.nodes.length)
-    expect(html).not.toContain('tabindex="-1"')
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1)
+    expect(html).not.toContain('tabindex="-1"')
+    expect(titles(html).map((lines) => lines[1]).sort()).toEqual(GRAPH.nodes.map((n) => n.node_id).sort())
     const onSelect = vi.fn()
-    const fuse = { ...GRAPH.nodes.find((n) => n.node_id === 'fuse')!, x: 0, y: 0, w: 200, h: STAGE_CARD_H }
-    const card = StageCard({ node: fuse, overlay: nodeOverlay('fuse', AGGREGATE, 'aggregate', true), kind: null, selected: true, dimmed: false, onSelect })
-    const button = card.props.children
+    const fuse = { ...GRAPH.nodes.find((n) => n.node_id === 'fuse')!, x: 0, y: 0, w: 160, h: 108, col: 3, row: 1 }
+    const words = { metric: '4 correct in', note: null, noteTone: null, badge: null, ghost: false }
+    const element = StepCard({ node: fuse, words, selected: true, onPath: false, onSelect })
+    const button = element.props.children
     expect(button.type).toBe('button')
     // Enter and Space activate a native button through the same onClick.
     button.props.onClick()
     expect(onSelect).toHaveBeenCalledWith('fuse')
     // Selection is stated in text, not only by the border colour.
-    expect(renderToStaticMarkup(card)).toContain('>selected<')
+    expect(renderToStaticMarkup(<svg>{element}</svg>)).toContain('>Selected<')
+  })
+
+  test('the diagram scrolls sideways only when its lanes do not fit', () => {
+    const wide = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} width={1200} />)
+    expect(wide).not.toContain('overflow-x-auto"><svg')
+    expect(Number(wide.match(/<svg width="([\d.]+)"/)![1])).toBeLessThanOrEqual(1200)
+    // The demo's two lanes fit a phone; three source lanes do not.
+    const phone = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} width={330} />)
+    expect(phone).not.toContain('overflow-x-auto"><svg')
+    const threeLanes: PipelineGraph = {
+      ...GRAPH,
+      nodes: [node('a', 'SOURCE', 0), node('b', 'SOURCE', 0), node('c', 'SOURCE', 0), node('select', 'FUSE', 1)],
+      edges: [edge('a', 'select', 'fan_in'), edge('b', 'select', 'fan_in'), edge('c', 'select', 'fan_in')],
+    }
+    expect(renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={threeLanes} width={330} />)).toContain('overflow-x-auto"><svg')
+  })
+
+  test('the only final step hands the result to its own card when the extra column fits', () => {
+    const real: PipelineGraph = {
+      ...GRAPH,
+      pipeline_id: 'rag_search-retrieval',
+      trace_count: 300,
+      final_output_ids: ['rrf'],
+      nodes: [
+        node('bm25', 'SOURCE', 0, { label: 'Search (bm25)', status_counts: { FIRED: 300 } }),
+        node('dense', 'SOURCE', 0, { label: 'Search (dense)', status_counts: { FIRED: 300 } }),
+        node('rrf', 'FUSE', 1, { label: 'Fuse Hits', is_final_output: true, status_counts: { FIRED: 300 } }),
+      ],
+      edges: [edge('bm25', 'rrf', 'fan_in'), edge('dense', 'rrf', 'fan_in')],
+    }
+    const realFlow: InvestigationFlow = {
+      k: 10,
+      totals: { relevant: 339, delivered: 288, missed: 51, never_found: 8, insufficient: 0, questions: 300, questions_judged: 300, questions_with_miss: 48, questions_with_none: 40 },
+      steps: { bm25: flowStep(311, 0, 311, 272), dense: flowStep(321, 0, 321, 283), rrf: { ...flowStep(331, 331, 328, 288, 3, 0, 3), lost: { dropped: 3, ranked_low: 26, pushed_out: 14, unknown: 0 }, lost_total: 43 } },
+      copresence: { 'bm25→rrf': 311, 'dense→rrf': 321 },
+      misses: [],
+    }
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={real} flow={realFlow} k={10} />)
+    expect(card(html, 'dense')).toContain('Search (dense) Found 321 of 339 283 in its top 10')
+    expect(card(html, 'rrf')).toContain('Fuse Hits rrf 331 correct in Lost 43')
+    expect(card(html, 'rrf')).not.toContain('in top 10')
+    const result = html.split('<foreignObject').find((markup) => markup.includes('Final result'))!
+    expect(result).toContain('aria-hidden="true"')
+    expect(result).not.toContain('<button')
+    for (const text of ['Top 10', '288 of 339', 'correct delivered · 85%']) expect(result).toContain(text)
+    expect(html.match(/<button type="button" aria-pressed/g)).toHaveLength(3)
+    expect(html).toContain('>288 correct</text>')
+    expect(html).toContain('>321 correct</text>')
+
+    const missed = row({ ...legal, trace_id: 't', query_id: '1', entity_id: '31715818', loss_boundary: 'rrf', events: [event('dense', 'introduced', null, 14), event('rrf', 'demoted', 14, 36)] })
+    const path = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={real} flow={realFlow} k={10} focus={missed} />)
+    expect(card(path, 'rrf')).toContain('Rank 36 was 14 · fell below the top 10')
+    expect(card(path, 'rrf')).not.toContain('Not delivered')
+    expect(path.split('<foreignObject').find((markup) => markup.includes('Final result'))).toContain('Not delivered')
+    expect(path.match(/data-on-path="true"/g)).toHaveLength(1)
+  })
+
+  test('the steps table is the accessible equivalent, with correct documents per step', () => {
+    const html = renderToStaticMarkup(<FlowTable graph={GRAPH} flow={FLOW} />)
+    expect(html).toContain('<caption class="sr-only">Pipeline steps for golden-hybrid</caption>')
+    expect(html.match(/scope="row"/g)).toHaveLength(GRAPH.nodes.length)
+    expect(html.match(/scope="col"/g)).toHaveLength(6)
+    for (const heading of ['Step', 'Kind', 'Ran for', 'Correct in', 'Correct out', 'Lost here']) expect(html).toContain(`>${heading}</th>`)
+    expect(html).toContain('1 of 3 questions')
+    const recency = html.split('<tr').find((tr) => tr.includes('>recency_filter<'))!
+    expect(recency.replace(/<[^>]+>/g, '|')).toMatch(/Filter\|+3 of 3 questions\|+5\|+0\|+1/)
+    expect(renderToStaticMarkup(<FlowTable graph={GRAPH} flow={null} />)).toContain('>—</td>')
+    const graphHtml = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={GRAPH} flow={FLOW} />)
+    expect(graphHtml).toContain('Show the steps as a table')
+    expect(graphHtml).toContain('Pipeline steps for golden-hybrid')
+  })
+
+  test('collapses repeated invocations by default with an explicit expand control', () => {
+    const collapsedHtml = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={REPEATED_GRAPH} />)
+    expect(collapsedHtml).toContain('Expand repeated invocations (1)')
+    expect(collapsedHtml).toContain('3 steps, 2 edges')
+    const expandedHtml = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={REPEATED_GRAPH} collapsed={false} />)
+    expect(expandedHtml).toContain('Collapse repeated invocations (1)')
+    expect(expandedHtml).toContain('4 steps, 4 edges')
   })
 
   test('says so when no topology was recorded', () => {
-    const html = renderToStaticMarkup(<InvestigationGraph graph={null} stages={AGGREGATE} mode="aggregate" {...graphProps} />)
-    expect(html).toContain('No pipeline topology recorded')
+    const html = renderToStaticMarkup(<InvestigationGraph {...graphProps} graph={null} stages={AGGREGATE} />)
+    expect(html).toContain('No pipeline topology recorded for this run; the tables below still hold every indexed journey.')
   })
 })
 
 describe('OperatorInspector', () => {
-  test('reports every count with its denominator and the capture labels, without attribution', () => {
-    const html = renderToStaticMarkup(<OperatorInspector opId="expand" stage={REFUND_STAGES.find((s) => s.op_id === 'expand')!} aggregate={AGGREGATE.find((s) => s.op_id === 'expand')!} />)
-    expect(html).toContain('1<span class="text-ink-muted"> of 3</span> <span class="font-sans text-ink-muted">queries</span>')
-    expect(html).toContain('Skipped by gate')
-    expect(html).toContain('2<span class="text-ink-muted"> of 3</span>')
-    expect(html).toContain('candidates over 1 served queries')
-    expect(html).toContain('SKIPPED_BY_GATE')
-    expect(html).toContain('unavailable')
-    expect(html).toContain('Input capture')
-    expect(html).toContain('Output capture')
+  const nodeOf = (id: string) => ({ ...GRAPH.nodes.find((n) => n.node_id === id)!, label: id === 'recency_filter' ? 'Recency Filter' : id })
+  const aggregateOf = (id: string) => AGGREGATE.find((s) => s.op_id === id)!
+
+  test('says in one sentence what the step did with the correct documents', () => {
+    const html = renderToStaticMarkup(
+      <OperatorInspector opId="recency_filter" node={nodeOf('recency_filter')} flowStep={FLOW.steps.recency_filter} flow={FLOW} stage={null} aggregate={aggregateOf('recency_filter')} />,
+    )
+    expect(html).toContain('id="operator-inspector-title"')
+    expect(html).toContain('aria-labelledby="operator-inspector-title"')
+    expect(html).toContain('Recency Filter <span class="font-normal text-ink-muted">· Filter</span>')
+    expect(html).toContain('>recency_filter</span>')
+    expect(html).toContain('Ran for 3 of 3 questions. Received 5 correct documents and lost 1 for good: 1 dropped. It removed 5; 4 still reached the top 3.')
+    expect(html).toContain('Technical details')
+    expect(html).toContain('Removal events')
     expect(html.toLowerCase()).not.toContain('attribution')
+    const source = renderToStaticMarkup(<OperatorInspector opId="dense" node={nodeOf('dense')} flowStep={FLOW.steps.dense} flow={FLOW} stage={null} aggregate={aggregateOf('dense')} />)
+    expect(source).toContain('Found 4 correct documents, 4 in its own top 3 and lost none.')
   })
 
-  test('explains the missing aggregate before the index is built', () => {
-    const html = renderToStaticMarkup(<OperatorInspector opId="select" stage={null} aggregate={null} />)
-    expect(html).toContain('No stored aggregate for this operator')
+  test('an open question adds what the step did for it; raw states stay in Technical details', () => {
+    const html = renderToStaticMarkup(
+      <OperatorInspector opId="expand" node={nodeOf('expand')} flowStep={FLOW.steps.expand} flow={FLOW} stage={REFUND_STAGES.find((s) => s.op_id === 'expand')!} aggregate={aggregateOf('expand')} />,
+    )
+    expect(html).toContain('Ran for 1 of 3 questions. Received 2 correct documents and lost none.')
+    expect(html).toContain('For this question: Skipped by a gate. 0 candidates in, 0 out. Input not recorded. Output not recorded.')
+    expect(html).toContain('SKIPPED_BY_GATE')
+    expect(outsideDetails(html)).not.toContain('SKIPPED_BY_GATE')
+    expect(outsideDetails(html)).not.toContain('unavailable')
+  })
+
+  test('falls back to the stored counts, and explains the missing counts before the index is built', () => {
+    const stored = renderToStaticMarkup(<OperatorInspector opId="expand" node={nodeOf('expand')} flowStep={null} flow={null} stage={null} aggregate={aggregateOf('expand')} />)
+    expect(stored).toContain('Ran for 1 of 3 questions; 3 candidates in.')
+    const html = renderToStaticMarkup(<OperatorInspector opId="select" node={null} flowStep={null} flow={null} stage={null} aggregate={null} />)
+    expect(html).toContain('No stored counts for this step yet; index the run to count them.')
     expect(html).toContain('select')
   })
 })

@@ -208,10 +208,6 @@ def _stage_card_text(page: Page, op_id: str) -> str:
     )
 
 
-def _received(stages: list[dict], op_id: str) -> int:
-    return sum(stage["candidates_received"] for stage in stages if stage["op_id"] == op_id)
-
-
 def _journey_heading(page: Page):
     return page.locator("#journey-detail-title")
 
@@ -231,11 +227,11 @@ def test_investigate_lost_document_is_responsive_and_accessible(page: Page, demo
     page.goto(_investigate(demo, baseline))
     expect(page.get_by_role("heading", level=1)).to_have_text(f"Run {baseline}")
     expect(page.locator('svg[role="group"][aria-label^="Pipeline "]')).to_be_visible()
-    expect(page.locator('dl[aria-label="Legend"]')).to_contain_text("SKIPPED_BY_GATE")
-    operator_table = page.get_by_text("Operator table (accessible equivalent)", exact=True)
-    expect(operator_table).to_be_visible()
-    operator_table.click()
-    expect(page.locator("table:has(caption:text('Accessible operator table'))")).to_contain_text("recency_filter")
+    expect(page.get_by_text("Line thickness = correct documents passing", exact=False)).to_be_visible()
+    steps_table = page.get_by_text("Show the steps as a table", exact=True)
+    expect(steps_table).to_be_visible()
+    steps_table.click()
+    expect(page.locator("table:has(caption:text('Pipeline steps for'))")).to_contain_text("recency_filter")
     assert _no_horizontal_scroll(page)
     assert _semantic_violations(page) == []
     # Axe results are asserted last so every other check of this workflow still runs.
@@ -438,8 +434,8 @@ def test_late_query_response_does_not_overwrite_the_newer_query(page: Page, demo
 
 def test_late_run_response_does_not_overwrite_the_newer_run(page: Page, demo: dict) -> None:
     baseline, validation = demo["baseline_run_id"], demo["validation_run_id"]
-    stages = {run: _get(f"/dbs/{demo['db_id']}/investigation/runs/{run}/queries?limit=1")["stages"] for run in (baseline, validation)}
-    assert _received(stages[baseline], "select") != _received(stages[validation], "select"), "the two runs must differ at select"
+    correct_in = {run: _get(f"/dbs/{demo['db_id']}/investigation/runs/{run}/flow")["flow"]["steps"]["select"]["input"] for run in (baseline, validation)}
+    assert correct_in[baseline] != correct_in[validation], "the two runs must differ at select"
     page.goto(_investigate(demo, validation))
     expect(page.locator("#investigate-view tbody tr[tabindex]").first).to_be_visible()
 
@@ -458,7 +454,7 @@ def test_late_run_response_does_not_overwrite_the_newer_run(page: Page, demo: di
         _release(held)
     expect(page.get_by_role("heading", level=1)).to_have_text(f"Run {validation}")
     assert _evidence_run(page) == validation
-    assert f"received {_received(stages[validation], 'select')} candidates" in _stage_card_text(page, "select")
+    assert f"{correct_in[validation]} correct in" in _stage_card_text(page, "select")
 
 
 def test_late_audit_response_does_not_overwrite_the_newer_pair(page: Page, demo: dict) -> None:
@@ -563,10 +559,10 @@ def test_outcomes_and_graph_states_carry_glyph_and_text(page: Page, demo: dict) 
     for card in cards:
         assert card["text"], f"stage card {card['id']} carries no text"
     removal = next(card for card in cards if card["id"] == "recency_filter")
-    assert "✕ removed" in removal["full"], removal
+    assert "Removed" in removal["full"], removal
 
     page.goto(_investigate(demo, baseline, view="queries", query=query))
     expect(page.locator("#investigate-view tbody tr[tabindex]").first).to_be_visible()
     statuses = page.evaluate("() => [...document.querySelectorAll('svg foreignObject button')].map((b) => b.textContent)")
     for text in statuses:
-        assert re.search(r"FIRED|SKIPPED_BY_GATE|ERROR|TIMEOUT|not observed for this query", text), text
+        assert re.search(r"Ran(?!k)|Skipped by a gate|Failed|Timed out|Not run for this question|Rank \d+|Removed|Not in its top|Didn't reach it|Not recorded|Skipped for this question", text), text

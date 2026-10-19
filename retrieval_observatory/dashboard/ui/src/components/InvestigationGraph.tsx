@@ -1,192 +1,235 @@
-import { useMemo, useState } from 'react'
-import { InvestigationStage, isStageSummary, PipelineGraph, StageSummary } from '../api'
-import { collapseInvocations, collapsedNodeId, LaidOutNode, layoutPipelineGraph, repeatedInvocationCount } from '../utils/dagLayout'
-import { OP_ACCENT, OP_LABEL } from '../utils/opTypeColors'
-import { EventKind, KIND_GLYPHS, PathHighlight } from '../utils/queryDebugger'
-import { captureGlyph, statusGlyph } from './OperatorInspector'
-import { GraphTable } from './PipelineDagView'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { InvestigationFlow, InvestigationStage, JourneyRow, PipelineGraph, StageSummary } from '../api'
+import { collapseInvocations, collapsedNodeId, repeatedInvocationCount } from '../utils/dagLayout'
+import { FlowEdge, FlowNode, FlowResult, layoutFlow, Orientation } from '../utils/flowLayout'
+import {
+  CardWords,
+  firedCount,
+  flowStepOf,
+  foldedAggregate,
+  foldedStage,
+  foldFlow,
+  pathCard,
+  plural,
+  questionCard,
+  ResultWords,
+  resultWords,
+  runCard,
+  stepKind,
+  stepName,
+  Tone,
+} from '../utils/flowWords'
+import { pathHighlight } from '../utils/queryDebugger'
 
-// The pipeline diagram for Investigate: topology and a stable layout from the run-union
-// PipelineGraph, an actual-execution overlay per node from the investigation stages (stored
-// aggregates, or the selected trace's spans), and the selected journey's path. No per-candidate
-// edges are drawn; every state is text plus a glyph, never colour alone.
+// The pipeline diagram for Investigate. Run mode: where the run's correct documents go (line
+// thickness = correct documents passing). Question mode: one question's candidates in and out.
+// Path mode: one document's rank at each step. Every card is a button that selects the step.
 
-export type GraphMode = 'aggregate' | 'query'
+export type GraphMode = 'run' | 'question' | 'path'
 
 export interface InvestigationGraphProps {
   graph: PipelineGraph | null
-  stages: InvestigationStage[] | StageSummary[] | null
-  mode: GraphMode
+  flow: InvestigationFlow | null
+  stages: StageSummary[] | null
+  traceStages: InvestigationStage[] | null
+  focus: JourneyRow | null
+  k: number | null
   selectedStageId: string | null
-  highlight: PathHighlight | null
   collapsed: boolean
   onToggleCollapsed: () => void
   onSelectStage: (opId: string | null) => void
+  /** Container width before the first measurement (and in server-side rendering). */
+  width?: number
 }
 
-export interface NodeOverlay {
-  /** Short text lines shown on the card; each states its own unit (queries, candidates, events). */
-  lines: string[]
-  /** Glyph for the node's state (aggregate: unknown boundaries; query: status/capture), empty when nominal. */
-  glyph: string
-  observed: boolean
+export function graphMode(focus: JourneyRow | null, traceStages: InvestigationStage[] | null): GraphMode {
+  return focus ? 'path' : traceStages ? 'question' : 'run'
 }
 
-const ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2]
-
-/** Most overlay lines any mode renders (aggregate mode: 4; query mode: 3). */
-export const MAX_OVERLAY_LINES = 4
-/** Pinned stage-card geometry in px; StageCard's classes set exactly these line heights. */
-export const CARD_GEOMETRY = { border: 5, paddingY: 16, gap: 2, header: 16, label: 18, line: 12, path: 16 }
-/** Every card reserves the header, the label, MAX_OVERLAY_LINES overlay lines and the path-event
- * line, so selecting a journey neither overlaps text nor reflows the graph. */
-export const STAGE_CARD_H = (() => {
-  const g = CARD_GEOMETRY
-  const rows = 2 + MAX_OVERLAY_LINES + 1
-  return g.border + g.paddingY + g.header + g.label + MAX_OVERLAY_LINES * g.line + g.path + (rows - 1) * g.gap
-})()
-
-function matching<S extends InvestigationStage | StageSummary>(nodeId: string, stages: S[], collapsed: boolean): S[] {
-  return stages.filter((stage) => (collapsed ? collapsedNodeId(stage.op_id) : stage.op_id) === nodeId)
+const BADGE: Record<Tone, string> = {
+  negative: 'bg-status-negative/10 text-status-negative',
+  positive: 'bg-status-positive/10 text-status-positive',
+  // accent-muted is under 4.5:1 behind accent text in dark mode; a 15 % accent tint is not.
+  accent: 'bg-accent-muted text-accent dark:bg-accent/15',
+  warning: 'bg-status-warning/10 text-status-warning',
+  neutral: 'border border-hairline bg-surface-muted text-ink-muted',
 }
 
-/** Overlay text for one node. Aggregate mode sums the stored summaries that fold onto the node. */
-export function nodeOverlay(nodeId: string, stages: InvestigationStage[] | StageSummary[] | null, mode: GraphMode, collapsed: boolean): NodeOverlay {
-  if (!stages) return { lines: [mode === 'query' ? 'no trace stages' : 'no stored stage counts'], glyph: '', observed: false }
-  if (mode === 'aggregate') {
-    const found = matching(nodeId, stages.filter(isStageSummary), collapsed)
-    if (found.length === 0) return { lines: ['no invocations recorded'], glyph: '', observed: false }
-    const sum = (key: keyof Omit<StageSummary, 'op_id' | 'operator_id'>) => found.reduce((total, stage) => total + stage[key], 0)
-    const served = sum('queries_served')
-    const skipped = sum('queries_skipped')
-    const partial = sum('partial_boundaries')
-    return {
-      lines: [
-        `served ${served} of ${served + skipped} queries`,
-        `received ${sum('candidates_received')} candidates`,
-        `removed ${sum('removal_events')} · introduced ${sum('introduced')}`,
-        `unknown boundaries ${partial}`,
-      ],
-      glyph: partial > 0 ? '⚠' : skipped > 0 && served === 0 ? '⊘' : '',
-      observed: true,
-    }
-  }
-  const found = matching(
-    nodeId,
-    stages.filter((stage): stage is InvestigationStage => !isStageSummary(stage)),
-    collapsed,
-  )
-  if (found.length === 0) return { lines: ['not observed for this query'], glyph: '', observed: false }
-  const statuses = [...new Set(found.map((stage) => stage.status))]
-  const first = found[0]
-  const captures = [...new Set(found.map((stage) => `${stage.input_capture}/${stage.output_capture}`))]
-  const inGlyph = captureGlyph(first.input_capture)
-  const outGlyph = captureGlyph(first.output_capture)
-  const glyph = statuses.includes('ERROR') || statuses.includes('TIMEOUT') ? '✕' : statuses.includes('SKIPPED_BY_GATE') ? '⊘' : inGlyph || outGlyph
-  return {
-    lines: [
-      statuses.join(' / ') + (found.length > 1 ? ` (${found.length} invocations)` : ''),
-      captures.length === 1 ? `in ${first.input_capture} · out ${first.output_capture}` : `capture ${captures.join(', ')}`,
-      `received ${found.reduce((total, stage) => total + stage.received, 0)} · emitted ${found.reduce((total, stage) => total + stage.emitted, 0)} candidates`,
-    ],
-    glyph,
-    observed: true,
-  }
+const NOTE: Record<Tone, string> = {
+  negative: 'text-status-negative',
+  positive: 'text-status-positive',
+  accent: 'text-accent',
+  warning: 'text-status-warning',
+  neutral: 'text-ink-muted',
 }
 
-function mapHighlight(highlight: PathHighlight | null, collapsed: boolean): { nodes: Map<string, EventKind>; edges: Set<string>; incomplete: Set<string> } {
-  const nodes = new Map<string, EventKind>()
-  const edges = new Set<string>()
-  const incomplete = new Set<string>()
-  if (!highlight) return { nodes, edges, incomplete }
-  const id = (opId: string) => (collapsed ? collapsedNodeId(opId) : opId)
-  for (const opId of highlight.nodeIds) {
-    const kind = highlight.kinds[opId]
-    const existing = nodes.get(id(opId))
-    if (!existing || kind === 'removed' || kind === 'unknown') nodes.set(id(opId), kind)
-  }
-  for (const [source, target] of highlight.edges) if (id(source) !== id(target)) edges.add(`${id(source)}→${id(target)}`)
-  for (const opId of highlight.incomplete) incomplete.add(id(opId))
-  return { nodes, edges, incomplete }
-}
+const FOCUS_RING = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent'
+const FAINT = 'rgb(var(--ink-faint) / .35)'
 
-export function StageCard({
+export function StepCard({
   node,
-  overlay,
-  kind,
+  words,
   selected,
-  dimmed,
+  onPath,
   onSelect,
 }: {
-  node: LaidOutNode
-  overlay: NodeOverlay
-  kind: EventKind | null
+  node: FlowNode
+  words: CardWords
   selected: boolean
-  dimmed: boolean
+  onPath: boolean
   onSelect: (id: string) => void
 }) {
-  const accent = OP_ACCENT[node.op_type] ?? OP_ACCENT.TRANSFORM
-  const onPath = kind !== null
+  const { name, id } = stepName(node)
+  const kind = stepKind(node.op_type)
+  const lossy = words.badge?.tone === 'negative'
+  const border = selected
+    ? 'border-2 border-accent'
+    : lossy
+      ? 'border-2 border-status-negative/60'
+      : onPath
+        ? 'border-2 border-accent'
+        : node.is_final_output
+          ? 'border border-status-positive/50'
+          : words.ghost
+            ? 'border border-ink-faint/50'
+            : 'border border-hairline'
+  const title = [node.label, node.node_id, kind, words.metric, words.badge?.text, words.note].filter(Boolean).join('\n')
   return (
     <foreignObject x={node.x} y={node.y} width={node.w} height={node.h} style={{ overflow: 'visible' }}>
       <button
         type="button"
         onClick={() => onSelect(node.node_id)}
         aria-pressed={selected}
-        className="box-border flex h-full w-full flex-col gap-0.5 rounded-xl px-2.5 py-2 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-        style={{
-          background: accent.fill,
-          border: `${selected || onPath ? 2.5 : 1.5}px solid ${selected ? accent.text : onPath ? 'rgb(var(--accent))' : accent.stroke}`,
-          boxShadow: selected ? `0 0 0 2px ${accent.fill}` : undefined,
-          opacity: dimmed ? 0.55 : 1,
-          width: node.w,
-          height: node.h,
-        }}
-        title={[node.label, node.node_id, ...overlay.lines].join('\n')}
+        title={title}
+        className={`box-border flex h-full w-full flex-col overflow-hidden rounded-xl p-2.5 text-left ${border} ${words.ghost ? 'border-dashed bg-surface-muted' : 'bg-surface'} ${FOCUS_RING}`}
+        style={{ width: node.w, height: node.h }}
       >
-        <div className="flex h-4 min-w-0 shrink-0 items-center gap-1">
-          <span className="truncate text-[9px] font-bold uppercase tracking-wide" style={{ color: accent.text }}>
-            {OP_LABEL[node.op_type] ?? node.op_type}
+        {/* Fixed rows (CARD_H): kind, name, id, one metric line, two lines of badge and note. */}
+        <span className="flex h-4 min-w-0 shrink-0 items-center justify-between gap-2 text-xs leading-4 text-ink-faint">
+          <span className="truncate">{kind}</span>
+          {selected && <span className="shrink-0 text-accent">Selected</span>}
+        </span>
+        <span className={`h-5 shrink-0 truncate text-sm font-semibold leading-5 ${words.ghost ? 'text-ink-faint' : 'text-ink'}`}>{name}</span>
+        {id && <span className="h-4 shrink-0 truncate font-mono text-xs leading-4 text-ink-faint">{id}</span>}
+        {words.metric && <span className={`h-4 shrink-0 truncate text-[13px] leading-4 ${words.ghost ? 'text-ink-faint' : 'text-ink-muted'}`}>{words.metric}</span>}
+        {(words.badge || words.note) && (
+          <span className="mt-0.5 line-clamp-2 text-xs leading-4">
+            {words.badge && <span className={`box-decoration-clone rounded-full px-1.5 py-px font-semibold ${BADGE[words.badge.tone]}`}>{words.badge.text}</span>}
+            {words.badge && words.note && ' '}
+            {words.note && <span className={NOTE[words.noteTone ?? 'neutral']}>{words.note}</span>}
           </span>
-          {selected && <span className="ml-auto shrink-0 text-[9px] font-semibold uppercase tracking-wide text-ink">selected</span>}
-          {overlay.glyph && (
-            <span className={`shrink-0 text-[11px] leading-4 text-ink ${selected ? '' : 'ml-auto'}`} aria-hidden="true">
-              {overlay.glyph}
-            </span>
-          )}
-        </div>
-        <div className="shrink-0 truncate text-xs font-semibold leading-[18px] text-ink">{node.label}</div>
-        {overlay.lines.map((line) => (
-          <div key={line} className={`shrink-0 truncate text-[9px] leading-[12px] ${overlay.observed ? 'text-ink-muted' : 'text-ink-faint italic'}`}>
-            {line}
-          </div>
-        ))}
-        {kind && (
-          <div className="mt-auto shrink-0 text-[10px] font-medium leading-4 text-ink">
-            <span aria-hidden="true">{KIND_GLYPHS[kind]}</span> {kind}
-          </div>
         )}
       </button>
     </foreignObject>
   )
 }
 
-const LEGEND: Array<{ heading: string; items: Array<[string, string]> }> = [
-  { heading: 'Status', items: [['●', 'FIRED'], ['⊘', 'SKIPPED_BY_GATE'], ['✕', 'ERROR / TIMEOUT']] },
-  { heading: 'Capture', items: [['', 'recorded'], ['⚠', 'partial (truncated, positional, inferred)'], ['✕', 'unavailable']] },
-  { heading: 'Path', items: [['+', 'introduced'], ['=', 'retained'], ['↑', 'promoted'], ['↓', 'demoted'], ['✕', 'removed'], ['↻', 'recovered'], ['◌', 'unknown']] },
-]
+/** The result after the only final step. Not a control and hidden from assistive technology: the
+ * same facts are in the final step's table row and the page text. */
+function ResultCard({ box, words }: { box: FlowResult; words: ResultWords }) {
+  const positive = words.figure != null || words.noteTone === 'positive'
+  return (
+    <foreignObject x={box.x} y={box.y} width={box.w} height={box.h} aria-hidden="true">
+      <div
+        className={`box-border flex h-full w-full flex-col overflow-hidden rounded-xl border bg-surface p-2.5 ${positive ? 'border-status-positive/50' : 'border-hairline'}`}
+        style={{ width: box.w, height: box.h }}
+      >
+        <span className="h-4 shrink-0 text-xs leading-4 text-ink-faint">Final result</span>
+        <span className="h-5 shrink-0 truncate text-sm font-semibold leading-5 text-ink">{words.name}</span>
+        {words.figure && <span className="mt-1 shrink-0 truncate text-lg font-semibold leading-6 tabular-nums text-status-positive">{words.figure}</span>}
+        {words.note && <span className={`mt-0.5 line-clamp-2 text-xs leading-4 ${NOTE[words.noteTone ?? 'neutral']}`}>{words.note}</span>}
+      </div>
+    </foreignObject>
+  )
+}
 
-const zoomButtonClass =
-  'rounded border border-hairline bg-surface px-2 py-0.5 text-xs text-ink hover:bg-surface-muted disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-600'
+/** The accessible equivalent of the diagram: one row per step with its correct-document counts. */
+export function FlowTable({ graph, flow }: { graph: PipelineGraph; flow: InvestigationFlow | null }) {
+  const counted = flow && flow.totals.relevant > 0 ? flow : null
+  const cell = 'px-3 py-2'
+  return (
+    <div className={`overflow-x-auto rounded-lg border border-hairline ${FOCUS_RING}`} tabIndex={0} role="region" aria-label={`Pipeline steps for ${graph.pipeline_id}`}>
+      <table className="w-full text-left text-xs">
+        <caption className="sr-only">Pipeline steps for {graph.pipeline_id}</caption>
+        <thead className="bg-surface-muted text-ink-muted">
+          <tr>
+            {['Step', 'Kind', 'Ran for', 'Correct in', 'Correct out', 'Lost here'].map((heading) => (
+              <th key={heading} scope="col" className={`${cell} font-medium`}>
+                {heading}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="tabular-nums text-ink-muted">
+          {graph.nodes.map((node) => {
+            const { name, id } = stepName(node)
+            const step = flowStepOf(counted, node.node_id)
+            return (
+              <tr key={node.node_id} className="border-t border-hairline">
+                <th scope="row" className={`${cell} font-medium text-ink`}>
+                  {name}
+                  {id && <span className="ml-1.5 font-mono font-normal text-ink-faint">{id}</span>}
+                </th>
+                <td className={cell}>{stepKind(node.op_type)}</td>
+                <td className={cell}>
+                  {firedCount(node, graph.trace_count)} of {plural(graph.trace_count, 'question')}
+                </td>
+                <td className={cell}>{step && node.op_type !== 'SOURCE' ? step.input : '—'}</td>
+                <td className={cell}>{step ? step.output : '—'}</td>
+                <td className={cell}>{step ? step.lost_total : '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
 
-export default function InvestigationGraph({ graph, stages, mode, selectedStageId, highlight, collapsed, onToggleCollapsed, onSelectStage }: InvestigationGraphProps) {
-  const [zoomIndex, setZoomIndex] = useState(2)
-  const zoom = ZOOM_STEPS[zoomIndex]
+/** Width of the wrapper, measured once mounted; `fallback` until then (and in tests). */
+function useContainerWidth(fallback: number): [(element: HTMLDivElement | null) => void, number] {
+  const [width, setWidth] = useState(fallback)
+  const observer = useRef<ResizeObserver | null>(null)
+  const measure = useCallback((element: HTMLDivElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (!element || typeof ResizeObserver === 'undefined') return
+    observer.current = new ResizeObserver((entries) => {
+      const next = Math.floor(entries[0]?.contentRect.width ?? 0)
+      if (next > 0) setWidth(next)
+    })
+    observer.current.observe(element)
+  }, [])
+  return [measure, width]
+}
+
+type Box = { x: number; y: number; w: number; h: number }
+
+/** An edge label is drawn only where it fits the gap between the two cards without touching them. */
+function labelFits(orientation: Orientation, s: Box, t: Box, text: string): boolean {
+  if (orientation === 'horizontal') return t.x - (s.x + s.w) >= text.length * 7 + 8
+  return t.y - (s.y + s.h) >= 18
+}
+
+const toggleClass = `rounded border border-hairline bg-surface px-2 py-0.5 text-xs text-ink hover:bg-surface-muted ${FOCUS_RING}`
+
+export default function InvestigationGraph({
+  graph,
+  flow,
+  stages,
+  traceStages,
+  focus,
+  k,
+  selectedStageId,
+  collapsed,
+  onToggleCollapsed,
+  onSelectStage,
+  width: initialWidth,
+}: InvestigationGraphProps) {
+  const [measure, width] = useContainerWidth(initialWidth ?? 1200)
   const shown = useMemo(() => (graph ? (collapsed ? collapseInvocations(graph) : graph) : null), [graph, collapsed])
-  const layout = useMemo(() => (shown ? layoutPipelineGraph(shown, () => STAGE_CARD_H) : null), [shown])
-  const repeats = graph ? repeatedInvocationCount(graph) : 0
-  const path = useMemo(() => mapHighlight(highlight, collapsed), [highlight, collapsed])
+  const layout = useMemo(() => (shown ? layoutFlow(shown, { width }) : null), [shown, width])
+  const folded = useMemo(() => foldFlow(flow, collapsed), [flow, collapsed])
 
   if (!graph || !shown || !layout) {
     return (
@@ -196,105 +239,125 @@ export default function InvestigationGraph({ graph, stages, mode, selectedStageI
     )
   }
 
-  const selectedId = selectedStageId ? (collapsed ? collapsedNodeId(selectedStageId) : selectedStageId) : null
-  const summary = [
-    `Pipeline ${shown.pipeline_id}: ${shown.nodes.length} operators, ${shown.edges.length} edges`,
-    mode === 'query' ? 'showing one query’s execution' : 'showing counts over the whole run',
-    selectedId ? `${selectedId} selected` : null,
-    highlight ? `path through ${highlight.nodeIds.join(', ')}` : null,
-  ]
-    .filter(Boolean)
-    .join('; ')
+  const fold = (opId: string) => (collapsed ? collapsedNodeId(opId) : opId)
+  const mode = graphMode(focus, traceStages)
+  const counted = folded && folded.totals.relevant > 0 ? folded : null
+  const cutoff = k ?? flow?.k ?? null
+  const repeats = repeatedInvocationCount(graph)
+  const selectedId = selectedStageId ? fold(selectedStageId) : null
+  const highlight = focus ? pathHighlight(focus, graph) : null
+  const pathNodes = new Set(highlight?.nodeIds.map(fold) ?? [])
+  const pathEdges = new Set(highlight?.edges.map(([source, target]) => `${fold(source)}→${fold(target)}`) ?? [])
+  const at = new Map<string, Box>(layout.nodes.map((node) => [node.node_id, node]))
+  const nodes = [...layout.nodes].sort((a, b) => a.col - b.col || a.row - b.row)
+  // With a result card the final step carries only its own facts; the card says what was delivered.
+  const separate = layout.result !== null
+  const finalRank = focus && focus.final_membership === 'included' ? focus.final_rank : null
+
+  const wordsFor = (node: FlowNode): CardWords => {
+    if (focus) {
+      const events = focus.events.filter((event) => fold(event.op_id) === node.node_id)
+      const stage = traceStages ? foldedStage(traceStages, node.node_id, collapsed) : null
+      const boundary = focus.loss_boundary != null && fold(focus.loss_boundary) === node.node_id
+      return pathCard(node, events, stage, cutoff, node.is_final_output && !separate, finalRank, boundary)
+    }
+    if (traceStages) return questionCard(node, foldedStage(traceStages, node.node_id, collapsed))
+    return runCard(node, flowStepOf(folded, node.node_id), folded, shown, foldedAggregate(stages, node.node_id, collapsed), separate)
+  }
+
+  type Styled = { stroke: string; strokeWidth: number; strokeDasharray?: string; label: string | null; onPath: boolean }
+  const faint: Styled = { stroke: FAINT, strokeWidth: 1.5, label: null, onPath: false }
+  const accent: Styled = { stroke: 'rgb(var(--accent))', strokeWidth: 4, label: null, onPath: true }
+  const counts = (count: number, dashed: boolean): Styled =>
+    dashed || count === 0 ? { ...faint, strokeDasharray: '5 4' } : { ...faint, strokeWidth: 2 + (16 * count) / counted!.totals.relevant, label: `${count} correct` }
+  const edgeStyle = (edge: FlowEdge): Styled => {
+    const key = `${edge.source}→${edge.target}`
+    if (mode === 'path') return pathEdges.has(key) ? accent : faint
+    if (mode === 'run' && counted) return counts(counted.copresence[key] ?? 0, edge.conditional && edge.kind === 'fan_in')
+    return faint
+  }
+  const resultStyle = (): Styled => {
+    if (mode === 'path') return finalRank != null ? accent : faint
+    if (mode === 'run' && counted) return counts(counted.totals.delivered, false)
+    return faint
+  }
+  const edges = layout.edges.map((edge) => ({ edge, key: `${edge.source}→${edge.target}`, from: at.get(edge.source)!, to: at.get(edge.target)!, ...edgeStyle(edge) }))
+  if (layout.result) {
+    const { edge } = layout.result
+    edges.push({ edge, key: `${edge.source}→result`, from: at.get(edge.source)!, to: layout.result, ...resultStyle() })
+  }
+
+  const summary =
+    `Pipeline ${shown.pipeline_id}: ${shown.nodes.length} steps, ${shown.edges.length} edges; ` +
+    (mode === 'path' ? `showing the path of ${focus!.entity_id}` : mode === 'question' ? 'showing one question' : 'showing correct documents over the whole run') +
+    (selectedId ? `; ${selectedId} selected` : '')
+  const neverFound = mode === 'run' ? counted?.totals.never_found ?? 0 : 0
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
-        <span>
-          {mode === 'query' ? 'One query’s execution' : 'Run totals per operator'} · {shown.nodes.length} operators
-        </span>
-        {repeats > 0 && (
-          <button type="button" onClick={onToggleCollapsed} className={zoomButtonClass} aria-pressed={!collapsed}>
-            {collapsed ? 'Expand' : 'Collapse'} repeated invocations ({repeats})
-          </button>
-        )}
-        <span className="ml-auto inline-flex items-center gap-1" role="group" aria-label="Zoom">
-          <button type="button" aria-label="Zoom out" className={zoomButtonClass} disabled={zoomIndex === 0} onClick={() => setZoomIndex((i) => Math.max(0, i - 1))}>
-            −
-          </button>
-          <span className="w-10 text-center font-mono tabular-nums">{Math.round(zoom * 100)}%</span>
-          <button type="button" aria-label="Zoom in" className={zoomButtonClass} disabled={zoomIndex === ZOOM_STEPS.length - 1} onClick={() => setZoomIndex((i) => Math.min(ZOOM_STEPS.length - 1, i + 1))}>
-            +
-          </button>
-          <button type="button" aria-label="Reset zoom" className={zoomButtonClass} disabled={zoomIndex === 2} onClick={() => setZoomIndex(2)}>
-            Reset
-          </button>
-        </span>
-      </div>
-      <div className="max-h-[520px] overflow-auto rounded-lg border border-hairline bg-surface-muted/40 pb-2">
-        <svg
-          width={layout.width * zoom}
-          height={layout.height * zoom}
-          viewBox={`0 0 ${layout.width} ${layout.height}`}
-          className="block"
-          role="group"
-          aria-label={summary}
-        >
-          <defs>
-            <marker id={`inv-arrow-${shown.pipeline_id}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
-              <path d="M0,0 L8,4 L0,8 Z" fill="rgb(var(--ink-faint))" />
-            </marker>
-            <marker id={`inv-arrow-path-${shown.pipeline_id}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
-              <path d="M0,0 L8,4 L0,8 Z" fill="rgb(var(--accent))" />
-            </marker>
-          </defs>
-          {layout.edges.map((edge) => {
-            const onPath = path.edges.has(`${edge.source}→${edge.target}`)
-            return (
-              <path
-                key={`${edge.source}→${edge.target}`}
-                d={edge.path}
-                fill="none"
-                stroke={onPath ? 'rgb(var(--accent))' : 'rgb(var(--ink-faint))'}
-                strokeWidth={onPath ? 3 : edge.kind === 'fan_in' ? 2 : 1.5}
-                strokeDasharray={edge.kind === 'fan_in' && !onPath ? '5 3' : undefined}
-                markerEnd={`url(#inv-arrow${onPath ? '-path' : ''}-${shown.pipeline_id})`}
-                opacity={onPath ? 1 : highlight ? 0.35 : 0.7}
-                data-on-path={onPath ? 'true' : undefined}
-              />
-            )
-          })}
-          {layout.nodes.map((node) => (
-            <StageCard
+      <div ref={measure} className={layout.overflowX ? 'overflow-x-auto' : undefined}>
+        <svg width={layout.width} height={layout.height} viewBox={`0 0 ${layout.width} ${layout.height}`} className="mx-auto block" role="group" aria-label={summary}>
+          {edges.map(({ edge, key, from, to, label, onPath, ...style }) => (
+            <path
+              key={key}
+              d={edge.path}
+              fill="none"
+              strokeLinecap="round"
+              style={style}
+              data-on-path={onPath ? 'true' : undefined}
+            />
+          ))}
+          {nodes.map((node) => (
+            <StepCard
               key={node.node_id}
               node={node}
-              overlay={nodeOverlay(node.node_id, stages, mode, collapsed)}
-              kind={path.nodes.get(node.node_id) ?? null}
+              words={wordsFor(node)}
               selected={selectedId === node.node_id}
-              dimmed={highlight !== null && !path.nodes.has(node.node_id)}
+              onPath={mode === 'path' && pathNodes.has(node.node_id)}
               onSelect={(id) => onSelectStage(selectedId === id ? null : id)}
             />
           ))}
+          {layout.result && <ResultCard box={layout.result} words={resultWords(mode, counted, cutoff, finalRank)} />}
+          {edges.map(
+            ({ edge, key, from, to, label }) =>
+              label &&
+              labelFits(layout.orientation, from, to, label) && (
+                <text
+                  key={`label-${key}`}
+                  x={edge.mid.x}
+                  y={edge.mid.y}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  className="tabular-nums"
+                  style={{ fontSize: 12, fontWeight: 500, fill: 'rgb(var(--ink-muted))', stroke: 'rgb(var(--surface))', strokeWidth: 3, paintOrder: 'stroke' }}
+                >
+                  {label}
+                </text>
+              ),
+          )}
         </svg>
       </div>
-      <dl className="flex flex-wrap gap-x-5 gap-y-1 text-[10px] text-ink-muted" aria-label="Legend">
-        {LEGEND.map((group) => (
-          <div key={group.heading} className="flex flex-wrap items-center gap-x-2">
-            <dt className="font-semibold uppercase tracking-wide text-ink-faint">{group.heading}</dt>
-            {group.items.map(([glyph, text]) => (
-              <dd key={text} className="inline-flex items-center gap-1">
-                {glyph && <span aria-hidden="true">{glyph}</span>}
-                {text}
-              </dd>
-            ))}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+        {mode === 'path' ? (
+          <span>Rank of {focus!.entity_id} at each step</span>
+        ) : mode === 'question' ? (
+          <span>Candidates in and out of each step for this question</span>
+        ) : (
+          counted && <span>Line thickness = correct documents passing · dashed = ran for only some questions</span>
+        )}
+        {neverFound > 0 && <span className="rounded-md border border-dashed border-status-negative/50 px-2 py-0.5 text-status-negative">{neverFound} never found by any search</span>}
+        {repeats > 0 && (
+          <button type="button" onClick={onToggleCollapsed} className={toggleClass} aria-pressed={!collapsed}>
+            {collapsed ? 'Expand' : 'Collapse'} repeated invocations ({repeats})
+          </button>
+        )}
+        <details className="open:basis-full">
+          <summary className="cursor-pointer font-medium text-accent">Show the steps as a table</summary>
+          <div className="mt-2">
+            <FlowTable graph={shown} flow={folded} />
           </div>
-        ))}
-      </dl>
-      <details>
-        <summary className="cursor-pointer text-xs font-medium text-accent">Operator table (accessible equivalent)</summary>
-        <div className="mt-2">
-          <GraphTable graph={shown} />
-        </div>
-      </details>
+        </details>
+      </div>
     </div>
   )
 }

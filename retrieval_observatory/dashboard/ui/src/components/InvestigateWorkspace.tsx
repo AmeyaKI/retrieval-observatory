@@ -6,12 +6,14 @@ import {
   fetchInvestigationComparisonQuery,
   fetchInvestigationDocument,
   fetchInvestigationDocuments,
+  fetchInvestigationFlow,
   fetchInvestigationQueries,
   fetchInvestigationQuery,
   fetchPipelineGraphs,
   InvestigationDocumentRow,
   InvestigationEnvelope,
   InvestigationFinding,
+  InvestigationFlow,
   InvestigationParams,
   InvestigationStage,
   isStageSummary,
@@ -23,21 +25,23 @@ import {
 } from '../api'
 import { useDashboardContext } from '../context/DashboardContext'
 import { DashboardSelection } from '../context/dashboardQuery'
+import { collapseInvocations, collapsedNodeId } from '../utils/dagLayout'
+import { flowStepOf, foldFlow } from '../utils/flowWords'
 import { auditLink, buildHash } from '../utils/focusedRoutes'
-import { entityKey, isJourneyRow, OUTCOME_LABELS, pathHighlight, stageFilter } from '../utils/queryDebugger'
+import { entityKey, isJourneyRow, OUTCOME_LABELS, stageFilter } from '../utils/queryDebugger'
 import CandidateLineageDiff from './CandidateLineageDiff'
 import InvestigationDetail from './InvestigationDetail'
-import InvestigationGraph from './InvestigationGraph'
+import InvestigationGraph, { graphMode } from './InvestigationGraph'
 import InvestigationTable, { SortState, TableShape } from './InvestigationTable'
 import OperatorInspector from './OperatorInspector'
 
 // Investigate: scope bar (shell) → pipeline diagram → one primary table → selected journey detail.
 // Every selection lives in the URL (updateSelection); the only component state is request
-// phases, table sort and the graph's collapse/zoom. Two request streams, each sequence-guarded:
-// the scope stream (run-union graph + stored stage aggregates, once per db/run/pipeline) and the
-// view stream (the list or drill-down the URL names). With `compare=` set on the queries view the
-// view stream asks for paired journey rows against that baseline run instead; the scope stream
-// still draws the selected (candidate) run's graph.
+// phases, table sort and the graph's collapse. Two request streams, each sequence-guarded: the
+// scope stream (run-union graph + stored stage aggregates + correct-document flow, once per
+// db/run/pipeline) and the view stream (the list or drill-down the URL names). With `compare=`
+// set on the queries view the view stream asks for paired journey rows against that baseline run
+// instead; the scope stream still draws the selected (candidate) run's graph.
 
 export const PAGE_SIZE = 50
 
@@ -159,7 +163,7 @@ type Phase =
 type Scope =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'ready'; graphs: PipelineGraph[]; stages: StageSummary[] | null; pipelineId: string | null; graphError: string | null }
+  | { kind: 'ready'; graphs: PipelineGraph[]; stages: StageSummary[] | null; flow: InvestigationFlow | null; pipelineId: string | null; graphError: string | null }
 
 function partialCount(envelope: Envelope): number {
   return envelope.capabilities?.capture?.partial_rows ?? 0
@@ -309,7 +313,8 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestKey])
 
-  // Scope stream: the run-union topology and the stored per-operator aggregates, once per scope.
+  // Scope stream: the run-union topology, the stored per-operator aggregates and the correct-document
+  // flow, once per scope. The flow is asked for by pipeline only: it always counts the whole run.
   const scopeKey = JSON.stringify([db, run, selection.pipeline, reloadTick])
   useEffect(() => {
     if (!db || !run) {
@@ -326,9 +331,13 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
       (envelope) => ({ stages: aggregateStages(envelope), pipelineId: envelope.scope.pipeline_id as string | null }),
       () => ({ stages: null, pipelineId: null }),
     )
-    Promise.all([graphs, aggregates]).then(([graph, aggregate]) => {
+    const flow = fetchInvestigationFlow(db, run, { pipeline_id: selection.pipeline }).then(
+      (envelope) => envelope.flow,
+      () => null,
+    )
+    Promise.all([graphs, aggregates, flow]).then(([graph, aggregate, counts]) => {
       if (mySequence !== scopeSequence.current) return
-      setScope({ kind: 'ready', graphs: graph.list, stages: aggregate.stages, pipelineId: aggregate.pipelineId, graphError: graph.error })
+      setScope({ kind: 'ready', graphs: graph.list, stages: aggregate.stages, flow: counts, pipelineId: aggregate.pipelineId, graphError: graph.error })
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scopeKey])
@@ -407,7 +416,11 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
       : mode === 'document-queries'
         ? journeyRows.find((row) => row.query_id === selection.query && (!selection.trace || row.trace_id === selection.trace)) ?? null
         : null
-  const highlight = selectedRow ? pathHighlight(selectedRow, graph) : null
+  const flow = scope.kind === 'ready' ? scope.flow : null
+  const stageNodeId = selection.stage ? (collapsed ? collapsedNodeId(selection.stage) : selection.stage) : null
+  const stageNode = stageNodeId && graph ? (collapsed ? collapseInvocations(graph) : graph).nodes.find((node) => node.node_id === stageNodeId) ?? null : null
+  const foldedFlow = foldFlow(flow, collapsed)
+  const diagramMode = graphMode(selectedRow, traceStages)
   const opTypes = new Map(graph?.nodes.map((node) => [node.node_id, node.op_type]) ?? [])
   const isSource = graph ? (opId: string) => opTypes.get(opId) === 'SOURCE' : undefined
 
@@ -540,13 +553,15 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
         )}
 
         <section aria-labelledby="investigate-graph-title" className="app-card space-y-2 p-4">
-          <div className="flex flex-wrap items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <h2 id="investigate-graph-title" className="text-sm font-semibold text-ink">
-              Pipeline {effectivePipeline ? <span className="font-mono">{effectivePipeline}</span> : null}
+              {diagramMode === 'path' ? `Path of ${selectedRow!.entity_id}` : diagramMode === 'question' ? 'One question' : 'Where correct documents go'}
             </h2>
-            {graph && (
+            {(effectivePipeline || graph) && (
               <span className="text-xs text-ink-muted">
-                {graph.trace_count} {graph.trace_count === 1 ? 'trace' : 'traces'} · {graph.complete_trace_count} complete
+                {effectivePipeline && <span className="font-mono">{effectivePipeline}</span>}
+                {effectivePipeline && graph && ' · '}
+                {graph && `${graph.trace_count} ${graph.trace_count === 1 ? 'question' : 'questions'}`}
               </span>
             )}
             {scope.kind === 'ready' && scope.graphError && <span className="text-xs text-ink-faint">topology unavailable: {scope.graphError}</span>}
@@ -558,10 +573,12 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
           ) : (
             <InvestigationGraph
               graph={graph}
-              stages={traceStages ?? aggregate}
-              mode={traceStages ? 'query' : 'aggregate'}
+              flow={flow}
+              stages={aggregate}
+              traceStages={traceStages}
+              focus={selectedRow}
+              k={ready.scope.k}
               selectedStageId={selection.stage}
-              highlight={highlight}
               collapsed={collapsed}
               onToggleCollapsed={() => setCollapsed((value) => !value)}
               onSelectStage={(opId) => select({ stage: opId })}
@@ -570,6 +587,9 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
           {selection.stage && (
             <OperatorInspector
               opId={selection.stage}
+              node={stageNode}
+              flowStep={flowStepOf(foldedFlow, stageNodeId ?? selection.stage)}
+              flow={foldedFlow}
               stage={traceStages?.find((stage) => stage.op_id === selection.stage) ?? null}
               aggregate={aggregate?.find((stage) => stage.op_id === selection.stage) ?? null}
             />
@@ -654,7 +674,7 @@ export default function InvestigateWorkspace({ onPipelines }: Props) {
 
   return (
     <main className="flex-1 overflow-auto p-4 sm:p-6" aria-labelledby="investigate-title">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1240px]">
         <header className="mb-4">
           <p className="eyebrow">Investigate</p>
           <h1 id="investigate-title" className="mt-1 text-xl font-semibold text-ink">
