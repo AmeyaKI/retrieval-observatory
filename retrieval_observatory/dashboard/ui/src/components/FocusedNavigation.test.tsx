@@ -10,7 +10,8 @@ vi.hoisted(() => {
 import ModeRail from './ModeRail'
 import MigrationNotice from './MigrationNotice'
 import { describeInvestigationError, OUTCOME_LABELS, pipelineIdsFromDetail } from './InvestigateWorkspace'
-import { pipelineIdsFromConfig } from './GlobalContextBar'
+import { pipelineIdsFromConfig, soleRun } from './GlobalContextBar'
+import type { Run } from '../api'
 import {
   applySelectionPatch,
   DashboardSelection,
@@ -352,5 +353,21 @@ describe('Investigate helpers', () => {
       expect(OUTCOME_LABELS[outcome].label.length).toBeGreaterThan(0)
       expect(['positive', 'negative', 'warning', 'neutral']).toContain(OUTCOME_LABELS[outcome].tone)
     }
+  })
+})
+
+describe('soleRun', () => {
+  const run = (run_id: string) => ({ run_id, experiment_name: run_id }) as unknown as Run
+
+  test('Investigate opens the only run of the selected database', () => {
+    expect(soleRun('investigate', 'scifact', null, 'scifact', [run('r1')])).toBe('r1')
+  })
+
+  test('nothing is picked when there is a choice, a run is chosen, or the list belongs to another database', () => {
+    expect(soleRun('investigate', 'demo', null, 'demo', [run('r1'), run('r2')])).toBeNull()
+    expect(soleRun('investigate', 'scifact', 'r9', 'scifact', [run('r1')])).toBeNull()
+    expect(soleRun('investigate', 'demo', null, 'scifact', [run('r1')])).toBeNull()
+    expect(soleRun('investigate', 'scifact', null, 'scifact', null)).toBeNull()
+    expect(soleRun('audit', 'scifact', null, 'scifact', [run('r1')])).toBeNull()
   })
 })
