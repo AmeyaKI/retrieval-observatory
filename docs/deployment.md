@@ -1,18 +1,11 @@
 # Hosted demo deployment
 
 retobs stays local-first. This page is the **optional** path that publishes a read-only
-dashboard of the committed BEIR sweep on Azure Container Apps. The operational record
+dashboard of committed demo data on Azure Container Apps. The operational record
 (maintainer commands, exposure checklist and results, cost, teardown) is
 [`deploy/README.md`](../deploy/README.md); this page explains what is hosted and why.
 
-**Live URL:** https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io (deployed 2026-09-14, Azure Container Apps, westus2).
-
-**Status: pending redeploy.** The deployed image serves the three BEIR databases baked for 0.6.0.
-They have no investigation tables (schema v3), so the 0.7.0 dashboard's Investigate views are
-empty for them and the pages they were built for (runs, production, comparison) are retired.
-Until the image is rebuilt with data that carries investigation rows (for example `retobs demo`
-output baked with `deploy/prepare_data.py demo=.retobs/demo/results.db`, and the Dockerfile's
-`COPY` and `RETOBS_DASHBOARD_DBS` updated to match), use `retobs demo` locally.
+**Live URL:** https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io (Azure Container Apps, westus2; first deployed 2026-09-14, rebuilt for the 0.8.0 dashboard on 2026-10-25).
 
 ## What is hosted
 
@@ -20,9 +13,18 @@ output baked with `deploy/prepare_data.py demo=.retobs/demo/results.db`, and the
   workflow from `deploy/Dockerfile`. No local Docker is needed.
 - Platform: Azure Container Apps, resource group `rg-retobs-demo`, region `westus2` (chosen to satisfy the subscription's allowed-regions policy),
   scale-to-zero, one replica.
-- Data: three SQLite databases baked into the image at `/data/` (nfcorpus `37d3a79c`,
-  scifact `49b423cf`, fiqa `0784ed30`), about 53 MB, prepared by `deploy/prepare_data.py`
-  and committed under `deploy/data/`.
+- Data: three SQLite databases, committed gzip-compressed under `deploy/data/` (about 3 MB)
+  and unpacked into the image at `/data/`:
+  - `scifact`: a real run, the one the site opens on. 300 SciFact test questions through
+    keyword search (BM25), vector search (all-MiniLM-L6-v2) and reciprocal-rank fusion, 20
+    candidates per step, scored at the top 10 (`deploy/scifact_hybrid.yaml`).
+  - `demo`: the built-in `retobs demo` baseline and repaired candidate, for compare mode and Audit.
+    The hosted site refuses path inputs, so Audit cannot load a release policy there and its
+    decision reads HOLD ("a release policy is required"); run `retobs demo` locally for the policy decision.
+  - `integration`: a small project wired through `retobs integrate` and verified, for Connect.
+
+  `deploy/prepare_data.py` migrates each one, makes build paths relative, indexes every run
+  for Investigate, and refuses any database that still holds an absolute path or an e-mail.
 - Mode: `RETOBS_READ_ONLY=1`. SQLite is opened `mode=ro`, files are `chmod 444`, the process
   runs as a non-root user, every mutating route returns 403, path-typed inputs are refused,
   and a per-IP rate limit (`RETOBS_RATE_LIMIT_PER_MINUTE`, default 300) is on.

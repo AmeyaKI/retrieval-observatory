@@ -1,0 +1,53 @@
+# The hosted demo's real-data run: SciFact (BEIR test split, 300 questions) through a
+# keyword + vector hybrid search with reciprocal-rank fusion: 20 candidates per step,
+# scored at the top 10.
+#
+#   HF_HUB_OFFLINE=1 retobs evaluate --config deploy/scifact_hybrid.yaml --db <dir>/scifact.db
+#
+# Then bake it with deploy/prepare_data.py (see deploy/README.md).
+experiment:
+  name: scifact-hybrid
+
+dataset:
+  type: beir
+  name: beir/scifact
+  split: test
+
+graphs:
+  - id: scifact-hybrid
+    nodes:
+      - id: keyword_search
+        type: adapter.bm25
+        op_type: SOURCE
+        config:
+          k: 20
+      - id: vector_search
+        type: adapter.hf_biencoder
+        op_type: SOURCE
+        config:
+          model: sentence-transformers/all-MiniLM-L6-v2
+          k: 20
+          batch_size: 64
+      - id: fusion
+        op: fuse
+        op_type: FUSE
+        inputs: [keyword_search, vector_search]
+        config:
+          rrf_k: 60
+          top_k: 20
+          fetch_k: 20
+
+metrics:
+  recall_at_k: [1, 5, 10]
+  ndcg_at_k: [10]
+  mrr: true
+  map: true
+
+execution:
+  concurrency: 1
+  timeout_seconds: 600
+  cache_results: false
+
+release_identity:
+  service_id: retobs-demo
+  embedding_model_revision: sentence-transformers/all-MiniLM-L6-v2

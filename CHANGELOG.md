@@ -7,8 +7,12 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+- `deploy/scifact_hybrid.yaml` — the hosted demo's real run: 300 SciFact test questions through keyword search, vector search and reciprocal-rank fusion (20 candidates per step, scored at the top 10), runnable offline from local caches.
 
 ### Changed
+- `dashboard/ui` (`GlobalContextBar.tsx`) — Investigate opens a database's only run by itself instead of the "Choose a run" prompt, so a link to a one-run database lands on its answer; it acts only while the address still names that database with no run.
+- `deploy/` — the hosted demo serves 0.8.0 data: the SciFact run (the site opens on it), the built-in demo (compare, Audit) and a verified integration (Connect), replacing the 0.6.0 BEIR databases, which had no traces for Investigate. `prepare_data.py` takes `name=path` sources and `--relative-to`, rewrites build paths to relative ones, indexes every run for Investigate, refuses a database that still holds an absolute path or e-mail address, and writes `deploy/data/<name>.db.gz` (about 3 MB instead of 53 MB), which the Dockerfile unpacks. `deploy_azure.sh` updates with a new revision suffix, so Azure pulls the re-pushed `:demo` tag; before, a re-run left the September image running.
+- `.github/workflows/demo-image.yml` — a pull request that changes the app or `deploy/` builds and smokes the image without pushing it; the smoke opens every baked run's questions and flow.
 
 ### Fixed
 - `integrations/_watch_hook.py` — on Python 3.13 the `sys.setprofile` path (forced, or when every `sys.monitoring` tool id is taken) recognises a generator or coroutine suspension, which 3.13 reports at the `RESUME` after `YIELD_VALUE`; an awaited step's return value was recorded as empty and a resumed coroutine lost its parent.
