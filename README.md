@@ -129,8 +129,9 @@ controls before exposing it. Read [privacy](docs/PRIVACY.md) and [security](SECU
 
 - [Start](docs/START.md) · [Workflow](docs/WORKFLOW.md) · [Concepts](docs/CONCEPTS.md) · [Reference](docs/REFERENCE.md)
 - [Guides](docs/guides/README.md) · [Architecture](docs/ARCHITECTURE.md) · [Known limitations](FUTURE_WORK.md)
-- Historical experiments (produced with 0.6.0 and earlier, not regenerated):
-  [BEIR benchmark results](results/RESULTS_OVERVIEW.md), [flagship case study](results/flagship_demo/CASE_STUDY.md)
+- Historical experiments (produced before 0.7.0, not regenerated):
+  [BEIR benchmark results](results/RESULTS_OVERVIEW.md), [flagship case study](results/flagship_demo/CASE_STUDY.md),
+  [pre-registered study of where pipelines lose found documents](results/study/STUDY.md) (provisional, 13 of 14 cells)
 - [Releases](https://github.com/AmeyaKI/retrieval-observatory/releases)
 
 License: [MIT](LICENSE).

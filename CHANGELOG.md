@@ -7,6 +7,7 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+- `results/study/STUDY.md` — the pre-registered study of where multi-stage pipelines lose gold documents they had already found, published as it stands: 13 of 14 cells from development builds `3011898` and `28bab6c` (between 0.6.0 and 0.7.0), HotpotQA (Q3) not run, headline provisional. Figures are the renderer's output from the committed cells at `29c67b8`; a status note and the reproduction steps (on that commit) were added by hand. Rerunning it on a current release is recorded in `FUTURE_WORK.md`.
 - `deploy/scifact_hybrid.yaml` — the hosted demo's real run: 300 SciFact test questions through keyword search, vector search and reciprocal-rank fusion (20 candidates per step, scored at the top 10), runnable offline from local caches.
 
 ### Changed
