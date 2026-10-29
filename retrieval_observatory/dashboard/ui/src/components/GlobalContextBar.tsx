@@ -2,7 +2,7 @@ import { KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { DemoContext, fetchDemoContext, fetchRuns, Run } from '../api'
 import { useDashboardContext } from '../context/DashboardContext'
 import { InvestigateView } from '../context/dashboardQuery'
-import { RouteTarget } from '../utils/focusedRoutes'
+import { parseFocusedHash, RouteTarget } from '../utils/focusedRoutes'
 import type { PipelineHint } from './InvestigateWorkspace'
 
 // Compact scope bar (master plan 2.2): database, run, and — inside Investigate — pipeline
@@ -25,6 +25,15 @@ export function pipelineIdsFromConfig(configJson: string | undefined | null): st
   } catch {
     return []
   }
+}
+
+/** The run Investigate opens by itself: the only run of the selected database, when none is chosen.
+ * With one run there is nothing to choose, and an empty prompt would be the first thing a visitor
+ * sees. `runsDb` is the database the loaded runs belong to, so a list still loading for the
+ * previous database never picks a run. */
+export function soleRun(workspace: RouteTarget, db: string | null, run: string | null, runsDb: string | null, runs: Run[] | null): string | null {
+  if (workspace !== 'investigate' || !db || run || runsDb !== db || runs?.length !== 1) return null
+  return runs[0].run_id
 }
 
 export function runLabel(run: Run): string {
@@ -86,6 +95,7 @@ interface Props {
 export default function GlobalContextBar({ workspace, pipelineHint }: Props) {
   const { selection, databases, updateSelection } = useDashboardContext()
   const [runs, setRuns] = useState<Run[] | null>(null)
+  const [runsDb, setRunsDb] = useState<string | null>(null)
   const [runsError, setRunsError] = useState<string | null>(null)
   const [demo, setDemo] = useState<DemoContext | null>(null)
   const db = selection.db
@@ -97,7 +107,9 @@ export default function GlobalContextBar({ workspace, pipelineHint }: Props) {
     if (!db) return
     fetchRuns(db)
       .then((list) => {
-        if (!cancelled) setRuns(list)
+        if (cancelled) return
+        setRuns(list)
+        setRunsDb(db)
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -129,6 +141,15 @@ export default function GlobalContextBar({ workspace, pipelineHint }: Props) {
     demo && db && ((demo.db_id && demo.db_id === db) || (demo.db_path && selectedDb?.path === demo.db_path)),
   )
   const run = selection.run
+  const autoRun = soleRun(workspace, db, run, runsDb, runs)
+  useEffect(() => {
+    if (!autoRun) return
+    // Only while the address itself still shows this database with no run: during a navigation
+    // the bar can render once with the previous page's selection, and writing that back would
+    // undo the navigation.
+    const current = parseFocusedHash(window.location.hash).selection
+    if (current.db === db && !current.run) updateSelection({ run: autoRun }, 'replace')
+  }, [autoRun, db, updateSelection])
   const selectedRun = runs?.find((r) => r.run_id === run)
   const runKnown = !run || runs === null || Boolean(selectedRun)
 

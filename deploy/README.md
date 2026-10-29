@@ -1,7 +1,8 @@
 # Hosted demo: read-only dashboard on Azure Container Apps
 
-The public URL serves the retobs dashboard over three baked SQLite databases (the BEIR
-sweep: nfcorpus, scifact, fiqa). Nothing on the instance is writable. This file is the
+The public URL serves the retobs dashboard over three baked SQLite databases: a real SciFact
+run (`scifact`, the one the site opens on), the built-in demo (`demo`, for compare and Audit), and
+a verified integration (`integration`, for Connect). Nothing on the instance is writable. This file is the
 operational record: what a maintainer runs, what was checked before exposure, and the results.
 
 ## What a maintainer runs
@@ -21,8 +22,10 @@ Two authenticated steps. Everything else is scripted or automated.
    ```
 
    The script creates the resource group, the Container Apps environment, and the app (or
-   updates the image if the app exists), then polls `/healthz` until it returns
-   `"read_only": true` and prints the URL. Re-run it after every image rebuild to roll forward.
+   updates the image if the app exists, with a new revision suffix so Azure pulls the
+   re-pushed `:demo` tag), then polls `/healthz` until it returns `"read_only": true` and prints
+   the URL. Re-run it after every image rebuild to roll forward; to pin a build, set
+   `RETOBS_DEMO_IMAGE=ghcr.io/ameyaki/retrieval-observatory:demo-<commit sha>`.
 
 Then paste the URL into the `Hosted demo` line at the top of `README.md` and into
 `docs/deployment.md`.
@@ -33,21 +36,31 @@ Then paste the URL into the `Hosted demo` line at the top of `README.md` and int
 curl -fsS "https://<fqdn>/healthz"
 # {"status":"ok","read_only":true,"databases":3}
 curl -fsS "https://<fqdn>/dbs"
-# three databases; "path" is a basename, never a container path
+# scifact, demo, integration; "path" is a basename, never a container path
 ```
 
 ## Rebuilding the data
 
-The container opens every database with SQLite `mode=ro`, so the schema must be complete before
-the image is built. `deploy/prepare_data.py` copies each source, migrates it once writable, proves
-it opens read-only, and marks it `chmod 444`. The baked files are committed under `deploy/data/`
-so CI can build the image without local state.
+The container opens every database with SQLite `mode=ro`, so each one must be complete before
+the image is built. `deploy/prepare_data.py` copies each source, migrates it once writable,
+rewrites absolute build paths to relative ones, indexes every run for Investigate, refuses the
+database if any absolute path or e-mail address is left, proves it opens read-only, and writes it
+gzip-compressed to `deploy/data/<name>.db.gz`. The Dockerfile unpacks them into `/data/` and
+marks them `chmod 444`. The baked files are committed so CI can build the image without local
+state. No step needs a network: the SciFact data and the small vector model come from local caches.
 
 ```bash
-python deploy/prepare_data.py                       # from .retobs/publish_sweep_*.db
-python deploy/prepare_data.py study=results/study/results.db   # Phase B: the study database
-git add deploy/data && git commit -m "Rebake demo data"
+DIR=/tmp/retobs-hosted
+python tests/browser/seed_e2e.py "$DIR"                 # built-in demo + a verified integration, model-free
+HF_HUB_OFFLINE=1 retobs evaluate --config deploy/scifact_hybrid.yaml --db "$DIR/scifact.db"   # about 20 s
+python deploy/prepare_data.py scifact="$DIR/scifact.db" demo="$DIR/demo/demo.db" \
+  integration="$DIR/project/.retobs/results.db" --relative-to "$DIR/project" --relative-to "$DIR"
+git add deploy/data && git commit -m "deploy: rebake demo data"
 ```
+
+The SciFact run needs the BEIR SciFact files and `sentence-transformers/all-MiniLM-L6-v2`
+cached locally; drop `HF_HUB_OFFLINE=1` once to fetch the model (about 90 MB). A pull request
+that changes `deploy/` builds the image and checks that every baked run opens in Investigate.
 
 ## Public-exposure checklist (run 2026-09-10 against the baked databases)
 
@@ -64,7 +77,7 @@ coverage lives in `tests/unit/test_dashboard_read_only.py`.
 | 5 | Every query parameter is validated | PASS: ints and bools are type-checked by FastAPI; `limit`, `offset`, `k` are bounded (422 outside range); `since`, `until`, `baseline`, `recent` must parse as ISO-8601 (422, previously 500) |
 | 6 | Static assets cannot escape their directory; unknown paths get the SPA index, not files | PASS: raw ASGI requests for `/assets/../../../../etc/passwd` and the URL-encoded form return 404; `/etc/passwd` returns `index.html` |
 | 7 | Per-IP rate limiting | PASS: 300 requests per minute per client, keyed on the first `X-Forwarded-For` hop set by the Azure ingress; 429 with `Retry-After`. Azure Container Apps has no free-tier request throttling, so this is middleware |
-| 8 | Image contains no `.env`, credentials, or non-demo data | PASS: `.dockerignore` excludes `.env`, `.retobs/`, `results/`, `dist/`, `artifacts/`, `*.jsonl`, `*.png`, `.git`; the only data copied in is `deploy/data/*.db` |
+| 8 | Image contains no `.env`, credentials, or non-demo data | PASS: `.dockerignore` excludes `.env`, `.retobs/`, `results/`, `dist/`, `artifacts/`, `*.jsonl`, `*.png`, `.git`; the only data copied in is `deploy/data/*.db.gz` (2026-10-25: also baked with no absolute path or e-mail left, enforced by `prepare_data.py`) |
 | 9 | `/dbs` does not reveal container filesystem paths | PASS: basenames only in read-only mode |
 | 10 | Local behaviour unchanged | PASS: with `RETOBS_READ_ONLY` unset the store opens writable, no rate limit, no 403s; full suite green |
 

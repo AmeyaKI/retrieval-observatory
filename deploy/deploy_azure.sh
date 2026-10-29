@@ -31,7 +31,10 @@ fi
 
 echo "==> container app $APP from $IMAGE"
 if az containerapp show --name "$APP" --resource-group "$RG" --output none 2>/dev/null; then
-  az containerapp update --name "$APP" --resource-group "$RG" --image "$IMAGE" --output none
+  # A new revision suffix makes Azure pull the image again: `:demo` is re-pushed under the same
+  # tag, and an update that names an unchanged image creates no new revision.
+  az containerapp update --name "$APP" --resource-group "$RG" --image "$IMAGE" \
+    --revision-suffix "r$(date -u +%Y%m%d%H%M%S)" --output none
 else
   az containerapp create \
     --name "$APP" --resource-group "$RG" --environment "$ENV_NAME" \

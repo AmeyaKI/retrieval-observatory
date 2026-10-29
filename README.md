@@ -2,10 +2,12 @@
 
 [PyPI](https://pypi.org/project/retrieval-observatory/) · [Docs](docs/START.md) · [Migrating from 0.6](docs/guides/migrating-to-focused-retobs.md)
 
-**Hosted demo:** pending redeploy. The read-only dashboard at
+**Hosted demo:** a read-only dashboard at
 [retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io](https://retobs-demo.happywater-562fb4f3.westus2.azurecontainerapps.io)
-still serves the 0.6.0 databases, which predate the Investigate views; run the demo below
-locally until it is rebuilt. See [deployment](docs/deployment.md).
+opens on a real run: 300 SciFact questions through keyword search, vector search and fusion,
+showing which step loses each correct document. It also carries the built-in demo for compare
+and Audit, and a verified integration for Connect. The first visit after idle takes a few
+seconds to wake. See [deployment](docs/deployment.md).
 
 A relevant document goes missing somewhere in a multi-stage retrieval pipeline. Recall drops,
 and nobody can say which operator dropped it: the retriever never found it, a filter removed it,
