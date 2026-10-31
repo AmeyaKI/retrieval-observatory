@@ -38,6 +38,9 @@ stated as fact; anything carried over from earlier reports and not re-verified i
 
 ## Counterfactual replay
 
+Removed in 0.7.0 (see `docs/guides/migrating-to-focused-retobs.md`); the notes below describe the
+0.6.x implementation that produced the study's §5 figures.
+
 - Replay is strict: whenever a removed operator's child would have to decide on documents it never
   observed, the result is `indeterminate`. This makes some upstream removals (for example a source
   arm feeding a fusion whose top-k cut hides documents from a downstream reranker) indeterminate by
@@ -45,6 +48,24 @@ stated as fact; anything carried over from earlier reports and not re-verified i
 - Replay tiers are assigned per operator type by the runner (`pipeline/dag.py::DEFAULT_REPLAY_POLICY`),
   not learned from the adapter; an adapter that is in fact deterministic is still OBSERVED_ABLATION
   unless the spec overrides `replay_policy`.
+
+## Research study
+
+[`results/study/STUDY.md`](results/study/STUDY.md) is published as it stands: 13 of 14 pre-registered
+cells, produced by development builds between 0.6.0 and 0.7.0, with the HotpotQA cell (Q3) never run
+and the Q1 headline therefore provisional. Its scripts import modules removed in 0.7.0, so it cannot
+be rerun on a current release. Updating it means:
+
+- Port `scripts/study_loss_attribution.py` and `scripts/render_study.py` to the current lineage model:
+  the per-step counts of correct documents found, removed and lost that back Investigate's flow view
+  (`GET /dbs/{db}/investigation/runs/{run}/flow`) measure the same thing as the study's destroyed /
+  surfaced / never-surfaced split.
+- Decide §5 (marginal contributions by replay tier): counterfactual replay no longer exists, so
+  either restore it or drop the section, through a dated amendment to `PREREGISTRATION.md` before
+  any cell is rerun.
+- Rerun all 14 cells on one current build, including `hotpotqa__hotpot_routed`, then re-render and
+  replace the provisional headline with the pre-registered result (or report it as null or against
+  expectation in the same place).
 
 ## Benchmarks
 
