@@ -58,8 +58,8 @@ attribution and counterfactual replay), so it cannot be rerun on a current relea
 - `results/BENCHMARK_ANALYSIS.md` was measured on 0.1.0 and has not been rerun on a current release.
 - The BEIR sweep covers three CPU-oriented subsets. GPU-served encoders, multilingual corpora and
   production-scale indexes are unmeasured.
-- The Cohere rerank sweep completed 155 of 323 queries and should be rerun with `--no-cache` before
-  conclusions are drawn from it.
+- The Cohere rerank sweep completed 155 of 323 queries and should be rerun with `execution.cache_results: false`
+  before conclusions are drawn from it.
 
 ## Flagship demo
 
