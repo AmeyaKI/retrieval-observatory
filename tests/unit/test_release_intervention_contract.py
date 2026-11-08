@@ -1,12 +1,12 @@
 """Release comparability must permit a declared, legitimate model change.
 
-Recorded in T01 as the regression input for T15. Two runs share identical
-query/corpus/qrel identity, labeling, attempt counts, and metric values; they
-differ only in ``release_identity.reranker_model_revision`` — the intended
-experimental intervention. Blanket revision equality once turned this into a
-``release_identity_mismatch`` BLOCK. T15 replaced it with the evaluation-invariant /
-declared-intervention split: the change is recorded provenance that never blocks
-on its own, HOLDs for review until the policy declares it, and can PASS once declared.
+Two runs share identical query/corpus/qrel identity, labeling, attempt counts,
+and metric values; they differ only in ``release_identity.reranker_model_revision``
+— the intended experimental intervention. Blanket revision equality would turn
+this into a ``release_identity_mismatch`` BLOCK. The evaluation-invariant /
+declared-intervention split instead treats the change as recorded provenance that
+never blocks on its own, HOLDs for review until the policy declares it, and can
+PASS once declared.
 """
 
 from __future__ import annotations

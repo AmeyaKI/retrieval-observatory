@@ -11,10 +11,10 @@ from retrieval_observatory.types import PipelineResult, Query
 
 _logger = logging.getLogger("retrieval_observatory")
 
-# Shared benchmark execution core used by BOTH the CLI (`retobs run`) and the Python SDK
-# (`retrieval_observatory.benchmark`). Keeping a single executor guarantees that both paths
-# produce identical artifacts and write the same query lineage (save_run_queries + manifest),
-# which the Test Sets -> Benchmark -> Production -> Findings join depends on.
+# Shared benchmark execution core used by the CLI (`retobs evaluate --config`, `retobs demo`)
+# and the Python SDK (`retrieval_observatory.benchmark`, `run_from_config`). Keeping a single
+# executor guarantees that every path produces identical artifacts and writes the same query
+# lineage (save_run_queries + manifest), which per-query inspection and run comparison read.
 
 
 @dataclass

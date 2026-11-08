@@ -1025,7 +1025,7 @@ def _cross_run_entity_alignment(traces: Sequence[RetrievalTrace]) -> Dict[str, A
 def verify_observed_traces(
     manifest: IntegrationManifest, traces: Sequence[RetrievalTrace], *, db_path: str | None = None, project_root=None
 ) -> IntegrationResult:
-    """Report every capability of master plan section 3.5 from the observed traces.
+    """Report every capability in ``CAPABILITY_NAMES`` from the observed traces.
 
     Matching the agent-authored manifest is only a structural check: graph invariants, actual
     boundary snapshots, candidate and query identity and the final boundary are verified from the

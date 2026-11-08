@@ -13,7 +13,7 @@ def test_custom_dataset_preserves_query_and_corpus_metadata(tmp_path):
             {
                 "query_id": "q1",
                 "text": "fresh policy",
-                "metadata": {"tenant": "acme"},
+                "metadata": {"tenant": "example-tenant"},
                 "tags": ["temporal"],
                 "relevant_doc_ids": {"d1": 2},
                 "temporal_anchor": "2024-01-03T00:00:00",
@@ -43,7 +43,7 @@ def test_custom_dataset_preserves_query_and_corpus_metadata(tmp_path):
     )
     queries, qrels = dataset.load()
 
-    assert queries[0].metadata["tenant"] == "acme"
+    assert queries[0].metadata["tenant"] == "example-tenant"
     assert queries[0].metadata["tags"] == ["temporal"]
     assert qrels["q1"] == {"d2": 1}
     assert dataset.corpus_documents["d1"].title == "Policy"

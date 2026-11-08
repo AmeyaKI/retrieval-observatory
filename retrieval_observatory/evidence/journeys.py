@@ -5,7 +5,7 @@ One ``JourneyEvent`` per (FIRED invocation, candidate id) and one ``JourneyRow``
 event is a candidate present in an input group and absent from a completely captured output;
 an ``unknown`` event is the same observation across an incomplete boundary, and no reason is
 asserted for it. Membership at the final boundary, judgment and capture completeness stay
-separate fields (``docs/rebuild/EVIDENCE_CONTRACT.md``).
+separate fields (``docs/EVIDENCE_AND_TRUST.md``).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-// Shared op-type visual language (RETOBS_FINER_PLAN_PHASE2.md, Item B step 7). Extracted
+// Shared op-type visual language. Extracted
 // from PipelineDagView.tsx so every place that shows an operator -- the architecture DAG,
 // candidate flow panel, attribution grid, query timeline -- colors a RERANK node the same
 // way. Do not fork this map; import it.

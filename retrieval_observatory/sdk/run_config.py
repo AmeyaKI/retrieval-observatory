@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Union
 from retrieval_observatory.sdk.report import BenchmarkReport, _run_sync
 
 # Config-first entry point. Takes an ``ExperimentConfig``-shaped dict/JSON (adapter specs, not
-# live Python objects) and routes it through the same shared executor as ``retobs run`` and
+# live Python objects) and routes it through the same shared executor as ``retobs evaluate`` and
 # ``retrieval_observatory.benchmark``. This is the single reusable seam the REST layer and MCP
 # server both call: pipelines expressed as configuration, runnable over the wire.
 
@@ -23,13 +23,13 @@ def run_from_config(
 ) -> BenchmarkReport:
     """Run a benchmark from an ``ExperimentConfig``-shaped dict (or an ExperimentConfig).
 
-    ``config`` is JSON/dict of the same shape as a ``retobs run`` YAML file — an experiment
+    ``config`` is JSON/dict of the same shape as a ``retobs evaluate --config`` YAML file — an experiment
     with a dataset and one or more pipelines built from adapter specs (``adapter.bm25``,
     ``adapter.http``, ``adapter.rrf``, dense, ...). ``max_queries`` caps the query count for
     bounded/quick runs (used by the MCP tools and the REST ``wait=true`` mode); when set it also
     overrides ``dataset.max_queries``. ``db_path`` overrides the config's output db path.
     ``config_base_dir`` resolves relative dataset paths and adds the directory to ``sys.path``
-    for ``adapter.import`` factories (same behavior as ``retobs run --config``).
+    for ``adapter.import`` factories (same behavior as ``retobs evaluate --config``).
 
     Returns a :class:`BenchmarkReport`, identical to what ``benchmark()`` returns.
     """

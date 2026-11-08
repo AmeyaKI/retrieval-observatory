@@ -10,7 +10,7 @@ def _docs(ids):
 
 
 def test_monolith_emits_per_stage_snapshots(tmp_path):
-    """A wrapped monolith returning list[StageSnapshot] yields per-stage metrics (Phase 2)."""
+    """A wrapped monolith returning list[StageSnapshot] yields per-stage metrics."""
 
     def monolith(query: str):
         # Stage 0 (candidate gen) finds the gold doc; stage 1 (rerank) drops it.

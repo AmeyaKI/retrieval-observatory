@@ -1,4 +1,4 @@
-// URL scope for the focused dashboard (master plan 2.3). The hash query string is the
+// URL scope for the focused dashboard. The hash query string is the
 // single source of truth: every field round-trips through parse/serialize, keys are
 // written in one fixed order, and changing a parent scope (db, run) clears the fields
 // that only mean something inside it (applySelectionPatch). `compare` names the baseline

@@ -145,7 +145,7 @@ class FunctionRetriever:
         start = time.perf_counter()
         raw = await _call(self._fn, query.text)
         # A monolithic pipeline can report its own per-stage breakdown; pass it straight through
-        # so SingleStagePipeline preserves per-stage snapshots (Phase 2).
+        # so SingleStagePipeline preserves per-stage snapshots.
         if isinstance(raw, PipelineResult) or (
             isinstance(raw, list) and raw and all(isinstance(s, StageSnapshot) for s in raw)
         ):

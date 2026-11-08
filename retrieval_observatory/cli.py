@@ -219,7 +219,7 @@ def run(
     latency_budget_ms: Optional[int] = typer.Option(None, "--latency-budget-ms", help="Latency budget per query in ms. If set, prints a verdict against stage deltas."),
 ) -> None:
     """Deprecated alias for `retobs evaluate --config`."""
-    console.print("[yellow]Deprecated:[/yellow] use `retobs evaluate --config <path>` (`run` is ).")
+    console.print("[yellow]Deprecated:[/yellow] use `retobs evaluate --config <path>`.")
     asyncio.run(_run(config, skip_smoke_test, no_cache, latency_budget_ms))
 
 
@@ -238,7 +238,6 @@ async def _run(config_path: Path, skip_smoke_test: bool, no_cache: bool = False,
         cfg = ExperimentConfig.from_yaml(str(config_path))
     except Exception as e:
         console.print(f"[red]Cannot parse config {config_path}: {e}[/red]")
-        console.print("[dim]Run [bold]retobs validate --config <path>[/bold] for a detailed config check.[/dim]")
         raise typer.Exit(1)
     from retrieval_observatory.config.runtime import prepare_config_runtime
 
@@ -1118,7 +1117,7 @@ def inspect(
     db_path: str = typer.Option(".retobs/results.db", "--db", "--db-path"),
 ) -> None:
     """Deprecated alias for `retobs inspect-query`."""
-    console.print("[yellow]Deprecated:[/yellow] use `retobs inspect-query RUN QUERY` (`inspect` is ).")
+    console.print("[yellow]Deprecated:[/yellow] use `retobs inspect-query RUN QUERY`.")
     asyncio.run(_inspect(run_id, query_id, pipeline_id, db_path))
 
 
@@ -1256,7 +1255,7 @@ def init(
 
     output.write_text(_starter_config_yaml(mode))
     console.print(f"[green]Wrote config:[/green] {output}")
-    console.print(f"  Run [bold]retobs validate --config {output}[/bold] to check for issues before running.")
+    console.print(f"  Run [bold]retobs evaluate --config {output}[/bold] to evaluate it.")
 
     if sample_dataset and mode in {"custom-jsonl", "http-endpoint", "bm25+dense", "bm25+reranker"}:
         data_dir = output.parent / "retobs_sample_data"
@@ -1290,17 +1289,17 @@ def _starter_config_yaml(mode: str) -> str:
     """Return a starter YAML config string with inline explanatory comments."""
     if mode == "reliability-demo":
         return """\
-# Starter config for the retobs reliability demo Test Sets dataset.
-# Run: retobs demo  then point these paths at .retobs/demo/forge_dataset/
+# Starter config for a BM25 reliability evaluation over your own JSONL dataset.
+# Point the dataset paths at your files, then run: retobs evaluate --config <this file>
 
 experiment:
-  name: my-forge-stress-eval
+  name: my-reliability-eval
 
 dataset:
   type: custom
   name: custom
-  queries_path: .retobs/demo/forge_dataset/queries.jsonl
-  corpus_path: .retobs/demo/forge_dataset/corpus.jsonl
+  queries_path: data/queries.jsonl
+  corpus_path: data/corpus.jsonl
 
 stages:
   bm25:
@@ -1319,7 +1318,7 @@ metrics:
 
 output:
   store: sqlite
-  db_path: .retobs/demo/results.db
+  db_path: .retobs/results.db
 """
 
     if mode == "beir":

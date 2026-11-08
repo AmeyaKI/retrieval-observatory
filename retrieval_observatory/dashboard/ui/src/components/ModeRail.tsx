@@ -3,7 +3,7 @@ import { useTheme } from '../hooks/useTheme'
 export type Mode = 'investigate' | 'connect' | 'audit'
 export type ShellMode = Mode | 'help'
 
-/** Exactly three feature destinations (master plan 2.2); Help and theme are utilities. */
+/** Exactly three feature destinations; Help and theme are utilities. */
 export const PRIMARY_MODES: Array<{ id: Mode; label: string; icon: string }> = [
   { id: 'investigate', label: 'Investigate', icon: '⌕' },
   { id: 'connect', label: 'Connect', icon: '⊸' },

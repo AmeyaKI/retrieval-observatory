@@ -5,7 +5,7 @@ import { InvestigateView } from '../context/dashboardQuery'
 import { parseFocusedHash, RouteTarget } from '../utils/focusedRoutes'
 import type { PipelineHint } from './InvestigateWorkspace'
 
-// Compact scope bar (master plan 2.2): database, run, and — inside Investigate — pipeline
+// Compact scope bar: database, run, and — inside Investigate — pipeline
 // and the Questions | Documents view (`view=queries` in the URL). Every control writes the URL through updateSelection.
 
 export const VIEW_TABS: Array<{ id: InvestigateView; label: string }> = [

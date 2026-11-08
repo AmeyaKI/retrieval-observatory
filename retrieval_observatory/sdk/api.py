@@ -9,7 +9,7 @@ from retrieval_observatory.sdk.wrappers import FunctionRetriever, as_retriever
 if TYPE_CHECKING:
     from retrieval_observatory.release.policy import ReleasePolicy
 
-# Code-first entry point. Mirrors `retobs run` but takes live Python objects instead of YAML,
+# Code-first entry point. Mirrors `retobs evaluate --config` but takes live Python objects instead of YAML,
 # routing through the same shared executor so artifacts + query lineage are identical.
 
 PipelineInput = Union[Any, Sequence[Any]]

@@ -1,4 +1,4 @@
-"""Auto-instrumentation POC (RETOBS_FINER_PLAN_PHASE2.md, Item E). Requires langchain-core,
+"""Experimental LangChain auto-instrumentation. Requires langchain-core,
 which is part of this repo's dev extras (langchain), so this test is skipped rather than
 failing hard if it's absent."""
 from __future__ import annotations

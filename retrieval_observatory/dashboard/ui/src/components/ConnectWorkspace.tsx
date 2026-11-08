@@ -3,7 +3,7 @@ import { CAPABILITY_NAMES, CapabilityReport, fetchIntegration, fetchIntegrations
 import { useDashboardContext } from '../context/DashboardContext'
 import { buildHash, investigateLink } from '../utils/focusedRoutes'
 
-// Connect: the concise empty state (master plan 3.1). One install line, the one-sentence
+// Connect: the concise empty state. One install line, the one-sentence
 // agent request, the manual path, the known databases, and what gets captured. With a
 // database selected it also lists that database's verified integrations, and with one
 // selected (URL `integration=`) it shows the record read-only: the exact local setup, the

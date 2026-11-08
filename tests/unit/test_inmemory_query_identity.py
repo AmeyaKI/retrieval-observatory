@@ -4,7 +4,7 @@ from retrieval_observatory.datasets.inmemory import InMemoryDataset
 
 
 def test_content_stable_id_for_string_queries():
-    # Item 0: two separate calls with the same query text (e.g. two runs against the same
+    # Two separate calls with the same query text (e.g. two runs against the same
     # in-memory list) must produce the same fallback query_id -- unlike the old positional
     # f"q{i}" fallback, which aliases unrelated queries whenever the list is reordered.
     ds_a = InMemoryDataset(["what is retrieval", "how does fusion work"])

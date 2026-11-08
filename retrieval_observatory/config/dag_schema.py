@@ -1,8 +1,8 @@
 """Declarative DAG config schema for complex RAG pipelines.
 
 Allows users to define operator DAGs declaratively (YAML/JSON) for simulation
-and benchmark execution. This is the mid-term goal from Phase 8 — the near-term
-path remains ``@observe`` and remote ingest for production pipelines.
+and benchmark execution. For an existing pipeline, ``@observe`` and trace ingest
+record the real operators instead.
 """
 from __future__ import annotations
 

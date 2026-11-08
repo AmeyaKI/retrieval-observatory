@@ -3,17 +3,15 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-# Auto-instrumentation proof of concept (RETOBS_FINER_PLAN_PHASE2.md, Item E): patches
-# LangChain's BaseRetriever.invoke at the class level so every retriever call is traced
-# automatically -- no per-call site needs `callbacks=[cb]` or an `@observe`-wrapped
-# function, matching the vision's "the fewer manual callbacks users write, the more likely
-# they are to adopt" goal.
+# Experimental auto-instrumentation: patches LangChain's BaseRetriever.invoke at the class
+# level so every retriever call is traced automatically -- no per-call site needs
+# `callbacks=[cb]` or an `@observe`-wrapped function.
 #
-# This is global, process-wide monkeypatch state -- exactly the kind of surprising
-# behavior the Trust principle warns against. It is therefore never applied at import
-# time: it only activates when `auto_instrument("langchain")` is called explicitly, and
-# `stop_auto_instrument()` restores the original method. See
-# docs/guides/auto-instrumentation.md for the trade-off writeup.
+# This is global, process-wide monkeypatch state, which is surprising behavior for a
+# library. It is therefore never applied at import time: it only activates when
+# `auto_instrument("langchain")` is called explicitly, and `stop_auto_instrument()`
+# restores the original method. See docs/guides/experimental/auto-instrumentation.md for
+# the trade-offs.
 
 _original_invoke: Optional[Any] = None
 _original_ainvoke: Optional[Any] = None
@@ -106,7 +104,7 @@ def _patch_langchain() -> None:
 
 def auto_instrument(framework: str) -> None:
     """Globally auto-trace every retriever call for `framework`, with zero per-call-site
-    code. Currently supports only "langchain" (proof of concept -- see module docstring
+    code. Currently supports only "langchain" (experimental -- see module docstring
     for the global-state trade-off this makes). Must be called explicitly; never applied
     as an import-time side effect.
     """

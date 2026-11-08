@@ -1,4 +1,4 @@
-"""Verify reports every capability of master plan section 3.5 from observed evidence, not from
+"""Verify reports every integration capability from observed evidence, not from
 the agent-authored manifest: fabricated links, reused invocations, missing actual inputs and
 unobserved declared routes are named precisely, and a limitation is not a failure."""
 from __future__ import annotations
