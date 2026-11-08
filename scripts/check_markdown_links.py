@@ -9,9 +9,9 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 HEADING = re.compile(r"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*$")
-SKIP_PARTS = {".git", ".venv", "node_modules", ".archive", "superpowers", "verification", "retobs_audit_remediation"}
+SKIP_PARTS = {".git", ".venv", "node_modules", ".archive", "superpowers", "verification"}
 # Local-only files (gitignored) checked when present, skipped silently otherwise.
-OPTIONAL = ("RETOBS_MASTER_PLAN.md",)
+OPTIONAL: tuple[str, ...] = ()
 # Pages other surfaces link to by path (the dashboard's migration notice, the README).
 REQUIRED = (
     "docs/guides/investigate-your-pipeline.md",

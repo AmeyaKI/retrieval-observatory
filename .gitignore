@@ -26,9 +26,6 @@ TODO
 # Docs (project-specific)
 *.md
 !README.md
-!RESULTS.md
-!GOALS.md
-!CLAUDE.md
 !results/**/*.md
 !CHANGELOG.md
 !YAML_GUIDE.md
@@ -45,11 +42,6 @@ TODO
 # Packaged agent runbook ships in the wheel
 !retrieval_observatory/examples/agent_integration/**/*.md
 
-# Keep internal / work-in-progress docs untracked
-retobs_audit_remediation/
-docs/PRODUCT_AUDIT_AND_REDESIGN.md
-docs/verification/
-
 
 # local data / files
 .retobs/
@@ -58,16 +50,9 @@ docs/verification/
 .archive/
 .prompts/
 .claude/
+.context/
 *.png
 artifacts/
-scripts/export_session.py
 *.jsonl
 # External-project fixture data is part of the test suite
 !tests/external_projects/*/data/*.jsonl
-
-# Never publish: internal planning docs, hand-offs, and raw agent session logs.
-# These are local-only. Do not add a "!" allowlist entry for anything below.
-HANDOFF.md
-docs/superpowers/
-SESSION_FLAGSHIP_DEMO.md
-SESSION_FLAGSHIP_DEMO.jsonl

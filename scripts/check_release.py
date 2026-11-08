@@ -55,11 +55,12 @@ WHEEL_RETIRED_FILES = {
     "retrieval_observatory/analysis/loss_attribution.py",
     "retrieval_observatory/analysis/service.py",
 }
-#: Local-only material (the "never publish" block of .gitignore, plus local data and caches).
+#: Local-only material: working notes (upper-case plan, brief, hand-off and session files), local
+#: data, caches and tool directories.
 LOCAL_ONLY = re.compile(
-    r"(^|/)(RETOBS_MASTER_PLAN[^/]*|HANDOFF[^/]*|STUDY_BRIEF[^/]*|[A-Z_]*SESSION[^/]*|SHIP_PLAN[^/]*|BREAKDOWN\.md"
-    r"|CLOUD_DEPLOY_BRIEF[^/]*|TODO|\.env|\.DS_Store|export_session\.py|[^/]*\.db|[^/]*\.pyc|[^/]*\.bak-[^/]*)$"
-    r"|(^|/)(\.retobs|\.claude|\.prompts|\.archive|__pycache__|node_modules|artifacts)/"
+    r"(^|/)([A-Z0-9_]*(PLAN|BRIEF|HANDOFF|SESSION|BREAKDOWN)[A-Z0-9_]*\.(md|jsonl|txt)"
+    r"|TODO|\.env|\.DS_Store|[^/]*\.db|[^/]*\.pyc|[^/]*\.bak-[^/]*)$"
+    r"|(^|/)(\.retobs|\.claude|\.prompts|\.archive|\.context|__pycache__|node_modules|artifacts)/"
     r"|(^|/)docs/(rebuild|superpowers|verification)/|(^|/)results/study/"
 )
 #: Top-level entries a setuptools sdist of this project may contain.
