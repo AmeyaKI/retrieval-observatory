@@ -19,7 +19,7 @@ guide describes.
 ```text
 examples/integrations/manual_class_pipeline/
 ├── retrievers.py   # KeywordRetriever.search, DenseRetriever.search   → two SOURCE spans
-├── fusion.py       # rrf_merge                                        → one FUSE span
+├── fusion.py       # reciprocal_rank_fusion                           → one FUSE span
 ├── rerank.py       # OverlapReranker.rerank                           → one RERANK span
 └── pipeline.py     # SearchService.search                             → the traced entrypoint
 ```
@@ -39,7 +39,7 @@ method with `self` first works unchanged. From `pipeline.py`:
 ```python
 from retrieval_observatory.sdk.observe import trace_scope
 
-from fusion import rrf_merge
+from fusion import reciprocal_rank_fusion
 from rerank import OverlapReranker
 from retrievers import DenseRetriever, KeywordRetriever
 
@@ -58,7 +58,7 @@ class SearchService:
     def search(self, query: str) -> list[dict]:
         keyword_hits = self.keyword.search(query, k=10)
         dense_hits = self.dense.search(query, k=10)
-        fused = rrf_merge([keyword_hits, dense_hits], rrf_k=60)
+        fused = reciprocal_rank_fusion([keyword_hits, dense_hits], rrf_k=60)
         return self.reranker.rerank(query, fused, k=5)
 ```
 
@@ -109,7 +109,7 @@ module, as long as they ran earlier in the same entrypoint call. From `fusion.py
 
 ```python
 @observe("FUSE", op_id="rrf", parent_ids=("keyword", "dense"), deterministic=True, replay_policy="EXACT")
-def rrf_merge(lanes: list[list[dict]], *, rrf_k: int = 60) -> list[dict]:
+def reciprocal_rank_fusion(lanes: list[list[dict]], *, rrf_k: int = 60) -> list[dict]:
     """Merge ranked lists with ``1 / (rrf_k + rank)``.
 
     ``rrf_k`` is keyword-only so the call site records it as a span param.

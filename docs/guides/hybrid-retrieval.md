@@ -8,7 +8,7 @@ and where it was lost.
 ## Modeling it as an operator DAG
 
 A hybrid pipeline is two `SOURCE` operators feeding a `FUSE` operator (for example reciprocal-rank
-fusion). In the trace this is a genuine fan-in: the fusion operator has two parents. Investigate
+fusion). In the trace this is a fan-in: the fusion operator has two parents. Investigate
 draws the two lanes and the fan-in edge explicitly; it does not flatten them into a chain.
 
 The `retobs demo` pipeline is a hybrid of exactly this shape (dense and lexical lanes, a recency

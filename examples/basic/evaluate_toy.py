@@ -11,7 +11,7 @@ from retrieval_observatory.runner.benchmark import BenchmarkRunner
 from retrieval_observatory.store.sqlite import SQLiteStore
 from retrieval_observatory.types import Document, Query, RetrievalResult
 
-FIXTURES = os.path.join(os.path.dirname(__file__), "..", "tests", "fixtures")
+FIXTURES = os.path.join(os.path.dirname(__file__), "..", "..", "tests", "fixtures")
 
 
 class MockBM25Retriever:

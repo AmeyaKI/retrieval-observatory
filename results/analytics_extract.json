@@ -270,17 +270,6 @@
       "lexical_mismatch": 43,
       "id_or_qrel_issue": 41
     },
-    "classifier": {
-      "n_with_prediction": 323,
-      "accuracy_vs_training_class": 0.8080495356037152,
-      "n_compared": 323,
-      "mean_brier_per_class_dim": 0.0971022075933716,
-      "pred_recall10_mean": {
-        "hard": 0.09307448750714764,
-        "medium": 0.1512157342561783,
-        "easy": 0.6347222222222222
-      }
-    },
     "has_temporal_metrics": false
   },
   "scifact": {
@@ -551,7 +540,6 @@
       "lexical_mismatch": 49,
       "id_or_qrel_issue": 14
     },
-    "classifier": null,
     "has_temporal_metrics": false
   },
   "fiqa": {
@@ -824,7 +812,6 @@
       "lexical_mismatch": 217,
       "id_or_qrel_issue": 71
     },
-    "classifier": null,
     "has_temporal_metrics": false
   },
   "cohere_nfcorpus": {
@@ -988,17 +975,6 @@
     "failure_labels": {
       "candidate_miss": 84,
       "id_or_qrel_issue": 84
-    },
-    "classifier": {
-      "n_with_prediction": 323,
-      "accuracy_vs_training_class": 0.7585139318885449,
-      "n_compared": 323,
-      "mean_brier_per_class_dim": 0.1227626546531326,
-      "pred_recall10_mean": {
-        "hard": 0.09307448750714764,
-        "medium": 0.1512157342561783,
-        "easy": 0.6347222222222222
-      }
     },
     "has_temporal_metrics": false
   }

@@ -5,7 +5,7 @@ from retrieval_observatory.sdk.observe import observe
 
 
 @observe("FUSE", op_id="rrf", parent_ids=("keyword", "dense"), deterministic=True, replay_policy="EXACT")
-def rrf_merge(lanes: list[list[dict]], *, rrf_k: int = 60) -> list[dict]:
+def reciprocal_rank_fusion(lanes: list[list[dict]], *, rrf_k: int = 60) -> list[dict]:
     """Merge ranked lists with ``1 / (rrf_k + rank)``.
 
     ``rrf_k`` is keyword-only so the call site records it as a span param.

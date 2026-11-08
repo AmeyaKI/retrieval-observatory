@@ -70,7 +70,7 @@ async def main() -> None:
         result = retrieve(query)
         trace = finish_trace()
         await store.save_trace_v2(trace)
-        print(f"  ✓ {query!r}  ({len(result)} passages, {len(trace.spans)} span(s))")
+        print(f"  ok {query!r}  ({len(result)} passages, {len(trace.spans)} span(s))")
 
     print(f"\nTraces written to {DB_PATH}")
     print(f"Run: retobs serve --db {DB_PATH}")

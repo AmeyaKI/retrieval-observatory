@@ -21,9 +21,8 @@ Pipeline guides:
   gates, auto-instrumentation) and the subsystems retired in 0.7.0 with the pinned release that
   reproduces them.
 
-Retired pages kept so old links resolve: [candidate-lineage-explorer.md](candidate-lineage-explorer.md)
-(now Investigate), [counterfactual-replay.md](counterfactual-replay.md), and
-[tracelens.md](tracelens.md).
+[candidate-lineage-explorer.md](candidate-lineage-explorer.md) points the former candidate
+lineage view to Investigate and lists the current outcome vocabulary.
 
 For the CLI, SDK, and MCP reference see [../REFERENCE.md](../REFERENCE.md); for advanced YAML
 pipelines see [../YAML_GUIDE.md](../YAML_GUIDE.md).

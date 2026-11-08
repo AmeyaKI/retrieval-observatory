@@ -287,7 +287,7 @@ metrics:
 execution:
   concurrency: 4                         # parallel query execution
   timeout_seconds: 60                    # per-query timeout
-  cache_results: true                    # stage-level caching; use --no-cache to disable
+  cache_results: true                    # stage-level caching; set false to re-run every query
 
 costs:
   bm25:

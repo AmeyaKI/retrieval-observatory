@@ -1,6 +1,6 @@
 # Release policy for the flagship demo.
 #
-# Ordering matters for honesty, so it is recorded here: the slice *sizes* were read off the
+# The order of these decisions is recorded here: the slice *sizes* were read off the
 # baseline run (bridge 312, comparison 88, level=hard 400 — every group far above
 # min_paired_n), because declaring a group that turns out to be empty or thin forces a BLOCK
 # for a sample-size reason that has nothing to do with the change under test. The regression

@@ -16,4 +16,4 @@ retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_nfcorpus.yaml
 echo "Done. Open dashboard:"
 echo "  retobs serve --db .retobs/hybrid_fiqa_demo.db"
 echo "  # also: .retobs/hybrid_scifact_demo.db / .retobs/hybrid_nfcorpus_demo.db"
-echo "  # Architecture section: hybrid fan-in → rerank with per-node CIs"
+echo "  # In Investigate: the hybrid fan-in and rerank, with per-operator counts"

@@ -26,7 +26,7 @@ metrics:
 execution:
   concurrency: 4
   timeout_seconds: 60
-  cache_results: false  # Honest latency on first run
+  cache_results: false  # measure uncached latency on every run
 
 output:
   store: sqlite

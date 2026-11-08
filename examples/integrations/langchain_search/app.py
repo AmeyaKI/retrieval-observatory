@@ -36,10 +36,10 @@ CORPUS = [
     "Reciprocal rank fusion (RRF) is a simple score combination method that works without learning.",
     "Empty result sets are a common failure mode: the retriever returns no candidates for rare queries.",
     "Candidate churn measures how much the document set changes between pipeline stages.",
-    "Query difficulty classification helps predict which queries a pipeline will struggle with.",
-    "Test Sets generates corpus-specific stress-test queries targeting known retrieval failure scenarios.",
-    "Production captures per-request retrieval traces to diagnose production reliability issues.",
-    "The Findings compares benchmark runs and surfaces statistically significant regressions.",
+    "A loss boundary marks the last operator that removed a relevant document from the candidates.",
+    "Judged queries pair each question with the documents known to be relevant to it.",
+    "Per-request retrieval traces record each operator's inputs and outputs.",
+    "A release audit compares a baseline run with a candidate run under a declared policy.",
 ]
 
 DB_PATH = ".retobs/langchain_demo.db"
@@ -76,7 +76,7 @@ async def main() -> None:
     print(f"Running {len(QUERIES)} queries through LangChain chain with RetobsLangChainCallback …")
     for query in QUERIES:
         result = chain.invoke(query, config={"callbacks": [cb]})
-        print(f"  ✓ {query!r}  ({len(result.splitlines())} doc lines)")
+        print(f"  ok {query!r}  ({len(result.splitlines())} doc lines)")
 
     await recorder.sink.shutdown()
 

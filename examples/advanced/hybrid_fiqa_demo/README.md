@@ -60,7 +60,7 @@ Expected headline pattern (50-query smoke, approximate): hybrid RRF beats single
 
 The three configs above use the pre-existing `adapter.rrf` shape: one fusion stage nested inside
 a single pipeline entry. `config_scifact_graph.yaml` instead uses the `graphs:` block
-(`pipeline/dag.py::DAGPipeline`) to declare a genuinely reconvergent DAG — `bm25` feeds **two**
+(`pipeline/dag.py::DAGPipeline`) to declare a reconvergent DAG — `bm25` feeds **two**
 downstream consumers, and the graph has **two** real merge points:
 
 ```
@@ -90,6 +90,6 @@ reranker's stage-local ~33ms. Per-node NDCG@10 with 95% CIs: bm25 0.670 [0.547, 
 
 The `adapter.rrf`-based configs (`config_fiqa.yaml`, `config_scifact.yaml`, `config_nfcorpus.yaml`)
 use a **single RRF merge point** and no recency-boost tail, since BEIR corpora lack per-doc
-timestamps. `config_scifact_graph.yaml` demonstrates a genuine **two-merge-point** DAG using the
+timestamps. `config_scifact_graph.yaml` demonstrates a **two-merge-point** DAG using the
 declarative `graphs:` runner instead. For a small deterministic hybrid pipeline with a recency
 filter and a gated expansion, run `retobs demo`.

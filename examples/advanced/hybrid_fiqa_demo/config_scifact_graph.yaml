@@ -1,6 +1,6 @@
 # Hybrid DAG benchmark — BEIR SciFact, using the declarative `graphs:` DAG runner
 # (pipeline/dag.py::DAGPipeline) instead of the single-merge adapter.rrf shape used by
-# config_scifact.yaml. This topology has TWO genuine merge points:
+# config_scifact.yaml. This topology has two merge points:
 #
 #   bm25 ──────────────┬──────────────────────────────────┐
 #                       ├─ fuse_hybrid (RRF) ── rerank ────┼─ fuse_final (RRF)  ── output
@@ -11,7 +11,7 @@
 #   linear chain with one fusion stage.
 #
 # Run:
-#   retobs run --config examples/advanced/hybrid_fiqa_demo/config_scifact_graph.yaml
+#   retobs evaluate --config examples/advanced/hybrid_fiqa_demo/config_scifact_graph.yaml
 #   retobs serve --db .retobs/hybrid_scifact_graph_demo.db
 
 experiment:

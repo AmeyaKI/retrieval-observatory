@@ -1,6 +1,6 @@
 """Self-correcting retriever: retrieve, critique the top result's confidence, and retry
 with an expanded query if confidence is low. Demonstrates the retrieve-critique-retry
-pattern — a genuinely non-linear topology, not just a cosmetic rerank stage."""
+pattern: a non-linear topology, not only a rerank stage."""
 from __future__ import annotations
 
 import time

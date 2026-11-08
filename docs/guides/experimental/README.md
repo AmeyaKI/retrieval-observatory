@@ -28,8 +28,6 @@ pip install retrieval-observatory==0.6.0
 git checkout 29c67b8
 ```
 
-[advisor.md](advisor.md) and [forge.md](forge.md) describe the retired subsystems as they were in 0.6.0.
-
 ## Pipeline-pattern guides
 
 These guides describe retained pipeline patterns but have not been re-verified against the
