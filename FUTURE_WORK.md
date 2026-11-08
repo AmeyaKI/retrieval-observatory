@@ -1,60 +1,46 @@
 # Future work
 
-Known limitations and deferred work in retobs, recorded deliberately. Nothing listed here prevents
-the current release from being used as documented. Items verified against the current tree are
-stated as fact; anything carried over from earlier reports and not re-verified is marked as such.
-
-## Reporting and metrics
-
-- Comparison reports and single-run reports compute latency differently; the two aggregation paths
-  should be unified so a metric name means the same thing in both.
-- `baseline-summary.txt` is emitted only for the baseline run, so candidate-side routing and
-  operator-activity counts have no persisted artifact and must be recomputed by hand.
-- Wall-clock runtime is not recorded in any report artifact; per-stage `latency_mean` rows are, but
-  they are machine-dependent, so neither can be diffed meaningfully across machines.
+Known limitations and deferred work in retobs. Nothing listed here prevents the current release from
+being used as documented. Items are stated as fact when verified against the current tree; anything
+carried over from an earlier release and not re-verified is marked as such.
 
 ## Integration
 
-- `retobs production stats --service X` crashes (`'str' object has no attribute 'service_id'`): `_tracelens_stats`
-  in `cli.py` passes the service name positionally to `store.list_traces`, which expects a `TraceQuery`.
-  Found 2026-09-17 while writing the manual instrumentation guide; the keyword form `service=` works.
-- `integrate --phase verify` does not import the patched module itself; an import or syntax error in
-  the target project surfaces only when the entrypoint is actually called. When no trace is found,
-  verify names the service, pipeline, and database it looked for.
-- `integrate --phase apply` has no `--dry-run` that renders the post-patch file before writing it.
-- The planner discovers class methods and skips test files, but builds no cross-file call graph:
-  operators found in different files are recorded without parent edges between them, and a project
-  with several entrypoints still needs manual operator mapping.
-- Name-only operator matches are listed under `discovery.low_confidence_operators` and left
-  un-instrumented rather than asked about.
+- `retobs evaluate` scores runs it drives itself. A project's own benchmark command is not scored:
+  per-question losses come from `retobs evaluate` over the same search, not from the project's report.
+- `retobs evaluate` calls `module:function(query_text)`. A search exposed as a class method, or one
+  that needs the benchmark's arguments (mode, depth), needs a small wrapper module; the agent runbook
+  shows the pattern.
+- The command line scores recall at 1, 5 and 10 and nDCG@10; other cutoffs (for example Recall@100)
+  cannot be set there.
+- `integrate --phase plan --watch` sees only the modes its commands run: a step that only another mode
+  runs (a reranker behind a flag, for example) is planned only when that mode is watched too. Watching
+  is POSIX-only, and an MCP client waits while a watch runs.
+- Without `--watch`, the planner guesses steps from function names and links them only through
+  plain-name calls within one file; a project with several entrypoints needs manual operator mapping.
+  Name-only matches are listed under `discovery.low_confidence_operators` and left un-instrumented.
+- Judgment files found by the planner are a guess; when `judgments.status` is not `resolved`, the
+  benchmark's labeled split has to be exported by hand.
+- `integrate --phase verify` does not import the patched modules itself: an import or syntax error in
+  the target project surfaces only when the entrypoint is called.
+- `integrate --phase apply` has no `--dry-run` that renders the patched files before writing them.
 
-## Query difficulty classifier (experimental since 0.6.0)
+## Storage and dashboard
 
-- The classifier lives under `retrieval_observatory.experimental.classifier` and its CLI is
-  unregistered. Training has no label source: nothing in the current runner computes a
-  `difficulty_bucket` (every diagnostics row is written as `"unknown"`), so `train_model()` only
-  works on databases produced by pre-typed-diagnostics builds. Restoring it needs a bucketing rule
-  in the runner, which is a design decision rather than a fix.
-
-## Counterfactual replay
-
-Removed in 0.7.0 (see `docs/guides/migrating-to-focused-retobs.md`); the notes below describe the
-0.6.x implementation that produced the study's §5 figures.
-
-- Replay is strict: whenever a removed operator's child would have to decide on documents it never
-  observed, the result is `indeterminate`. This makes some upstream removals (for example a source
-  arm feeding a fusion whose top-k cut hides documents from a downstream reranker) indeterminate by
-  design. The study in `results/study/` reports these counts rather than estimating around them.
-- Replay tiers are assigned per operator type by the runner (`pipeline/dag.py::DEFAULT_REPLAY_POLICY`),
-  not learned from the adapter; an adapter that is in fact deterministic is still OBSERVED_ABLATION
-  unless the spec overrides `replay_policy`.
+- Storage is about 1 MB per traced question at 100 candidates per step, most of it the investigation
+  index; large benchmarks are best sampled with `--max-queries` or given their own database.
+- The hosted demo refuses path inputs, so Audit cannot load a release policy there and reports HOLD.
+- `cli.py` still defines never-registered commands left from earlier releases (`run`, `validate`,
+  `init`, `inspect`, `doctor`, `diff_configs`). They are not reachable from `retobs --help`.
+- Comparison reports and single-run reports aggregate latency through different paths, so a latency
+  metric name may not mean the same thing in both (carried over from 0.6.x, not re-verified).
 
 ## Research study
 
 [`results/study/STUDY.md`](results/study/STUDY.md) is published as it stands: 13 of 14 pre-registered
 cells, produced by development builds between 0.6.0 and 0.7.0, with the HotpotQA cell (Q3) never run
-and the Q1 headline therefore provisional. Its scripts import modules removed in 0.7.0, so it cannot
-be rerun on a current release. Updating it means:
+and the Q1 headline therefore provisional. Its scripts import modules removed in 0.7.0 (loss
+attribution and counterfactual replay), so it cannot be rerun on a current release. Updating it means:
 
 - Port `scripts/study_loss_attribution.py` and `scripts/render_study.py` to the current lineage model:
   the per-step counts of correct documents found, removed and lost that back Investigate's flow view
@@ -69,34 +55,21 @@ be rerun on a current release. Updating it means:
 
 ## Benchmarks
 
-- `results/BENCHMARK_ANALYSIS.md` was measured on an older build and has not been rerun on the
-  current version. Rerunning the sweep would let the study describe the shipping release.
-- The BEIR sweep covers three CPU-oriented subsets. GPU-served encoders, multilingual corpora, and
+- `results/BENCHMARK_ANALYSIS.md` was measured on 0.1.0 and has not been rerun on a current release.
+- The BEIR sweep covers three CPU-oriented subsets. GPU-served encoders, multilingual corpora and
   production-scale indexes are unmeasured.
 - The Cohere rerank sweep completed 155 of 323 queries and should be rerun with `--no-cache` before
   conclusions are drawn from it.
 
-## Dashboard and stores
-
-- The first (cold) `/overview` on a 400-query DAG run still spends about two seconds in the paired
-  sign-flip test; later requests are memoised per run.
-- The PostgreSQL store changes made in the 2026-09-15 review cycle (per-pipeline status counts,
-  metric-row dedup, lineage service counts) are covered by the shared contract tests against SQLite
-  only; no PostgreSQL server was available locally.
-- `cli.py` still defines several never-registered commands left from earlier releases (`run`,
-  `validate`, `init`, `inspect`, `quickstart`, `doctor`, `diff_configs`); they are dead code, not
-  reachable from `retobs --help`.
-
-## Demo ergonomics
+## Flagship demo
 
 - On macOS conda environments where torch and faiss each bundle an OpenMP runtime, the flagship
   demo's dense lane segfaults unless `KMP_DUPLICATE_LIB_OK=TRUE OMP_NUM_THREADS=1` is set;
-  `run_demo.sh` sets both by default. The root cause is the environment, not retobs.
-- `results/flagship_demo/run_demo.sh` deletes and rebuilds its ~1.2 GB SQLite database on every
-  invocation. The path is correctly scoped and cannot affect version-controlled files, but a
-  `--keep` flag would stop an external user from discarding a long run by accident.
+  `results/flagship_demo/run_demo.sh` sets both by default. The root cause is the environment.
+- `run_demo.sh` deletes and rebuilds its ~1.2 GB SQLite database on every invocation. The path is
+  scoped to the demo, but a `--keep` flag would stop a long run from being discarded by accident.
 
-## Documentation
+## Repository
 
-- `.gitignore` uses a blanket `*.md` rule with an explicit allowlist, so new documentation files are
-  ignored unless added to that list. A narrower ignore rule would remove the trap.
+- `.gitignore` uses a blanket `*.md` rule with an explicit allowlist, so a new documentation file is
+  ignored until it is added to that list.
