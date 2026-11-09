@@ -1,4 +1,4 @@
-// Pure hash routing for the focused dashboard (master plan 2.2–2.3): three feature
+// Pure hash routing for the focused dashboard: three feature
 // workspaces (Investigate, Connect, Audit), two utilities (Help, migration notices),
 // one-release-cycle redirects for legacy links whose meaning maps losslessly, and a
 // migration notice for everything that was retired. No window access: the shell owns

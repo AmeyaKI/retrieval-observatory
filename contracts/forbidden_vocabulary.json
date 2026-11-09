@@ -7,9 +7,9 @@
     "\\bretobs wire\\b": "use retobs integrate",
     "\\bretobs quickstart\\b": "use retobs integrate or retobs demo",
     "\\b(?:TraceRecorderV2|LegacyTraceRecorder)\\b": "use the sole TraceRecorder",
-    "\\bTraceLens\\b": "use Production",
-    "\\bForge\\b": "use Test Sets",
-    "\\bAdvisor\\b": "use findings or compare",
+    "\\bTraceLens\\b": "removed in 0.7.0; investigate recorded traces through an evaluated Run (see docs/guides/migrating-to-focused-retobs.md)",
+    "\\bForge\\b": "removed in 0.7.0; import a prepared benchmark instead (see docs/guides/migrating-to-focused-retobs.md)",
+    "\\bAdvisor\\b": "removed in 0.7.0; use retobs compare or the Audit workspace (see docs/guides/migrating-to-focused-retobs.md)",
     "\\bBenchmarks\\b": "use Runs or evaluations",
     "\\bexperimental\\.(forge|classifier|advisor|diagram)\\b": "removed in 0.7.0; see docs/guides/experimental/README.md",
     "\\bgenerate_testset\\b": "removed in 0.7.0; import a prepared benchmark instead",
@@ -32,13 +32,11 @@
     ".pytest_cache",
     ".venv",
     "CHANGELOG.md",
-    "docs/PRODUCT_AUDIT_AND_REDESIGN.md",
     "docs/guides/experimental/README.md",
     "docs/guides/migrating-to-focused-retobs.md",
     "docs/rebuild",
     "docs/superpowers",
     "docs/verification",
-    "node_modules",
-    "retobs_audit_remediation"
+    "node_modules"
   ]
 }

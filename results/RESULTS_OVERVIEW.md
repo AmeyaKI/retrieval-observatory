@@ -6,7 +6,6 @@ Full analysis: **[results/BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md)**
 
 ## Run registry
 
-
 | Dataset                   | SQLite (local)                       | Run ID     | Export folder                        |
 | ------------------------- | ------------------------------------ | ---------- | ------------------------------------ |
 | NFCorpus sweep            | `.retobs/publish_sweep_nfcorpus.db`  | `37d3a79c` | [nfcorpus/](nfcorpus/)               |
@@ -14,11 +13,9 @@ Full analysis: **[results/BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md)**
 | FiQA sweep                | `.retobs/publish_sweep_fiqa.db`      | `0784ed30` | [fiqa/](fiqa/)                       |
 | NFCorpus Cohere (partial) | `.retobs/publish_cohere_nfcorpus.db` | `a6dad22f` | [cohere_nfcorpus/](cohere_nfcorpus/) |
 
-
 SQLite databases are gitignored. JSON exports in each folder are committed for reproducibility without re-running sweeps.
 
 ## Artifacts per dataset
-
 
 | File                       | Contents                                                     |
 | -------------------------- | ------------------------------------------------------------ |
@@ -26,7 +23,6 @@ SQLite databases are gitignored. JSON exports in each folder are committed for r
 | `diagnostics.json`         | Failure labels and difficulty bucket aggregates              |
 | `stage_contributions.json` | Stage attribution deltas (bm25 → bm25__rerank)               |
 | `run_meta.json`            | Run ID, experiment name, DB path                             |
-
 
 Cross-dataset aggregate: [analytics_extract.json](analytics_extract.json)
 
@@ -44,8 +40,7 @@ python scripts/export_results.py \
 # Recompute analytics extract (all publish DBs must exist locally)
 python scripts/bench_analytics.py > results/analytics_extract.json
 
-# Regenerate the stage-contribution and recall-funnel figures (the classifier-calibration and
-# Pareto figures in screenshots/ came from 0.6.0 and are not regenerated)
+# Regenerate the stage-contribution and recall-funnel figures in screenshots/
 python scripts/generate_dashboard_screenshots.py
 ```
 
@@ -58,8 +53,6 @@ pip install -e ".[demo,dashboard,dense]"
 
 Configs: [configs/beir_publish/](../configs/beir_publish/)
 
-## Screenshots and release checklist
+## Figures
 
 Figures for [BENCHMARK_ANALYSIS.md](BENCHMARK_ANALYSIS.md): [screenshots/](screenshots/)
-
-Pre-release spot-check: [dashboard_audit.md](dashboard_audit.md)

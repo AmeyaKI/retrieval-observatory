@@ -130,3 +130,36 @@ jobs:
               raise SystemExit(f"PyPI digest mismatch: {missing}; published={actual}")
           print("Published PyPI wheel and sdist match tested SHA-256 digests.")
           PY
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Create the GitHub Release from the CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Only the notes script and the changelog at the tag are fetched: nothing is rebuilt here.
+          mkdir -p notes/scripts
+          gh api -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/contents/CHANGELOG.md?ref=${GITHUB_REF_NAME}" > notes/CHANGELOG.md
+          gh api -H "Accept: application/vnd.github.raw" "repos/${GITHUB_REPOSITORY}/contents/scripts/release_notes.py?ref=${GITHUB_REF_NAME}" > notes/scripts/release_notes.py
+          python notes/scripts/release_notes.py "$VERSION" > release-notes.md
+          PRERELEASE=""
+          if [[ "$VERSION" =~ (a|b|rc)[0-9]+$ ]]; then PRERELEASE="--prerelease"; fi
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" dist/*.whl dist/*.tar.gz --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" dist/*.whl dist/*.tar.gz --verify-tag \
+              --title "retrieval-observatory $VERSION" --notes-file release-notes.md $PRERELEASE
+          fi

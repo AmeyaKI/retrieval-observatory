@@ -5,11 +5,10 @@ followed by a critique stage that inspects the first pass's confidence (normaliz
 score) and, only when it's low, expands the query with synonyms and re-queries the corpus,
 merging in anything newly found.
 
-This is the pattern the project's vision doc calls out as the whole point of a DAG-native
-tool: pipelines that aren't static linear chains. It's a bounded, two-pass version rather
-than a true unbounded loop (the pipeline engine executes a fixed stage list, not a cyclic
-graph) — but the retry is a real second retrieval call gated on a real quality judgment, not
-a cosmetic rerank.
+The topology is not a static linear chain. It is a bounded, two-pass version of the pattern
+rather than an unbounded loop (the pipeline engine executes a fixed stage list, not a cyclic
+graph), but the retry is a second retrieval call gated on a quality check of the first pass,
+not a reordering of the same candidates.
 
 ## Run it
 

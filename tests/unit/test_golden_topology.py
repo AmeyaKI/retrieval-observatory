@@ -1,4 +1,4 @@
-"""Golden-topology regression fixtures (RETOBS_FINER_PLAN_PHASE2.md, Item A step 6).
+"""Golden-topology regression fixtures.
 
 Snapshot-asserts build_pipeline_graphs' exact node/edge JSON for four representative
 topology shapes (linear, hybrid fan-in, conditional gate+skip, parallel lanes without

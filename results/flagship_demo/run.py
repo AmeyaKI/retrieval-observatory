@@ -98,9 +98,6 @@ async def run(
         pipelines=[pipeline],
         store=store,
         no_cache=True,
-        # The difficulty classifier is deliberately unused: both routing decisions in this
-        # pipeline are deterministic, so nothing needs a predicted label.
-        annotate_difficulty=False,
         log=lambda *a, **k: None,
     )
     return artifacts, queries, qrels

@@ -17,8 +17,8 @@ class CandidateTransition:
         return tuple(candidate for candidates in self.input_groups.values() for candidate in candidates)
 
     def __iter__(self):
-        # Temporary internal convenience while execution consumers move to the
-        # canonical grouped fields in Phase B.
+        # Flat (inputs, outputs) unpacking for internal callers that do not read
+        # ``input_groups``.
         yield list(self.inputs)
         yield list(self.outputs)
 

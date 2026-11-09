@@ -15,7 +15,7 @@ from pathlib import Path
 
 from retrieval_observatory.sdk.observe import trace_scope
 
-from fusion import rrf_merge
+from fusion import reciprocal_rank_fusion
 from rerank import OverlapReranker
 from retrievers import DenseRetriever, KeywordRetriever
 
@@ -34,7 +34,7 @@ class SearchService:
     def search(self, query: str) -> list[dict]:
         keyword_hits = self.keyword.search(query, k=10)
         dense_hits = self.dense.search(query, k=10)
-        fused = rrf_merge([keyword_hits, dense_hits], rrf_k=60)
+        fused = reciprocal_rank_fusion([keyword_hits, dense_hits], rrf_k=60)
         return self.reranker.rerank(query, fused, k=5)
 
 

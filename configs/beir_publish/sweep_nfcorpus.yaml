@@ -1,6 +1,5 @@
 # BEIR publish full sweep — NFCorpus (323 test queries, 4 pipelines)
 # Canonical config for publication sweeps. Reproduce: ./scripts/run_beir_publish.sh full-sweep
-# See also: examples/beir_publish/sweep_nfcorpus.yaml (same content)
 
 experiment:
   name: beir-publish-sweep-nfcorpus
@@ -60,7 +59,7 @@ metrics:
 execution:
   concurrency: 1
   timeout_seconds: 300
-  cache_results: true   # Stage cache keyed by config+query; use --no-cache for audit reruns
+  cache_results: true   # Stage cache keyed by config+query; set false for audit reruns
 
 output:
   store: sqlite

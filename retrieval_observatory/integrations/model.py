@@ -10,7 +10,7 @@ from typing import Any, Literal, Mapping, Sequence
 
 PLAN_SCHEMA_VERSION = 2
 
-#: Capabilities verify reports (master plan §3.5). A plan states an expectation for each one.
+#: Capabilities verify reports from observed traces. A plan states an expectation for each one.
 CAPABILITY_NAMES: tuple[str, ...] = (
     "topology_observed",
     "actual_input_output_capture",

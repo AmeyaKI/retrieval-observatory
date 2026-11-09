@@ -1,6 +1,6 @@
 """Typed journey records: one row per (query, evaluation entity), events underneath.
 
-Every field is descriptive (see ``docs/rebuild/EVIDENCE_CONTRACT.md``): membership, rank,
+Every field is descriptive (see ``docs/EVIDENCE_AND_TRUST.md``): membership, rank,
 judgment and capture completeness are recorded independently and never collapsed into each
 other. Rows are plain data; ``to_dict``/``from_dict`` round-trip through JSON.
 """

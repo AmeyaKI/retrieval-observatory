@@ -9,7 +9,7 @@ from retrieval_observatory.tracing.model import Candidate, OperatorSpan, Retriev
 # When a candidate is present in an operator's inputs but absent from its outputs
 # and no explicit drop_reason was recorded, infer the reason from the operator type.
 # Inference is honest to what the trace shows; where it is genuinely ambiguous we
-# emit "unknown" rather than guessing (Trust principle).
+# emit "unknown" rather than guessing.
 _DROP_REASON_BY_OP_TYPE: Dict[str, str] = {
     "RERANK": "reranked_out",
     "FILTER": "filtered",
@@ -71,7 +71,7 @@ def _find(candidates: List[Candidate], doc_id: str) -> Optional[Candidate]:
 def candidate_history(trace: RetrievalTrace, doc_id: str) -> CandidateHistory:
     """Assemble one candidate's full journey through the pipeline.
 
-    Answers the five questions the vision names for Candidate Flow Visualization:
+    Answers five questions about the candidate's flow:
     which document disappeared, where it was removed, why, which reranker promoted
     it, and which retrieval arm found it, with legacy inference labeled explicitly.
     """

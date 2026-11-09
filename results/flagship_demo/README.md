@@ -253,16 +253,16 @@ Then, with `<baseline>` from the run_demo.sh output:
 
 | | |
 |---|---|
-| `#/runs` | the five runs |
-| `#/compare` | select baseline + a candidate |
-| `#/runs/<baseline>/queries/<query>` | the Scenario D lineage view |
+| `#/investigate?run=<baseline>` | Investigate, with the five runs in the run selector |
+| `#/audit?baseline=<baseline>&candidate=<candidate>` | the release audit of a baseline and a candidate |
+| `#/investigate?run=<baseline>&view=queries&query=<query>` | the Scenario D query and its candidates |
 
 The exact query id is printed at the end of `run_demo.sh` and in
 `reports/scenario-d-lineage.txt`.
 
 ---
 
-## Honest limitations
+## Limitations
 
 The full list, including what `lineage_document_identity_partial` means for this corpus, is in [limitations.md](limitations.md).
 
@@ -273,7 +273,7 @@ the same components, so absolute quality cancels out.
 **Ground truth is positive-only.** HotpotQA records which paragraphs support an answer, never
 which are irrelevant. So ~2 documents per question can be judged and the other ~12,652 cannot,
 and retrieved-then-dropped candidates are classified `unknown_relevance` rather than
-`irrelevant_removed`. **That is retobs declining to guess, not a tracing failure.** The signal
+`irrelevant_removed`. **This reflects missing judgments, not a tracing failure.** The signal
 for tracing health is `lineage_incomplete`, which is 0.0% here.
 
 **`level` is `hard` for every question.** HotpotQA's validation split contains nothing else by
@@ -285,12 +285,12 @@ recall not at all — the corpus is a 12,654-paragraph sample, so most articles 
 names are not in it. It was left in and left untuned after that was measured, because a stage
 that costs latency and buys nothing is a useful thing for a per-stage view to reveal.
 
-**One lineage requirement is genuinely unmet.** Reports carry
+**One lineage requirement is unmet.** Reports carry
 `lineage_diff/lineage_document_identity_partial` because this pipeline records no document
-revisions or content hashes — and retobs' built-in fusion operator drops them anyway. That
-finding is retobs correctly reporting a real limitation, and it is left visible.
+revisions or content hashes, and retobs' built-in fusion operator drops them in any case. The
+finding reflects a real gap in the recorded evidence and is left visible.
 
-**Ordering, for honesty.** The declared slice *sizes* were read from the baseline run, because
+**Order of decisions.** The declared slice *sizes* were read from the baseline run, because
 declaring a group that turns out to be empty forces a BLOCK for a sample-size reason unrelated
 to the change under test. The regression *threshold* was fixed before any candidate run
 existed and was never revisited.

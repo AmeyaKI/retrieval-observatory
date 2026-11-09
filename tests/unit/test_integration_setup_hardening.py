@@ -1,6 +1,6 @@
-"""Setup defects an agent trial on a messy multi-module repository surfaced: virtualenvs scanned as
-project code, capture references that break imports, a silent plan command, reviewer notes lost on
-re-plan, capture coverage overstated, and scenarios left without a command."""
+"""Integration setup on a messy multi-module repository: virtualenvs are not scanned as project
+code, capture references do not break imports, the plan command prints a summary, reviewer notes
+survive re-plan, capture coverage is not overstated, and scenarios without a command are flagged."""
 from __future__ import annotations
 
 from dataclasses import replace

@@ -7,20 +7,41 @@ All notable changes to retrieval-observatory are documented here. Versions marke
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.8.1] — 2026-11-07
+
+A maintenance release. Investigate opens a database's only run by itself; the hosted demo serves the current dashboard over a real SciFact run; publishing a tag creates its GitHub Release; the pre-registered study is published with version labels; and examples, guides and working notes for features removed in 0.7.0 leave the repository. No public API or stored data changes.
+
+### Added
+- `scripts/release_notes.py` and a `github-release` job in `.github/workflows/publish.yml` — publishing a tag creates its GitHub Release, with notes from the version's CHANGELOG summary and the tested wheel and sdist attached; pre-release tags are marked as pre-releases.
 - `results/study/STUDY.md` — the pre-registered study of where multi-stage pipelines lose gold documents they had already found, published as it stands: 13 of 14 cells from development builds `3011898` and `28bab6c` (between 0.6.0 and 0.7.0), HotpotQA (Q3) not run, headline provisional. Figures are the renderer's output from the committed cells at `29c67b8`; a status note and the reproduction steps (on that commit) were added by hand. Rerunning it on a current release is recorded in `FUTURE_WORK.md`.
 - `deploy/scifact_hybrid.yaml` — the hosted demo's real run: 300 SciFact test questions through keyword search, vector search and reciprocal-rank fusion (20 candidates per step, scored at the top 10), runnable offline from local caches.
 
 ### Changed
+- `FUTURE_WORK.md` lists only current limitations, including the known limits recorded for 0.7.0 and 0.8.0.
+- Messages and templates that named commands which no longer exist (`retobs run`, `retobs validate`) name `retobs evaluate --config`; the remaining examples and benchmark configs run through it.
+- `README.md`, `docs/INTEGRATIONS.md` and the agent quickstart record the agent trial on an unfamiliar open-source hybrid search project.
+- The release and link checks match local working notes by pattern; `.gitignore` no longer names internal documents.
 - `dashboard/ui` (`GlobalContextBar.tsx`) — Investigate opens a database's only run by itself instead of the "Choose a run" prompt, so a link to a one-run database lands on its answer; it acts only while the address still names that database with no run.
 - `deploy/` — the hosted demo serves 0.8.0 data: the SciFact run (the site opens on it), the built-in demo (compare, Audit) and a verified integration (Connect), replacing the 0.6.0 BEIR databases, which had no traces for Investigate. `prepare_data.py` takes `name=path` sources and `--relative-to`, rewrites build paths to relative ones, indexes every run for Investigate, refuses a database that still holds an absolute path or e-mail address, and writes `deploy/data/<name>.db.gz` (about 3 MB instead of 53 MB), which the Dockerfile unpacks. `deploy_azure.sh` updates with a new revision suffix, so Azure pulls the re-pushed `:demo` tag; before, a re-run left the September image running.
 - `.github/workflows/demo-image.yml` — a pull request that changes the app or `deploy/` builds and smokes the image without pushing it; the smoke opens every baked run's questions and flow.
 
 ### Fixed
+- `results/flagship_demo/run.py` no longer passes `annotate_difficulty`, which `execute_benchmark` stopped accepting in 0.7.0.
+- `retobs inspect`'s deprecation message read "(`inspect` is )".
 - `integrations/_watch_hook.py` — on Python 3.13 the `sys.setprofile` path (forced, or when every `sys.monitoring` tool id is taken) recognises a generator or coroutine suspension, which 3.13 reports at the `RESUME` after `YIELD_VALUE`; an awaited step's return value was recorded as empty and a resumed coroutine lost its parent.
 
 ### Removed
+- Examples, configs and guides for features removed in 0.7.0: `examples/advanced/complex_rag_demo/`, `examples/advanced/dashboard_demo/`, `examples/basic/demo_phases.py`, `examples/tracing/`, duplicate `examples/beir_publish/` sweeps, `docs/guides/experimental/advisor.md` and `forge.md`, the replay and TraceLens guides, the classifier and Pareto sections and charts of `results/BENCHMARK_ANALYSIS.md`, and `results/smoke_nfcorpus/`. The v0.6.0 tag keeps them.
+- Internal working notes and an empty `package-lock.json` from the published tree.
 
-## [0.8.0] — 2026-10-19
+## [0.8.0] — 2026-10-19 [PyPI]
 
 Investigate leads with the answer. The run view names the step that loses the most correct documents in one sentence; the pipeline diagram shows, per step, how many correct documents it found or received and how many it lost, with line thickness for correct documents passing; questions and documents that missed a correct document come first, in plain words; one question reads where its correct document went, with that document's path drawn on the diagram; compare mode leads with what changed for correct documents. Backed by one read-only endpoint, `GET /dbs/{db}/investigation/runs/{run}/flow`; nothing stored changes, and no URL changes.
 
@@ -35,7 +56,7 @@ Investigate leads with the answer. The run view names the step that loses the mo
 - `dashboard/ui` Investigate, documents list (`InvestigateWorkspace.tsx`, `RunView.tsx`, `InvestigationTable.tsx`, `utils/flowWords.ts`) — leads with "Correct documents that were missed" from `/flow` (most-missed first, one line per miss with its question, reason chips and the step filter), with every document under a collapsed "All N documents"; stacked table rows on phones use 13 px second lines instead of 12 px.
 - `scripts/generate_demo_assets.py` — waits for the new Investigate wording ("Correct, dropped", "Correct documents that changed") before capturing; the README screenshots and recording show the redesigned Investigate page.
 
-## [0.7.0] — 2026-10-10
+## [0.7.0] — 2026-10-10 [PyPI]
 
 Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip install retrieval-observatory==0.7.0rc3`); rc2 hardens setup on messy repositories and makes every inspection surface give one answer; rc3 builds the integration plan from a watched real search (`--watch`), never invents document ids, and gives every surface the same final answer; the final release fixes what an agent trial on an open-source hybrid search pipeline still hit (planning crash, all-or-nothing revert, parallel calls into the project's search, the `mrr@0` label) and lists the known limits below. Focused rebuild: one debugging loop — connect a pipeline with recorded operator inputs and outputs, investigate where a relevant document was lost, audit a baseline/candidate change under a v3 release policy with one audit artifact. Forge, advisor, classifier, replay/attribution, production monitoring and the `experimental` package are removed; see `docs/guides/migrating-to-focused-retobs.md`.
 
@@ -294,7 +315,7 @@ Published first as the pre-releases `0.7.0rc1`, `0.7.0rc2` and `0.7.0rc3` (`pip 
 
 ---
 
-## [0.6.0] — 2026-09-14
+## [0.6.0] — 2026-09-14 [PyPI]
 
 Consolidated surface, hosted demo. `advisor`, `forge`, `diagram`, and `classifier` move to `retrieval_observatory.experimental`; the README leads with per-stage attribution; a read-only BEIR dashboard is live on Azure Container Apps.
 
@@ -336,7 +357,7 @@ Consolidated surface, hosted demo. `advisor`, `forge`, `diagram`, and `classifie
 
 ---
 
-## [0.5.6] — 2026-08-07
+## [0.5.6] — 2026-08-07 [PyPI]
 
 ### Added
 
@@ -546,7 +567,7 @@ Major product revamp: one callable-first retrieval debugging loop replaces the o
 - Heuristic diagram topology path in favor of trace-native PipelineGraphV2.
 - Local-only contributor notes from the published tree (kept out of the package/docs release surface).
 
-## [0.4.2] — 2026-07-06
+## [0.4.2] — 2026-07-06 [PyPI]
 
 ### Added
 
@@ -597,7 +618,7 @@ Recall/NDCG/latency with 95% CIs) as a standalone, offline HTML file (`diagram/h
 
 ---
 
-## [0.4.1] — 2026-07-02
+## [0.4.1] — 2026-07-02 [PyPI]
 
 ### Fixed
 
@@ -628,7 +649,7 @@ cross-encoder rerank, custom recency-boost stage) comparing six architectures in
 
 ### Changed
 
-- `docs/` reorganized: maintainer/ops reference lives under `docs/informative/` (`ci_gating.md`, `PYPI_PUBLISH.md`);
+- `docs/` reorganized: maintainer/ops reference lives under `docs/informative/` (`ci_gating.md`);
 restored `YAML_GUIDE.md`, which had been accidentally left untracked despite being linked from
 README.md.
 
@@ -636,7 +657,7 @@ README.md.
 
 
 
-## [0.4.0] — 2026-07-01
+## [0.4.0] — 2026-07-01 [PyPI]
 
 This release completes the **trace-native revamp**: retrieval pipelines are now modeled as an operator DAG (`RetrievalTraceV2`) instead of a flat
 list of stages, with honest, replay-tiered attribution of which operator helped or hurt each query.
@@ -758,7 +779,7 @@ graph-reachability checks were silently dropped, and FUSE arm removal didn't rec
 
 ### Changed
 
-- PyPI distribution renamed from `retrieval-observatory` to `retobs` in `pyproject.toml`. Install with `pip install retobs`. (Publish to the `retobs` PyPI project requires trusted-publisher config; see [docs/PYPI_PUBLISH.md](docs/PYPI_PUBLISH.md).)
+- PyPI distribution renamed from `retrieval-observatory` to `retobs` in `pyproject.toml`. Install with `pip install retobs`. (Publish to the `retobs` PyPI project requires trusted-publisher config.)
 
 ---
 

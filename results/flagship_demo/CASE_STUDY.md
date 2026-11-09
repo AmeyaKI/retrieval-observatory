@@ -1,8 +1,9 @@
 # How retobs caught a regression a metrics dashboard would have shipped
 
 Every number here comes from a run in `.retobs/demo.db`, regenerated on 2026-09-16 on the
-post-0.6.0 build (branch metrics on served queries, strict counterfactual replay). Nothing is
-illustrative, and where a result went against what we expected, it is reported that way.
+post-0.6.0 build (branch metrics on served queries, strict counterfactual replay; replay was
+retired in 0.7.0). Nothing is illustrative, and where a result went against what was expected,
+it is reported that way.
 
 Two classes of number appear below, and they carry different guarantees. Quality metrics and their
 confidence intervals are seeded (`seed: 17`, 2000 resamples) and reproduce **exactly** — an
@@ -11,8 +12,6 @@ and wall-clock figures are not seeded and are machine-dependent: their direction
 digits do not. Latency claims are labelled where they appear.
 
 ---
-
-
 
 ## The setup
 
@@ -28,8 +27,6 @@ change anywhere can be masked or amplified anywhere else.
 Baseline: **recall@10 of 0.875**, and roughly 50 seconds of wall clock for 400 questions.
 
 ---
-
-
 
 ## Act one: the regression that passes
 
@@ -69,12 +66,10 @@ the candidate's reranker scores 0.890 — paired, no significant difference. The
 comes from the other 213 queries, which the fast lane used to serve at 0.838 and the
 cross-encoder now serves instead.
 
-
 |                  | baseline  | keyword lane disabled |
 | ---------------- | --------- | --------------------- |
 | queries reranked | 187 / 400 | **400 / 400**         |
 | median latency   | 608 ms    | **865 ms**            |
-
 
 The reranking counts come from the run record and reproduce exactly. The latency figures do not:
 they are wall-clock measurements from a single unseeded run on one laptop. Across three reruns
@@ -101,8 +96,6 @@ did not. What retobs adds is the funnel underneath the verdict, which turns a gr
 a decision someone can actually make.
 
 ---
-
-
 
 ## Act two: the tool finds something
 
@@ -151,12 +144,10 @@ hotpotqa_hybrid_dag|stage8|recall@10   PASS   +0.0088   CI [+0.0019, +0.0181]   
 The confidence interval excludes zero, so this is a real improvement rather than noise. And
 the slice breakdown confirms the mechanism rather than just the outcome:
 
-
 |                                    | effect      |
 | ---------------------------------- | ----------- |
 | bridge questions (two-hop)         | **+0.0096** |
 | comparison questions (single-pass) | +0.0057     |
-
 
 The gain is consistent with the mechanism: the bridge-question interval excludes zero while the
 comparison-question interval touches it, though the two intervals overlap, so the data do not
@@ -169,10 +160,7 @@ That call stays with a human, which is the correct division of labour.
 
 ---
 
-
-
 ## What the whole thing adds up to
-
 
 |                        | a metrics dashboard says | retobs says                                                                       |
 | ---------------------- | ------------------------ | --------------------------------------------------------------------------------- |
@@ -182,16 +170,13 @@ That call stays with a human, which is the correct division of labour.
 | **C2** stale index     | −2pt, borderline         | the vector lane lost 17pt and the healthy half hid it                             |
 | **D** one bad query    | recall 0.5               | found at rank 27, dropped by merge, recovered by the second hop, dropped again    |
 
-
-Four of those five are cases where the headline number is either reassuring or ambiguous, and  
+Four of those five are cases where the headline number is either reassuring or ambiguous, and
 the thing you needed to know is somewhere else. The two model-swap scenarios are in the
 appendix below.
 
 Reproduce all of it with `./run_demo.sh` — about four minutes, no API keys.
 
 ---
-
-
 
 ## Appendix: the comparison that should not be made
 

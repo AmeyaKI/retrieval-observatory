@@ -120,10 +120,10 @@ def test_sdist_check_accepts_package_sources(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "files",
     [
-        {"RETOBS_MASTER_PLAN.md": ""},
+        {"ROADMAP_PLAN.md": ""},
         {"docs/rebuild/RETIREMENT_INVENTORY.md": ""},
         {"HANDOFF.md": ""},
-        {"STUDY_BRIEF.md": ""},
+        {"DESIGN_BRIEF.md": ""},
         {"SESSION_FLAGSHIP_DEMO.jsonl": ""},
         {"NEXT_SESSION.md": ""},
         {".retobs/results.db": ""},

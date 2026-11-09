@@ -68,7 +68,7 @@ async def main() -> None:
     for query in QUERIES:
         response = query_engine.query(query)
         node_count = len(response.source_nodes) if hasattr(response, "source_nodes") else "?"
-        print(f"  ✓ {query!r}  ({node_count} source nodes)")
+        print(f"  ok {query!r}  ({node_count} source nodes)")
 
     await recorder.sink.shutdown()
 

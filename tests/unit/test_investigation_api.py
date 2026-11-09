@@ -424,7 +424,7 @@ def test_list_envelopes_carry_stored_stage_counts_once_projected(db_path: Path) 
 
 
 def test_query_detail_stages_carry_source_boundary_and_recorded_configuration(db_path: Path) -> None:
-    """The stage panel opens the source boundary and recorded parameters (plan 2.1)."""
+    """The stage panel opens the source boundary and recorded parameters."""
     client, base = _client(db_path)
     payload = _get(client, base, f"{RUN}/queries/q-refund")
     stages = {stage["op_id"]: stage for stage in payload["stages"]}

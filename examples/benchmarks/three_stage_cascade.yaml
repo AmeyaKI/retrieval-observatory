@@ -24,10 +24,7 @@
 #
 # Run with:
 #   pip install -e ".[demo,dashboard,dense,dev]"
-#   retobs run --config examples/benchmarks/three_stage_cascade.yaml --no-cache
-#
-# With a latency budget (prints a one-line verdict per stage pair):
-#   retobs run --config examples/benchmarks/three_stage_cascade.yaml --no-cache --latency-budget-ms 2000
+#   retobs evaluate --config examples/benchmarks/three_stage_cascade.yaml
 
 experiment:
   name: three-stage-cascade
@@ -70,7 +67,7 @@ metrics:
 execution:
   concurrency: 1           # cross-encoders are CPU-bound; keep at 1 to avoid OOM
   timeout_seconds: 120     # per-query timeout across all 3 stages
-  cache_results: true      # re-running reuses results unless --no-cache is passed
+  cache_results: true      # re-running reuses cached results; set false to re-run every query
 
 output:
   store: sqlite

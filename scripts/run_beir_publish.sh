@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run BEIR publish benchmark configs.
-# Usage: ./scripts/run_beir_publish.sh smoke|full-sweep|cohere-nfcorpus|cascade-nfcorpus|smoke-cascade
+# Usage: ./scripts/run_beir_publish.sh smoke|smoke-sweep|smoke-cohere|smoke-cascade|full-sweep|cohere-nfcorpus|cascade-nfcorpus
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,12 +19,12 @@ fi
 
 RETOBS=(python -m retrieval_observatory.cli)
 
+# `retobs evaluate --config` validates the config before running it. Result caching follows
+# each config's `execution.cache_results`; set it to false to re-run every query.
 run_config() {
   local config="$1"
-  echo "==> retobs validate --config $config"
-  "${RETOBS[@]}" validate --config "$config"
-  echo "==> retobs run --config $config --no-cache"
-  "${RETOBS[@]}" run --config "$config" --no-cache
+  echo "==> retobs evaluate --config $config"
+  "${RETOBS[@]}" evaluate --config "$config"
 }
 
 load_cohere_env() {

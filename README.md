@@ -107,11 +107,16 @@ On the demo, the packaged policy passes. See
 
 What has been measured: the full connect, verify, evaluate, and investigate loop runs against an
 installed wheel on five fixtures: a plain Python callable, a FastAPI hybrid pipeline with a gate,
-a LangChain retriever, a LlamaIndex retriever, and a class-based multi-module hybrid pipeline. An
-agent trial on an unfamiliar repository has not been recorded yet. A pipeline observed only at
-its final output (a remote endpoint, an uninstrumented function) supports evaluation and
-delivered/missed outcomes, not loss boundaries. Details: [integration support](docs/INTEGRATIONS.md)
-and [evidence limitations](docs/guides/evidence-limitations.md).
+a LangChain retriever, a LlamaIndex retriever, and a class-based multi-module hybrid pipeline. One
+agent trial on an unfamiliar open-source repository has been recorded: from a single prompt, a
+coding agent wired retobs into a hybrid search project (keyword search, vector search, fusion) on
+300 SciFact questions; the per-question account of where correct documents were lost matched hand
+checks of the project's own functions, and the project's scores were unchanged with retobs
+attached. The search was a class method, so the agent added a small wrapper module (see
+[future work](FUTURE_WORK.md)). A pipeline observed only at its final output (a remote endpoint,
+an uninstrumented function) supports evaluation and delivered/missed outcomes, not loss
+boundaries. Details: [integration support](docs/INTEGRATIONS.md) and
+[evidence limitations](docs/guides/evidence-limitations.md).
 
 retobs is not an answer evaluator, a leaderboard, or a production monitoring system. 0.7.0
 removed synthetic test-set generation, the difficulty classifier, recommendations, counterfactual

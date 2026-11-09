@@ -58,7 +58,7 @@ actually varies.
 **Relevance labels are positive-only.** HotpotQA records which paragraphs support an answer; it
 never records which paragraphs are irrelevant. Consequently, when retobs classifies the outcome of
 each retrieved candidate, roughly 2 documents per question can be judged relevant and the remaining
-~12,652 are genuinely unlabeled. Candidates that were retrieved and dropped are therefore classified
+~12,652 are unlabeled. Candidates that were retrieved and dropped are therefore classified
 `unknown_relevance` rather than `irrelevant_removed`. **This is retobs correctly refusing to guess,
 not a tracing failure.** The signal to watch for tracing health is `lineage_incomplete`, which means
 retobs could not reconstruct what happened to a candidate at all.

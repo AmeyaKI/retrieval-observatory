@@ -300,7 +300,7 @@ export async function fetchRuns(dbId: string): Promise<Run[]> {
   return res.json()
 }
 
-// ── Item D: Run Comparison deeper diffs ──
+// ── Run Comparison deeper diffs ──
 export interface QueryDiffRow {
   query_id: string
   a: number
@@ -452,7 +452,7 @@ export interface ComparabilityReport {
   required_axes: string[]
 }
 
-// ── Per-query unified timeline (Item C) ──
+// ── Per-query unified timeline ──
 export interface TraceCandidate {
   doc_id: string
   score: number
@@ -501,7 +501,7 @@ export interface RetrievalTrace {
   final_op_id: string | null
 }
 
-/** All V2 traces for a run. Used to build the per-query unified timeline (Item C) --
+/** All V2 traces for a run. Used to build the per-query unified timeline --
  * there is no per-query filter on the backend, so callers filter client-side by query_id. */
 export async function fetchRunTraces(dbId: string, runId: string, limit = 50): Promise<RetrievalTrace[]> {
   const res = await fetch(`${runBase(dbId, runId)}/traces?limit=${limit}`)

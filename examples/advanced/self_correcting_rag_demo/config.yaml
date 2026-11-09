@@ -1,9 +1,9 @@
 # Self-correcting RAG demo — retrieve, critique the first pass, retry with an expanded
-# query when confidence is low. A genuinely non-linear topology, not a static chain.
+# query when confidence is low. A non-linear topology, not a static chain.
 #
 #   pip install -e ".[demo]"
 #   python examples/advanced/self_correcting_rag_demo/generate_data.py
-#   PYTHONPATH=examples/advanced/self_correcting_rag_demo retobs run --config examples/advanced/self_correcting_rag_demo/config.yaml
+#   PYTHONPATH=examples/advanced/self_correcting_rag_demo retobs evaluate --config examples/advanced/self_correcting_rag_demo/config.yaml
 
 experiment:
   name: self-correcting-rag-demo

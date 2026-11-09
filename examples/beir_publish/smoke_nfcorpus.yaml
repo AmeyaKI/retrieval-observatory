@@ -1,5 +1,5 @@
 # BEIR publish smoke — NFCorpus (20 queries, 4 pipelines)
-# Run: retobs run --config examples/beir_publish/smoke_nfcorpus.yaml --no-cache
+# Run: retobs evaluate --config examples/beir_publish/smoke_nfcorpus.yaml
 
 experiment:
   name: beir-publish-smoke-nfcorpus

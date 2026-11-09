@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Investigation performance harness for the plan §11 operating envelope.
+"""Investigation performance harness: storage, projection, API latency and capture overhead by run size.
 
     python scripts/bench_investigation.py --sizes tiny,small,medium --out-dir DIR \
         [--json PATH] [--time-cap-s 900] [--reps 30] [--seed N] [--allow-large]

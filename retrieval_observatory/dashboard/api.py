@@ -381,9 +381,9 @@ async def _query_diffs(
     registry: DbRegistry,
     all_metric_keys: List[str],
 ) -> Optional[Dict[str, Any]]:
-    """Item D.1: per-query outcome deltas for the primary quality metric between exactly two
-    runs, sorted by |delta| descending -- the winners/losers table that anchors Run
-    Comparison's query-level diff section, each row linkable to the Query Diff View."""
+    """Per-query outcome deltas for the primary quality metric between exactly two runs,
+    sorted by |delta| descending -- the winners/losers table that anchors Run Comparison's
+    query-level diff section, each row linkable to the Query Diff View."""
     if len(selections) != 2:
         return None
     (db_a, run_a), (db_b, run_b) = selections
@@ -759,8 +759,8 @@ def create_app(
 
     @app.post("/compare/config-diff")
     async def compare_config_diff(body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-        """Item D.5: structural config diff between exactly two runs, wiring the already-
-        built config/diff.py::diff_configs over the runs' stored config_json."""
+        """Structural config diff between exactly two runs: config/diff.py::diff_configs over
+        the runs' stored config_json."""
         parsed = MultiCompareRequest.model_validate(body)
         if len(parsed.selections) != 2:
             raise HTTPException(status_code=400, detail="Config diff requires exactly 2 run selections")
@@ -1521,7 +1521,7 @@ def create_app(
                     "queries_path": queries_path,
                     "corpus_path": corpus_path,
                     "qrels_path": qrels_path,
-                    "run_command": f"retobs run --config {config_path}",
+                    "run_command": f"retobs evaluate --config {config_path}",
                 }
         except Exception:
             _register_upload_unavailable()
@@ -1804,7 +1804,7 @@ def create_app(
         "config_base_dir"?: str}. Default is a background job returning {run_id, status:"running"};
         poll GET .../status then read the existing metric endpoints. wait=true runs
         bounded-synchronously (use with max_queries). config_base_dir resolves relative dataset
-        paths and adapter.import factories (same as retobs run --config).
+        paths and adapter.import factories (same as retobs evaluate --config).
         """
         config_body = payload.get("config")
         if not isinstance(config_body, dict):

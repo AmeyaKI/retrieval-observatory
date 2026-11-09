@@ -313,3 +313,8 @@ never before.
   pipeline already re-reads paragraph text from the corpus in its own reranker binding. No
   definition, statistic, threshold, or decision rule changes; Q1 pools pipeline 4, so the Q1
   figure depends on this fix and `STUDY.md` says so.
+- **2026-11-07 — editorial note, no methodological change.** The "Governing brief" row of the header
+  table, the references to "the brief" (§3, §5, §8) and the phrase "decided with the owner" (§4, §5)
+  refer to the maintainer's planning notes and decisions, all made before any grid cell ran. Those
+  notes are not part of the repository; every decision they record is stated in full where it is
+  referenced. The text above this section is left unchanged, as this pre-registration requires.

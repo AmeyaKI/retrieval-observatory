@@ -17,7 +17,7 @@ CORPUS: dict[str, str] = {
     "d05": "Hybrid retrieval combines a keyword lane with a dense lane before reranking.",
     "d06": "Chunking long documents into passages improves recall for specific questions.",
     "d07": "Query expansion adds synonyms to the user query before lexical retrieval.",
-    "d08": "Counterfactual replay removes one operator and re-scores the final results.",
+    "d08": "A loss boundary marks the last operator that removed a relevant document.",
     "d09": "Candidate lineage records where each document entered and left the pipeline.",
     "d10": "Retrieval traces persist every operator span with its parent edges.",
     "d11": "A FAISS index answers nearest-neighbour queries over embedding vectors.",
@@ -27,8 +27,8 @@ CORPUS: dict[str, str] = {
     "d15": "Reranking with a small model keeps precision high at a modest latency cost.",
     "d16": "Stop words are removed before tokenising the query for the keyword lane.",
     "d17": "A release policy compares baseline and candidate runs before promotion.",
-    "d18": "The dashboard shows each production trace as an operator DAG with candidates.",
-    "d19": "Deterministic fusion is replayed exactly; a reranker is replayed from observed scores.",
+    "d18": "The dashboard shows each recorded trace as an operator DAG with candidates.",
+    "d19": "Deterministic fusion returns the same ranking for the same input lanes.",
     "d20": "Hybrid search with reranking is the default architecture for RAG retrieval.",
 }
 

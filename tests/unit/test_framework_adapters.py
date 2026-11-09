@@ -1,5 +1,5 @@
-"""Unit tests for the duck-typed Haystack/DSPy/OpenAI-Agents-SDK adapters
-(RETOBS_FINER_PLAN_PHASE2.md, Item E). Deliberately import none of those real packages --
+"""Unit tests for the duck-typed Haystack/DSPy/OpenAI-Agents-SDK adapters.
+Deliberately import none of those real packages --
 these adapters only require the wrapped object to be callable, so they're testable with
 plain stub objects, matching the LangChain/LlamaIndex adapters' CI-without-extras pattern.
 """
